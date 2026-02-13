@@ -21,7 +21,7 @@ import sys
 from colorsys import hls_to_rgb, rgb_to_hls
 from functools import partial
 from itertools import cycle
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import pandas as pd  # type: ignore[import-untyped]
@@ -99,7 +99,7 @@ window._bt_autoscale_timeout = setTimeout(function () {{
 """
 
 
-def _bokeh_reset(filename: Optional[str] = None) -> None:
+def _bokeh_reset(filename: str | None = None) -> None:
     """Reset Bokeh state and configure output target."""
     curstate().reset()
     if filename:
@@ -124,7 +124,7 @@ def lightness(color: Any, light: float = 0.94) -> RGB:
 
 
 def _build_dataframes(
-    result: "BacktestResult",
+    result: BacktestResult,
     bar: PinnedProgress[None] | None = None,
     max_markets: int = 10,
 ):
@@ -251,10 +251,10 @@ def _build_dataframes(
 # ---------------------------------------------------------------------------
 
 def plot(
-    result: "BacktestResult",
+    result: BacktestResult,
     *,
     filename: str = "",
-    plot_width: Optional[int] = None,
+    plot_width: int | None = None,
     plot_equity: bool = True,
     plot_drawdown: bool = True,
     plot_pl: bool = True,
@@ -312,7 +312,6 @@ def plot(
             f"{len(market_df.columns):,} markets"
         )
     index = eq.index
-    initial = result.initial_cash
 
     # Rank markets by observable price range
     if not market_df.empty:
@@ -340,8 +339,8 @@ def plot(
 
     pad = (index[-1] - index[0]) / 20 if len(index) > 1 else 1
     x_range_kw: dict[str, Any] = (
-        dict(x_range=Range1d(index[0], index[-1], min_interval=10,  # type: ignore[call-arg]
-                             bounds=(index[0] - pad, index[-1] + pad)))
+        {"x_range": Range1d(index[0], index[-1], min_interval=10,  # type: ignore[call-arg]
+                            bounds=(index[0] - pad, index[-1] + pad))}
         if len(index) > 1 else {}
     )
 
@@ -349,11 +348,11 @@ def plot(
     source = ColumnDataSource(eq)
 
     fig_main.xaxis.formatter = CustomJSTickFormatter(
-        args=dict(
-            axis=fig_main.xaxis[0],
-            formatter=DatetimeTickFormatter(days="%a, %d %b", months="%m/%Y"),
-            source=source,
-        ),
+        args={
+            "axis": fig_main.xaxis[0],
+            "formatter": DatetimeTickFormatter(days="%a, %d %b", months="%m/%Y"),
+            "source": source,
+        },
         code="""
 this.labels = this.labels || formatter.doFormat(ticks
     .map(i => source.data.datetime[i])
@@ -396,10 +395,10 @@ return this.labels[index] || "";
         hw = equity.cummax()
         fig.patch(
             "index", "eq_dd_patch",
-            source=ColumnDataSource(dict(
-                index=np.r_[index, index[::-1]],
-                eq_dd_patch=np.r_[equity.values, hw.values[::-1]],
-            )),
+            source=ColumnDataSource({
+                "index": np.r_[index, index[::-1]],
+                "eq_dd_patch": np.r_[equity.values, hw.values[::-1]],
+            }),
             fill_color="#ffffea", line_color="#ffcb66",
         )
 
@@ -421,12 +420,10 @@ return this.labels[index] || "";
         argmax = int(equity.idxmax())
         peak_val = equity.iloc[argmax]
         fig.scatter(argmax, peak_val, color="cyan", size=8,
-                    legend_label="Peak ({})".format(
-                        fmt_legend.format(peak_val * (100 if relative_equity else 1))))
+                    legend_label=f"Peak ({fmt_legend.format(peak_val * (100 if relative_equity else 1))})")
 
         fig.scatter(index[-1], equity.iloc[-1], color="blue", size=8,
-                    legend_label="Final ({})".format(
-                        fmt_legend.format(equity.iloc[-1] * (100 if relative_equity else 1))))
+                    legend_label=f"Final ({fmt_legend.format(equity.iloc[-1] * (100 if relative_equity else 1))})")
 
         dd = eq["drawdown_pct"]
         dd_end = int(dd.idxmax())
@@ -439,8 +436,7 @@ return this.labels[index] || "";
 
             if not plot_drawdown:
                 fig.scatter(dd_end, equity.iloc[dd_end], color="red", size=8,
-                            legend_label="Max Drawdown (-{:.1f}%)".format(
-                                100 * dd.iloc[dd_end]))
+                            legend_label=f"Max Drawdown (-{100 * dd.iloc[dd_end]:.1f}%)")
 
         figs_above.append(fig)
 
@@ -484,13 +480,13 @@ return this.labels[index] || "";
                     bars_wins = agg["wins"].values
                     bar_colors = [str(BULL_COLOR) if v > 0 else str(BEAR_COLOR) for v in bars_y]
 
-                    bar_src = ColumnDataSource(dict(
-                        index=bars_x,
-                        pnl=bars_y,
-                        color=bar_colors,
-                        count=bars_count,
-                        wins=bars_wins,
-                    ))
+                    bar_src = ColumnDataSource({
+                        "index": bars_x,
+                        "pnl": bars_y,
+                        "color": bar_colors,
+                        "count": bars_count,
+                        "wins": bars_wins,
+                    })
                     r = fig.vbar("index", top="pnl", source=bar_src,
                                  width=max(bucket_size * 0.8, 0.8),
                                  fill_color="color", line_color="color",
@@ -508,15 +504,15 @@ return this.labels[index] || "";
                     pnl_long = np.where(pnl_df["pnl"].values > 0, pnl_df["pnl"].values, np.nan)
                     pnl_short = np.where(pnl_df["pnl"].values <= 0, pnl_df["pnl"].values, np.nan)
                     positive = np.where(pnl_df["pnl"].values > 0, "1", "0")
-                    pnl_src = ColumnDataSource(dict(
-                        index=pnl_df["bar"].values,
-                        datetime=pnl_df["datetime"].values,
-                        pnl_long=pnl_long,
-                        pnl_short=pnl_short,
-                        positive=positive,
-                        market_id=pnl_df["market_id"].values,
-                        size_marker=sz,
-                    ))
+                    pnl_src = ColumnDataSource({
+                        "index": pnl_df["bar"].values,
+                        "datetime": pnl_df["datetime"].values,
+                        "pnl_long": pnl_long,
+                        "pnl_short": pnl_short,
+                        "positive": positive,
+                        "market_id": pnl_df["market_id"].values,
+                        "size_marker": sz,
+                    })
                     cmap = factor_cmap("positive", COLORS, ["0", "1"])
                     r1 = fig.scatter("index", "pnl_long", source=pnl_src,
                                      fill_color=cmap, marker="triangle",
@@ -546,15 +542,15 @@ return this.labels[index] || "";
                 sz = np.full_like(sz, 12.0)
             pnl_long = np.where(pnl_vals > 0, pnl_vals, np.nan)
             pnl_short = np.where(pnl_vals <= 0, pnl_vals, np.nan)
-            fill_src = ColumnDataSource(dict(
-                index=relevant_fills["bar"].values,
-                datetime=relevant_fills["datetime"].values,
-                pnl_long=pnl_long,
-                pnl_short=pnl_short,
-                positive=positive,
-                market_id=relevant_fills["market_id"].values,
-                size_marker=sz,
-            ))
+            fill_src = ColumnDataSource({
+                "index": relevant_fills["bar"].values,
+                "datetime": relevant_fills["datetime"].values,
+                "pnl_long": pnl_long,
+                "pnl_short": pnl_short,
+                "positive": positive,
+                "market_id": relevant_fills["market_id"].values,
+                "size_marker": sz,
+            })
             cmap = factor_cmap("positive", COLORS, ["0", "1"])
             r1 = fig.scatter("index", "pnl_long", source=fill_src,
                              fill_color=cmap, marker="triangle",
@@ -616,7 +612,7 @@ return this.labels[index] || "";
             fig_main.x_range.js_on_change(
                 "end",
                 CustomJS(
-                    args=dict(price_range=fig_main.y_range, source=source),
+                    args={"price_range": fig_main.y_range, "source": source},
                     code=_AUTOSCALE_JS_TEMPLATE.format(
                         high_key="price_high", low_key="price_low",
                         range_var="price_range",
@@ -689,16 +685,16 @@ return this.labels[index] || "";
 
         fill_color_code = np.where(relevant["action"] == "buy", "1", "0")  # 1=green, 0=red
 
-        marker_src = ColumnDataSource(dict(
-            index=relevant["bar"].values,
-            datetime=relevant["datetime"].values,
-            price=relevant["price"].values,
-            fill_color=fill_color_code,
-            market_id=relevant["market_id"].values,
-            action=relevant["action"].values,
-            side=relevant["side"].values,
-            quantity=relevant["quantity"].values,
-        ))
+        marker_src = ColumnDataSource({
+            "index": relevant["bar"].values,
+            "datetime": relevant["datetime"].values,
+            "price": relevant["price"].values,
+            "fill_color": fill_color_code,
+            "market_id": relevant["market_id"].values,
+            "action": relevant["action"].values,
+            "side": relevant["side"].values,
+            "quantity": relevant["quantity"].values,
+        })
 
         cmap = factor_cmap("fill_color", COLORS, ["0", "1"])
         fig_main.scatter(
@@ -722,7 +718,7 @@ return this.labels[index] || "";
         fig_main.x_range.js_on_change(
             "end",
             CustomJS(
-                args=dict(price_range=fig_main.y_range, source=source),
+                args={"price_range": fig_main.y_range, "source": source},
                 code=_AUTOSCALE_JS_TEMPLATE.format(
                     high_key="price_high", low_key="price_low",
                     range_var="price_range",

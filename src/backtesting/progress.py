@@ -165,7 +165,7 @@ class PinnedProgress(Generic[T]):
 
     # -- Context-manager protocol --
 
-    def __enter__(self) -> "PinnedProgress[T]":
+    def __enter__(self) -> PinnedProgress[T]:
         self._setup()
         return self
 
