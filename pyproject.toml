@@ -4,7 +4,9 @@ version = "0.1.0"
 description = "Event-driven backtesting engine for prediction market trading strategies"
 requires-python = ">=3.9"
 dependencies = [
+    "bokeh>=3.0",
     "duckdb>=1.2.1",
+    "numpy>=1.24",
     "pandas>=2.2.3",
     "pyarrow>=19.0.1",
     "pytz>=2024.1",

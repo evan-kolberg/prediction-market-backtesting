@@ -141,3 +141,15 @@ class BacktestResult:
     num_markets_traded: int
     num_markets_resolved: int
     event_log: list[str] = field(default_factory=list)
+    market_prices: dict[str, list[tuple[datetime, float]]] = field(default_factory=dict)
+    market_pnls: dict[str, float] = field(default_factory=dict)
+
+    def plot(self, **kwargs) -> object:
+        """Render an interactive Bokeh chart of this backtest.
+
+        Accepts all keyword arguments supported by
+        :func:`src.backtesting.plotting.plot`.
+        """
+        from src.backtesting.plotting import plot as _plot
+
+        return _plot(self, **kwargs)

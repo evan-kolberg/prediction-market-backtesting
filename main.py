@@ -168,6 +168,26 @@ def _run_backtest_interactive(strategy, platforms: dict):
         log_path.write_text("\n".join(result.event_log) + "\n")
         print(f"  {DIM}Event log:{RESET}      {log_path} ({len(result.event_log)} events)\n")
 
+    # Offer interactive Bokeh chart
+    if result.equity_curve:
+        plot_options = ["Open interactive chart", "Save chart to HTML only", "Skip"]
+        plot_menu = TerminalMenu(
+            plot_options,
+            title="Plot results?",
+            cycle_cursor=True,
+            clear_screen=False,
+        )
+        plot_choice = cast("int | None", plot_menu.show())
+        if plot_choice == 0:
+            out_html = f"output/backtest_{result.strategy_name}_{result.platform.value}.html"
+            print(f"\n  {DIM}Rendering interactive chart → {out_html}...{RESET}")
+            result.plot(filename=out_html, open_browser=True)
+        elif plot_choice == 1:
+            out_html = f"output/backtest_{result.strategy_name}_{result.platform.value}.html"
+            print(f"\n  {DIM}Saving chart to {out_html}...{RESET}")
+            result.plot(filename=out_html, open_browser=False)
+            print(f"  {GREEN}Saved.{RESET}\n")
+
 
 def main():
     if len(sys.argv) < 2:

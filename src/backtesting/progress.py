@@ -10,8 +10,8 @@ from __future__ import annotations
 import os
 import sys
 import time
-from collections.abc import Iterator
-from typing import TypeVar
+from collections.abc import Iterable, Iterator
+from typing import Generic, TypeVar
 
 T = TypeVar("T")
 
@@ -35,7 +35,7 @@ def _term_height() -> int:
         return 24
 
 
-class PinnedProgress:
+class PinnedProgress(Generic[T]):
     """Iterator wrapper that pins a progress bar to the terminal bottom.
 
     Uses ANSI scroll-region escape codes so that normal print output
@@ -45,7 +45,7 @@ class PinnedProgress:
 
     def __init__(
         self,
-        iterable: Iterator[T],
+        iterable: Iterable[T],
         total: int,
         desc: str = "",
         unit: str = " it",
@@ -149,9 +149,33 @@ class PinnedProgress:
         else:
             print(msg)
 
+    # -- Manual stepping API --
+
+    def advance(self, n: int = 1) -> None:
+        """Manually bump the counter by *n* and refresh the bar."""
+        self._n += n
+        now = time.monotonic()
+        if now - self._last_refresh >= self._refresh_interval:
+            self._refresh_bar()
+
+    def set_desc(self, desc: str) -> None:
+        """Update the description shown on the bar."""
+        self.desc = desc
+        self._refresh_bar()
+
+    # -- Context-manager protocol --
+
+    def __enter__(self) -> "PinnedProgress[T]":
+        self._setup()
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self._refresh_bar()
+        self._teardown()
+
     # -- Iterator protocol --
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[T]:
         self._setup()
         try:
             for item in self._iter:

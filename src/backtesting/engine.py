@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import random
 import time
+from collections.abc import Iterable
 from datetime import datetime
 
 from src.backtesting.broker import Broker
@@ -19,6 +20,7 @@ from src.backtesting.models import (
     Fill,
     MarketInfo,
     Platform,
+    TradeEvent,
 )
 from src.backtesting.portfolio import Portfolio
 from src.backtesting.strategy import Strategy
@@ -67,6 +69,8 @@ class Engine:
         broker = Broker(commission_rate=self.commission_rate)
         portfolio = Portfolio(initial_cash=self.initial_cash)
         all_fills: list[Fill] = []
+        price_history: dict[str, list[tuple[datetime, float]]] = {}
+        filled_market_ids: set[str] = set()
         all_markets = self.feed.markets()
 
         # Sample a subset of markets if requested
@@ -105,12 +109,12 @@ class Engine:
         first_time: datetime | None = None
         last_time: datetime | None = None
 
-        trade_iter = self.feed.trades(
+        trade_iter: Iterable[TradeEvent] = self.feed.trades(
             market_ids=active_market_ids,
             start_time=self.start_time,
             end_time=self.end_time,
         )
-        progress_bar = None
+        progress_bar: PinnedProgress[TradeEvent] | None = None
         if self.progress:
             from src.backtesting.progress import PinnedProgress
 
@@ -173,6 +177,7 @@ class Engine:
                 portfolio.apply_fill(fill)
                 all_fills.append(fill)
                 fill_count += 1
+                filled_market_ids.add(fill.market_id)
 
                 pos_after = portfolio.positions[fill.market_id]
                 qty_after = pos_after.quantity
@@ -205,6 +210,11 @@ class Engine:
             trade_count += 1
             if trade_count % self.snapshot_interval == 0:
                 portfolio.snapshot(now)
+                for mid in filled_market_ids:
+                    if mid in portfolio._last_prices:
+                        price_history.setdefault(mid, []).append(
+                            (now, portfolio._last_prices[mid])
+                        )
 
         # Resolve remaining markets that have known outcomes
         ts = last_time or datetime.min
@@ -231,6 +241,11 @@ class Engine:
 
         if last_time:
             portfolio.snapshot(last_time)
+            for mid in filled_market_ids:
+                if mid in portfolio._last_prices:
+                    price_history.setdefault(mid, []).append(
+                        (last_time, portfolio._last_prices[mid])
+                    )
 
         self.strategy.finalize()
 
@@ -262,6 +277,8 @@ class Engine:
             num_markets_traded=len(markets_traded),
             num_markets_resolved=len(resolved_and_traded),
             event_log=logger.lines,
+            market_prices=price_history,
+            market_pnls=market_pnls,
         )
 
     def _wire_strategy(
