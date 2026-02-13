@@ -34,9 +34,12 @@ class PolymarketFeed(BaseFeed):
         blocks_dir: Path | str | None = None,
     ):
         base_dir = Path(__file__).parent.parent.parent.parent
-        self.trades_dir = Path(trades_dir or base_dir / "data" / "polymarket" / "trades")
-        self.markets_dir = Path(markets_dir or base_dir / "data" / "polymarket" / "markets")
-        self.blocks_dir = Path(blocks_dir or base_dir / "data" / "polymarket" / "blocks")
+        data_dir = base_dir / "data"
+        if not data_dir.exists():
+            data_dir = base_dir / "prediction-market-analysis" / "data"
+        self.trades_dir = Path(trades_dir or data_dir / "polymarket" / "trades")
+        self.markets_dir = Path(markets_dir or data_dir / "polymarket" / "markets")
+        self.blocks_dir = Path(blocks_dir or data_dir / "polymarket" / "blocks")
         self._markets: dict[str, MarketInfo] | None = None
         self._token_to_market: dict[str, tuple[str, int]] | None = None
 

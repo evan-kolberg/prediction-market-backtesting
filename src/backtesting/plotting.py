@@ -126,8 +126,13 @@ def lightness(color: Any, light: float = 0.94) -> RGB:
 def _build_dataframes(
     result: "BacktestResult",
     bar: PinnedProgress[None] | None = None,
+    max_markets: int = 10,
 ):
     """Convert a :class:`BacktestResult` into plotting-ready DataFrames.
+
+    Only the top *max_markets* markets (by price range among traded markets)
+    are fully aligned to the equity timeline.  This avoids building a
+    20 000-column DataFrame that would consume tens of GB of RAM.
 
     Returns
     -------
@@ -191,15 +196,33 @@ def _build_dataframes(
     market_prices = getattr(result, "market_prices", {})
     market_series: dict[str, np.ndarray] = {}
     if market_prices:
-        n_markets = len(market_prices)
+        # --- cheap pre-filter: pick the top max_markets by price range ---
+        traded_ids = set(fills_df["market_id"]) if not fills_df.empty else set()
+        range_map: dict[str, float] = {}
+        for mid, recs in market_prices.items():
+            if not recs:
+                continue
+            prices_raw = [p for _, p in recs]
+            if not prices_raw:
+                continue
+            pmin, pmax = min(prices_raw), max(prices_raw)
+            # prefer traded markets; bias their range so they sort first
+            bonus = 1e6 if (mid in traded_ids) else 0.0
+            range_map[mid] = (pmax - pmin) + bonus
+        # sort descending by range and keep only top N
+        selected = sorted(range_map, key=range_map.get, reverse=True)[:max_markets]  # type: ignore[arg-type]
+        selected_set = set(selected)
+
+        n_selected = len(selected_set)
         if bar:
-            bar.set_desc(f"Processing {n_markets:,} markets")
+            bar.set_desc(f"Processing {n_selected:,}/{len(market_prices):,} markets")
         eq_dt = pd.DataFrame({"datetime": eq["datetime"], "_idx": eq.index})
         eq_dt_sorted = eq_dt.sort_values("datetime")
         eq_dts = pd.DatetimeIndex(eq["datetime"])
-        for mid, recs in market_prices.items():
+        for mid in selected:
             if bar:
                 bar.advance()
+            recs = market_prices[mid]
             if not recs:
                 continue
             ts_list, price_list = zip(*recs)
@@ -266,7 +289,8 @@ def plot(
 
     n_markets = len(getattr(result, "market_prices", {}))
     chart_steps = 6  # setup, equity, P&L, market/fallback, sub-panels, layout
-    total_steps = n_markets + chart_steps
+    # Only max_markets are fully processed; the rest are skipped cheaply
+    total_steps = min(n_markets, max_markets) + chart_steps
 
     use_bar = progress and not _is_notebook()
     bar: PinnedProgress[None] | None = None
@@ -281,7 +305,7 @@ def plot(
 
     if bar:
         bar.set_desc("Building dataframes")
-    eq, fills_df, market_df = _build_dataframes(result, bar=bar)
+    eq, fills_df, market_df = _build_dataframes(result, bar=bar, max_markets=max_markets)
     if bar:
         bar.write(
             f"  {len(eq):,} bars, {len(fills_df):,} fills, "

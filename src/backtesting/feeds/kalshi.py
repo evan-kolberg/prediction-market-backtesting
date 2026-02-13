@@ -31,8 +31,11 @@ class KalshiFeed(BaseFeed):
         markets_dir: Path | str | None = None,
     ):
         base_dir = Path(__file__).parent.parent.parent.parent
-        self.trades_dir = Path(trades_dir or base_dir / "data" / "kalshi" / "trades")
-        self.markets_dir = Path(markets_dir or base_dir / "data" / "kalshi" / "markets")
+        data_dir = base_dir / "data"
+        if not data_dir.exists():
+            data_dir = base_dir / "prediction-market-analysis" / "data"
+        self.trades_dir = Path(trades_dir or data_dir / "kalshi" / "trades")
+        self.markets_dir = Path(markets_dir or data_dir / "kalshi" / "markets")
         self._markets: dict[str, MarketInfo] | None = None
 
     def markets(self) -> dict[str, MarketInfo]:
