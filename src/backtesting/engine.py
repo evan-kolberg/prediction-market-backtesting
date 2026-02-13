@@ -212,9 +212,7 @@ class Engine:
                 portfolio.snapshot(now)
                 for mid in filled_market_ids:
                     if mid in portfolio._last_prices:
-                        price_history.setdefault(mid, []).append(
-                            (now, portfolio._last_prices[mid])
-                        )
+                        price_history.setdefault(mid, []).append((now, portfolio._last_prices[mid]))
 
         # Resolve remaining markets that have known outcomes
         ts = last_time or datetime.min
@@ -243,9 +241,7 @@ class Engine:
             portfolio.snapshot(last_time)
             for mid in filled_market_ids:
                 if mid in portfolio._last_prices:
-                    price_history.setdefault(mid, []).append(
-                        (last_time, portfolio._last_prices[mid])
-                    )
+                    price_history.setdefault(mid, []).append((last_time, portfolio._last_prices[mid]))
 
         self.strategy.finalize()
 

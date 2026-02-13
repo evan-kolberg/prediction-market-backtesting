@@ -250,6 +250,7 @@ def _build_dataframes(
 # Main plot function
 # ---------------------------------------------------------------------------
 
+
 def plot(
     result: BacktestResult,
     *,
@@ -307,21 +308,15 @@ def plot(
         bar.set_desc("Building dataframes")
     eq, fills_df, market_df = _build_dataframes(result, bar=bar, max_markets=max_markets)
     if bar:
-        bar.write(
-            f"  {len(eq):,} bars, {len(fills_df):,} fills, "
-            f"{len(market_df.columns):,} markets"
-        )
+        bar.write(f"  {len(eq):,} bars, {len(fills_df):,} fills, {len(market_df.columns):,} markets")
     index = eq.index
 
     # Rank markets by observable price range
     if not market_df.empty:
-        traded_cols = [c for c in market_df.columns
-                       if c in set(fills_df["market_id"]) if not fills_df.empty]
+        traded_cols = [c for c in market_df.columns if c in set(fills_df["market_id"]) if not fills_df.empty]
         if not traded_cols:
             traded_cols = list(market_df.columns)
-        price_range = (
-            market_df[traded_cols].max() - market_df[traded_cols].min()
-        ).sort_values(ascending=False)
+        price_range = (market_df[traded_cols].max() - market_df[traded_cols].min()).sort_values(ascending=False)
         display_markets = price_range.head(max_markets).index.tolist()
     else:
         display_markets = []
@@ -339,9 +334,16 @@ def plot(
 
     pad = (index[-1] - index[0]) / 20 if len(index) > 1 else 1
     x_range_kw: dict[str, Any] = (
-        {"x_range": Range1d(index[0], index[-1], min_interval=10,  # type: ignore[call-arg]
-                            bounds=(index[0] - pad, index[-1] + pad))}
-        if len(index) > 1 else {}
+        {
+            "x_range": Range1d(
+                index[0],
+                index[-1],
+                min_interval=10,  # type: ignore[call-arg]
+                bounds=(index[0] - pad, index[-1] + pad),
+            )
+        }
+        if len(index) > 1
+        else {}
     )
 
     fig_main = new_figure(height=400, **x_range_kw)  # type: ignore[call-arg]
@@ -366,14 +368,16 @@ return this.labels[index] || "";
 
     def _set_tooltips(fig, tooltips=(), vline=True, renderers=()):
         """Attach a HoverTool with a prepended date tooltip."""
-        tooltips = [('Date', '@datetime{%c}')] + list(tooltips)
-        fig.add_tools(HoverTool(
-            point_policy="follow_mouse",
-            renderers=list(renderers),
-            formatters={"@datetime": "datetime"},
-            tooltips=tooltips,
-            mode="vline" if vline else "mouse",
-        ))
+        tooltips = [("Date", "@datetime{%c}")] + list(tooltips)
+        fig.add_tools(
+            HoverTool(
+                point_policy="follow_mouse",
+                renderers=list(renderers),
+                formatters={"@datetime": "datetime"},
+                tooltips=tooltips,
+                mode="vline" if vline else "mouse",
+            )
+        )
 
     def _new_sub(y_label: str, height: int = 90, **kwargs):
         """Create a sub-figure sharing *fig_main*'s x-range."""
@@ -394,16 +398,19 @@ return this.labels[index] || "";
 
         hw = equity.cummax()
         fig.patch(
-            "index", "eq_dd_patch",
-            source=ColumnDataSource({
-                "index": np.r_[index, index[::-1]],
-                "eq_dd_patch": np.r_[equity.values, hw.values[::-1]],
-            }),
-            fill_color="#ffffea", line_color="#ffcb66",
+            "index",
+            "eq_dd_patch",
+            source=ColumnDataSource(
+                {
+                    "index": np.r_[index, index[::-1]],
+                    "eq_dd_patch": np.r_[equity.values, hw.values[::-1]],
+                }
+            ),
+            fill_color="#ffffea",
+            line_color="#ffcb66",
         )
 
-        r = fig.line("index", "eq_plot", source=source, line_width=1.5,
-                     line_alpha=1, legend_label="Strategy")
+        r = fig.line("index", "eq_plot", source=source, line_width=1.5, line_alpha=1, legend_label="Strategy")
 
         if relative_equity:
             fmt_tip = "@eq_plot{+0,0.[000]%}"
@@ -419,11 +426,21 @@ return this.labels[index] || "";
 
         argmax = int(equity.idxmax())
         peak_val = equity.iloc[argmax]
-        fig.scatter(argmax, peak_val, color="cyan", size=8,
-                    legend_label=f"Peak ({fmt_legend.format(peak_val * (100 if relative_equity else 1))})")
+        fig.scatter(
+            argmax,
+            peak_val,
+            color="cyan",
+            size=8,
+            legend_label=f"Peak ({fmt_legend.format(peak_val * (100 if relative_equity else 1))})",
+        )
 
-        fig.scatter(index[-1], equity.iloc[-1], color="blue", size=8,
-                    legend_label=f"Final ({fmt_legend.format(equity.iloc[-1] * (100 if relative_equity else 1))})")
+        fig.scatter(
+            index[-1],
+            equity.iloc[-1],
+            color="blue",
+            size=8,
+            legend_label=f"Final ({fmt_legend.format(equity.iloc[-1] * (100 if relative_equity else 1))})",
+        )
 
         dd = eq["drawdown_pct"]
         dd_end = int(dd.idxmax())
@@ -431,20 +448,23 @@ return this.labels[index] || "";
             dd_start = int(equity.iloc[:dd_end].idxmax())
             dd_dur = eq["datetime"].iloc[dd_end] - eq["datetime"].iloc[dd_start]
             label = f"Max Dd Dur. ({dd_dur})".replace(" 00:00:00", "").replace("(0 days ", "(")
-            fig.line([dd_start, dd_end], equity.iloc[dd_start],
-                     line_color="red", line_width=2, legend_label=label)
+            fig.line([dd_start, dd_end], equity.iloc[dd_start], line_color="red", line_width=2, legend_label=label)
 
             if not plot_drawdown:
-                fig.scatter(dd_end, equity.iloc[dd_end], color="red", size=8,
-                            legend_label=f"Max Drawdown (-{100 * dd.iloc[dd_end]:.1f}%)")
+                fig.scatter(
+                    dd_end,
+                    equity.iloc[dd_end],
+                    color="red",
+                    size=8,
+                    legend_label=f"Max Drawdown (-{100 * dd.iloc[dd_end]:.1f}%)",
+                )
 
         figs_above.append(fig)
 
     def _plot_pl():
         """Render P&L as time-bucketed bars (many trades) or scatter (few)."""
         fig = _new_sub("Profit / Loss", height=110)
-        fig.add_layout(Span(location=0, dimension="width",
-                            line_color="#666666", line_dash="dashed", line_width=1))
+        fig.add_layout(Span(location=0, dimension="width", line_color="#666666", line_dash="dashed", line_width=1))
 
         market_pnls = getattr(result, "market_pnls", {})
 
@@ -456,12 +476,14 @@ return this.labels[index] || "";
                 mkt_fills = fills_df[fills_df["market_id"] == mid] if not fills_df.empty else pd.DataFrame()
                 if mkt_fills.empty:
                     continue
-                pnl_records.append({
-                    "bar": int(mkt_fills["bar"].iloc[-1]),
-                    "datetime": mkt_fills["datetime"].iloc[-1],
-                    "pnl": pnl_val,
-                    "market_id": mid,
-                })
+                pnl_records.append(
+                    {
+                        "bar": int(mkt_fills["bar"].iloc[-1]),
+                        "datetime": mkt_fills["datetime"].iloc[-1],
+                        "pnl": pnl_val,
+                        "market_id": mid,
+                    }
+                )
             if pnl_records:
                 pnl_df = pd.DataFrame(pnl_records).sort_values("bar")
 
@@ -469,32 +491,45 @@ return this.labels[index] || "";
                     n_buckets = min(200, len(eq))
                     bucket_size = max(1, len(eq) // n_buckets)
                     pnl_df["bucket"] = (pnl_df["bar"] // bucket_size) * bucket_size
-                    agg = pnl_df.groupby("bucket").agg(
-                        pnl=("pnl", "sum"),
-                        count=("pnl", "count"),
-                        wins=("pnl", lambda x: (x > 0).sum()),
-                    ).reset_index()
+                    agg = (
+                        pnl_df.groupby("bucket")
+                        .agg(
+                            pnl=("pnl", "sum"),
+                            count=("pnl", "count"),
+                            wins=("pnl", lambda x: (x > 0).sum()),
+                        )
+                        .reset_index()
+                    )
                     bars_x = agg["bucket"].values
                     bars_y = agg["pnl"].values
                     bars_count = agg["count"].values
                     bars_wins = agg["wins"].values
                     bar_colors = [str(BULL_COLOR) if v > 0 else str(BEAR_COLOR) for v in bars_y]
 
-                    bar_src = ColumnDataSource({
-                        "index": bars_x,
-                        "pnl": bars_y,
-                        "color": bar_colors,
-                        "count": bars_count,
-                        "wins": bars_wins,
-                    })
-                    r = fig.vbar("index", top="pnl", source=bar_src,
-                                 width=max(bucket_size * 0.8, 0.8),
-                                 fill_color="color", line_color="color",
-                                 fill_alpha=0.7)
-                    _set_tooltips(fig,
-                                  [("Net P/L", "@pnl{+$0,0.00}"),
-                                   ("Trades", "@count"), ("Wins", "@wins")],
-                                  vline=False, renderers=[r])
+                    bar_src = ColumnDataSource(
+                        {
+                            "index": bars_x,
+                            "pnl": bars_y,
+                            "color": bar_colors,
+                            "count": bars_count,
+                            "wins": bars_wins,
+                        }
+                    )
+                    r = fig.vbar(
+                        "index",
+                        top="pnl",
+                        source=bar_src,
+                        width=max(bucket_size * 0.8, 0.8),
+                        fill_color="color",
+                        line_color="color",
+                        fill_alpha=0.7,
+                    )
+                    _set_tooltips(
+                        fig,
+                        [("Net P/L", "@pnl{+$0,0.00}"), ("Trades", "@count"), ("Wins", "@wins")],
+                        vline=False,
+                        renderers=[r],
+                    )
                 else:
                     sz = np.abs(pnl_df["pnl"].values).astype(float)
                     if sz.max() > sz.min():
@@ -504,26 +539,42 @@ return this.labels[index] || "";
                     pnl_long = np.where(pnl_df["pnl"].values > 0, pnl_df["pnl"].values, np.nan)
                     pnl_short = np.where(pnl_df["pnl"].values <= 0, pnl_df["pnl"].values, np.nan)
                     positive = np.where(pnl_df["pnl"].values > 0, "1", "0")
-                    pnl_src = ColumnDataSource({
-                        "index": pnl_df["bar"].values,
-                        "datetime": pnl_df["datetime"].values,
-                        "pnl_long": pnl_long,
-                        "pnl_short": pnl_short,
-                        "positive": positive,
-                        "market_id": pnl_df["market_id"].values,
-                        "size_marker": sz,
-                    })
+                    pnl_src = ColumnDataSource(
+                        {
+                            "index": pnl_df["bar"].values,
+                            "datetime": pnl_df["datetime"].values,
+                            "pnl_long": pnl_long,
+                            "pnl_short": pnl_short,
+                            "positive": positive,
+                            "market_id": pnl_df["market_id"].values,
+                            "size_marker": sz,
+                        }
+                    )
                     cmap = factor_cmap("positive", COLORS, ["0", "1"])
-                    r1 = fig.scatter("index", "pnl_long", source=pnl_src,
-                                     fill_color=cmap, marker="triangle",
-                                     line_color="black", size="size_marker")
-                    r2 = fig.scatter("index", "pnl_short", source=pnl_src,
-                                     fill_color=cmap, marker="inverted_triangle",
-                                     line_color="black", size="size_marker")
-                    _set_tooltips(fig, [("Market", "@market_id"), ("P/L", "@pnl_long{+$0,0.00}")],
-                                  vline=False, renderers=[r1])
-                    _set_tooltips(fig, [("Market", "@market_id"), ("P/L", "@pnl_short{+$0,0.00}")],
-                                  vline=False, renderers=[r2])
+                    r1 = fig.scatter(
+                        "index",
+                        "pnl_long",
+                        source=pnl_src,
+                        fill_color=cmap,
+                        marker="triangle",
+                        line_color="black",
+                        size="size_marker",
+                    )
+                    r2 = fig.scatter(
+                        "index",
+                        "pnl_short",
+                        source=pnl_src,
+                        fill_color=cmap,
+                        marker="inverted_triangle",
+                        line_color="black",
+                        size="size_marker",
+                    )
+                    _set_tooltips(
+                        fig, [("Market", "@market_id"), ("P/L", "@pnl_long{+$0,0.00}")], vline=False, renderers=[r1]
+                    )
+                    _set_tooltips(
+                        fig, [("Market", "@market_id"), ("P/L", "@pnl_short{+$0,0.00}")], vline=False, renderers=[r2]
+                    )
 
         elif not fills_df.empty:
             relevant_fills = fills_df[fills_df["market_id"].isin(display_markets)] if display_markets else fills_df
@@ -542,26 +593,42 @@ return this.labels[index] || "";
                 sz = np.full_like(sz, 12.0)
             pnl_long = np.where(pnl_vals > 0, pnl_vals, np.nan)
             pnl_short = np.where(pnl_vals <= 0, pnl_vals, np.nan)
-            fill_src = ColumnDataSource({
-                "index": relevant_fills["bar"].values,
-                "datetime": relevant_fills["datetime"].values,
-                "pnl_long": pnl_long,
-                "pnl_short": pnl_short,
-                "positive": positive,
-                "market_id": relevant_fills["market_id"].values,
-                "size_marker": sz,
-            })
+            fill_src = ColumnDataSource(
+                {
+                    "index": relevant_fills["bar"].values,
+                    "datetime": relevant_fills["datetime"].values,
+                    "pnl_long": pnl_long,
+                    "pnl_short": pnl_short,
+                    "positive": positive,
+                    "market_id": relevant_fills["market_id"].values,
+                    "size_marker": sz,
+                }
+            )
             cmap = factor_cmap("positive", COLORS, ["0", "1"])
-            r1 = fig.scatter("index", "pnl_long", source=fill_src,
-                             fill_color=cmap, marker="triangle",
-                             line_color="black", size="size_marker")
-            r2 = fig.scatter("index", "pnl_short", source=fill_src,
-                             fill_color=cmap, marker="inverted_triangle",
-                             line_color="black", size="size_marker")
-            _set_tooltips(fig, [("Market", "@market_id"), ("Value", "@pnl_long{+$0,0.00}")],
-                          vline=False, renderers=[r1])
-            _set_tooltips(fig, [("Market", "@market_id"), ("Value", "@pnl_short{+$0,0.00}")],
-                          vline=False, renderers=[r2])
+            r1 = fig.scatter(
+                "index",
+                "pnl_long",
+                source=fill_src,
+                fill_color=cmap,
+                marker="triangle",
+                line_color="black",
+                size="size_marker",
+            )
+            r2 = fig.scatter(
+                "index",
+                "pnl_short",
+                source=fill_src,
+                fill_color=cmap,
+                marker="inverted_triangle",
+                line_color="black",
+                size="size_marker",
+            )
+            _set_tooltips(
+                fig, [("Market", "@market_id"), ("Value", "@pnl_long{+$0,0.00}")], vline=False, renderers=[r1]
+            )
+            _set_tooltips(
+                fig, [("Market", "@market_id"), ("Value", "@pnl_short{+$0,0.00}")], vline=False, renderers=[r2]
+            )
 
         fig.yaxis.formatter = NumeralTickFormatter(format="$ 0,0")
         return fig
@@ -580,13 +647,11 @@ return this.labels[index] || "";
             source.add(arr, col)
             price_extremes[col] = pd.Series(arr).values
             label_tooltip_pairs.append((short, f"@{{{col}}}{{0.[00]%}}"))
-            fig_main.line("index", col, source=source,
-                          legend_label=short, line_color=color, line_width=2)
+            fig_main.line("index", col, source=source, legend_label=short, line_color=color, line_width=2)
 
         if len(market_df.columns) > max_markets:
             hidden = len(market_df.columns) - max_markets
-            fig_main.line(0, 0, legend_label=f"{hidden} more markets hidden",
-                          line_color="black")
+            fig_main.line(0, 0, legend_label=f"{hidden} more markets hidden", line_color="black")
 
         _draw_trade_connectors()
         _draw_fill_markers()
@@ -614,7 +679,8 @@ return this.labels[index] || "";
                 CustomJS(
                     args={"price_range": fig_main.y_range, "source": source},
                     code=_AUTOSCALE_JS_TEMPLATE.format(
-                        high_key="price_high", low_key="price_low",
+                        high_key="price_high",
+                        low_key="price_low",
                         range_var="price_range",
                     ),
                 ),
@@ -661,16 +727,22 @@ return this.labels[index] || "";
         colors_darker = [lightness(BEAR_COLOR, 0.35), lightness(BULL_COLOR, 0.35)]
         if xs_profit:
             fig_main.multi_line(
-                xs_profit, ys_profit,
+                xs_profit,
+                ys_profit,
                 line_color=str(colors_darker[1]),
-                line_width=6, line_alpha=0.8, line_dash="dotted",
+                line_width=6,
+                line_alpha=0.8,
+                line_dash="dotted",
                 legend_label=f"Profitable ({len(xs_profit)})",
             )
         if xs_loss:
             fig_main.multi_line(
-                xs_loss, ys_loss,
+                xs_loss,
+                ys_loss,
                 line_color=str(colors_darker[0]),
-                line_width=6, line_alpha=0.8, line_dash="dotted",
+                line_width=6,
+                line_alpha=0.8,
+                line_dash="dotted",
                 legend_label=f"Losing ({len(xs_loss)})",
             )
 
@@ -685,31 +757,38 @@ return this.labels[index] || "";
 
         fill_color_code = np.where(relevant["action"] == "buy", "1", "0")  # 1=green, 0=red
 
-        marker_src = ColumnDataSource({
-            "index": relevant["bar"].values,
-            "datetime": relevant["datetime"].values,
-            "price": relevant["price"].values,
-            "fill_color": fill_color_code,
-            "market_id": relevant["market_id"].values,
-            "action": relevant["action"].values,
-            "side": relevant["side"].values,
-            "quantity": relevant["quantity"].values,
-        })
+        marker_src = ColumnDataSource(
+            {
+                "index": relevant["bar"].values,
+                "datetime": relevant["datetime"].values,
+                "price": relevant["price"].values,
+                "fill_color": fill_color_code,
+                "market_id": relevant["market_id"].values,
+                "action": relevant["action"].values,
+                "side": relevant["side"].values,
+                "quantity": relevant["quantity"].values,
+            }
+        )
 
         cmap = factor_cmap("fill_color", COLORS, ["0", "1"])
         fig_main.scatter(
-            "index", "price", source=marker_src,
-            fill_color=cmap, marker="circle", line_color="black",
-            size=8, fill_alpha=0.7,
+            "index",
+            "price",
+            source=marker_src,
+            fill_color=cmap,
+            marker="circle",
+            line_color="black",
+            size=8,
+            fill_alpha=0.7,
             legend_label=f"Fills ({len(relevant)})",
         )
 
     def _plot_main_fallback():
         """Fallback main chart showing equity when no market prices exist."""
         source.add(eq["equity"].values, "equity_abs")
-        r = fig_main.line("index", "equity_abs", source=source,
-                          line_width=1.5, line_color="#1f77b4",
-                          legend_label="Equity")
+        r = fig_main.line(
+            "index", "equity_abs", source=source, line_width=1.5, line_color="#1f77b4", legend_label="Equity"
+        )
         fig_main.yaxis.axis_label = "Equity ($)"
         fig_main.yaxis.formatter = NumeralTickFormatter(format="$ 0,0")
 
@@ -720,42 +799,49 @@ return this.labels[index] || "";
             CustomJS(
                 args={"price_range": fig_main.y_range, "source": source},
                 code=_AUTOSCALE_JS_TEMPLATE.format(
-                    high_key="price_high", low_key="price_low",
+                    high_key="price_high",
+                    low_key="price_low",
                     range_var="price_range",
                 ),
             ),
         )
-        _set_tooltips(fig_main,
-                      [("Equity", "@equity_abs{$0,0.00}"),
-                       ("Cash", "@cash{$0,0.00}")],
-                      vline=True, renderers=[r])
+        _set_tooltips(
+            fig_main, [("Equity", "@equity_abs{$0,0.00}"), ("Cash", "@cash{$0,0.00}")], vline=True, renderers=[r]
+        )
 
     def _plot_drawdown():
         fig = _new_sub("Drawdown", height=90)
         source.add(eq["drawdown_pct"].values, "dd_pct")
         r = fig.line("index", "dd_pct", source=source, line_width=1.3)
         argmax = int(eq["drawdown_pct"].idxmax())
-        fig.scatter(argmax, eq["drawdown_pct"].iloc[argmax], color="red", size=8,
-                    legend_label="Peak (-{:.1f}%)".format(
-                        100 * eq["drawdown_pct"].iloc[argmax]))
+        fig.scatter(
+            argmax,
+            eq["drawdown_pct"].iloc[argmax],
+            color="red",
+            size=8,
+            legend_label="Peak (-{:.1f}%)".format(100 * eq["drawdown_pct"].iloc[argmax]),
+        )
         _set_tooltips(fig, [("Drawdown", "@dd_pct{-0.[0]%}")], renderers=[r])
         fig.yaxis.formatter = NumeralTickFormatter(format="-0.[0]%")
         return fig
 
     def _plot_cash():
         fig = _new_sub("Cash / Positions", height=90)
-        r = fig.line("index", "cash", source=source, line_width=1.3,
-                     line_color="#1f77b4", legend_label="Cash")
+        r = fig.line("index", "cash", source=source, line_width=1.3, line_color="#1f77b4", legend_label="Cash")
         max_pos = eq["num_positions"].max()
         if max_pos > 0:
             scale = eq["cash"].max() / max_pos if max_pos > 0 else 1
             source.add((eq["num_positions"] * scale).values, "pos_scaled")
-            fig.line("index", "pos_scaled", source=source, line_width=1.3,
-                     line_color="#ff7f0e", line_dash="dashed",
-                     legend_label="Positions (scaled)")
-        _set_tooltips(fig, [("Cash", "@cash{$0,0.00}"),
-                            ("Positions", "@num_positions{0,0}")],
-                      renderers=[r])
+            fig.line(
+                "index",
+                "pos_scaled",
+                source=source,
+                line_width=1.3,
+                line_color="#ff7f0e",
+                line_dash="dashed",
+                legend_label="Positions (scaled)",
+            )
+        _set_tooltips(fig, [("Cash", "@cash{$0,0.00}"), ("Positions", "@num_positions{0,0}")], renderers=[r])
         fig.yaxis.formatter = NumeralTickFormatter(format="$ 0,0")
         return fig
 

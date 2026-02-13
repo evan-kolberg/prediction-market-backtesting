@@ -36,6 +36,20 @@ Built on top of [prediction-market-analysis](https://github.com/Jon-Becker/predi
 - **Interactive CLI** — terminal menu for selecting strategies, platforms, and sample sizes
 - **Analysis passthrough** — run any analysis command from the submodule directly via `make`
 
+## Roadmap
+
+- [x] **Interactive charts** — Bokeh-based HTML charts with linked equity curve, P&L, market prices, drawdown, and cash panels
+- [ ] **Time span selection** — restrict backtests to a specific date range (e.g. `--start 2024-01-01 --end 2024-12-31`)
+- [ ] **Market filtering** — filter by market type, category, or specific market IDs
+- [ ] **Advanced order types** — market orders, stop-losses, take-profit, and time-in-force options
+- [ ] **Strategy parameters** — CLI flags and config files for tuning strategy hyperparameters without code changes
+- [ ] **Walk-forward optimization** — automated parameter sweeps with in-sample / out-of-sample splits
+- [ ] **Multi-strategy comparison** — run multiple strategies side-by-side and generate comparative reports
+- [ ] **Slippage & latency modeling** — configurable fill delay and price impact simulation
+- [ ] **Live paper trading** — forward-test strategies against real-time market data without placing actual orders
+- [ ] **Additional platforms** — support for more prediction market exchanges as data becomes available
+- [ ] **Richer charting** — volume overlays, rolling Sharpe, win-rate heatmaps, and exportable PDF reports
+
 ## Prerequisites
 
 - Python 3.9+
@@ -205,21 +219,6 @@ Historical trade data is sourced from the [prediction-market-analysis](https://g
 |---|---|
 | Kalshi | Markets metadata + individual trades with prices in cents (1–99) |
 | Polymarket | CLOB markets + on-chain CTF Exchange trades joined with block timestamps |
-
-## Roadmap
-
-Planned features and improvements:
-
-- **Time span selection** — restrict backtests to a specific date range (e.g. `--start 2024-01-01 --end 2024-12-31`)
-- **Market filtering** — filter by market type, category, or specific market IDs
-- **Advanced order types** — market orders, stop-losses, take-profit, and time-in-force options
-- **Strategy parameters** — CLI flags and config files for tuning strategy hyperparameters without code changes
-- **Walk-forward optimization** — automated parameter sweeps with in-sample / out-of-sample splits
-- **Multi-strategy comparison** — run multiple strategies side-by-side and generate comparative reports
-- **Slippage & latency modeling** — configurable fill delay and price impact simulation
-- **Live paper trading** — forward-test strategies against real-time market data without placing actual orders
-- **Additional platforms** — support for more prediction market exchanges as data becomes available
-- **Richer charting** — volume overlays, rolling Sharpe, win-rate heatmaps, and exportable PDF reports
 
 ## License
 
