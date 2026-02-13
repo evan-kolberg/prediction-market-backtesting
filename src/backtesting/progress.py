@@ -14,7 +14,6 @@ from typing import Iterator, TypeVar
 
 T = TypeVar("T")
 
-# ANSI escape helpers
 _ESC = "\033["
 _CYAN = f"{_ESC}36m"
 _DIM = f"{_ESC}2m"
@@ -66,7 +65,6 @@ class PinnedProgress:
     def _setup(self) -> None:
         """Reserve the bottom line by setting the scroll region."""
         rows = _term_height()
-        # Set scroll region to rows 1..(rows-1), leaving last row for bar
         sys.stdout.write(f"{_ESC}{rows};1H")  # move to last row
         sys.stdout.write(f"{_ESC}2K")  # clear it
         sys.stdout.write(f"{_ESC}1;{rows - 1}r")  # set scroll region
@@ -80,9 +78,7 @@ class PinnedProgress:
         if not self._active:
             return
         rows = _term_height()
-        # Reset scroll region to full terminal
         sys.stdout.write(f"{_ESC}1;{rows}r")
-        # Move below the bar
         sys.stdout.write(f"{_ESC}{rows};1H\n")
         sys.stdout.flush()
         self._active = False
@@ -124,7 +120,6 @@ class PinnedProgress:
         line = f"{info_left}{bar}{info_right}"
 
         rows = _term_height()
-        # Save cursor, move to bottom, write bar, restore cursor
         sys.stdout.write(f"{_ESC}s{_ESC}{rows};1H{_ESC}2K{line}{_ESC}u")
         sys.stdout.flush()
         self._last_refresh = now

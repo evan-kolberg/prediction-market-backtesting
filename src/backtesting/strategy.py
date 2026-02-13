@@ -46,41 +46,50 @@ class Strategy(ABC):
 
     def buy_yes(self, market_id: str, price: float, quantity: float) -> Order:
         """Place a limit order to buy YES contracts."""
+        assert self._place_order is not None
         return self._place_order(market_id, "buy", "yes", price, quantity)
 
     def buy_no(self, market_id: str, price: float, quantity: float) -> Order:
         """Place a limit order to buy NO contracts."""
+        assert self._place_order is not None
         return self._place_order(market_id, "buy", "no", price, quantity)
 
     def sell_yes(self, market_id: str, price: float, quantity: float) -> Order:
         """Place a limit order to sell YES contracts."""
+        assert self._place_order is not None
         return self._place_order(market_id, "sell", "yes", price, quantity)
 
     def sell_no(self, market_id: str, price: float, quantity: float) -> Order:
         """Place a limit order to sell NO contracts."""
+        assert self._place_order is not None
         return self._place_order(market_id, "sell", "no", price, quantity)
 
     def cancel_order(self, order_id: str) -> bool:
         """Cancel a pending order by ID. Returns True if cancelled."""
+        assert self._cancel_order_fn is not None
         return self._cancel_order_fn(order_id)
 
     def cancel_all(self, market_id: str | None = None) -> int:
         """Cancel all pending orders, optionally filtered by market."""
+        assert self._cancel_all_fn is not None
         return self._cancel_all_fn(market_id)
 
     @property
     def portfolio(self) -> PortfolioSnapshot:
         """Current portfolio state."""
+        assert self._get_portfolio is not None
         return self._get_portfolio()
 
     @property
     def open_orders(self) -> list[Order]:
         """Currently pending orders."""
+        assert self._get_open_orders is not None
         return self._get_open_orders()
 
     @property
     def markets(self) -> dict[str, MarketInfo]:
         """All available market metadata."""
+        assert self._get_markets is not None
         return self._get_markets()
 
     # -- Lifecycle hooks --

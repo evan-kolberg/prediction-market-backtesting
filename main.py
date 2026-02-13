@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from typing import cast
 
 from simple_term_menu import TerminalMenu
 
@@ -51,7 +52,7 @@ def backtest(name: str | None = None):
         cycle_cursor=True,
         clear_screen=False,
     )
-    choice = menu.show()
+    choice = cast("int | None", menu.show())
 
     if choice is None or choice == len(options) - 1:
         print("Exiting.")
@@ -66,7 +67,6 @@ def _run_backtest_interactive(strategy, platforms: dict):
     """Select platform and run a backtest with the given strategy."""
     from src.backtesting.engine import Engine
 
-    # ANSI color codes
     CYAN = "\033[36m"
     GREEN = "\033[32m"
     RED = "\033[31m"
@@ -88,7 +88,7 @@ def _run_backtest_interactive(strategy, platforms: dict):
         cycle_cursor=True,
         clear_screen=False,
     )
-    choice = menu.show()
+    choice = cast("int | None", menu.show())
 
     if choice is None or choice == len(platform_options) - 1:
         print("Exiting.")
@@ -105,9 +105,9 @@ def _run_backtest_interactive(strategy, platforms: dict):
         cycle_cursor=True,
         clear_screen=False,
     )
-    sample_choice = sample_menu.show()
-    sample_map = {0: None, 1: 0.5, 2: 0.2, 3: 0.1}
-    market_sample = sample_map.get(sample_choice)
+    sample_choice = cast("int | None", sample_menu.show())
+    sample_map: dict[int, float | None] = {0: None, 1: 0.5, 2: 0.2, 3: 0.1}
+    market_sample = sample_map.get(sample_choice) if sample_choice is not None else None
 
     sample_label = sample_options[sample_choice] if sample_choice is not None else "100%"
 
@@ -115,6 +115,10 @@ def _run_backtest_interactive(strategy, platforms: dict):
     print(f"  {DIM}Strategy:{RESET}     {strategy.description}")
     print(f"  {DIM}Initial cash:{RESET} $10,000.00")
     print(f"  {DIM}Market sample:{RESET} {sample_label}\n")
+
+    YELLOW = "\033[33m"
+    print(f"  {YELLOW}{BOLD}Warming up...{RESET} Loading markets and indexing trades.")
+    print(f"  {DIM}Keep an eye on your memory usage.{RESET}\n")
 
     engine = Engine(feed=feed, strategy=strategy, initial_cash=10_000.0, market_sample=market_sample)
     result = engine.run()
@@ -157,7 +161,6 @@ def _run_backtest_interactive(strategy, platforms: dict):
     print(f"    {DIM}Avg trade P&L:{RESET}  {_pn(avg_pnl, '${:.4f}')}")
     print(f"    {DIM}Commission:{RESET}     ${commission:.2f}\n")
 
-    # Save event log to file
     if result.event_log:
         output_dir = Path("output")
         output_dir.mkdir(parents=True, exist_ok=True)
