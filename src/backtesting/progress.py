@@ -10,7 +10,8 @@ from __future__ import annotations
 import os
 import sys
 import time
-from typing import Iterator, TypeVar
+from collections.abc import Iterator
+from typing import TypeVar
 
 T = TypeVar("T")
 
