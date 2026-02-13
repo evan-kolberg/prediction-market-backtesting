@@ -1,0 +1,31 @@
+# macOS
+.DS_Store
+
+# Environment
+.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environment
+.venv
+
+# Data (symlink to submodule)
+data
+
+# Output
+output/
+
+# Temp
+.tmp/
+
+# Tool caches
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/

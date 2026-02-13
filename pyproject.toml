@@ -1,0 +1,28 @@
+[project]
+name = "prediction-market-backtesting"
+version = "0.1.0"
+description = "Event-driven backtesting engine for prediction market trading strategies"
+requires-python = ">=3.9"
+dependencies = [
+    "duckdb>=1.2.1",
+    "pandas>=2.2.3",
+    "pyarrow>=19.0.1",
+    "simple-term-menu>=1.6.6",
+    "tqdm>=4.67.1",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.4.2",
+    "ruff>=0.11.4",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+
+[tool.ruff]
+target-version = "py39"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "B", "C4", "UP"]
