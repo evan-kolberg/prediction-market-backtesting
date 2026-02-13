@@ -4,7 +4,7 @@ import sys
 from pathlib import Path
 from typing import cast
 
-from simple_term_menu import TerminalMenu
+from simple_term_menu import TerminalMenu  # type: ignore[import-untyped]
 
 from src.backtesting.strategy import Strategy
 
@@ -30,19 +30,19 @@ def backtest(name: str | None = None):
 
     if name:
         for strategy_cls in strategies:
-            instance = strategy_cls()
+            instance = strategy_cls()  # type: ignore[call-arg]
             if instance.name == name:
                 _run_backtest_interactive(instance, platforms)
                 return
         print(f"Strategy '{name}' not found. Available strategies:")
         for strategy_cls in strategies:
-            instance = strategy_cls()
+            instance = strategy_cls()  # type: ignore[call-arg]
             print(f"  - {instance.name}: {instance.description}")
         sys.exit(1)
 
     options = []
     for strategy_cls in strategies:
-        instance = strategy_cls()
+        instance = strategy_cls()  # type: ignore[call-arg]
         options.append(f"{_snake_to_title(instance.name)}: {instance.description}")
     options.append("[Exit]")
 
@@ -59,7 +59,7 @@ def backtest(name: str | None = None):
         return
 
     strategy_cls = strategies[choice]
-    instance = strategy_cls()
+    instance = strategy_cls()  # type: ignore[call-arg]
     _run_backtest_interactive(instance, platforms)
 
 
