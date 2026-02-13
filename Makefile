@@ -1,5 +1,6 @@
-.PHONY: backtest lint format test setup
+.PHONY: backtest lint format test setup analyze
 
+ANALYSIS = VIRTUAL_ENV= $(MAKE) -C prediction-market-analysis
 RUN = uv run main.py
 
 backtest:
@@ -18,8 +19,13 @@ test:
 
 setup:
 	git submodule update --init --recursive
-	cd prediction-market-analysis && bash scripts/install-tools.sh
-	cd prediction-market-analysis && bash scripts/download.sh
+	$(ANALYSIS) setup
+
+analyze:
+	$(ANALYSIS) analyze
+
+analysis-%:
+	$(ANALYSIS) $* $(filter-out $@,$(MAKECMDGOALS))
 
 %:
 	@:

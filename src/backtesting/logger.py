@@ -26,11 +26,14 @@ class BacktestLogger:
     """Accumulates and optionally prints timestamped backtest events.
 
     Always stores plain-text lines in ``self.lines`` for later persistence.
-    When ``print_live=True``, also writes ANSI-colored output to stdout.
+    When ``print_live=True``, also writes ANSI-colored output to stdout
+    using ``write_fn`` (which can be ``tqdm.write`` to avoid clobbering
+    a progress bar).
     """
 
-    def __init__(self, print_live: bool = False):
+    def __init__(self, print_live: bool = False, write_fn=None):
         self.print_live = print_live
+        self.write_fn = write_fn or print
         self.lines: list[str] = []
 
     # -- Core helper --
@@ -41,7 +44,7 @@ class BacktestLogger:
         self.lines.append(plain)
         if self.print_live:
             colored = f"{_DIM}{ts_str}{_RESET} [INFO] {_BOLD}{_CYAN}{component}{_RESET}: {color}{message}{_RESET}"
-            print(colored)
+            self.write_fn(colored)
 
     # -- Lifecycle events --
 
@@ -53,7 +56,7 @@ class BacktestLogger:
         num_markets: int,
         initial_cash: float,
     ) -> None:
-        self._log(timestamp, "Engine", f"=== BACKTEST START: {strategy_name} on {platform} ===")
+        self._log(timestamp, "Engine", f"Backtest start: {strategy_name} on {platform}")
         self._log(timestamp, "Engine", f"{num_markets} markets loaded, initial cash: ${initial_cash:,.2f}")
         self._log(timestamp, "Portfolio", f"READY, cash=${initial_cash:,.2f}")
         self._log(timestamp, "Strategy", f"Initialized {strategy_name}")
@@ -69,7 +72,7 @@ class BacktestLogger:
             elapsed_str = f"{elapsed_seconds / 60:.1f}m"
         else:
             elapsed_str = f"{elapsed_seconds:.1f}s"
-        self._log(timestamp, "Engine", f"=== BACKTEST COMPLETE in {elapsed_str} ===")
+        self._log(timestamp, "Engine", f"Backtest complete in {elapsed_str}")
         eq_color = _GREEN if final_equity >= final_cash else _RED
         self._log(timestamp, "Portfolio", f"cash=${final_cash:,.2f}, equity=${final_equity:,.2f}", eq_color)
 

@@ -244,10 +244,10 @@ class TestEventLog:
         assert len(result.event_log) > 0
 
     def test_event_log_contains_start_end(self, bt_kalshi_trades_dir: Path, bt_kalshi_markets_dir: Path) -> None:
-        """Log should have BACKTEST START and BACKTEST COMPLETE markers."""
+        """Log should have Backtest start and Backtest complete markers."""
         result = self._run_with_log(bt_kalshi_trades_dir, bt_kalshi_markets_dir)
-        assert any("BACKTEST START" in line for line in result.event_log)
-        assert any("BACKTEST COMPLETE" in line for line in result.event_log)
+        assert any("Backtest start" in line for line in result.event_log)
+        assert any("Backtest complete" in line for line in result.event_log)
 
     def test_event_log_contains_orders(self, bt_kalshi_trades_dir: Path, bt_kalshi_markets_dir: Path) -> None:
         """Log should contain order submitted events."""

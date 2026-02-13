@@ -10,8 +10,6 @@ import random
 import time
 from datetime import datetime
 
-from tqdm import tqdm
-
 from src.backtesting.broker import Broker
 from src.backtesting.feeds.base import BaseFeed
 from src.backtesting.logger import BacktestLogger
@@ -65,7 +63,7 @@ class Engine:
     def run(self) -> BacktestResult:
         """Execute the full simulation and return results."""
         wall_start = time.monotonic()
-        logger = BacktestLogger(print_live=self.verbose)
+        logger = BacktestLogger(print_live=True)
         broker = Broker(commission_rate=self.commission_rate)
         portfolio = Portfolio(initial_cash=self.initial_cash)
         all_fills: list[Fill] = []
@@ -112,21 +110,25 @@ class Engine:
             start_time=self.start_time,
             end_time=self.end_time,
         )
-        # Verbose mode replaces progress bar (they'd conflict on stdout)
-        show_progress = self.progress and not self.verbose
-        if show_progress:
+        progress_bar = None
+        if self.progress:
+            from src.backtesting.progress import PinnedProgress
+
             total = self.feed.trade_count(
                 market_ids=active_market_ids,
                 start_time=self.start_time,
                 end_time=self.end_time,
             )
-            trade_iter = tqdm(
+            progress_bar = PinnedProgress(
                 trade_iter,
                 total=total,
-                desc=f"\033[36m{self.strategy.name}\033[0m",
+                desc=self.strategy.name,
                 unit=" trades",
-                bar_format=("{l_bar}\033[36m{bar}\033[0m| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]"),
             )
+            trade_iter = progress_bar
+            # Route logger output through the scroll region so
+            # events stream above the pinned progress bar.
+            logger.write_fn = progress_bar.write
 
         for trade in trade_iter:
             now = trade.timestamp

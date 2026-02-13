@@ -487,6 +487,7 @@ dependencies = [
     { name = "pandas", version = "3.0.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "pyarrow", version = "21.0.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
     { name = "pyarrow", version = "23.0.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
+    { name = "pytz" },
     { name = "simple-term-menu" },
     { name = "tqdm" },
 ]
@@ -503,6 +504,7 @@ requires-dist = [
     { name = "duckdb", specifier = ">=1.2.1" },
     { name = "pandas", specifier = ">=2.2.3" },
     { name = "pyarrow", specifier = ">=19.0.1" },
+    { name = "pytz", specifier = ">=2024.1" },
     { name = "simple-term-menu", specifier = ">=1.6.6" },
     { name = "tqdm", specifier = ">=4.67.1" },
 ]
