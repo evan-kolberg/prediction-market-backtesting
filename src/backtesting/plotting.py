@@ -512,7 +512,9 @@ def plot(
 
     # Build dataframes — _build_dataframes already downsamples to max_points.
     eq, fills_df, market_df, n_bars_original = _build_dataframes(
-        result, bar=None, max_markets=max_markets,
+        result,
+        bar=None,
+        max_markets=max_markets,
     )
 
     # Build allocation from the (already downsampled) data.
@@ -521,7 +523,10 @@ def plot(
     n_alloc_positions = 0
     if plot_allocation:
         alloc_df = _build_allocation_data(
-            eq, fills_df, getattr(result, "market_prices", {}), top_n=None,
+            eq,
+            fills_df,
+            getattr(result, "market_prices", {}),
+            top_n=None,
         )
         n_alloc_positions = len([c for c in alloc_df.columns if c not in ("Cash", "Other")])
 
@@ -868,12 +873,22 @@ return this.labels[index] || "";
         )
 
         r1 = fig.vbar(
-            x="x", top="pnl_pos", source=pnl_src, width=bar_width,
-            color=str(BULL_COLOR), alpha=0.7, legend_label="Gain",
+            x="x",
+            top="pnl_pos",
+            source=pnl_src,
+            width=bar_width,
+            color=str(BULL_COLOR),
+            alpha=0.7,
+            legend_label="Gain",
         )
         r2 = fig.vbar(
-            x="x", top="pnl_neg", source=pnl_src, width=bar_width,
-            color=str(BEAR_COLOR), alpha=0.7, legend_label="Loss",
+            x="x",
+            top="pnl_neg",
+            source=pnl_src,
+            width=bar_width,
+            color=str(BEAR_COLOR),
+            alpha=0.7,
+            legend_label="Loss",
         )
 
         fig.add_tools(
@@ -903,7 +918,8 @@ return this.labels[index] || "";
 
         # Compute return for each calendar month
         first_last = monthly.groupby(["year", "month"]).agg(
-            eq_start=("equity", "first"), eq_end=("equity", "last"),
+            eq_start=("equity", "first"),
+            eq_end=("equity", "last"),
         )
         first_last["ret"] = (first_last["eq_end"] - first_last["eq_start"]) / first_last["eq_start"]  # type: ignore[reportIndexIssue]
         first_last = first_last.reset_index()
@@ -911,8 +927,7 @@ return this.labels[index] || "";
         if first_last.empty:
             return None
 
-        month_names = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
-                       "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+        month_names = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
         first_last["month_name"] = first_last["month"].map(lambda m: month_names[m - 1])
 
         years = sorted(first_last["year"].unique())
@@ -921,9 +936,9 @@ return this.labels[index] || "";
 
         max_abs = max(abs(first_last["ret"].max()), abs(first_last["ret"].min()), 0.001)
         mapper = LinearColorMapper(
-            palette=["#d73027", "#f46d43", "#fdae61", "#fee08b", "#ffffbf",
-                     "#d9ef8b", "#a6d96a", "#66bd63", "#1a9850"],
-            low=-max_abs, high=max_abs,
+            palette=["#d73027", "#f46d43", "#fdae61", "#fee08b", "#ffffbf", "#d9ef8b", "#a6d96a", "#66bd63", "#1a9850"],
+            low=-max_abs,
+            high=max_abs,
         )
 
         fig = _figure(
@@ -937,36 +952,52 @@ return this.labels[index] || "";
             **({} if plot_width else {"sizing_mode": "stretch_width"}),
         )
 
-        heat_src = ColumnDataSource({
-            "month": first_last["month_name"].tolist(),
-            "year": first_last["year"].tolist(),
-            "ret": first_last["ret"].tolist(),
-            "ret_pct": (first_last["ret"] * 100).round(2).tolist(),
-        })
+        heat_src = ColumnDataSource(
+            {
+                "month": first_last["month_name"].tolist(),
+                "year": first_last["year"].tolist(),
+                "ret": first_last["ret"].tolist(),
+                "ret_pct": (first_last["ret"] * 100).round(2).tolist(),
+            }
+        )
 
         fig.rect(
-            x="month", y="year", width=1, height=1, source=heat_src,
+            x="month",
+            y="year",
+            width=1,
+            height=1,
+            source=heat_src,
             fill_color={"field": "ret", "transform": mapper},
-            line_color="white", line_width=1.5,
+            line_color="white",
+            line_width=1.5,
         )
 
         # Add return % as text labels on each cell
         from bokeh.models import LabelSet
+
         heat_src.add(
             [f"{v:+.1f}%" for v in (first_last["ret"] * 100).values],
             "label",
         )
         labels = LabelSet(
-            x="month", y="year", text="label", source=heat_src,
-            text_align="center", text_baseline="middle",
-            text_font_size="9pt", text_color="#333333",
+            x="month",
+            y="year",
+            text="label",
+            source=heat_src,
+            text_align="center",
+            text_baseline="middle",
+            text_font_size="9pt",
+            text_color="#333333",
         )
         fig.add_layout(labels)
 
         color_bar = ColorBar(
-            color_mapper=mapper, ticker=BasicTicker(desired_num_ticks=5),
+            color_mapper=mapper,
+            ticker=BasicTicker(desired_num_ticks=5),
             formatter=PrintfTickFormatter(format="%+.1f%%"),
-            label_standoff=6, border_line_color=None, location=(0, 0),
+            label_standoff=6,
+            border_line_color=None,
+            location=(0, 0),
             width=8,
         )
         fig.add_layout(color_bar, "right")
@@ -1027,12 +1058,16 @@ return this.labels[index] || "";
         fig.patch(
             x=np.r_[idx_arr, idx_arr[::-1]].tolist(),
             y=np.r_[pos_sharpe, zero_line[::-1]].tolist(),
-            fill_color=str(BULL_COLOR), fill_alpha=0.15, line_color=None,
+            fill_color=str(BULL_COLOR),
+            fill_alpha=0.15,
+            line_color=None,
         )
         fig.patch(
             x=np.r_[idx_arr, idx_arr[::-1]].tolist(),
             y=np.r_[neg_sharpe, zero_line[::-1]].tolist(),
-            fill_color=str(BEAR_COLOR), fill_alpha=0.15, line_color=None,
+            fill_color=str(BEAR_COLOR),
+            fill_alpha=0.15,
+            line_color=None,
         )
 
         _set_tooltips(
@@ -1337,10 +1372,10 @@ return this.labels[index] || "";
         golden_ratio = 0.618033988749895
         for i in range(n_pos):
             h = (hue_offset + i * golden_ratio) % 1.0
-            s = 0.55 + rng.random() * 0.3   # 0.55–0.85
+            s = 0.55 + rng.random() * 0.3  # 0.55–0.85
             lit = 0.45 + rng.random() * 0.15  # 0.45–0.60
             r_c, g_c, b_c = hls_to_rgb(h, lit, s)
-            palette.append(f"#{int(r_c*255):02x}{int(g_c*255):02x}{int(b_c*255):02x}")
+            palette.append(f"#{int(r_c * 255):02x}{int(g_c * 255):02x}{int(b_c * 255):02x}")
         # Cash = neutral grey
         palette.append("#cccccc")
 
@@ -1354,6 +1389,7 @@ return this.labels[index] || "";
 
         # Only add legend entries for a manageable subset; skip if thousands
         from bokeh.models import LegendItem
+
         MAX_LEGEND = 15
         legend_items: list[Any] = []
         # Always show Cash
@@ -1361,7 +1397,7 @@ return this.labels[index] || "";
         if other_col:
             legend_items.append(LegendItem(label="Other", renderers=[renderers[-2]]))
         # Show top positions by peak value
-        for r_obj, lbl in list(zip(renderers, stack_labels))[:MAX_LEGEND - len(legend_items)]:
+        for r_obj, lbl in list(zip(renderers, stack_labels))[: MAX_LEGEND - len(legend_items)]:
             if lbl in ("Cash", "Other"):
                 continue
             legend_items.append(LegendItem(label=lbl, renderers=[r_obj]))
@@ -1463,19 +1499,11 @@ return this.labels[index] || "";
     parts_txt: list[str] = []
     if downsampled:
         bar_pct = len(eq) / n_bars_original * 100
-        parts_txt.append(
-            f"Bars: {n_bars_original:,}\u2192{len(eq):,} ({bar_pct:.0f}%)"
-        )
-    parts_txt.append(
-        f"Fills: {n_fills_total:,}\u2192{len(fills_df):,} ({fills_pct:.0f}%)"
-    )
-    parts_txt.append(
-        f"Markets graphed: {n_price_markets}/{n_total_markets:,} ({mkt_pct:.0f}%)"
-    )
+        parts_txt.append(f"Bars: {n_bars_original:,}\u2192{len(eq):,} ({bar_pct:.0f}%)")
+    parts_txt.append(f"Fills: {n_fills_total:,}\u2192{len(fills_df):,} ({fills_pct:.0f}%)")
+    parts_txt.append(f"Markets graphed: {n_price_markets}/{n_total_markets:,} ({mkt_pct:.0f}%)")
     if n_alloc_positions > 0:
-        parts_txt.append(
-            f"Alloc: {n_alloc_positions}/{n_traded} traded ({alloc_pct:.0f}%)"
-        )
+        parts_txt.append(f"Alloc: {n_alloc_positions}/{n_traded} traded ({alloc_pct:.0f}%)")
     banner = Div(
         text=(
             f"<div style='background:#fff3cd;border:1px solid #ffc107;padding:4px 12px;"
@@ -1496,9 +1524,7 @@ return this.labels[index] || "";
     monthly_fig = _plot_monthly_returns()
 
     # Prepend scrollbar CSS into the banner so we don't need a separate Div
-    scroll_style = (
-        "<style>html{overflow-y:scroll}body{margin:0 8px}</style>"
-    )
+    scroll_style = "<style>html{overflow-y:scroll}body{margin:0 8px}</style>"
 
     layout: Any
     parts: list = []

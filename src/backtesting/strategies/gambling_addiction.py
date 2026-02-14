@@ -126,9 +126,7 @@ class GamblingAddictionStrategy(Strategy):
             return
 
         entry_side = self._entry_sides.get(mid, "yes")
-        won = (entry_side == "yes" and result == Side.YES) or (
-            entry_side == "no" and result == Side.NO
-        )
+        won = (entry_side == "yes" and result == Side.YES) or (entry_side == "no" and result == Side.NO)
 
         if won:
             self._consecutive_losses = 0
