@@ -81,3 +81,28 @@ class TestKalshiFeedTradeCount:
     def test_count_matches_trades(self, bt_kalshi_trades_dir: Path, bt_kalshi_markets_dir: Path) -> None:
         feed = KalshiFeed(trades_dir=bt_kalshi_trades_dir, markets_dir=bt_kalshi_markets_dir)
         assert feed.trade_count() == len(list(feed.trades()))
+
+
+class TestKalshiFeedMarketVolumes:
+    def test_returns_all_markets(self, bt_kalshi_trades_dir: Path, bt_kalshi_markets_dir: Path) -> None:
+        feed = KalshiFeed(trades_dir=bt_kalshi_trades_dir, markets_dir=bt_kalshi_markets_dir)
+        volumes = feed.market_volumes()
+        assert set(volumes.keys()) == {"BT-MKT-A", "BT-MKT-B", "BT-MKT-C"}
+
+    def test_counts_correct(self, bt_kalshi_trades_dir: Path, bt_kalshi_markets_dir: Path) -> None:
+        feed = KalshiFeed(trades_dir=bt_kalshi_trades_dir, markets_dir=bt_kalshi_markets_dir)
+        volumes = feed.market_volumes()
+        assert volumes["BT-MKT-A"] == 4
+        assert volumes["BT-MKT-B"] == 3
+        assert volumes["BT-MKT-C"] == 3
+
+    def test_filtered_by_market(self, bt_kalshi_trades_dir: Path, bt_kalshi_markets_dir: Path) -> None:
+        feed = KalshiFeed(trades_dir=bt_kalshi_trades_dir, markets_dir=bt_kalshi_markets_dir)
+        volumes = feed.market_volumes(market_ids=["BT-MKT-A"])
+        assert list(volumes.keys()) == ["BT-MKT-A"]
+        assert volumes["BT-MKT-A"] == 4
+
+    def test_sum_matches_total_count(self, bt_kalshi_trades_dir: Path, bt_kalshi_markets_dir: Path) -> None:
+        feed = KalshiFeed(trades_dir=bt_kalshi_trades_dir, markets_dir=bt_kalshi_markets_dir)
+        volumes = feed.market_volumes()
+        assert sum(volumes.values()) == feed.trade_count()

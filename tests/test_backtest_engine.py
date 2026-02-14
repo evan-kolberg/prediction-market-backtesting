@@ -175,37 +175,42 @@ class TestLifecycle:
 class TestStrategyDiscovery:
     def test_load_example_strategies(self) -> None:
         strategies = Strategy.load()
-        assert len(strategies) >= 2
-        names = {cls().name for cls in strategies}
+        assert len(strategies) >= 3
+        names = {cls().name for cls in strategies}  # type: ignore[call-arg]
         assert "buy_low" in names
         assert "calibration_arb" in names
+        assert "gambling_addiction" in names
 
 
 class TestMarketSample:
     def test_sample_reduces_markets(self, bt_kalshi_trades_dir: Path, bt_kalshi_markets_dir: Path) -> None:
-        """Sampling at 50% should see fewer markets than 100%."""
+        """Top 34% by volume should include fewer markets than 100%."""
         feed_full = KalshiFeed(trades_dir=bt_kalshi_trades_dir, markets_dir=bt_kalshi_markets_dir)
-        result_full = Engine(
+        Engine(
             feed=feed_full,
-            strategy=AlwaysBuyLowStrategy(),
+            strategy=LifecycleTrackingStrategy(),
             initial_cash=1000.0,
             progress=False,
         ).run()
 
         feed_sampled = KalshiFeed(trades_dir=bt_kalshi_trades_dir, markets_dir=bt_kalshi_markets_dir)
-        result_sampled = Engine(
+        strategy_sampled = LifecycleTrackingStrategy()
+        Engine(
             feed=feed_sampled,
-            strategy=AlwaysBuyLowStrategy(),
+            strategy=strategy_sampled,
             initial_cash=1000.0,
             progress=False,
             market_sample=0.34,
         ).run()
 
-        # 3 markets * 0.34 = 1 market sampled
-        assert result_sampled.num_markets_resolved < result_full.num_markets_resolved
+        # Full run sees all 3 markets open; sampled sees only the top-1 by volume
+        full_strategy = LifecycleTrackingStrategy()
+        feed_full2 = KalshiFeed(trades_dir=bt_kalshi_trades_dir, markets_dir=bt_kalshi_markets_dir)
+        Engine(feed=feed_full2, strategy=full_strategy, initial_cash=1000.0, progress=False).run()
+        assert len(strategy_sampled.opened) < len(full_strategy.opened)
 
     def test_sample_deterministic(self, bt_kalshi_trades_dir: Path, bt_kalshi_markets_dir: Path) -> None:
-        """Same seed produces same sample."""
+        """Volume-based selection is deterministic — same data → same result."""
         results = []
         for _ in range(2):
             feed = KalshiFeed(trades_dir=bt_kalshi_trades_dir, markets_dir=bt_kalshi_markets_dir)
@@ -215,7 +220,6 @@ class TestMarketSample:
                 initial_cash=1000.0,
                 progress=False,
                 market_sample=0.5,
-                seed=42,
             ).run()
             results.append(result)
 

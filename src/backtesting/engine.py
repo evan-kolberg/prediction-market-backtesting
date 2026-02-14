@@ -6,7 +6,6 @@ a chronological replay of historical trades.
 
 from __future__ import annotations
 
-import random
 import time
 from collections.abc import Iterable
 from datetime import datetime
@@ -39,20 +38,24 @@ class Engine:
         feed: BaseFeed,
         strategy: Strategy,
         initial_cash: float = 10_000.0,
-        commission_rate: float = 0.0,
+        commission_rate: float = 0.01,
+        slippage: float = 0.005,
+        liquidity_cap: bool = True,
         snapshot_interval: int = 1000,
         market_ids: list[str] | None = None,
         start_time: datetime | None = None,
         end_time: datetime | None = None,
         progress: bool = True,
         market_sample: float | None = None,
-        seed: int = 42,
+        seed: int = 42,  # kept for API compat; no longer used
         verbose: bool = False,
     ):
         self.feed = feed
         self.strategy = strategy
         self.initial_cash = initial_cash
         self.commission_rate = commission_rate
+        self.slippage = slippage
+        self.liquidity_cap = liquidity_cap
         self.snapshot_interval = snapshot_interval
         self.market_ids = market_ids
         self.start_time = start_time
@@ -66,21 +69,32 @@ class Engine:
         """Execute the full simulation and return results."""
         wall_start = time.monotonic()
         logger = BacktestLogger(print_live=True)
-        broker = Broker(commission_rate=self.commission_rate)
+        broker = Broker(
+            commission_rate=self.commission_rate,
+            slippage=self.slippage,
+            liquidity_cap=self.liquidity_cap,
+        )
         portfolio = Portfolio(initial_cash=self.initial_cash)
         all_fills: list[Fill] = []
         price_history: dict[str, list[tuple[datetime, float]]] = {}
         filled_market_ids: set[str] = set()
         all_markets = self.feed.markets()
 
-        # Sample a subset of markets if requested
+        # Select top markets by volume if requested
         active_market_ids = self.market_ids
+        _cached_trade_total: int | None = None  # avoid redundant COUNT scan
         if self.market_sample is not None and self.market_sample < 1.0:
-            pool = list(active_market_ids) if active_market_ids else list(all_markets.keys())
-            k = max(1, int(len(pool) * self.market_sample))
-            rng = random.Random(self.seed)
-            active_market_ids = rng.sample(pool, k)
+            volumes = self.feed.market_volumes(
+                market_ids=active_market_ids,
+                start_time=self.start_time,
+                end_time=self.end_time,
+            )
+            ranked = sorted(volumes, key=volumes.get, reverse=True)  # type: ignore[arg-type]
+            k = max(1, int(len(ranked) * self.market_sample))
+            active_market_ids = ranked[:k]
             all_markets = {mid: all_markets[mid] for mid in active_market_ids if mid in all_markets}
+            # Derive trade count from volumes to skip a full scan
+            _cached_trade_total = sum(volumes[mid] for mid in active_market_ids if mid in volumes)
 
         # Determine platform
         platform = Platform.KALSHI
@@ -118,11 +132,14 @@ class Engine:
         if self.progress:
             from src.backtesting.progress import PinnedProgress
 
-            total = self.feed.trade_count(
-                market_ids=active_market_ids,
-                start_time=self.start_time,
-                end_time=self.end_time,
-            )
+            if _cached_trade_total is not None:
+                total = _cached_trade_total
+            else:
+                total = self.feed.trade_count(
+                    market_ids=active_market_ids,
+                    start_time=self.start_time,
+                    end_time=self.end_time,
+                )
             progress_bar = PinnedProgress(
                 trade_iter,
                 total=total,
@@ -211,7 +228,7 @@ class Engine:
             if trade_count % self.snapshot_interval == 0:
                 portfolio.snapshot(now)
                 for mid in filled_market_ids:
-                    if mid in portfolio._last_prices:
+                    if mid in portfolio._last_prices and mid not in resolved:
                         price_history.setdefault(mid, []).append((now, portfolio._last_prices[mid]))
 
         # Resolve remaining markets that have known outcomes
@@ -240,7 +257,7 @@ class Engine:
         if last_time:
             portfolio.snapshot(last_time)
             for mid in filled_market_ids:
-                if mid in portfolio._last_prices:
+                if mid in portfolio._last_prices and mid not in resolved:
                     price_history.setdefault(mid, []).append((last_time, portfolio._last_prices[mid]))
 
         self.strategy.finalize()

@@ -10,6 +10,7 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
+from typing import Any
 
 
 class Platform(str, Enum):
@@ -144,7 +145,7 @@ class BacktestResult:
     market_prices: dict[str, list[tuple[datetime, float]]] = field(default_factory=dict)
     market_pnls: dict[str, float] = field(default_factory=dict)
 
-    def plot(self, **kwargs) -> object:
+    def plot(self, **kwargs: Any) -> Any:
         """Render an interactive Bokeh chart of this backtest.
 
         Accepts all keyword arguments supported by

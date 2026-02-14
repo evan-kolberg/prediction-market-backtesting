@@ -30,11 +30,25 @@ class Broker:
 
     Orders fill at the trade price (not the limit price) to avoid
     inflating returns beyond what was historically achievable.
+
+    Realistic friction:
+        - **Commission**: flat rate on notional (cost * rate).
+        - **Slippage**: fills at a slightly worse price to model
+          market impact (configurable in price-points, default 0.5¢).
+        - **Liquidity ceiling**: each fill is capped at the historical
+          trade quantity, modeling thin order books.
     """
 
-    def __init__(self, commission_rate: float = 0.0):
+    def __init__(
+        self,
+        commission_rate: float = 0.0,
+        slippage: float = 0.005,
+        liquidity_cap: bool = True,
+    ):
         self._pending: dict[str, Order] = {}
         self._commission_rate = commission_rate
+        self._slippage = slippage
+        self._liquidity_cap = liquidity_cap
 
     @property
     def pending_orders(self) -> list[Order]:
@@ -92,6 +106,8 @@ class Broker:
         fills: list[Fill] = []
         to_remove: list[str] = []
         cash = available_cash
+        # Track remaining liquidity from this trade (shared across orders)
+        remaining_liquidity = trade.quantity if self._liquidity_cap else float("inf")
 
         for order_id, order in self._pending.items():
             if order.market_id != trade.market_id:
@@ -101,14 +117,34 @@ class Broker:
             if fill_price is None:
                 continue
 
-            cost = fill_price * order.quantity
+            # --- Apply slippage (adverse to trader) ---
+            fill_price = self._apply_slippage(fill_price, order.action)
+
+            # --- Liquidity cap: can only fill up to what was traded ---
+            fill_qty = min(order.quantity, remaining_liquidity) if self._liquidity_cap else order.quantity
+            if fill_qty <= 0:
+                continue
+
+            cost = fill_price * fill_qty
             commission = cost * self._commission_rate
 
             if order.action == OrderAction.BUY and cost + commission > cash:
-                continue
+                # Try partial fill with available cash
+                if self._liquidity_cap:
+                    max_qty = cash / (fill_price * (1 + self._commission_rate))
+                    fill_qty = min(fill_qty, max_qty)
+                    if fill_qty < 1.0:
+                        continue
+                    fill_qty = int(fill_qty)
+                    cost = fill_price * fill_qty
+                    commission = cost * self._commission_rate
+                else:
+                    continue
 
             if order.action == OrderAction.BUY:
                 cash -= cost + commission
+
+            remaining_liquidity -= fill_qty
 
             fill = Fill(
                 order_id=order_id,
@@ -116,7 +152,7 @@ class Broker:
                 action=order.action,
                 side=order.side,
                 price=fill_price,
-                quantity=order.quantity,
+                quantity=fill_qty,
                 timestamp=trade.timestamp,
                 commission=commission,
             )
@@ -126,12 +162,24 @@ class Broker:
             order.status = OrderStatus.FILLED
             order.filled_at = trade.timestamp
             order.fill_price = fill_price
-            order.filled_quantity = order.quantity
+            order.filled_quantity = fill_qty
 
         for oid in to_remove:
             del self._pending[oid]
 
         return fills
+
+    def _apply_slippage(self, price: float, action: OrderAction) -> float:
+        """Nudge fill price adversely by the slippage amount.
+
+        Buys fill slightly higher; sells fill slightly lower.
+        Clamped to [0.01, 0.99] to stay within valid price bounds.
+        """
+        if self._slippage == 0.0:
+            return price
+        if action == OrderAction.BUY:
+            return min(price + self._slippage, 0.99)
+        return max(price - self._slippage, 0.01)
 
     def _match(self, order: Order, trade: TradeEvent) -> float | None:
         """Check if an order matches the trade. Returns fill price or None."""

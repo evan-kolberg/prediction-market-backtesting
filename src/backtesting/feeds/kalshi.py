@@ -37,13 +37,20 @@ class KalshiFeed(BaseFeed):
         self.trades_dir = Path(trades_dir or data_dir / "kalshi" / "trades")
         self.markets_dir = Path(markets_dir or data_dir / "kalshi" / "markets")
         self._markets: dict[str, MarketInfo] | None = None
+        self._con: duckdb.DuckDBPyConnection | None = None
+
+    def _get_con(self) -> duckdb.DuckDBPyConnection:
+        """Return a shared DuckDB connection."""
+        if self._con is None:
+            self._con = duckdb.connect()
+        return self._con
 
     def markets(self) -> dict[str, MarketInfo]:
         """Load all Kalshi market metadata from parquet files."""
         if self._markets is not None:
             return self._markets
 
-        con = duckdb.connect()
+        con = self._get_con()
         rows = con.execute(
             f"""
             SELECT ticker, event_ticker, title, status, result,
@@ -104,7 +111,7 @@ class KalshiFeed(BaseFeed):
         end_time: datetime | None = None,
     ) -> int:
         """Return total number of Kalshi trades matching filters."""
-        con = duckdb.connect()
+        con = self._get_con()
         where = self._where_sql(market_ids, start_time, end_time)
         result = con.execute(
             f"""
@@ -115,6 +122,25 @@ class KalshiFeed(BaseFeed):
         ).fetchone()
         return result[0] if result else 0
 
+    def market_volumes(
+        self,
+        market_ids: list[str] | None = None,
+        start_time: datetime | None = None,
+        end_time: datetime | None = None,
+    ) -> dict[str, int]:
+        """Return trade count per Kalshi market."""
+        con = self._get_con()
+        where = self._where_sql(market_ids, start_time, end_time)
+        rows = con.execute(
+            f"""
+            SELECT ticker, COUNT(*) AS cnt
+            FROM '{self.trades_dir}/*.parquet'
+            WHERE {where}
+            GROUP BY ticker
+            """
+        ).fetchall()
+        return {ticker: int(cnt) for ticker, cnt in rows}
+
     def trades(
         self,
         market_ids: list[str] | None = None,
@@ -123,7 +149,7 @@ class KalshiFeed(BaseFeed):
         batch_size: int = 50_000,
     ) -> Iterator[TradeEvent]:
         """Yield normalized Kalshi trades in chronological order."""
-        con = duckdb.connect()
+        con = self._get_con()
         where_sql = self._where_sql(market_ids, start_time, end_time)
 
         result = con.execute(

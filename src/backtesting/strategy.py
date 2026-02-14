@@ -32,9 +32,10 @@ class Strategy(ABC):
     and ``self.markets`` for current state.
     """
 
-    def __init__(self, name: str, description: str = ""):
+    def __init__(self, name: str, description: str = "", initial_cash: float = 10_000.0):
         self.name = name
         self.description = description
+        self.initial_cash = initial_cash
         self._place_order: Callable | None = None
         self._cancel_order_fn: Callable | None = None
         self._cancel_all_fn: Callable | None = None
@@ -123,12 +124,12 @@ class Strategy(ABC):
     def load(cls, strategy_dir: Path | str | None = None) -> list[type[Strategy]]:
         """Scan directory for Strategy subclass implementations."""
         if strategy_dir is None:
-            strategy_dir = Path(__file__).parent / "examples"
+            strategy_dir = Path(__file__).parent / "strategies"
         strategy_dir = Path(strategy_dir)
         if not strategy_dir.exists():
             return []
 
-        base_module = "src.backtesting.examples"
+        base_module = "src.backtesting.strategies"
         strategies: list[type[Strategy]] = []
 
         for py_file in strategy_dir.glob("**/*.py"):

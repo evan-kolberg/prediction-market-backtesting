@@ -42,13 +42,21 @@ class PolymarketFeed(BaseFeed):
         self.blocks_dir = Path(blocks_dir or data_dir / "polymarket" / "blocks")
         self._markets: dict[str, MarketInfo] | None = None
         self._token_to_market: dict[str, tuple[str, int]] | None = None
+        self._con: duckdb.DuckDBPyConnection | None = None
+        self._token_table_ready: bool = False
+
+    def _get_con(self) -> duckdb.DuckDBPyConnection:
+        """Return a shared DuckDB connection."""
+        if self._con is None:
+            self._con = duckdb.connect()
+        return self._con
 
     def markets(self) -> dict[str, MarketInfo]:
         """Load Polymarket markets, resolving outcomes from final prices."""
         if self._markets is not None:
             return self._markets
 
-        con = duckdb.connect()
+        con = self._get_con()
         rows = con.execute(
             f"""
             SELECT id, condition_id, question, clob_token_ids,
@@ -105,14 +113,17 @@ class PolymarketFeed(BaseFeed):
         return time_sql, market_sql
 
     def _setup_token_map_table(self, con: duckdb.DuckDBPyConnection) -> None:
-        """Create the in-memory token map table for query joins."""
+        """Create the in-memory token map table for query joins (once)."""
+        if self._token_table_ready:
+            return
         if self._token_to_market is None:
             self._build_token_map()
         if not self._token_to_market:
             return
-        con.execute("CREATE TABLE _token_map (token_id VARCHAR, market_id VARCHAR, outcome_idx INTEGER)")
+        con.execute("CREATE TABLE IF NOT EXISTS _token_map (token_id VARCHAR, market_id VARCHAR, outcome_idx INTEGER)")
         records = [(tid, mid, oidx) for tid, (mid, oidx) in self._token_to_market.items()]
         con.executemany("INSERT INTO _token_map VALUES (?, ?, ?)", records)
+        self._token_table_ready = True
 
     def trade_count(
         self,
@@ -126,7 +137,7 @@ class PolymarketFeed(BaseFeed):
         if not self._token_to_market:
             return 0
 
-        con = duckdb.connect()
+        con = self._get_con()
         self._setup_token_map_table(con)
         time_sql, market_sql = self._filter_sql(market_ids, start_time, end_time)
 
@@ -150,6 +161,43 @@ class PolymarketFeed(BaseFeed):
         ).fetchone()
         return result[0] if result else 0
 
+    def market_volumes(
+        self,
+        market_ids: list[str] | None = None,
+        start_time: datetime | None = None,
+        end_time: datetime | None = None,
+    ) -> dict[str, int]:
+        """Return trade count per Polymarket market."""
+        if self._token_to_market is None:
+            self._build_token_map()
+        if not self._token_to_market:
+            return {}
+
+        con = self._get_con()
+        self._setup_token_map_table(con)
+        time_sql, market_sql = self._filter_sql(market_ids, start_time, end_time)
+
+        rows = con.execute(
+            f"""
+            SELECT tm.market_id, COUNT(*) AS cnt
+            FROM '{self.trades_dir}/*.parquet' t
+            JOIN '{self.blocks_dir}/*.parquet' b ON t.block_number = b.block_number
+            JOIN _token_map tm ON (
+                CASE
+                    WHEN t.maker_asset_id::VARCHAR = '0'
+                    THEN t.taker_asset_id::VARCHAR
+                    ELSE t.maker_asset_id::VARCHAR
+                END = tm.token_id
+            )
+            WHERE t.taker_amount > 0
+              AND t.maker_amount > 0
+              AND {time_sql}
+              {market_sql}
+            GROUP BY tm.market_id
+            """
+        ).fetchall()
+        return {mid: int(cnt) for mid, cnt in rows}
+
     def trades(
         self,
         market_ids: list[str] | None = None,
@@ -168,7 +216,7 @@ class PolymarketFeed(BaseFeed):
         if not self._token_to_market:
             return
 
-        con = duckdb.connect()
+        con = self._get_con()
         self._setup_token_map_table(con)
         time_sql, market_sql = self._filter_sql(market_ids, start_time, end_time)
 

@@ -36,6 +36,19 @@ class BaseFeed(ABC):
         ...
 
     @abstractmethod
+    def market_volumes(
+        self,
+        market_ids: list[str] | None = None,
+        start_time: datetime | None = None,
+        end_time: datetime | None = None,
+    ) -> dict[str, int]:
+        """Return trade count per market, keyed by market_id.
+
+        Used by the engine for volume-based market selection.
+        """
+        ...
+
+    @abstractmethod
     def trades(
         self,
         market_ids: list[str] | None = None,

@@ -12,11 +12,12 @@ Produces a minitrade-style multi-panel interactive chart:
 All panels share a linked x-axis and crosshair, with auto-scaling y-axes,
 hover tooltips, and click-to-hide legends.
 """
-# pyright: reportArgumentType=false, reportCallIssue=false, reportOperatorIssue=false
+# pyright: reportArgumentType=false, reportCallIssue=false, reportOperatorIssue=false, reportAttributeAccessIssue=false
 
 from __future__ import annotations
 
 import os
+import random
 import sys
 from colorsys import hls_to_rgb, rgb_to_hls
 from functools import partial
@@ -30,12 +31,13 @@ from bokeh.colors.named import lime as BULL_COLOR
 from bokeh.colors.named import tomato as BEAR_COLOR
 from bokeh.io import output_file, output_notebook, show
 from bokeh.io.state import curstate
-from bokeh.layouts import gridplot
+from bokeh.layouts import column, gridplot
 from bokeh.models import (  # type: ignore[attr-defined]
     ColumnDataSource,
     CrosshairTool,
     CustomJS,
     DatetimeTickFormatter,
+    Div,
     HoverTool,
     Legend,
     NumeralTickFormatter,
@@ -123,16 +125,83 @@ def lightness(color: Any, light: float = 0.94) -> RGB:
     return RGB(*rgb)
 
 
+def _downsample(
+    eq: pd.DataFrame,
+    fills_df: pd.DataFrame,
+    market_df: pd.DataFrame,
+    max_points: int = 5000,
+    alloc_df: pd.DataFrame | None = None,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame | None]:
+    """Downsample plotting data to *max_points* rows.
+
+    Preserves first/last points, fill-event rows, equity peak, and max
+    drawdown to keep key visual events intact.  Fills' ``bar`` column is
+    remapped to match the new indices.
+
+    If *alloc_df* is provided it is downsampled to the same rows.
+    """
+    n = len(eq)
+    if n <= max_points:
+        return eq, fills_df, market_df, alloc_df
+
+    # Build set of "must keep" original indices
+    keep: set[int] = {0, n - 1}  # first & last
+
+    # Rows where fills occurred
+    if not fills_df.empty:
+        keep.update(fills_df["bar"].astype(int).tolist())
+
+    # Equity peak and max drawdown
+    keep.add(int(eq["equity"].idxmax()))
+    keep.add(int(eq["drawdown_pct"].idxmax()))
+
+    # Uniformly spaced samples to fill up to max_points
+    budget = max_points - len(keep)
+    if budget > 0:
+        uniform = np.linspace(0, n - 1, budget, dtype=int)
+        keep.update(uniform.tolist())
+
+    keep_sorted = sorted(keep)
+
+    # Build old→new index mapping
+    old_to_new = {old_idx: new_idx for new_idx, old_idx in enumerate(keep_sorted)}
+
+    # Downsample eq and market_df
+    eq_ds = eq.iloc[keep_sorted].reset_index(drop=True)
+    market_ds = market_df.iloc[keep_sorted].reset_index(drop=True) if not market_df.empty else market_df
+
+    # Downsample alloc_df to same rows
+    alloc_ds: pd.DataFrame | None = None
+    if alloc_df is not None and not alloc_df.empty:
+        alloc_ds = alloc_df.iloc[keep_sorted].reset_index(drop=True)
+
+    # Remap fills bar indices
+    if not fills_df.empty:
+        fills_ds = fills_df.copy()
+        fills_ds["bar"] = fills_ds["bar"].astype(int).map(old_to_new)
+        # Drop any fills that didn't map (shouldn't happen since we kept them)
+        fills_ds = fills_ds.dropna(subset=["bar"])
+        fills_ds["bar"] = fills_ds["bar"].astype(int)
+    else:
+        fills_ds = fills_df
+
+    return eq_ds, fills_ds, market_ds, alloc_ds
+
+
 def _build_dataframes(
     result: BacktestResult,
     bar: PinnedProgress[None] | None = None,
     max_markets: int = 10,
+    max_points: int = 5000,
 ):
     """Convert a :class:`BacktestResult` into plotting-ready DataFrames.
 
     Only the top *max_markets* markets (by price range among traded markets)
     are fully aligned to the equity timeline.  This avoids building a
     20 000-column DataFrame that would consume tens of GB of RAM.
+
+    The result is downsampled to at most *max_points* bars so the
+    serialised Bokeh JSON stays small enough for the browser to render.
 
     Returns
     -------
@@ -196,21 +265,18 @@ def _build_dataframes(
     market_prices = getattr(result, "market_prices", {})
     market_series: dict[str, np.ndarray] = {}
     if market_prices:
-        # --- cheap pre-filter: pick the top max_markets by price range ---
+        # --- select markets: all traded first, then random sample ---
         traded_ids = set(fills_df["market_id"]) if not fills_df.empty else set()
-        range_map: dict[str, float] = {}
-        for mid, recs in market_prices.items():
-            if not recs:
-                continue
-            prices_raw = [p for _, p in recs]
-            if not prices_raw:
-                continue
-            pmin, pmax = min(prices_raw), max(prices_raw)
-            # prefer traded markets; bias their range so they sort first
-            bonus = 1e6 if (mid in traded_ids) else 0.0
-            range_map[mid] = (pmax - pmin) + bonus
-        # sort descending by range and keep only top N
-        selected = sorted(range_map, key=range_map.get, reverse=True)[:max_markets]  # type: ignore[arg-type]
+        # Always include every traded market
+        traded_with_data = [mid for mid in traded_ids if mid in market_prices and market_prices[mid]]
+        non_traded = [mid for mid in market_prices if mid not in traded_ids and market_prices[mid]]
+        # Fill remaining budget with a random spread of non-traded markets
+        budget = max(0, max_markets - len(traded_with_data))
+        if budget > 0 and non_traded:
+            sampled = random.sample(non_traded, min(budget, len(non_traded)))
+        else:
+            sampled = []
+        selected = traded_with_data + sampled
         selected_set = set(selected)
 
         n_selected = len(selected_set)
@@ -243,7 +309,158 @@ def _build_dataframes(
     else:
         market_df = pd.DataFrame(index=eq.index)
 
-    return eq, fills_df, market_df
+    # Downsample to keep the Bokeh JSON small enough for the browser
+    n_bars_original = len(eq)
+    eq, fills_df, market_df, _ = _downsample(eq, fills_df, market_df, max_points=max_points)
+
+    return eq, fills_df, market_df, n_bars_original
+
+
+def _build_allocation_data(
+    eq: pd.DataFrame,
+    fills_df: pd.DataFrame,
+    market_prices: dict[str, list[tuple]],
+    top_n: int | None = None,
+) -> pd.DataFrame:
+    """Reconstruct position-value allocation over time from fills + prices.
+
+    Returns a :class:`~pandas.DataFrame` with one column per traded market
+    plus ``"Cash"``.  When *top_n* is ``None`` (default) every position gets
+    its own column — no "Other" bucket — so that each market is visible in
+    the allocation chart.  Values are **dollar amounts** (not percentages);
+    the caller normalises.
+    """
+    n_bars = len(eq)
+    eq_dts = eq["datetime"].values  # datetime64[ns]
+
+    if fills_df.empty:
+        return pd.DataFrame({"Cash": eq["cash"].values}, index=eq.index)
+
+    # 1. Replay fills → cumulative position qty at each bar ----------------
+    #    Only track traded markets (those with fills).
+    pos_changes: dict[str, np.ndarray] = {}  # mid → delta array
+    for _, f in fills_df.iterrows():
+        mid = f["market_id"]
+        bar_idx = int(f["bar"])
+        if mid not in pos_changes:
+            pos_changes[mid] = np.zeros(n_bars)
+        if f["action"] == "buy" and f["side"] == "yes":
+            pos_changes[mid][bar_idx] += f["quantity"]
+        elif f["action"] == "sell" and f["side"] == "yes":
+            pos_changes[mid][bar_idx] -= f["quantity"]
+        elif f["action"] == "buy" and f["side"] == "no":
+            pos_changes[mid][bar_idx] -= f["quantity"]
+        elif f["action"] == "sell" and f["side"] == "no":
+            pos_changes[mid][bar_idx] += f["quantity"]
+
+    pos_qty: dict[str, np.ndarray] = {}
+    for mid, deltas in pos_changes.items():
+        pos_qty[mid] = np.cumsum(deltas)
+
+    # 2. Forward-fill market prices onto the equity timeline ---------------
+    #    Use the last fill price per market as a cheap fallback; only do
+    #    the full price-history lookup for the top-N markets (by qty) to
+    #    keep this fast even with thousands of traded markets.
+    fill_price_map: dict[str, float] = {}
+    if not fills_df.empty:
+        for mid, grp in fills_df.groupby("market_id"):
+            fill_price_map[str(mid)] = float(grp["price"].iloc[-1])
+
+    # Pre-select top candidates by peak absolute qty so we limit expensive work
+    peak_qty = {mid: float(np.max(np.abs(q))) for mid, q in pos_qty.items()}
+    ranked_by_qty = sorted(peak_qty, key=peak_qty.get, reverse=True)  # type: ignore[arg-type]
+    # Process full price history for top N only; rest use fill-price fallback
+    if top_n is None:
+        expensive_set = set(ranked_by_qty)  # all markets
+    else:
+        expensive_set = set(ranked_by_qty[: top_n * 2])
+
+    # Pre-compute last price timestamp for each market from raw price data.
+    # Used to zero out positions after the market's price feed ends
+    # (i.e. market resolved / closed).
+    market_last_ts: dict[str, np.datetime64] = {}
+    for mid in pos_qty:
+        recs = market_prices.get(mid, [])
+        if recs:
+            last_ts = max(ts for ts, _ in recs)
+            market_last_ts[mid] = pd.Timestamp(last_ts).tz_localize(None).to_datetime64()
+
+    price_on_bar: dict[str, np.ndarray] = {}
+    for mid in pos_qty:
+        recs = market_prices.get(mid, []) if mid in expensive_set else []
+        if recs:
+            ts_list, pr_list = zip(*recs)
+            ts_arr = pd.to_datetime(list(ts_list)).values.astype("datetime64[ns]")
+            pr_arr = np.array(pr_list, dtype=float)
+            order = np.argsort(ts_arr)
+            ts_arr, pr_arr = ts_arr[order], pr_arr[order]
+            idx = np.searchsorted(ts_arr, eq_dts, side="right") - 1
+            prices = np.full(n_bars, np.nan)
+            valid = idx >= 0
+            prices[valid] = pr_arr[idx[valid]]
+            prices[eq_dts < ts_arr[0]] = np.nan
+            prices[eq_dts > ts_arr[-1]] = np.nan
+            price_on_bar[mid] = prices
+        else:
+            # Cheap fallback: constant price from last fill
+            fp = fill_price_map.get(mid, 0.5)
+            price_on_bar[mid] = np.full(n_bars, fp)
+
+    # Zero out position qty after the market's price feed ends.
+    # This handles market resolution: once there is no more price data,
+    # the position was settled and should not contribute to allocation.
+    for mid in pos_qty:
+        last_ts = market_last_ts.get(mid)
+        if last_ts is not None:
+            # Zero out all bars after the last price observation
+            cutoff = np.searchsorted(eq_dts, last_ts, side="right")
+            if 0 < cutoff < n_bars:
+                pos_qty[mid][cutoff:] = 0.0
+        else:
+            # No price data at all — use fills to find end of activity
+            mid_fills = fills_df[fills_df["market_id"] == mid]
+            if not mid_fills.empty:
+                last_bar = int(mid_fills["bar"].max())
+                if last_bar < n_bars - 1:
+                    pos_qty[mid][last_bar + 1 :] = 0.0
+
+    # 3. Compute mark-to-market position values ----------------------------
+    pos_values: dict[str, np.ndarray] = {}
+    for mid, qty in pos_qty.items():
+        pr = price_on_bar.get(mid)
+        if pr is None:
+            continue
+        safe_pr = np.nan_to_num(pr, nan=0.0)
+        val = np.where(qty >= 0, qty * safe_pr, np.abs(qty) * (1.0 - safe_pr))
+        val = np.maximum(val, 0.0)
+        pos_values[mid] = val
+
+    # 4. Keep all positions (or top-N with "Other" bucket) ----------------
+    peak = {mid: float(np.max(v)) for mid, v in pos_values.items()}
+    ranked = sorted(peak, key=peak.get, reverse=True)  # type: ignore[arg-type]
+
+    # Keep individual columns for top markets, aggregate the rest into
+    # numbered visual bands so the HTML stays small.  Default max_bands=50
+    # means at most ~50 position columns regardless of how many markets
+    # were traded.
+    max_bands = 50 if top_n is None else top_n
+    if len(ranked) <= max_bands:
+        top_ids = ranked
+        other_ids: list[str] = []
+    else:
+        top_ids = ranked[:max_bands]
+        other_ids = ranked[max_bands:]
+
+    # Build all columns at once to avoid DataFrame fragmentation warnings
+    col_data: dict[str, np.ndarray] = {}
+    for mid in top_ids:
+        label = mid[:20] + "\u2026" if len(mid) > 20 else mid
+        col_data[label] = pos_values[mid]
+    if other_ids:
+        col_data["Other"] = np.sum([pos_values[m] for m in other_ids], axis=0)
+    col_data["Cash"] = np.maximum(eq["cash"].values, 0.0)
+    alloc = pd.DataFrame(col_data, index=eq.index)
+    return alloc
 
 
 # ---------------------------------------------------------------------------
@@ -261,12 +478,13 @@ def plot(
     plot_pl: bool = True,
     plot_cash: bool = True,
     plot_market_prices: bool = True,
+    plot_allocation: bool = True,
     show_legend: bool = True,
     open_browser: bool = True,
     relative_equity: bool = True,
-    max_markets: int = 10,
+    max_markets: int = 30,
     progress: bool = True,
-) -> object:
+) -> Any:
     """Render an interactive Bokeh chart for *result*.
 
     Parameters
@@ -288,13 +506,30 @@ def plot(
         os.makedirs(os.path.dirname(filename) or "output", exist_ok=True)
     _bokeh_reset(filename)
 
-    n_markets = len(getattr(result, "market_prices", {}))
-    chart_steps = 6  # setup, equity, P&L, market/fallback, sub-panels, layout
-    # Only max_markets are fully processed; the rest are skipped cheaply
-    total_steps = min(n_markets, max_markets) + chart_steps
-
     use_bar = progress and not _is_notebook()
     bar: PinnedProgress[None] | None = None
+    # We'll create the progress bar after we know actual step count.
+
+    # Build dataframes — _build_dataframes already downsamples to max_points.
+    eq, fills_df, market_df, n_bars_original = _build_dataframes(
+        result, bar=None, max_markets=max_markets,
+    )
+
+    # Build allocation from the (already downsampled) data.
+    # Every traded position gets its own column (no top-N).
+    alloc_df: pd.DataFrame | None = None
+    n_alloc_positions = 0
+    if plot_allocation:
+        alloc_df = _build_allocation_data(
+            eq, fills_df, getattr(result, "market_prices", {}), top_n=None,
+        )
+        n_alloc_positions = len([c for c in alloc_df.columns if c not in ("Cash", "Other")])
+
+    # Now create progress bar with accurate step count
+    n_chart_steps = 6  # setup, equity, P&L, market/fallback, sub-panels, layout
+    total_steps = n_chart_steps
+    n_fills_total = len(result.fills)
+    n_total_markets = len(getattr(result, "market_prices", {}))
     if use_bar:
         bar = PinnedProgress(
             iter([]),
@@ -302,13 +537,10 @@ def plot(
             desc="Rendering chart",
             unit=" steps",
         )
-        bar._setup()  # activate the pinned bar immediately
-
-    if bar:
-        bar.set_desc("Building dataframes")
-    eq, fills_df, market_df = _build_dataframes(result, bar=bar, max_markets=max_markets)
-    if bar:
-        bar.write(f"  {len(eq):,} bars, {len(fills_df):,} fills, {len(market_df.columns):,} markets")
+        bar._setup()
+        bar.write(f"  {n_bars_original:,} bars, {n_fills_total:,} fills, {n_total_markets:,} markets")
+        if n_bars_original > len(eq):
+            bar.write(f"  Downsampled: {n_bars_original:,} → {len(eq):,} bars")
     index = eq.index
 
     # Rank markets by observable price range
@@ -330,6 +562,7 @@ def plot(
         tools="xpan,xwheel_zoom,box_zoom,undo,redo,reset,save",
         active_drag="xpan",
         active_scroll="xwheel_zoom",
+        **({} if plot_width else {"sizing_mode": "stretch_width"}),  # type: ignore[arg-type]
     )
 
     pad = (index[-1] - index[0]) / 20 if len(index) > 1 else 1
@@ -462,7 +695,7 @@ return this.labels[index] || "";
         figs_above.append(fig)
 
     def _plot_pl():
-        """Render P&L as time-bucketed bars (many trades) or scatter (few)."""
+        """Render per-market P&L as triangle tick markers."""
         fig = _new_sub("Profit / Loss", height=110)
         fig.add_layout(Span(location=0, dimension="width", line_color="#666666", line_dash="dashed", line_width=1))
 
@@ -487,49 +720,8 @@ return this.labels[index] || "";
             if pnl_records:
                 pnl_df = pd.DataFrame(pnl_records).sort_values("bar")
 
-                if len(pnl_df) > 200:
-                    n_buckets = min(200, len(eq))
-                    bucket_size = max(1, len(eq) // n_buckets)
-                    pnl_df["bucket"] = (pnl_df["bar"] // bucket_size) * bucket_size
-                    agg = (
-                        pnl_df.groupby("bucket")
-                        .agg(
-                            pnl=("pnl", "sum"),
-                            count=("pnl", "count"),
-                            wins=("pnl", lambda x: (x > 0).sum()),
-                        )
-                        .reset_index()
-                    )
-                    bars_x = agg["bucket"].values
-                    bars_y = agg["pnl"].values
-                    bars_count = agg["count"].values
-                    bars_wins = agg["wins"].values
-                    bar_colors = [str(BULL_COLOR) if v > 0 else str(BEAR_COLOR) for v in bars_y]
-
-                    bar_src = ColumnDataSource(
-                        {
-                            "index": bars_x,
-                            "pnl": bars_y,
-                            "color": bar_colors,
-                            "count": bars_count,
-                            "wins": bars_wins,
-                        }
-                    )
-                    r = fig.vbar(
-                        "index",
-                        top="pnl",
-                        source=bar_src,
-                        width=max(bucket_size * 0.8, 0.8),
-                        fill_color="color",
-                        line_color="color",
-                        fill_alpha=0.7,
-                    )
-                    _set_tooltips(
-                        fig,
-                        [("Net P/L", "@pnl{+$0,0.00}"), ("Trades", "@count"), ("Wins", "@wins")],
-                        vline=False,
-                        renderers=[r],
-                    )
+                if False:  # always use scatter triangles (minitrade style)
+                    pass
                 else:
                     sz = np.abs(pnl_df["pnl"].values).astype(float)
                     if sz.max() > sz.min():
@@ -631,6 +823,226 @@ return this.labels[index] || "";
             )
 
         fig.yaxis.formatter = NumeralTickFormatter(format="$ 0,0")
+        return fig
+
+    def _plot_pnl_period():
+        """Bar chart showing P&L aggregated over equal time intervals."""
+        fig = _new_sub("P&L (periodic)", height=120)
+        fig.add_layout(Span(location=0, dimension="width", line_color="#666666", line_dash="dashed", line_width=1))
+
+        equity_vals = eq["equity"].values
+        n = len(equity_vals)
+        if n < 4:
+            return fig
+
+        # Divide the timeline into ~50-100 bins
+        n_bins = max(10, min(100, n // 20))
+        bin_edges = np.linspace(0, n - 1, n_bins + 1, dtype=int)
+
+        bar_x: list[float] = []
+        bar_pnl: list[float] = []
+        bar_dt_start: list = []
+        bar_dt_end: list = []
+
+        for i in range(len(bin_edges) - 1):
+            start, end = int(bin_edges[i]), int(bin_edges[i + 1])
+            pnl = float(equity_vals[end] - equity_vals[start])
+            bar_x.append((start + end) / 2.0)
+            bar_pnl.append(pnl)
+            bar_dt_start.append(eq["datetime"].iloc[start])
+            bar_dt_end.append(eq["datetime"].iloc[end])
+
+        pnl_pos = [max(0.0, p) for p in bar_pnl]
+        pnl_neg = [min(0.0, p) for p in bar_pnl]
+        bar_width = max(1, (bin_edges[1] - bin_edges[0]) * 0.8)
+
+        pnl_src = ColumnDataSource(
+            {
+                "x": bar_x,
+                "pnl_pos": pnl_pos,
+                "pnl_neg": pnl_neg,
+                "pnl": bar_pnl,
+                "dt_start": bar_dt_start,
+                "dt_end": bar_dt_end,
+            }
+        )
+
+        r1 = fig.vbar(
+            x="x", top="pnl_pos", source=pnl_src, width=bar_width,
+            color=str(BULL_COLOR), alpha=0.7, legend_label="Gain",
+        )
+        r2 = fig.vbar(
+            x="x", top="pnl_neg", source=pnl_src, width=bar_width,
+            color=str(BEAR_COLOR), alpha=0.7, legend_label="Loss",
+        )
+
+        fig.add_tools(
+            HoverTool(
+                renderers=[r1, r2],
+                tooltips=[
+                    ("Period", "@dt_start{%b %Y} \u2013 @dt_end{%b %Y}"),
+                    ("P&L", "@pnl{$0,0.00}"),
+                ],
+                formatters={"@dt_start": "datetime", "@dt_end": "datetime"},
+                mode="vline",
+            )
+        )
+
+        fig.yaxis.formatter = NumeralTickFormatter(format="$ 0,0")
+        return fig
+
+    def _plot_monthly_returns():
+        """Monthly returns heatmap — grid of months × years coloured by return %."""
+        from bokeh.models import BasicTicker, ColorBar, LinearColorMapper, PrintfTickFormatter
+
+        dts = pd.to_datetime(eq["datetime"])
+        eqv = eq["equity"].values.copy()
+        monthly = pd.DataFrame({"datetime": dts, "equity": eqv})
+        monthly["year"] = monthly["datetime"].dt.year.astype(str)
+        monthly["month"] = monthly["datetime"].dt.month
+
+        # Compute return for each calendar month
+        first_last = monthly.groupby(["year", "month"]).agg(
+            eq_start=("equity", "first"), eq_end=("equity", "last"),
+        )
+        first_last["ret"] = (first_last["eq_end"] - first_last["eq_start"]) / first_last["eq_start"]  # type: ignore[reportIndexIssue]
+        first_last = first_last.reset_index()
+
+        if first_last.empty:
+            return None
+
+        month_names = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                       "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+        first_last["month_name"] = first_last["month"].map(lambda m: month_names[m - 1])
+
+        years = sorted(first_last["year"].unique())
+        months_used = sorted(first_last["month"].unique())
+        month_labels = [month_names[m - 1] for m in months_used]
+
+        max_abs = max(abs(first_last["ret"].max()), abs(first_last["ret"].min()), 0.001)
+        mapper = LinearColorMapper(
+            palette=["#d73027", "#f46d43", "#fdae61", "#fee08b", "#ffffbf",
+                     "#d9ef8b", "#a6d96a", "#66bd63", "#1a9850"],
+            low=-max_abs, high=max_abs,
+        )
+
+        fig = _figure(
+            x_range=month_labels,
+            y_range=list(reversed(years)),
+            x_axis_location="above",
+            width=plot_width,
+            height=max(80, 40 + 28 * len(years)),
+            tools="hover,save",
+            toolbar_location=None,
+            **({} if plot_width else {"sizing_mode": "stretch_width"}),
+        )
+
+        heat_src = ColumnDataSource({
+            "month": first_last["month_name"].tolist(),
+            "year": first_last["year"].tolist(),
+            "ret": first_last["ret"].tolist(),
+            "ret_pct": (first_last["ret"] * 100).round(2).tolist(),
+        })
+
+        fig.rect(
+            x="month", y="year", width=1, height=1, source=heat_src,
+            fill_color={"field": "ret", "transform": mapper},
+            line_color="white", line_width=1.5,
+        )
+
+        # Add return % as text labels on each cell
+        from bokeh.models import LabelSet
+        heat_src.add(
+            [f"{v:+.1f}%" for v in (first_last["ret"] * 100).values],
+            "label",
+        )
+        labels = LabelSet(
+            x="month", y="year", text="label", source=heat_src,
+            text_align="center", text_baseline="middle",
+            text_font_size="9pt", text_color="#333333",
+        )
+        fig.add_layout(labels)
+
+        color_bar = ColorBar(
+            color_mapper=mapper, ticker=BasicTicker(desired_num_ticks=5),
+            formatter=PrintfTickFormatter(format="%+.1f%%"),
+            label_standoff=6, border_line_color=None, location=(0, 0),
+            width=8,
+        )
+        fig.add_layout(color_bar, "right")
+
+        fig.axis.axis_line_color = None
+        fig.axis.major_tick_line_color = None
+        fig.grid.grid_line_color = None
+        fig.yaxis.axis_label = "Monthly Returns"
+
+        hover = fig.select_one(HoverTool)
+        if hover is not None:
+            hover.tooltips = [
+                ("Month", "@month @year"),
+                ("Return", "@ret_pct{+0.00}%"),
+            ]
+
+        return fig
+
+    def _plot_rolling_sharpe():
+        """Rolling Sharpe ratio over the equity curve."""
+        equity_vals = eq["equity"].values.copy()
+        n = len(equity_vals)
+        if n < 60:
+            return None
+
+        # Compute bar-to-bar returns
+        returns = np.diff(equity_vals) / equity_vals[:-1]
+
+        # Rolling window — use ~5% of total bars, clamped to [20, 500]
+        window = max(20, min(500, n // 20))
+
+        # Rolling Sharpe = rolling_mean / rolling_std (annualised later via tooltip)
+        rolling_mean = pd.Series(returns).rolling(window, min_periods=window).mean().values
+        rolling_std = pd.Series(returns).rolling(window, min_periods=window).std().values
+
+        # Avoid division by zero
+        with np.errstate(divide="ignore", invalid="ignore"):
+            rolling_sharpe = np.where(rolling_std > 0, rolling_mean / rolling_std, 0.0)
+
+        # Align to eq index (returns are 1 shorter, rolling clips more)
+        sharpe_full = np.full(n, np.nan)
+        sharpe_full[1:] = rolling_sharpe  # shift by 1 since returns start at index 1
+
+        fig = _new_sub("Rolling Sharpe", height=100)
+        source.add(sharpe_full, "rolling_sharpe")
+
+        fig.add_layout(Span(location=0, dimension="width", line_color="#666666", line_dash="dashed", line_width=1))
+
+        r = fig.line("index", "rolling_sharpe", source=source, line_width=1.3, line_color="#9467bd")
+
+        # Shade positive/negative regions (only where sharpe data exists)
+        safe_sharpe = np.nan_to_num(sharpe_full, nan=0.0)
+        pos_sharpe = np.maximum(safe_sharpe, 0.0)
+        neg_sharpe = np.minimum(safe_sharpe, 0.0)
+        zero_line = np.zeros(n)
+
+        idx_arr = np.arange(n, dtype=float)
+        fig.patch(
+            x=np.r_[idx_arr, idx_arr[::-1]].tolist(),
+            y=np.r_[pos_sharpe, zero_line[::-1]].tolist(),
+            fill_color=str(BULL_COLOR), fill_alpha=0.15, line_color=None,
+        )
+        fig.patch(
+            x=np.r_[idx_arr, idx_arr[::-1]].tolist(),
+            y=np.r_[neg_sharpe, zero_line[::-1]].tolist(),
+            fill_color=str(BEAR_COLOR), fill_alpha=0.15, line_color=None,
+        )
+
+        _set_tooltips(
+            fig,
+            [("Rolling Sharpe", "@rolling_sharpe{0.000}")],
+            renderers=[r],
+        )
+        fig.yaxis.axis_label = f"Sharpe ({window}-bar)"
+        fig.legend.visible = False
+
         return fig
 
     def _plot_market_prices():
@@ -747,11 +1159,12 @@ return this.labels[index] || "";
             )
 
     def _draw_fill_markers():
-        """Buy/sell markers on the main price chart."""
+        """Buy/sell markers on the main price chart (all traded markets)."""
         if fills_df.empty:
             return
 
-        relevant = fills_df[fills_df["market_id"].isin(display_markets)].copy()
+        # Show fills for ALL traded markets, not just displayed price lines
+        relevant = fills_df.copy()
         if relevant.empty:
             return
 
@@ -826,23 +1239,140 @@ return this.labels[index] || "";
         return fig
 
     def _plot_cash():
-        fig = _new_sub("Cash / Positions", height=90)
+        fig = _new_sub("Cash / Equity", height=90)
         r = fig.line("index", "cash", source=source, line_width=1.3, line_color="#1f77b4", legend_label="Cash")
-        max_pos = eq["num_positions"].max()
-        if max_pos > 0:
-            scale = eq["cash"].max() / max_pos if max_pos > 0 else 1
-            source.add((eq["num_positions"] * scale).values, "pos_scaled")
-            fig.line(
-                "index",
-                "pos_scaled",
-                source=source,
-                line_width=1.3,
-                line_color="#ff7f0e",
-                line_dash="dashed",
-                legend_label="Positions (scaled)",
-            )
-        _set_tooltips(fig, [("Cash", "@cash{$0,0.00}"), ("Positions", "@num_positions{0,0}")], renderers=[r])
+
+        # Show actual equity line so the gap = position value
+        source.add(eq["equity"].values, "equity_dollar")
+        fig.line(
+            "index",
+            "equity_dollar",
+            source=source,
+            line_width=1.3,
+            line_color="#2ca02c",
+            legend_label="Equity",
+        )
+
+        # Show actual dollar position value (equity - cash) as dashed line
+        pos_value = (eq["equity"] - eq["cash"]).values
+        source.add(pos_value, "pos_value")
+        fig.line(
+            "index",
+            "pos_value",
+            source=source,
+            line_width=1.3,
+            line_color="#ff7f0e",
+            line_dash="dashed",
+            legend_label="Positions ($)",
+        )
+
+        _set_tooltips(
+            fig,
+            [
+                ("Cash", "@cash{$0,0.00}"),
+                ("Equity", "@equity_dollar{$0,0.00}"),
+                ("Position Value", "@pos_value{$0,0.00}"),
+                ("# Positions", "@num_positions{0,0}"),
+            ],
+            renderers=[r],
+        )
         fig.yaxis.formatter = NumeralTickFormatter(format="$ 0,0")
+        return fig
+
+    def _plot_allocation():
+        """Stacked area chart: grey = cash, coloured bands = positions.
+
+        Every traded market gets its own random colour so allocation is
+        visible even with hundreds of positions.  The allocation data uses
+        the full (non-downsampled) equity timeline.
+        """
+        assert alloc_df is not None  # narrowing for type checker
+        fig = _new_sub("Allocation", height=220)
+
+        pos_cols = [c for c in alloc_df.columns if c not in ("Cash", "Other")]
+        other_col = "Other" if "Other" in alloc_df.columns else None
+        all_cols = pos_cols + ([other_col] if other_col else []) + ["Cash"]
+
+        # Normalise against actual equity (from the equity curve) so allocation
+        # fractions stay consistent with the Cash/Equity panel.
+        equity_total = eq["equity"].values.copy()
+        # Fallback: if equity is zero or unavailable, use sum of components
+        component_total = alloc_df[all_cols].sum(axis=1).values
+        row_total = pd.Series(
+            np.where(equity_total > 0, np.maximum(equity_total, component_total), component_total),
+            index=alloc_df.index,
+        ).replace(0, 1.0)
+        normed = alloc_df[all_cols].div(row_total, axis=0).fillna(0.0).clip(0.0, 1.0)
+
+        # Allocation is downsampled to the same rows as eq, so use eq's index.
+        alloc_src_data: dict[str, Any] = {"index": eq.index.values}
+
+        # Stack order: positions first (coloured), then Other, then Cash (grey)
+        stackers: list[str] = []
+        stack_labels: list[str] = []
+        for col in pos_cols:
+            key = f"alloc_{col.replace(' ', '_').replace('.', '_')}"
+            alloc_src_data[key] = normed[col].values
+            stackers.append(key)
+            stack_labels.append(col)
+        if other_col:
+            key = "alloc__Other"
+            alloc_src_data[key] = normed[other_col].values
+            stackers.append(key)
+            stack_labels.append("Other")
+        # Cash on top (grey)
+        cash_key = "alloc__Cash"
+        alloc_src_data[cash_key] = normed["Cash"].values
+        stackers.append(cash_key)
+        stack_labels.append("Cash")
+
+        alloc_source = ColumnDataSource(alloc_src_data)
+
+        # Generate random distinguishable colours for every position.
+        # Use golden-angle hue spacing for maximal visual separation.
+        n_pos = len(pos_cols) + (1 if other_col else 0)
+        rng = random.Random(42)  # deterministic per run
+        hue_offset = rng.random()
+        palette: list[str] = []
+        golden_ratio = 0.618033988749895
+        for i in range(n_pos):
+            h = (hue_offset + i * golden_ratio) % 1.0
+            s = 0.55 + rng.random() * 0.3   # 0.55–0.85
+            lit = 0.45 + rng.random() * 0.15  # 0.45–0.60
+            r_c, g_c, b_c = hls_to_rgb(h, lit, s)
+            palette.append(f"#{int(r_c*255):02x}{int(g_c*255):02x}{int(b_c*255):02x}")
+        # Cash = neutral grey
+        palette.append("#cccccc")
+
+        renderers = fig.varea_stack(
+            stackers=stackers,
+            x="index",
+            source=alloc_source,
+            color=palette[: len(stackers)],
+            alpha=0.85,
+        )
+
+        # Only add legend entries for a manageable subset; skip if thousands
+        from bokeh.models import LegendItem
+        MAX_LEGEND = 15
+        legend_items: list[Any] = []
+        # Always show Cash
+        legend_items.append(LegendItem(label="Cash", renderers=[renderers[-1]]))
+        if other_col:
+            legend_items.append(LegendItem(label="Other", renderers=[renderers[-2]]))
+        # Show top positions by peak value
+        for r_obj, lbl in list(zip(renderers, stack_labels))[:MAX_LEGEND - len(legend_items)]:
+            if lbl in ("Cash", "Other"):
+                continue
+            legend_items.append(LegendItem(label=lbl, renderers=[r_obj]))
+        if len(pos_cols) > MAX_LEGEND:
+            n_hidden = len(pos_cols) - MAX_LEGEND + len(legend_items)
+            legend_items.append(LegendItem(label=f"+{n_hidden} more", renderers=[]))
+        fig.legend.items = legend_items
+
+        fig.y_range = Range1d(0, 1)
+        fig.yaxis.formatter = NumeralTickFormatter(format="0%")
+
         return fig
 
     if bar:
@@ -859,6 +1389,9 @@ return this.labels[index] || "";
         pl_fig = _plot_pl()
         if pl_fig is not None:
             figs_above.append(pl_fig)
+        pnl_period_fig = _plot_pnl_period()
+        if pnl_period_fig is not None:
+            figs_above.append(pnl_period_fig)
     if bar:
         bar.set_desc("P&L panel")
         bar.advance()
@@ -871,8 +1404,13 @@ return this.labels[index] || "";
         bar.set_desc("Market prices")
         bar.advance()
 
+    if plot_allocation and alloc_df is not None and len(alloc_df) > 0:
+        figs_above.append(_plot_allocation())  # type: ignore[arg-type]
     if plot_drawdown:
         figs_below.append(_plot_drawdown())
+    sharpe_fig = _plot_rolling_sharpe()
+    if sharpe_fig is not None:
+        figs_below.append(sharpe_fig)
     if plot_cash:
         figs_below.append(_plot_cash())
     if bar:
@@ -914,6 +1452,38 @@ return this.labels[index] || "";
     if plot_width is None:
         kwargs["sizing_mode"] = "stretch_width"
 
+    # Downsampling / data summary notice
+    downsampled = n_bars_original > len(eq)
+    n_price_markets = len(market_df.columns) if not market_df.empty else 0
+    n_traded = len(set(fills_df["market_id"])) if not fills_df.empty else 0
+    fills_pct = len(fills_df) / max(n_fills_total, 1) * 100
+    mkt_pct = n_price_markets / max(n_total_markets, 1) * 100
+    alloc_pct = n_alloc_positions / max(n_traded, 1) * 100
+    banner: Div | None = None
+    parts_txt: list[str] = []
+    if downsampled:
+        bar_pct = len(eq) / n_bars_original * 100
+        parts_txt.append(
+            f"Bars: {n_bars_original:,}\u2192{len(eq):,} ({bar_pct:.0f}%)"
+        )
+    parts_txt.append(
+        f"Fills: {n_fills_total:,}\u2192{len(fills_df):,} ({fills_pct:.0f}%)"
+    )
+    parts_txt.append(
+        f"Markets graphed: {n_price_markets}/{n_total_markets:,} ({mkt_pct:.0f}%)"
+    )
+    if n_alloc_positions > 0:
+        parts_txt.append(
+            f"Alloc: {n_alloc_positions}/{n_traded} traded ({alloc_pct:.0f}%)"
+        )
+    banner = Div(
+        text=(
+            f"<div style='background:#fff3cd;border:1px solid #ffc107;padding:4px 12px;"
+            f"font-size:11px;color:#856404;border-radius:3px;margin-bottom:2px'>"
+            f"\u26a0 <b>Data:</b> {' &middot; '.join(parts_txt)}</div>"
+        ),
+    )
+
     grid = gridplot(
         plots,  # type: ignore[arg-type]
         ncols=1,
@@ -921,15 +1491,41 @@ return this.labels[index] || "";
         merge_tools=True,
         **kwargs,  # type: ignore[arg-type]
     )
+
+    # Monthly returns heatmap (separate axes, not linked to shared x-range)
+    monthly_fig = _plot_monthly_returns()
+
+    # Prepend scrollbar CSS into the banner so we don't need a separate Div
+    scroll_style = (
+        "<style>html{overflow-y:scroll}body{margin:0 8px}</style>"
+    )
+
+    layout: Any
+    parts: list = []
+    if banner:
+        # Merge CSS into banner and give it a proper sizing mode
+        banner.text = scroll_style + banner.text
+        banner.sizing_mode = "stretch_width"
+        parts.append(banner)
+    else:
+        # No banner — inject CSS via a minimal invisible Div
+        parts.append(Div(text=scroll_style, sizing_mode="stretch_width", height=1, visible=False))
+    parts.append(grid)
+    if monthly_fig is not None:
+        parts.append(monthly_fig)
+    if len(parts) == 1:
+        layout = parts[0]
+    else:
+        layout = column(*parts, sizing_mode="stretch_width")  # type: ignore[arg-type]
     if bar:
         bar.set_desc("Layout assembled")
         bar.advance()
 
     try:
-        show(grid, browser=None if open_browser else "none")
+        show(layout, browser=None if open_browser else "none")
     finally:
         if bar:
             bar._refresh_bar()
             bar._teardown()
 
-    return grid
+    return layout

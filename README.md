@@ -13,49 +13,56 @@
 ![GitHub last commit](https://img.shields.io/github/last-commit/evan-kolberg/prediction-market-backtesting)
 ![GitHub repo size](https://img.shields.io/github/repo-size/evan-kolberg/prediction-market-backtesting)
 
-An event-driven backtesting engine for prediction market trading strategies. Replays historical trades from [Kalshi](https://kalshi.com) and [Polymarket](https://polymarket.com) in chronological order, simulating order fills, portfolio tracking, and market lifecycle events.
+An event-driven backtesting engine for prediction market trading strategies. Replays historical trades from [Kalshi](https://kalshi.com) and [Polymarket](https://polymarket.com) in chronological order, simulating order fills, portfolio tracking, and market lifecycle events. Engine is inspired by [NautilusTrader](https://github.com/nautechsystems/nautilus_trader) and plotting is inspired by [minitrade](https://github.com/dodid/minitrade).
 
-<p align="center">
-  <img src="media/running_backtest.gif" alt="Running a backtest" width="720">
-</p>
 
-<p align="center">
-  <img src="media/backtest_chart.png" alt="Interactive backtest chart" width="720">
-</p>
+<figure align="center">
+  <img src="media/running_backtest.gif"
+       alt="Running a backtest"
+       width="720"
+       style="border-radius: 14px;">
+  <figcaption><em>Running a backtest simulation.</em></figcaption>
+</figure>
+<figure align="center">
+  <img src="media/gambling_strategy_kalshi_1pct.png"
+       alt="Gambling strategy on Kalshi"
+       width="720"
+       style="border-radius: 14px;">
+  <figcaption><em>Performance of a naïve strategy on Kalshi.</em></figcaption>
+</figure>
+<figure align="center">
+  <img src="media/gambling_strategy_polymarket_1pct.png"
+       alt="Gambling strategy on Polymarket"
+       width="720"
+       style="border-radius: 14px;">
+  <figcaption><em>Performance of the same strategy on Polymarket.</em></figcaption>
+</figure>
+
+
 
 Built on top of [prediction-market-analysis](https://github.com/Jon-Becker/prediction-market-analysis) for data indexing and analysis.
-
-## Features
-
-- **Event-driven simulation** — replays every historical trade, firing market open/close/resolve events and checking limit order fills at each tick
-- **Multi-platform support** — Kalshi and Polymarket data feeds with normalized trade and market models
-- **Strategy API** — subclass `Strategy`, implement `on_trade()`, and call `buy_yes()` / `buy_no()` to place orders
-- **Portfolio tracking** — position management, mark-to-market pricing, equity curve snapshots, and resolution payouts
-- **Performance metrics** — total return, Sharpe ratio, Sortino ratio, max drawdown, win rate, profit factor
-- **Interactive charts** — Bokeh-based HTML charts with linked equity curve, P&L, market prices, drawdown, and cash panels
-- **Interactive CLI** — terminal menu for selecting strategies, platforms, and sample sizes
-- **Analysis passthrough** — run any analysis command from the submodule directly via `make`
 
 ## Roadmap
 
 - [x] **Interactive charts** — Bokeh-based HTML charts with linked equity curve, P&L, market prices, drawdown, and cash panels
+- [ ] **Slippage, latency, & liquidity modeling** — these will impact live-deployed strategies, so it's very important to backtest with this taken into account. In low liquidity markets, large orders will eat through the order book and it's important to be aware of this price impact.
 - [ ] **Time span selection** — restrict backtests to a specific date range (e.g. `--start 2024-01-01 --end 2024-12-31`)
 - [ ] **Market filtering** — filter by market type, category, or specific market IDs
 - [ ] **Advanced order types** — market orders, stop-losses, take-profit, and time-in-force options
-- [ ] **Strategy parameters** — CLI flags and config files for tuning strategy hyperparameters without code changes
 - [ ] **Walk-forward optimization** — automated parameter sweeps with in-sample / out-of-sample splits
 - [ ] **Multi-strategy comparison** — run multiple strategies side-by-side and generate comparative reports
-- [ ] **Slippage & latency modeling** — configurable fill delay and price impact simulation
-- [ ] **Live paper trading** — forward-test strategies against real-time market data without placing actual orders
-- [ ] **Additional platforms** — support for more prediction market exchanges as data becomes available
-- [ ] **Richer charting** — volume overlays, rolling Sharpe, win-rate heatmaps, and exportable PDF reports
+
+## Current issues
+
+- [ ] Insanely high mem usage (42 gigs when loading top 1% volume polymarket data). Even with 48 gigs of ram, this is painful. Kalsi is fine, even at 100% markets since data collection was done differently (~19 gigs ram).
+
 
 ## Prerequisites
 
 - Python 3.9+
-- [uv](https://docs.astral.sh/uv/) — fast Python package manager
-- [zstd](https://github.com/facebook/zstd) — required for data decompression
-- [GNU Make](https://www.gnu.org/software/make/)
+- [uv](https://docs.astral.sh/uv/) — fast Python package manager `brew install uv`
+- [zstd](https://github.com/facebook/zstd) — required for data decompression `brew install zstd`
+- [GNU Make](https://www.gnu.org/software/make/) - needed for using makefiles `brew install make`
 
 ## Quick Start
 
@@ -82,7 +89,7 @@ uv sync
 
 ### 3. Download the data
 
-This downloads and extracts the historical trade dataset (~36 GB compressed) into the submodule's `data/` directory. A symlink at the root points there.
+This downloads and extracts the historical trade dataset (~36 GB compressed, ~53.57 uncompressed) into the submodule's `data/` directory. A symlink at the root points there.
 
 ```bash
 make setup
@@ -98,11 +105,16 @@ make backtest
 
 This launches an interactive menu where you select a strategy, platform, and market sample size. Results are printed to the terminal and an event log is saved to `output/`.
 
+<p align="center">
+  <img src="media/backtest.gif" alt="Running a backtest" width="360" style="border-radius: 8px;">
+</p>
+
 To run a specific strategy directly:
 
 ```bash
 make backtest buy_low
 make backtest calibration_arb
+make backtest gambling_addiction
 ```
 
 ## Available Commands
@@ -129,7 +141,7 @@ Any target not defined in the root Makefile is forwarded to the [prediction-mark
 
 ## Writing a Strategy
 
-Create a new file in `src/backtesting/examples/` and subclass `Strategy`:
+Create a new file in `src/backtesting/strategies/` and subclass `Strategy`:
 
 ```python
 from src.backtesting.models import TradeEvent
@@ -149,7 +161,7 @@ class MyStrategy(Strategy):
             self.buy_yes(trade.market_id, price=0.10, quantity=10.0)
 ```
 
-Strategies are auto-discovered — drop a `.py` file in the examples directory and it appears in the backtest menu.
+Strategies are auto-discovered — drop a `.py` file in the `strategies/` directory and it appears in the backtest menu.
 
 ### Strategy API
 
@@ -203,9 +215,10 @@ Strategies are auto-discovered — drop a `.py` file in the examples directory a
 │       │   ├── base.py              # Abstract data feed interface
 │       │   ├── kalshi.py            # Kalshi parquet data feed
 │       │   └── polymarket.py        # Polymarket parquet data feed
-│       └── examples/
-│           ├── buy_low.py           # Example: buy YES below threshold
-│           └── calibration_arb.py   # Example: exploit calibration mispricings
+│       └── strategies/
+│           ├── buy_low.py           # Buy YES below threshold, hold to resolution
+│           ├── calibration_arb.py   # Exploit calibration mispricings at extremes
+│           └── gambling_addiction.py # Martingale + mean-reversion gambling tactics
 ├── tests/                           # Test suite
 ├── output/                          # Backtest logs and results
 └── prediction-market-analysis/      # Data & analysis submodule
@@ -218,7 +231,7 @@ Historical trade data is sourced from the [prediction-market-analysis](https://g
 | Platform | Data |
 |---|---|
 | Kalshi | Markets metadata + individual trades with prices in cents (1–99) |
-| Polymarket | CLOB markets + on-chain CTF Exchange trades joined with block timestamps |
+| Polymarket | On-chain CTF Exchange trade executions (OrderFilled events from Polygon) joined with block timestamps. Not CLOB order book data — only filled trades are available. |
 
 ## License
 
@@ -228,4 +241,4 @@ This project is licensed under the MIT License. See [LICENSE](LICENSE) for detai
 
 ## Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=evan-kolberg/prediction-market-backtesting&type=Date)](https://star-history.com/#evan-kolberg/prediction-market-backtesting&Date)
+[![Star History Chart](https://api.star-history.com/svg?repos=evan-kolberg/prediction-market-backtesting&type=date&legend=top-left)](https://www.star-history.com/#evan-kolberg/prediction-market-backtesting&type=date&legend=top-left)

@@ -98,18 +98,30 @@ def _run_backtest_interactive(strategy, platforms: dict):
     _, feed_factory = platforms[platform_key]
     feed = feed_factory()
 
-    sample_options = ["100% (all markets)", "50%", "20%", "10%"]
+    sample_options = [
+        "Top 1% by volume (recommended — captures most trading activity)",
+        "Top 5% by volume",
+        "Top 10% by volume",
+        "Top 20% by volume",
+        "Top 50% by volume",
+        "100% — all markets (not recommended — very slow, mostly illiquid)",
+    ]
     sample_menu = TerminalMenu(
         sample_options,
-        title="Market sample size:",
+        title=(
+            "Market selection (by trading volume):\n"
+            "  A small fraction of markets account for the vast majority of\n"
+            "  trading volume on prediction market platforms. Filtering to\n"
+            "  the top percentile gives you the most realistic backtest."
+        ),
         cycle_cursor=True,
         clear_screen=False,
     )
     sample_choice = cast("int | None", sample_menu.show())
-    sample_map: dict[int, float | None] = {0: None, 1: 0.5, 2: 0.2, 3: 0.1}
-    market_sample = sample_map.get(sample_choice) if sample_choice is not None else None
+    sample_map: dict[int, float | None] = {0: 0.01, 1: 0.05, 2: 0.1, 3: 0.2, 4: 0.5, 5: None}
+    market_sample = sample_map.get(sample_choice) if sample_choice is not None else 0.01
 
-    sample_label = sample_options[sample_choice] if sample_choice is not None else "100%"
+    sample_label = sample_options[sample_choice].split(" (")[0] if sample_choice is not None else "Top 1%"
 
     print(f"\n{BOLD}{CYAN}Running backtest: {strategy.name} on {platform_key}{RESET}")
     print(f"  {DIM}Strategy:{RESET}     {strategy.description}")
@@ -168,7 +180,6 @@ def _run_backtest_interactive(strategy, platforms: dict):
         log_path.write_text("\n".join(result.event_log) + "\n")
         print(f"  {DIM}Event log:{RESET}      {log_path} ({len(result.event_log)} events)\n")
 
-    # Offer interactive Bokeh chart
     if result.equity_curve:
         plot_options = ["Open interactive chart", "Save chart to HTML only", "Skip"]
         plot_menu = TerminalMenu(

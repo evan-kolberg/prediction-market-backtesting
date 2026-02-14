@@ -31,7 +31,7 @@ def _trade(yes_price: float, market_id: str = "MKT-A") -> TradeEvent:
 
 class TestBuyYesFills:
     def test_fills_when_price_below_limit(self) -> None:
-        broker = Broker()
+        broker = Broker(slippage=0)
         broker.place_order("MKT-A", "buy", "yes", 0.50, 10.0)
         fills = broker.check_fills(_trade(0.40), 10000.0)
         assert len(fills) == 1
@@ -40,13 +40,13 @@ class TestBuyYesFills:
         assert fills[0].side == Side.YES
 
     def test_fills_when_price_equals_limit(self) -> None:
-        broker = Broker()
+        broker = Broker(slippage=0)
         broker.place_order("MKT-A", "buy", "yes", 0.50, 10.0)
         fills = broker.check_fills(_trade(0.50), 10000.0)
         assert len(fills) == 1
 
     def test_no_fill_when_price_above_limit(self) -> None:
-        broker = Broker()
+        broker = Broker(slippage=0)
         broker.place_order("MKT-A", "buy", "yes", 0.50, 10.0)
         fills = broker.check_fills(_trade(0.60), 10000.0)
         assert len(fills) == 0
@@ -54,14 +54,14 @@ class TestBuyYesFills:
 
 class TestSellYesFills:
     def test_fills_when_price_above_limit(self) -> None:
-        broker = Broker()
+        broker = Broker(slippage=0)
         broker.place_order("MKT-A", "sell", "yes", 0.50, 10.0)
         fills = broker.check_fills(_trade(0.60), 10000.0)
         assert len(fills) == 1
         assert fills[0].price == 0.60
 
     def test_no_fill_when_price_below_limit(self) -> None:
-        broker = Broker()
+        broker = Broker(slippage=0)
         broker.place_order("MKT-A", "sell", "yes", 0.50, 10.0)
         fills = broker.check_fills(_trade(0.40), 10000.0)
         assert len(fills) == 0
@@ -69,7 +69,7 @@ class TestSellYesFills:
 
 class TestBuyNoFills:
     def test_fills_when_no_price_below_limit(self) -> None:
-        broker = Broker()
+        broker = Broker(slippage=0)
         broker.place_order("MKT-A", "buy", "no", 0.40, 10.0)
         fills = broker.check_fills(_trade(0.70), 10000.0)
         assert len(fills) == 1
@@ -77,7 +77,7 @@ class TestBuyNoFills:
         assert fills[0].side == Side.NO
 
     def test_no_fill_when_no_price_above_limit(self) -> None:
-        broker = Broker()
+        broker = Broker(slippage=0)
         broker.place_order("MKT-A", "buy", "no", 0.20, 10.0)
         fills = broker.check_fills(_trade(0.70), 10000.0)
         assert len(fills) == 0
@@ -85,28 +85,36 @@ class TestBuyNoFills:
 
 class TestSellNoFills:
     def test_fills_when_no_price_above_limit(self) -> None:
-        broker = Broker()
+        broker = Broker(slippage=0)
         broker.place_order("MKT-A", "sell", "no", 0.40, 10.0)
         fills = broker.check_fills(_trade(0.50), 10000.0)
         assert len(fills) == 1
         assert fills[0].price == 0.50  # no_price = 0.50
 
     def test_no_fill_when_no_price_below_limit(self) -> None:
-        broker = Broker()
+        broker = Broker(slippage=0)
         broker.place_order("MKT-A", "sell", "no", 0.60, 10.0)
         fills = broker.check_fills(_trade(0.50), 10000.0)
         assert len(fills) == 0
 
 
 class TestCashConstraint:
-    def test_buy_rejected_when_insufficient_cash(self) -> None:
-        broker = Broker()
+    def test_buy_partial_fill_when_insufficient_cash(self) -> None:
+        broker = Broker(slippage=0)
         broker.place_order("MKT-A", "buy", "yes", 0.50, 100.0)
         fills = broker.check_fills(_trade(0.40), 1.0)
+        # Liquidity cap allows partial fill: floor(1.0 / 0.40) = 2 contracts
+        assert len(fills) == 1
+        assert fills[0].quantity == 2
+
+    def test_buy_rejected_when_no_cash(self) -> None:
+        broker = Broker(slippage=0)
+        broker.place_order("MKT-A", "buy", "yes", 0.50, 100.0)
+        fills = broker.check_fills(_trade(0.40), 0.0)
         assert len(fills) == 0
 
     def test_buy_succeeds_with_exact_cash(self) -> None:
-        broker = Broker()
+        broker = Broker(slippage=0)
         broker.place_order("MKT-A", "buy", "yes", 0.50, 10.0)
         fills = broker.check_fills(_trade(0.50), 5.0)
         assert len(fills) == 1
@@ -161,28 +169,30 @@ class TestMultipleFills:
 
 class TestCommission:
     def test_commission_applied(self) -> None:
-        broker = Broker(commission_rate=0.01)
+        broker = Broker(commission_rate=0.01, slippage=0)
         broker.place_order("MKT-A", "buy", "yes", 0.50, 10.0)
         fills = broker.check_fills(_trade(0.50), 10000.0)
         assert len(fills) == 1
         assert fills[0].commission == 0.50 * 10.0 * 0.01
 
-    def test_commission_blocks_fill_when_cash_insufficient(self) -> None:
-        broker = Broker(commission_rate=0.10)
+    def test_commission_reduces_fill_quantity(self) -> None:
+        broker = Broker(commission_rate=0.10, slippage=0)
         broker.place_order("MKT-A", "buy", "yes", 0.50, 10.0)
         fills = broker.check_fills(_trade(0.50), 5.0)
-        assert len(fills) == 0
+        # $5 cash, price $0.50, 10% commission → max qty = 5 / (0.50 * 1.10) = 9
+        assert len(fills) == 1
+        assert fills[0].quantity == 9
 
 
 class TestFilledOrderState:
     def test_filled_order_removed_from_pending(self) -> None:
-        broker = Broker()
+        broker = Broker(slippage=0)
         broker.place_order("MKT-A", "buy", "yes", 0.50, 10.0)
         broker.check_fills(_trade(0.40), 10000.0)
         assert len(broker.pending_orders) == 0
 
     def test_filled_order_status_updated(self) -> None:
-        broker = Broker()
+        broker = Broker(slippage=0)
         order = broker.place_order("MKT-A", "buy", "yes", 0.50, 10.0)
         broker.check_fills(_trade(0.40), 10000.0)
         assert order.status == OrderStatus.FILLED
