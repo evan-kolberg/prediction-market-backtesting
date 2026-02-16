@@ -26,7 +26,6 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import pandas as pd  # type: ignore[import-untyped]
-from bokeh.colors import RGB
 from bokeh.colors.named import lime as BULL_COLOR
 from bokeh.colors.named import tomato as BEAR_COLOR
 from bokeh.io import output_file, output_notebook, show
@@ -117,12 +116,12 @@ def colorgen():
     yield from cycle(Category10[10])
 
 
-def lightness(color: Any, light: float = 0.94) -> RGB:
-    """Return *color* adjusted to the given lightness."""
+def lightness(color: Any, light: float = 0.94) -> str:
+    """Return *color* adjusted to the given lightness as a hex string."""
     rgb = np.array([color.r, color.g, color.b]) / 255
     h, _, s = rgb_to_hls(*rgb)
-    rgb = np.array(hls_to_rgb(h, light, s)) * 255.0
-    return RGB(*rgb)
+    r_c, g_c, b_c = hls_to_rgb(h, light, s)
+    return f"#{int(r_c * 255):02x}{int(g_c * 255):02x}{int(b_c * 255):02x}"
 
 
 def _downsample(
@@ -877,7 +876,7 @@ return this.labels[index] || "";
             top="pnl_pos",
             source=pnl_src,
             width=bar_width,
-            color=str(BULL_COLOR),
+            color=BULL_COLOR.to_hex(),
             alpha=0.7,
             legend_label="Gain",
         )
@@ -886,7 +885,7 @@ return this.labels[index] || "";
             top="pnl_neg",
             source=pnl_src,
             width=bar_width,
-            color=str(BEAR_COLOR),
+            color=BEAR_COLOR.to_hex(),
             alpha=0.7,
             legend_label="Loss",
         )
@@ -1058,14 +1057,14 @@ return this.labels[index] || "";
         fig.patch(
             x=np.r_[idx_arr, idx_arr[::-1]].tolist(),
             y=np.r_[pos_sharpe, zero_line[::-1]].tolist(),
-            fill_color=str(BULL_COLOR),
+            fill_color=BULL_COLOR.to_hex(),
             fill_alpha=0.15,
             line_color=None,
         )
         fig.patch(
             x=np.r_[idx_arr, idx_arr[::-1]].tolist(),
             y=np.r_[neg_sharpe, zero_line[::-1]].tolist(),
-            fill_color=str(BEAR_COLOR),
+            fill_color=BEAR_COLOR.to_hex(),
             fill_alpha=0.15,
             line_color=None,
         )
@@ -1176,7 +1175,7 @@ return this.labels[index] || "";
             fig_main.multi_line(
                 xs_profit,
                 ys_profit,
-                line_color=str(colors_darker[1]),
+                line_color=colors_darker[1],
                 line_width=6,
                 line_alpha=0.8,
                 line_dash="dotted",
@@ -1186,7 +1185,7 @@ return this.labels[index] || "";
             fig_main.multi_line(
                 xs_loss,
                 ys_loss,
-                line_color=str(colors_darker[0]),
+                line_color=colors_darker[0],
                 line_width=6,
                 line_alpha=0.8,
                 line_dash="dotted",

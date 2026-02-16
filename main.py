@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+from datetime import datetime
 from pathlib import Path
 from typing import cast
 
@@ -8,12 +9,23 @@ from simple_term_menu import TerminalMenu  # type: ignore[import-untyped]
 
 from src.backtesting.strategy import Strategy
 
+DIM = "\033[2m"
+BOLD = "\033[1m"
+GREEN = "\033[32m"
+RED = "\033[31m"
+RESET = "\033[0m"
+
+
+def _ts() -> str:
+    """Current wall-clock timestamp for log prefixing."""
+    return f"{DIM}{datetime.now().strftime('%H:%M:%S')}{RESET}"
+
 
 def _snake_to_title(s: str) -> str:
     return s.replace("_", " ").title()
 
 
-def backtest(name: str | None = None):
+def backtest(name: str | None = None, use_rust: bool = True):
     """Run a backtesting strategy by name or show interactive menu."""
     from src.backtesting.feeds.kalshi import KalshiFeed
     from src.backtesting.feeds.polymarket import PolymarketFeed
@@ -32,7 +44,7 @@ def backtest(name: str | None = None):
         for strategy_cls in strategies:
             instance = strategy_cls()  # type: ignore[call-arg]
             if instance.name == name:
-                _run_backtest_interactive(instance, platforms)
+                _run_backtest_interactive(instance, platforms, use_rust=use_rust)
                 return
         print(f"Strategy '{name}' not found. Available strategies:")
         for strategy_cls in strategies:
@@ -60,19 +72,15 @@ def backtest(name: str | None = None):
 
     strategy_cls = strategies[choice]
     instance = strategy_cls()  # type: ignore[call-arg]
-    _run_backtest_interactive(instance, platforms)
+    _run_backtest_interactive(instance, platforms, use_rust=use_rust)
 
 
-def _run_backtest_interactive(strategy, platforms: dict):
+def _run_backtest_interactive(strategy, platforms: dict, use_rust: bool = True):
     """Select platform and run a backtest with the given strategy."""
-    from src.backtesting.engine import Engine
-
-    CYAN = "\033[36m"
-    GREEN = "\033[32m"
-    RED = "\033[31m"
-    BOLD = "\033[1m"
-    DIM = "\033[2m"
-    RESET = "\033[0m"
+    if not use_rust:
+        from src.backtesting._archive.engine import Engine
+    else:
+        from src.backtesting.rust_engine import Engine
 
     def _pn(value: float, fmt: str) -> str:
         """Color a numeric value green if positive, red if negative."""
@@ -123,14 +131,13 @@ def _run_backtest_interactive(strategy, platforms: dict):
 
     sample_label = sample_options[sample_choice].split(" (")[0] if sample_choice is not None else "Top 1%"
 
-    print(f"\n{BOLD}{CYAN}Running backtest: {strategy.name} on {platform_key}{RESET}")
-    print(f"  {DIM}Strategy:{RESET}     {strategy.description}")
-    print(f"  {DIM}Initial cash:{RESET} $10,000.00")
-    print(f"  {DIM}Market sample:{RESET} {sample_label}\n")
+    print(f"\n{_ts()}  Running backtest: {strategy.name} on {platform_key}")
+    print(f"{_ts()}  Strategy:         {strategy.description}")
+    print(f"{_ts()}  Initial cash:     $10,000.00")
+    print(f"{_ts()}  Market sample:    {sample_label}\n")
 
-    YELLOW = "\033[33m"
-    print(f"  {YELLOW}{BOLD}Warming up...{RESET} Loading markets and indexing trades.")
-    print(f"  {DIM}Keep an eye on your memory usage.{RESET}\n")
+    print(f"{_ts()}  Warming up... Loading markets and indexing trades.")
+    print(f"{_ts()}  Keep an eye on your memory usage.\n")
 
     engine = Engine(feed=feed, strategy=strategy, initial_cash=10_000.0, market_sample=market_sample)
     result = engine.run()
@@ -148,37 +155,37 @@ def _run_backtest_interactive(strategy, platforms: dict):
 
     equity_color = GREEN if result.final_equity >= result.initial_cash else RED
 
-    print(f"\n  {BOLD}{CYAN}Backtest Results: {result.strategy_name}{RESET}")
-    print(f"  {DIM}Platform:{RESET}         {result.platform.value}")
-    print(f"  {DIM}Period:{RESET}           {result.start_time} -> {result.end_time}")
-    print(f"  {DIM}Initial cash:{RESET}     ${result.initial_cash:,.2f}")
-    print(f"  {DIM}Final equity:{RESET}     {equity_color}${result.final_equity:,.2f}{RESET}")
-    print(f"  {DIM}Markets traded:{RESET}   {result.num_markets_traded}")
-    print(f"  {DIM}Markets resolved:{RESET} {result.num_markets_resolved}")
-    print(f"  {DIM}Total fills:{RESET}      {int(m.get('num_fills', 0))}")
+    print(f"\n{_ts()}  {BOLD}Backtest Results: {result.strategy_name}{RESET}")
+    print(f"{_ts()}  Platform:         {result.platform.value}")
+    print(f"{_ts()}  Period:           {result.start_time} -> {result.end_time}")
+    print(f"{_ts()}  Initial cash:     ${result.initial_cash:,.2f}")
+    print(f"{_ts()}  Final equity:     {equity_color}${result.final_equity:,.2f}{RESET}")
+    print(f"{_ts()}  Markets traded:   {result.num_markets_traded}")
+    print(f"{_ts()}  Markets resolved: {result.num_markets_resolved}")
+    print(f"{_ts()}  Total fills:      {int(m.get('num_fills', 0))}")
     print()
 
-    print(f"  {BOLD}Performance:{RESET}")
-    print(f"    {DIM}Total return:{RESET}   {_pn(total_ret, '{:.2%}')}")
-    print(f"    {DIM}Annualized:{RESET}     {_pn(ann_ret, '{:.2%}')}")
-    print(f"    {DIM}Sharpe ratio:{RESET}   {_pn(sharpe, '{:.3f}')}")
-    print(f"    {DIM}Sortino ratio:{RESET}  {_pn(sortino, '{:.3f}')}")
-    print(f"    {DIM}Max drawdown:{RESET}   {RED}{max_dd:.2%}{RESET}")
+    print(f"{_ts()}  {BOLD}Performance:{RESET}")
+    print(f"{_ts()}    Total return:   {_pn(total_ret, '{:.2%}')}")
+    print(f"{_ts()}    Annualized:     {_pn(ann_ret, '{:.2%}')}")
+    print(f"{_ts()}    Sharpe ratio:   {_pn(sharpe, '{:.3f}')}")
+    print(f"{_ts()}    Sortino ratio:  {_pn(sortino, '{:.3f}')}")
+    print(f"{_ts()}    Max drawdown:   {RED}{max_dd:.2%}{RESET}")
     print()
 
-    print(f"  {BOLD}Trading:{RESET}")
+    print(f"{_ts()}  {BOLD}Trading:{RESET}")
     wr_color = GREEN if win_rate >= 0.5 else RED
-    print(f"    {DIM}Win rate:{RESET}       {wr_color}{win_rate:.2%}{RESET}")
-    print(f"    {DIM}Profit factor:{RESET}  {GREEN if pf >= 1 else RED}{pf:.3f}{RESET}")
-    print(f"    {DIM}Avg trade P&L:{RESET}  {_pn(avg_pnl, '${:.4f}')}")
-    print(f"    {DIM}Commission:{RESET}     ${commission:.2f}\n")
+    print(f"{_ts()}    Win rate:       {wr_color}{win_rate:.2%}{RESET}")
+    print(f"{_ts()}    Profit factor:  {GREEN if pf >= 1 else RED}{pf:.3f}{RESET}")
+    print(f"{_ts()}    Avg trade P&L:  {_pn(avg_pnl, '${:.4f}')}")
+    print(f"{_ts()}    Commission:     ${commission:.2f}\n")
 
     if result.event_log:
         output_dir = Path("output")
         output_dir.mkdir(parents=True, exist_ok=True)
         log_path = output_dir / f"backtest_{result.strategy_name}_{result.platform.value}.log"
         log_path.write_text("\n".join(result.event_log) + "\n")
-        print(f"  {DIM}Event log:{RESET}      {log_path} ({len(result.event_log)} events)\n")
+        print(f"{_ts()}  Event log: {log_path} ({len(result.event_log)} events)\n")
 
     if result.equity_curve:
         plot_options = ["Open interactive chart", "Save chart to HTML only", "Skip"]
@@ -191,29 +198,32 @@ def _run_backtest_interactive(strategy, platforms: dict):
         plot_choice = cast("int | None", plot_menu.show())
         if plot_choice == 0:
             out_html = f"output/backtest_{result.strategy_name}_{result.platform.value}.html"
-            print(f"\n  {DIM}Rendering interactive chart → {out_html}...{RESET}")
+            print(f"\n{_ts()}  Rendering interactive chart -> {out_html}...")
             result.plot(filename=out_html, open_browser=True)
         elif plot_choice == 1:
             out_html = f"output/backtest_{result.strategy_name}_{result.platform.value}.html"
-            print(f"\n  {DIM}Saving chart to {out_html}...{RESET}")
+            print(f"\n{_ts()}  Saving chart to {out_html}...")
             result.plot(filename=out_html, open_browser=False)
-            print(f"  {GREEN}Saved.{RESET}\n")
+            print(f"{_ts()}  {GREEN}Saved.{RESET}\n")
 
 
 def main():
     if len(sys.argv) < 2:
-        print("\nUsage: uv run main.py backtest [strategy_name]")
+        print("\nUsage: uv run main.py backtest [strategy_name] [--python]")
         sys.exit(0)
 
     command = sys.argv[1]
 
     if command == "backtest":
-        name = sys.argv[2] if len(sys.argv) > 2 else None
-        backtest(name)
+        args = sys.argv[2:]
+        use_rust = "--python" not in args
+        remaining = [a for a in args if a != "--python"]
+        name = remaining[0] if remaining else None
+        backtest(name, use_rust=use_rust)
         sys.exit(0)
 
     print(f"Unknown command: {command}")
-    print("Usage: uv run main.py backtest [strategy_name]")
+    print("Usage: uv run main.py backtest [strategy_name] [--python]")
     sys.exit(1)
 
 

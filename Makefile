@@ -1,4 +1,4 @@
-.PHONY: backtest lint format test setup
+.PHONY: backtest lint format test setup build-rust
 
 ANALYSIS = VIRTUAL_ENV= $(MAKE) -C prediction-market-analysis
 RUN = uv run main.py
@@ -16,6 +16,9 @@ format:
 
 test:
 	uv run pytest tests/ -v
+
+build-rust:
+	cd crates/backtesting_engine && maturin develop --release
 
 setup:
 	git submodule update --init --recursive

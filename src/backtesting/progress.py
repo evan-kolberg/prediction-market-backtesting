@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 import sys
 import time
+from collections import deque
 from collections.abc import Iterable, Iterator
 from typing import Generic, TypeVar
 
@@ -60,6 +61,8 @@ class PinnedProgress(Generic[T]):
         self._start = time.monotonic()
         self._last_refresh = 0.0
         self._active = False
+        self._rate_samples: deque[tuple[float, int]] = deque()
+        self._rate_window: float = 3.0
 
     # -- Setup / teardown --
 
@@ -69,7 +72,7 @@ class PinnedProgress(Generic[T]):
         sys.stdout.write(f"{_ESC}{rows};1H")  # move to last row
         sys.stdout.write(f"{_ESC}2K")  # clear it
         sys.stdout.write(f"{_ESC}1;{rows - 1}r")  # set scroll region
-        sys.stdout.write(f"{_ESC}1;1H")  # move cursor into scroll region
+        sys.stdout.write(f"{_ESC}{rows - 1};1H")  # move cursor to bottom of scroll region
         sys.stdout.flush()
         self._active = True
         self._refresh_bar()
@@ -93,8 +96,20 @@ class PinnedProgress(Generic[T]):
             return
 
         elapsed = now - self._start
-        rate = self._n / elapsed if elapsed > 0 else 0
         pct = self._n / self.total if self.total else 0
+
+        # Rolling rate over a sliding window for accurate instantaneous speed
+        self._rate_samples.append((now, self._n))
+        cutoff = now - self._rate_window
+        while self._rate_samples and self._rate_samples[0][0] < cutoff:
+            self._rate_samples.popleft()
+        if len(self._rate_samples) >= 2:
+            oldest_time, oldest_count = self._rate_samples[0]
+            dt = now - oldest_time
+            dn = self._n - oldest_count
+            rate = dn / dt if dt > 0 else 0
+        else:
+            rate = self._n / elapsed if elapsed > 0 else 0
 
         # Time formatting
         elapsed_str = self._fmt_time(elapsed)
