@@ -13,32 +13,11 @@
 ![GitHub last commit](https://img.shields.io/github/last-commit/evan-kolberg/prediction-market-backtesting)
 ![GitHub repo size](https://img.shields.io/github/repo-size/evan-kolberg/prediction-market-backtesting)
 
-An event-driven backtesting engine for prediction market trading strategies. Replays historical trades from [Kalshi](https://kalshi.com) and [Polymarket](https://polymarket.com) in chronological order, simulating order fills, portfolio tracking, and market lifecycle events. Engine is inspired by [NautilusTrader](https://github.com/nautechsystems/nautilus_trader) and plotting is inspired by [minitrade](https://github.com/dodid/minitrade).
+An event-driven backtesting engine for prediction market trading strategies. Replays historical trades from [Kalshi](https://kalshi.com) and [Polymarket](https://polymarket.com) in chronological order, simulating order fills, portfolio tracking, and market lifecycle events. The hot loop (broker, portfolio, lifecycle) is compiled to native code via [PyO3](https://pyo3.rs) while strategy callbacks remain in Python. Inspired by [NautilusTrader](https://github.com/nautechsystems/nautilus_trader), plotting inspired by [minitrade](https://github.com/dodid/minitrade).
 
-
-<figure align="center">
-  <img src="media/running_backtest.gif"
-       alt="Running a backtest"
-       width="720"
-       style="border-radius: 14px;">
-  <figcaption><em>Running a backtest simulation.</em></figcaption>
-</figure>
-<figure align="center">
-  <img src="media/gambling_strategy_kalshi_1pct.png"
-       alt="Gambling strategy on Kalshi"
-       width="720"
-       style="border-radius: 14px;">
-  <figcaption><em>Performance of a naïve strategy on Kalshi.</em></figcaption>
-</figure>
-<figure align="center">
-  <img src="media/gambling_strategy_polymarket_1pct.png"
-       alt="Gambling strategy on Polymarket"
-       width="720"
-       style="border-radius: 14px;">
-  <figcaption><em>Performance of the same strategy on Polymarket.</em></figcaption>
-</figure>
-
-
+![Running a backtest](media/running_backtest.gif)
+![Gambling strategy on Polymarket](media/gambling_strategy_polymarket_1pct.png)
+![Gambling strategy on Kalshi](media/gambling_strategy_kalshi_1pct.png)
 
 Built on top of [prediction-market-analysis](https://github.com/Jon-Becker/prediction-market-analysis) for data indexing and analysis.
 
@@ -49,13 +28,11 @@ Built on top of [prediction-market-analysis](https://github.com/Jon-Becker/predi
 - [ ] **Time span selection** — restrict backtests to a specific date range (e.g. `--start 2024-01-01 --end 2024-12-31`)
 - [ ] **Market filtering** — filter by market type, category, or specific market IDs
 - [ ] **Advanced order types** — market orders, stop-losses, take-profit, and time-in-force options
-- [ ] **Walk-forward optimization** — automated parameter sweeps with in-sample / out-of-sample splits
 - [ ] **Multi-strategy comparison** — run multiple strategies side-by-side and generate comparative reports
 
 ## Current issues
 
-- [ ] Insanely high mem usage (42 gigs when loading top 1% volume polymarket data). Even with 48 gigs of ram, this is painful. Kalsi is fine, even at 100% markets since data collection was done differently (~19 gigs ram).
-
+- [ ] High memory usage (42 GB when loading top 1% volume Polymarket data). The bulk of memory comes from the data feed and plotting pipeline — further work needed on streaming/chunked processing.
 
 ## Prerequisites
 
@@ -63,6 +40,7 @@ Built on top of [prediction-market-analysis](https://github.com/Jon-Becker/predi
 - [uv](https://docs.astral.sh/uv/) — fast Python package manager `brew install uv`
 - [zstd](https://github.com/facebook/zstd) — required for data decompression `brew install zstd`
 - [GNU Make](https://www.gnu.org/software/make/) - needed for using makefiles `brew install make`
+- [Rust](https://rustup.rs/) — required for the compiled engine `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`
 
 ## Quick Start
 
@@ -87,7 +65,15 @@ uv manages virtual environments automatically — no manual activation needed. E
 uv sync
 ```
 
-### 3. Download the data
+### 3. Build the engine
+
+```bash
+make build-rust
+```
+
+> **Note:** Requires a Rust toolchain ([rustup](https://rustup.rs/)) and [maturin](https://www.maturin.rs/) (`pip install maturin` or `uv pip install maturin`).
+
+### 4. Download the data
 
 This downloads and extracts the historical trade dataset (~36 GB compressed, ~53.57 uncompressed) into the submodule's `data/` directory. A symlink at the root points there.
 
@@ -97,7 +83,7 @@ make setup
 
 > **Note:** This step installs `zstd` and `aria2c` if not already present (via Homebrew on macOS or apt on Linux), then downloads and extracts the dataset. You only need to do this once.
 
-### 4. Run a backtest
+### 5. Run a backtest
 
 ```bash
 make backtest
@@ -105,31 +91,25 @@ make backtest
 
 This launches an interactive menu where you select a strategy, platform, and market sample size. Results are printed to the terminal and an event log is saved to `output/`.
 
-<p align="center">
-  <img src="media/backtest.gif" alt="Running a backtest" width="360" style="border-radius: 8px;">
-</p>
+<img src="media/backtest.gif" alt="drawing" width="360"/>
+
 
 To run a specific strategy directly:
 
 ```bash
-make backtest buy_low
-make backtest calibration_arb
 make backtest gambling_addiction
 ```
 
 ## Available Commands
 
-### Backtesting (root)
-
 | Command | Description |
 |---|---|
 | `make backtest [name]` | Run a backtest interactively or by strategy name |
+| `make build-rust` | Compile the engine |
 | `make setup` | Initialize submodule and download trade data |
 | `make test` | Run the test suite |
 | `make lint` | Check code style with Ruff |
 | `make format` | Auto-format code with Ruff |
-
-### Analysis (proxied from submodule)
 
 Any target not defined in the root Makefile is forwarded to the [prediction-market-analysis](https://github.com/Jon-Becker/prediction-market-analysis) submodule:
 
@@ -201,23 +181,33 @@ Strategies are auto-discovered — drop a `.py` file in the `strategies/` direct
 ├── Makefile                         # Build commands (proxies to submodule)
 ├── pyproject.toml                   # Python dependencies
 ├── data -> prediction-market-analysis/data  # Symlink to trade data
+├── crates/
+│   └── backtesting_engine/          # Compiled Rust core (PyO3)
+│       ├── Cargo.toml
+│       └── src/
+│           ├── lib.rs               # PyO3 module definition
+│           ├── engine.rs            # Hot loop, event logging, FFI
+│           ├── broker.rs            # Order matching (HashMap by market_id)
+│           ├── portfolio.rs         # Position tracking, resolution, snapshots
+│           └── models.rs            # Internal Rust data types
 ├── src/
 │   └── backtesting/
-│       ├── engine.py                # Simulation loop orchestrator
-│       ├── broker.py                # Order matching and fill simulation
-│       ├── portfolio.py             # Position and cash management
+│       ├── rust_engine.py           # Python wrapper for the Rust core
 │       ├── strategy.py              # Abstract strategy base class
 │       ├── models.py                # Data models (TradeEvent, Order, Fill, etc.)
 │       ├── metrics.py               # Performance metric calculations
+│       ├── plotting.py              # Interactive Bokeh charts
 │       ├── logger.py                # Event logging
 │       ├── progress.py              # Progress bar display
+│       ├── _archive/                # Pure-Python engine (fallback)
+│       │   ├── engine.py
+│       │   ├── broker.py
+│       │   └── portfolio.py
 │       ├── feeds/
 │       │   ├── base.py              # Abstract data feed interface
 │       │   ├── kalshi.py            # Kalshi parquet data feed
 │       │   └── polymarket.py        # Polymarket parquet data feed
-│       └── strategies/
-│           ├── buy_low.py           # Buy YES below threshold, hold to resolution
-│           ├── calibration_arb.py   # Exploit calibration mispricings at extremes
+│       └── strategies/              # Auto-discovered strategy files
 │           └── gambling_addiction.py # Martingale + mean-reversion gambling tactics
 ├── tests/                           # Test suite
 ├── output/                          # Backtest logs and results

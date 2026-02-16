@@ -14,7 +14,6 @@ if TYPE_CHECKING:
 
 
 # ANSI color codes
-_CYAN = "\033[36m"
 _GREEN = "\033[32m"
 _RED = "\033[31m"
 _BOLD = "\033[1m"
@@ -39,11 +38,11 @@ class BacktestLogger:
     # -- Core helper --
 
     def _log(self, timestamp: datetime | None, component: str, message: str, color: str = "") -> None:
-        ts_str = _format_ts(timestamp) if timestamp else ""
-        plain = f"{ts_str} [INFO] {component}: {message}"
+        ts_str = timestamp.strftime("%Y-%m-%d %H:%M:%S") if timestamp else ""
+        plain = f"{ts_str}  {component}  {message}"
         self.lines.append(plain)
         if self.print_live:
-            colored = f"{_DIM}{ts_str}{_RESET} [INFO] {_BOLD}{_CYAN}{component}{_RESET}: {color}{message}{_RESET}"
+            colored = f"{_DIM}{ts_str}{_RESET}  {_BOLD}{component}{_RESET}  {color}{message}{_RESET}"
             self.write_fn(colored)
 
     # -- Lifecycle events --

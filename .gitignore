@@ -25,6 +25,12 @@ output/
 # Temp
 .tmp/
 
+# Rust
+crates/*/target/
+*.so
+*.dylib
+*.dll
+
 # Tool caches
 .mypy_cache/
 .pytest_cache/

@@ -1,0 +1,12 @@
+[package]
+name = "backtesting_engine"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "backtesting_engine"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { version = "0.22", features = ["extension-module"] }
+chrono = "0.4"

@@ -4,9 +4,8 @@ Provides an event-driven simulation loop for testing trading strategies
 against historical Kalshi and Polymarket data.
 """
 
-from src.backtesting.broker import Broker
-from src.backtesting.engine import Engine
 from src.backtesting.logger import BacktestLogger
+from src.backtesting.rust_engine import Engine
 from src.backtesting.models import (
     BacktestResult,
     Fill,
@@ -20,13 +19,11 @@ from src.backtesting.models import (
     Side,
     TradeEvent,
 )
-from src.backtesting.portfolio import Portfolio
 from src.backtesting.strategy import Strategy
 
 __all__ = [
     "BacktestLogger",
     "BacktestResult",
-    "Broker",
     "Engine",
     "Fill",
     "MarketInfo",
@@ -34,7 +31,6 @@ __all__ = [
     "OrderAction",
     "OrderStatus",
     "Platform",
-    "Portfolio",
     "PortfolioSnapshot",
     "Position",
     "Side",

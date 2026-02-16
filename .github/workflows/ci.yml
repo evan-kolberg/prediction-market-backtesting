@@ -13,12 +13,23 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: dtolnay/rust-toolchain@stable
+
       - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
 
+      - name: Rust check & test
+        working-directory: crates/backtesting_engine
+        run: |
+          cargo check
+          cargo test
+
       - name: Install dependencies
         run: uv sync
+
+      - name: Build Rust engine
+        run: uv run --with maturin maturin develop --release --manifest-path crates/backtesting_engine/Cargo.toml
 
       - name: Lint
         run: |
