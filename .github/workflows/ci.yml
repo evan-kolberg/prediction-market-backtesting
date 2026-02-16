@@ -25,11 +25,11 @@ jobs:
           cargo check
           cargo test
 
-      - name: Install dependencies
-        run: uv sync
-
-      - name: Build Rust engine
-        run: uv run --with maturin maturin develop --release --manifest-path crates/backtesting_engine/Cargo.toml
+      - name: Install dependencies & build Rust engine
+        run: |
+          uv sync
+          uv pip install maturin
+          uv run maturin develop --release --manifest-path crates/backtesting_engine/Cargo.toml
 
       - name: Lint
         run: |
