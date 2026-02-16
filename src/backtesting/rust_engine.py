@@ -56,8 +56,7 @@ class Engine:
     ):
         if not HAS_RUST:
             raise ImportError(
-                "Rust engine not available. Install with:\n"
-                "  cd crates/backtesting_engine && maturin develop --release"
+                "Rust engine not available. Install with:\n  cd crates/backtesting_engine && maturin develop --release"
             )
 
         self.feed = feed
