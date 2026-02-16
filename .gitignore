@@ -27,6 +27,7 @@ output/
 
 # Rust
 crates/*/target/
+crates/*/uv.lock
 *.so
 *.dylib
 *.dll
