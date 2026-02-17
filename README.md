@@ -2,6 +2,7 @@
 
 [![CI](https://github.com/evan-kolberg/prediction-market-backtesting/actions/workflows/ci.yml/badge.svg)](https://github.com/evan-kolberg/prediction-market-backtesting/actions/workflows/ci.yml)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://www.python.org/downloads/)
+[![Rust 1.63+](https://img.shields.io/badge/rust-1.63%2B-%23000000.svg?logo=rust&logoColor=white)](https://www.rust-lang.org/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Code style: Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 [![uv](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json)](https://github.com/astral-sh/uv)
@@ -15,6 +16,7 @@
 
 An event-driven backtesting engine for prediction market trading strategies. Replays historical trades from [Kalshi](https://kalshi.com) and [Polymarket](https://polymarket.com) in chronological order, simulating order fills, portfolio tracking, and market lifecycle events. The hot loop (broker, portfolio, lifecycle) is compiled to native code via [PyO3](https://pyo3.rs) while strategy callbacks remain in Python. Inspired by [NautilusTrader](https://github.com/nautechsystems/nautilus_trader), plotting inspired by [minitrade](https://github.com/dodid/minitrade).
 
+These two graphs below are the output of the gambling strategy. Losing money has never looked so good.
 ![Gambling strategy on Polymarket](media/gambling_strategy_polymarket_1pct.png)
 ![Gambling strategy on Kalshi](media/gambling_strategy_kalshi_1pct.png)
 
@@ -34,6 +36,7 @@ Built on top of [prediction-market-analysis](https://github.com/Jon-Becker/predi
 
 - [ ] High memory usage (42 GB when loading top 1% volume Polymarket data). The bulk of memory comes from the data feed and plotting pipeline — further work needed on streaming/chunked processing.
 - [ ] Live paper-trading with Polymarket & Kalshi has not yet been verified to work fully. It is a WIP.
+- [ ] Liquidity modeling is still a huge issue. [Check this issue](https://github.com/evan-kolberg/prediction-market-backtesting/issues/1#issue-3950578019).
 
 ## Prerequisites
 
@@ -43,7 +46,8 @@ Built on top of [prediction-market-analysis](https://github.com/Jon-Becker/predi
 - [GNU Make](https://www.gnu.org/software/make/) - needed for using makefiles `brew install make`
 - [Rust](https://rustup.rs/) — required for the compiled engine `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`
 
-## Quick Start
+## Setup (created on macOS)
+> It is still entirely possible to run this on Windows & Linux, but the terminal commands will look different. Until they are fully supported, I recommend you use something like Claude Code or GitHub Copilot to handle the initial setup on your system.
 
 ### 1. Clone the repository
 
@@ -198,44 +202,44 @@ Strategies are auto-discovered — drop a `.py` file in the `strategies/` direct
 
 ```
 ├── main.py                          # CLI entry point
-├── Makefile                         # Build commands (proxies to submodule)
-├── pyproject.toml                   # Python dependencies
-├── data -> prediction-market-analysis/data  # Symlink to trade data
+├── Makefile                         # build commands (proxies to submodule)
+├── pyproject.toml                   # python dependencies
+├── data -> prediction-market-analysis/data  # symlink to trade data
 ├── crates/
-│   └── backtesting_engine/          # Compiled Rust core (PyO3)
+│   └── backtesting_engine/          # compiled rust core (PyO3)
 │       ├── Cargo.toml
 │       └── src/
 │           ├── lib.rs               # PyO3 module definition
-│           ├── engine.rs            # Hot loop, event logging, FFI
-│           ├── broker.rs            # Order matching (HashMap by market_id)
-│           ├── portfolio.rs         # Position tracking, resolution, snapshots
-│           └── models.rs            # Internal Rust data types
+│           ├── engine.rs            # hot loop, event logging, FFI
+│           ├── broker.rs            # order matching (HashMap by market_id)
+│           ├── portfolio.rs         # position tracking, resolution, snapshots
+│           └── models.rs            # internal rust data types
 ├── src/
 │   └── backtesting/
-│       ├── rust_engine.py           # Python wrapper for the Rust core
-│       ├── front_test_engine.py     # Live paper-trading engine
-│       ├── paper_broker.py          # Pure-Python broker for paper trading
-│       ├── strategy.py              # Abstract strategy base class
-│       ├── models.py                # Data models (TradeEvent, Order, Fill, etc.)
-│       ├── metrics.py               # Performance metric calculations
-│       ├── plotting.py              # Interactive Bokeh charts
-│       ├── logger.py                # Event logging
-│       ├── progress.py              # Progress bar display
-│       ├── _archive/                # Pure-Python engine (fallback)
+│       ├── rust_engine.py           # python wrapper for the Rust core
+│       ├── front_test_engine.py     # live paper-trading engine
+│       ├── paper_broker.py          # pure-Python broker for paper trading
+│       ├── strategy.py              # abstract strategy base class
+│       ├── models.py                # data models (TradeEvent, Order, Fill, etc.)
+│       ├── metrics.py               # performance metric calculations
+│       ├── plotting.py              # interactive Bokeh charts
+│       ├── logger.py                # event logging
+│       ├── progress.py              # progress bar display
+│       ├── _archive/                # pure-Python engine (fallback)
 │       │   ├── engine.py
 │       │   ├── broker.py
 │       │   └── portfolio.py
 │       ├── feeds/
-│       │   ├── base.py              # Abstract data feed interface
-│       │   ├── kalshi.py            # Kalshi parquet data feed
-│       │   ├── kalshi_live.py       # Live Kalshi WebSocket feed
-│       │   ├── polymarket.py        # Polymarket parquet data feed
-│       │   └── polymarket_live.py   # Live Polymarket WebSocket feed
-│       └── strategies/              # Auto-discovered strategy files
-│           └── gambling_addiction.py # Martingale + mean-reversion gambling tactics
-├── tests/                           # Test suite
-├── output/                          # Backtest logs and results
-└── prediction-market-analysis/      # Data & analysis submodule
+│       │   ├── base.py              # abstract data feed interface
+│       │   ├── kalshi.py            # kalshi parquet data feed
+│       │   ├── kalshi_live.py       # live Kalshi eebSocket feed
+│       │   ├── polymarket.py        # polymarket parquet data feed
+│       │   └── polymarket_live.py   # live Polymarket eebSocket feed
+│       └── strategies/              # auto-discovered strategy files
+│           └── gambling_addiction.py# typical gambling tactics
+├── tests/                           # test suite
+├── output/                          # backtest logs and results
+└── prediction-market-analysis/      # data & analysis submodule
 ```
 
 ## Data
