@@ -14,34 +14,45 @@ pub struct Broker {
     slippage: f64,
     liquidity_cap: bool,
     next_id: u64,
+    /// Exponential moving average of trade size per market.
+    /// Used by the square-root market impact model to scale slippage.
+    ema_trade_size: HashMap<String, f64>,
+    ema_decay: f64,
 }
 
 /// Check if an order should fill against a trade. Returns fill price if matched.
+///
+/// Taker-side-aware: a resting limit order only fills when the trade taker is on
+/// the opposite side. This correctly models CLOB maker/taker semantics.
+///   YES bid fills on NO taker  (someone selling YES hits our bid)
+///   YES ask fills on YES taker (someone buying YES hits our ask)
+///   NO  bid fills on YES taker (someone selling NO  hits our bid)
+///   NO  ask fills on NO taker  (someone buying NO  hits our ask)
 fn match_order(order: &Order, trade: &Trade) -> Option<f64> {
     match (order.action, order.side) {
         (OrderAction::Buy, Side::Yes) => {
-            if trade.yes_price <= order.price {
+            if trade.taker_side == Side::No && trade.yes_price <= order.price {
                 Some(trade.yes_price)
             } else {
                 None
             }
         }
         (OrderAction::Sell, Side::Yes) => {
-            if trade.yes_price >= order.price {
+            if trade.taker_side == Side::Yes && trade.yes_price >= order.price {
                 Some(trade.yes_price)
             } else {
                 None
             }
         }
         (OrderAction::Buy, Side::No) => {
-            if trade.no_price <= order.price {
+            if trade.taker_side == Side::Yes && trade.no_price <= order.price {
                 Some(trade.no_price)
             } else {
                 None
             }
         }
         (OrderAction::Sell, Side::No) => {
-            if trade.no_price >= order.price {
+            if trade.taker_side == Side::No && trade.no_price >= order.price {
                 Some(trade.no_price)
             } else {
                 None
@@ -50,26 +61,60 @@ fn match_order(order: &Order, trade: &Trade) -> Option<f64> {
     }
 }
 
-/// Apply slippage to a fill price, clamping to [0.01, 0.99].
-fn apply_slippage(slippage: f64, price: f64, action: OrderAction) -> f64 {
-    if slippage == 0.0 {
+/// Apply market impact to a fill price.
+///
+/// Combines two effects:
+///   1. Price-proportional spread: spread widens at extreme prices (p near 0 or 1).
+///      At p=0.50 the multiplier is 1×; at p=0.15 it is ~2×; at p=0.05 it is ~5×.
+///      This reflects real prediction-market microstructure where thin books at
+///      extreme prices carry much wider bid-ask spreads.
+///   2. Square-root size impact: large orders relative to the market's average
+///      trade size pay more (standard Almgren-Chriss / Kyle-lambda approach).
+///
+/// Both effects are at least 1× so the minimum cost is always base_slippage.
+/// Result is clamped to [0.01, 0.99].
+fn apply_market_impact(
+    base_slippage: f64,
+    price: f64,
+    action: OrderAction,
+    order_qty: f64,
+    avg_trade_size: f64,
+) -> f64 {
+    if base_slippage == 0.0 {
         return price;
     }
+    // Spread factor: 1 / (4 * p * (1-p)), floored so the max multiplier is ~25×.
+    let variance = (price * (1.0 - price)).max(0.01);
+    let spread_factor = (0.25 / variance).max(1.0);
+
+    // Size factor: sqrt(order / avg_trade), at least 1×.
+    let size_ratio = order_qty / avg_trade_size.max(0.01);
+    let size_factor = size_ratio.sqrt().max(1.0);
+
+    let impact = base_slippage * spread_factor * size_factor;
     match action {
-        OrderAction::Buy => (price + slippage).min(0.99),
-        OrderAction::Sell => (price - slippage).max(0.01),
+        OrderAction::Buy => (price + impact).min(0.99),
+        OrderAction::Sell => (price - impact).max(0.01),
     }
 }
 
 impl Broker {
-    pub fn new(commission_rate: f64, slippage: f64, liquidity_cap: bool) -> Self {
+    pub fn new(commission_rate: f64, slippage: f64, liquidity_cap: bool, ema_decay: f64) -> Self {
         Self {
             pending: HashMap::new(),
             commission_rate,
             slippage,
             liquidity_cap,
             next_id: 1,
+            ema_trade_size: HashMap::new(),
+            ema_decay,
         }
+    }
+
+    /// Update the EMA of trade size for a market. Call on every trade before check_fills.
+    pub fn update_trade_size(&mut self, market_id: &str, trade_qty: f64) {
+        let entry = self.ema_trade_size.entry(market_id.to_string()).or_insert(trade_qty);
+        *entry = *entry * (1.0 - self.ema_decay) + trade_qty * self.ema_decay;
     }
 
     pub fn place_order(
@@ -134,6 +179,11 @@ impl Broker {
         let commission_rate = self.commission_rate;
         let slippage = self.slippage;
         let liquidity_cap = self.liquidity_cap;
+        let avg_trade_size = self
+            .ema_trade_size
+            .get(&trade.market_id)
+            .copied()
+            .unwrap_or(trade.quantity);
 
         let orders = match self.pending.get_mut(&trade.market_id) {
             Some(orders) if !orders.is_empty() => orders,
@@ -155,7 +205,8 @@ impl Broker {
                 None => continue,
             };
 
-            let fill_price = apply_slippage(slippage, fill_price, order.action);
+            let fill_price =
+                apply_market_impact(slippage, fill_price, order.action, order.quantity, avg_trade_size);
 
             let mut fill_qty = if liquidity_cap {
                 order.quantity.min(remaining_liq)

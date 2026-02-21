@@ -48,16 +48,19 @@ class PaperBroker:
         commission_rate: float = 0.01,
         slippage: float = 0.005,
         liquidity_cap: bool = True,
+        ema_decay: float = 0.1,
     ):
         self.cash = initial_cash
         self.initial_cash = initial_cash
         self.commission_rate = commission_rate
         self.slippage = slippage
         self.liquidity_cap = liquidity_cap
+        self.ema_decay = ema_decay
 
         self._pending: dict[str, list[Order]] = defaultdict(list)
         self._positions: dict[str, _Position] = {}
         self._last_prices: dict[str, float] = {}
+        self._ema_trade_sizes: dict[str, float] = {}
         self._resolved: set[str] = set()
         self._next_id = 1
 
@@ -111,6 +114,17 @@ class PaperBroker:
         """Check pending orders for this trade's market.  Returns fills."""
         self._last_prices[trade.market_id] = trade.yes_price
 
+        # Update EMA of trade size for market impact model
+        mid = trade.market_id
+        if mid in self._ema_trade_sizes:
+            self._ema_trade_sizes[mid] = (
+                self._ema_trade_sizes[mid] * (1 - self.ema_decay)
+                + trade.quantity * self.ema_decay
+            )
+        else:
+            self._ema_trade_sizes[mid] = trade.quantity
+        avg_trade_size = self._ema_trade_sizes[mid]
+
         orders = self._pending.get(trade.market_id)
         if not orders:
             return []
@@ -125,7 +139,7 @@ class PaperBroker:
             if fill_price is None:
                 continue
 
-            fill_price = self._apply_slippage(fill_price, order.action)
+            fill_price = self._apply_slippage(fill_price, order.action, order.quantity, avg_trade_size)
 
             fill_qty = min(order.quantity, remaining_liq) if self.liquidity_cap else order.quantity
             if fill_qty <= 0:
@@ -227,22 +241,37 @@ class PaperBroker:
 
     @staticmethod
     def _match_order(order: Order, trade: TradeEvent) -> float | None:
+        # Taker-side-aware: a resting limit order only fills when the taker is on
+        # the opposite side (mirrors the Rust broker logic).
         if order.action == OrderAction.BUY and order.side == Side.YES:
-            return trade.yes_price if trade.yes_price <= order.price else None
-        if order.action == OrderAction.SELL and order.side == Side.YES:
-            return trade.yes_price if trade.yes_price >= order.price else None
-        if order.action == OrderAction.BUY and order.side == Side.NO:
-            return trade.no_price if trade.no_price <= order.price else None
-        if order.action == OrderAction.SELL and order.side == Side.NO:
-            return trade.no_price if trade.no_price >= order.price else None
+            if trade.taker_side == Side.NO and trade.yes_price <= order.price:
+                return trade.yes_price
+        elif order.action == OrderAction.SELL and order.side == Side.YES:
+            if trade.taker_side == Side.YES and trade.yes_price >= order.price:
+                return trade.yes_price
+        elif order.action == OrderAction.BUY and order.side == Side.NO:
+            if trade.taker_side == Side.YES and trade.no_price <= order.price:
+                return trade.no_price
+        elif order.action == OrderAction.SELL and order.side == Side.NO:
+            if trade.taker_side == Side.NO and trade.no_price >= order.price:
+                return trade.no_price
         return None
 
-    def _apply_slippage(self, price: float, action: OrderAction) -> float:
+    def _apply_slippage(
+        self, price: float, action: OrderAction, order_qty: float, avg_trade_size: float
+    ) -> float:
         if self.slippage == 0:
             return price
+        # Price-proportional spread: widens significantly at extreme prices.
+        variance = max(price * (1 - price), 0.01)
+        spread_factor = max(0.25 / variance, 1.0)
+        # Square-root size impact.
+        size_ratio = order_qty / max(avg_trade_size, 0.01)
+        size_factor = max(size_ratio**0.5, 1.0)
+        impact = self.slippage * spread_factor * size_factor
         if action == OrderAction.BUY:
-            return min(price + self.slippage, 0.99)
-        return max(price - self.slippage, 0.01)
+            return min(price + impact, 0.99)
+        return max(price - impact, 0.01)
 
     def _apply_fill(self, fill: Fill) -> None:
         pos = self._positions.get(fill.market_id)

@@ -203,6 +203,7 @@ pub struct RustEngine {
     slippage: f64,
     liquidity_cap: bool,
     snapshot_interval: u64,
+    ema_decay: f64,
     broker: RefCell<Broker>,
     portfolio: RefCell<Portfolio>,
     current_ts: Cell<f64>,
@@ -211,13 +212,14 @@ pub struct RustEngine {
 #[pymethods]
 impl RustEngine {
     #[new]
-    #[pyo3(signature = (initial_cash=10_000.0, commission_rate=0.01, slippage=0.005, liquidity_cap=true, snapshot_interval=1000))]
+    #[pyo3(signature = (initial_cash=10_000.0, commission_rate=0.01, slippage=0.005, liquidity_cap=true, snapshot_interval=1000, ema_decay=0.1))]
     fn new(
         initial_cash: f64,
         commission_rate: f64,
         slippage: f64,
         liquidity_cap: bool,
         snapshot_interval: u64,
+        ema_decay: f64,
     ) -> Self {
         Self {
             initial_cash,
@@ -225,7 +227,8 @@ impl RustEngine {
             slippage,
             liquidity_cap,
             snapshot_interval,
-            broker: RefCell::new(Broker::new(commission_rate, slippage, liquidity_cap)),
+            ema_decay,
+            broker: RefCell::new(Broker::new(commission_rate, slippage, liquidity_cap, ema_decay)),
             portfolio: RefCell::new(Portfolio::new(initial_cash)),
             current_ts: Cell::new(0.0),
         }
@@ -294,7 +297,7 @@ impl RustEngine {
     ) -> PyResult<PyObject> {
         // Reset state
         *self.broker.borrow_mut() =
-            Broker::new(self.commission_rate, self.slippage, self.liquidity_cap);
+            Broker::new(self.commission_rate, self.slippage, self.liquidity_cap, self.ema_decay);
         *self.portfolio.borrow_mut() = Portfolio::new(self.initial_cash);
         self.current_ts.set(0.0);
 
@@ -421,7 +424,8 @@ impl RustEngine {
             // 3. Update mark-to-market price
             self.portfolio.borrow_mut().update_price(&trade.market_id, trade.yes_price);
 
-            // 4. Check fills
+            // 4. Update EMA trade size (used by market impact model), then check fills
+            self.broker.borrow_mut().update_trade_size(&trade.market_id, trade.quantity);
             let cash = self.portfolio.borrow().cash;
             let fills = self.broker.borrow_mut().check_fills(&trade, cash);
 

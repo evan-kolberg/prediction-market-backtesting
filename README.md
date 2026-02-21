@@ -22,10 +22,66 @@ These two graphs below are the output of the gambling strategy. Losing money has
 
 Built on top of [prediction-market-analysis](https://github.com/Jon-Becker/prediction-market-analysis) for data indexing and analysis.
 
+## Table of Contents
+
+- [How the Engine Works](#how-the-engine-works)
+  - [How orders fill](#how-orders-fill)
+  - [How slippage works](#how-slippage-works)
+  - [A note on what backtests can and can't tell you](#a-note-on-what-backtests-can-and-cant-tell-you)
+- [Roadmap](#roadmap)
+- [Current issues](#current-issues)
+- [Prerequisites](#prerequisites)
+- [Setup](#setup-created-on-macos)
+  - [1. Clone the repository](#1-clone-the-repository)
+  - [2. Install dependencies](#2-install-dependencies)
+  - [3. Build the engine](#3-build-the-engine)
+  - [4. Download the data](#4-download-the-data)
+  - [5. Run a backtest](#5-run-a-backtest)
+  - [6. Front test (live paper trading)](#6-front-test-live-paper-trading)
+- [Available Commands](#available-commands)
+- [Writing a Strategy](#writing-a-strategy)
+  - [Strategy API](#strategy-api)
+  - [Lifecycle Hooks](#lifecycle-hooks)
+  - [Properties](#properties)
+- [Project Structure](#project-structure)
+- [Data](#data)
+- [License](#license)
+
+## How the Engine Works
+
+The backtest replays historical trades one by one in the order they happened. For each trade, the engine checks whether any of your pending orders should fill, updates your portfolio, and then calls your strategy's `on_trade` so it can react and place new orders. The hot loop — all the order matching and portfolio math — runs in compiled Rust for speed, while your strategy logic stays in Python.
+
+### How orders fill
+
+When your strategy places a limit buy order — say, buy YES at $0.20 — the engine waits for a trade that matches. Two conditions have to be true:
+
+1. **Price**: the trade price has to be at or below your limit ($0.20 or lower)
+2. **Taker side**: the taker in that trade has to be on the *opposite* side from you
+
+That second point matters a lot and most backtesting frameworks miss it. In a real order book, your limit buy sits on the bid side. It only fills when someone comes in and *sells* to you — meaning the taker is a NO buyer (equivalently, a YES seller). If a YES buyer comes in and hits the ask, your bid just sits there untouched. The engine models this correctly. Skipping it makes strategies look more liquid than they actually are, because you'd be counting fills on trades that wouldn't have touched your order at all.
+
+Once an order fills, the fill price gets adjusted for slippage before it lands in your portfolio.
+
+### How slippage works
+
+Slippage combines two real effects:
+
+**Spread cost** — bid-ask spreads in prediction markets get much wider at extreme prices. Near 50/50 the spread might be 1 cent. Near 5% or 95% it can be 5–10 cents. That sounds small, but 5 cents of spread on a 10-cent YES contract is 50% of your position cost right off the bat. The model captures this with a spread multiplier that grows as you move away from 50%: at 50% it's 1×, at 15% it's about 2×, at 5% it's about 5×.
+
+**Market impact** — bigger orders move the price against you. If you try to buy 100 contracts in a market that normally trades 10 at a time, you're going to eat through the book and pay more for each successive contract. The model uses square-root scaling for this: an order 4× the typical trade size pays 2× the base impact, and 100× pays 10×. This is the standard approach in quantitative finance (Almgren-Chriss/Kyle-lambda model). The typical trade size is tracked per-market with an exponential moving average that updates as trades come in, so liquid markets stay cheap to trade and thin markets stay expensive.
+
+Both effects stack on top of a configurable base slippage (default 0.5%).
+
+### A note on what backtests can and can't tell you
+
+Running `buy_low` (buy YES when priced below 20%, hold to resolution) against all of this modeling still shows positive returns. That's not a sign the model is wrong — it turns out that in the historical data, markets priced below 20% YES resolved YES about 23% of the time. That's slightly above the implied probability, and it's genuine historical edge. No friction model can realistically close that gap; you'd need to charge fantasy-level slippage to force EV negative.
+
+The point of good liquidity modeling isn't to guarantee any given strategy loses. It's to catch strategies that only *look* profitable because they assume perfect fills — like placing a huge order in a thin market at exactly the quoted price with zero spread cost. Those strategies get correctly penalized now. Whether historical edge holds up out-of-sample is a different question that no backtest can answer for you.
+
 ## Roadmap
 
 - [x] **Interactive charts** — Bokeh-based HTML charts with linked equity curve, P&L, market prices, drawdown, and cash panels
-- [ ] **Slippage, latency, & liquidity modeling** — these will impact live-deployed strategies, so it's very important to backtest with this taken into account. In low liquidity markets, large orders will eat through the order book and it's important to be aware of this price impact.
+- [x] **Slippage, latency, & liquidity modeling** — taker-side-aware fill logic, price-proportional spread cost, and square-root market impact. See "How the Engine Works" above.
 - [x] **Front-testing** — paper trade strategies against live WebSocket data from Kalshi and Polymarket
 - [ ] **Time span selection** — restrict backtests to a specific date range (e.g. `--start 2024-01-01 --end 2024-12-31`)
 - [ ] **Market filtering** — filter by market type, category, or specific market IDs
@@ -36,7 +92,6 @@ Built on top of [prediction-market-analysis](https://github.com/Jon-Becker/predi
 
 - [ ] High memory usage (42 GB when loading top 1% volume Polymarket data). The bulk of memory comes from the data feed and plotting pipeline — further work needed on streaming/chunked processing.
 - [ ] Live paper-trading with Polymarket & Kalshi has not yet been verified to work fully. It is a WIP.
-- [ ] Liquidity modeling is still a huge issue. [Check this issue](https://github.com/evan-kolberg/prediction-market-backtesting/issues/1#issue-3950578019).
 
 ## Prerequisites
 
