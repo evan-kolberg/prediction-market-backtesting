@@ -118,8 +118,7 @@ class PaperBroker:
         mid = trade.market_id
         if mid in self._ema_trade_sizes:
             self._ema_trade_sizes[mid] = (
-                self._ema_trade_sizes[mid] * (1 - self.ema_decay)
-                + trade.quantity * self.ema_decay
+                self._ema_trade_sizes[mid] * (1 - self.ema_decay) + trade.quantity * self.ema_decay
             )
         else:
             self._ema_trade_sizes[mid] = trade.quantity
@@ -257,9 +256,7 @@ class PaperBroker:
                 return trade.no_price
         return None
 
-    def _apply_slippage(
-        self, price: float, action: OrderAction, order_qty: float, avg_trade_size: float
-    ) -> float:
+    def _apply_slippage(self, price: float, action: OrderAction, order_qty: float, avg_trade_size: float) -> float:
         if self.slippage == 0:
             return price
         # Price-proportional spread: widens significantly at extreme prices.
