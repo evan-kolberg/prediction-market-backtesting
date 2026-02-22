@@ -17,72 +17,78 @@
 An event-driven backtesting engine for prediction market trading strategies. Replays historical trades from [Kalshi](https://kalshi.com) and [Polymarket](https://polymarket.com) in chronological order, simulating order fills, portfolio tracking, and market lifecycle events. The hot loop (broker, portfolio, lifecycle) is compiled to native code via [PyO3](https://pyo3.rs) while strategy callbacks remain in Python. Inspired by [NautilusTrader](https://github.com/nautechsystems/nautilus_trader), plotting inspired by [minitrade](https://github.com/dodid/minitrade).
 
 These two graphs below are the output of the gambling strategy. Losing money has never looked so good.
-![Gambling strategy on Polymarket](media/gambling_strategy_polymarket_1pct.png)
-![Gambling strategy on Kalshi](media/gambling_strategy_kalshi_1pct.png)
+
+<p>
+  <img src="media/gambling_strategy_polymarket_1pct.png" alt="Gambling strategy on Polymarket" width="49%">
+  <img src="media/gambling_strategy_kalshi_1pct.png" alt="Gambling strategy on Kalshi" width="49%">
+</p>
 
 Built on top of [prediction-market-analysis](https://github.com/Jon-Becker/prediction-market-analysis) for data indexing and analysis.
 
-## Table of Contents
+<table>
+<tr>
+<td valign="top" width="33%">
 
-- [How the Engine Works](#how-the-engine-works)
-  - [How orders fill](#how-orders-fill)
-  - [How slippage works](#how-slippage-works)
-  - [A note on what backtests can and can't tell you](#a-note-on-what-backtests-can-and-cant-tell-you)
-- [Roadmap](#roadmap)
-- [Current issues](#current-issues)
-- [Prerequisites](#prerequisites)
-- [Setup](#setup-created-on-macos)
-  - [1. Clone the repository](#1-clone-the-repository)
-  - [2. Install dependencies](#2-install-dependencies)
-  - [3. Build the engine](#3-build-the-engine)
-  - [4. Download the data](#4-download-the-data)
-  - [5. Run a backtest](#5-run-a-backtest)
-  - [6. Front test (live paper trading)](#6-front-test-live-paper-trading)
-- [Available Commands](#available-commands)
-- [Writing a Strategy](#writing-a-strategy)
-  - [Strategy API](#strategy-api)
-  - [Lifecycle Hooks](#lifecycle-hooks)
-  - [Properties](#properties)
-- [Project Structure](#project-structure)
-- [Data](#data)
-- [License](#license)
+<h3>Table of Contents</h3>
+<ul>
+  <li><a href="#how-the-engine-works">How the Engine Works</a></li>
+  <li><a href="#roadmap">Roadmap</a></li>
+  <li><a href="#current-issues">Current issues</a></li>
+  <li><a href="#prerequisites">Prerequisites</a></li>
+  <li><a href="#setup-created-on-macos">Setup</a>
+    <ul>
+      <li><a href="#1-clone-the-repository">1. Clone the repo</a></li>
+      <li><a href="#2-install-dependencies">2. Install dependencies</a></li>
+      <li><a href="#3-build-the-engine">3. Build the engine</a></li>
+      <li><a href="#4-download-the-data">4. Download the data</a></li>
+      <li><a href="#5-run-a-backtest">5. Run a backtest</a></li>
+      <li><a href="#6-front-test-live-paper-trading">6. Front test</a></li>
+    </ul>
+  </li>
+  <li><a href="#available-commands">Available Commands</a></li>
+  <li><a href="#writing-a-strategy">Writing a Strategy</a>
+    <ul>
+      <li><a href="#strategy-api">Strategy API</a></li>
+      <li><a href="#lifecycle-hooks">Lifecycle Hooks</a></li>
+      <li><a href="#properties">Properties</a></li>
+    </ul>
+  </li>
+  <li><a href="#project-structure">Project Structure</a></li>
+  <li><a href="#data">Data</a></li>
+  <li><a href="#license">License</a></li>
+</ul>
 
-## How the Engine Works
+</td>
+<td valign="top">
 
-The backtest replays historical trades one by one in the order they happened. For each trade, the engine checks whether any of your pending orders should fill, updates your portfolio, and then calls your strategy's `on_trade` so it can react and place new orders. The hot loop — all the order matching and portfolio math — runs in compiled Rust for speed, while your strategy logic stays in Python.
+<h2 id="how-the-engine-works">How the Engine Works</h2>
 
-### How orders fill
+<p>Trades are replayed one by one in chronological order. For each trade the engine checks pending orders for fills, updates the portfolio, then calls <code>on_trade</code> so the strategy can react. The hot loop (order matching, portfolio math) runs in compiled Rust; strategy callbacks stay in Python.</p>
 
-When your strategy places a limit buy order — say, buy YES at $0.20 — the engine waits for a trade that matches. Two conditions have to be true:
+<p><strong>Order fills</strong> require two conditions:</p>
+<ul>
+  <li><strong>Price</strong> — the trade price must be at or below your limit</li>
+  <li><strong>Taker side</strong> — the taker must be on the <em>opposite</em> side from you (your limit buy only fills when someone sells into it, not when another buyer lifts the ask)</li>
+</ul>
 
-1. **Price**: the trade price has to be at or below your limit ($0.20 or lower)
-2. **Taker side**: the taker in that trade has to be on the *opposite* side from you
+<p><strong>Slippage</strong> models two real costs that stack on a configurable base (default 0.5%):</p>
+<ul>
+  <li><strong>Spread cost</strong> — spreads widen at extreme prices (1¢ near 50/50, up to 5–10¢ near 5%/95%), modeled with a multiplier that scales with distance from 50%</li>
+  <li><strong>Market impact</strong> — large orders eat through the book; square-root scaling (4× typical size → 2× impact, 100× → 10×), tracked per-market via an EMA of trade sizes</li>
+</ul>
 
-That second point matters a lot and most backtesting frameworks miss it. In a real order book, your limit buy sits on the bid side. It only fills when someone comes in and *sells* to you — meaning the taker is a NO buyer (equivalently, a YES seller). If a YES buyer comes in and hits the ask, your bid just sits there untouched. The engine models this correctly. Skipping it makes strategies look more liquid than they actually are, because you'd be counting fills on trades that wouldn't have touched your order at all.
+<p><strong>Backtests show edge where it exists</strong> — <code>buy_low</code> stays profitable because markets below 20% YES resolved YES ~23% of the time historically. The point of realistic modeling is to penalize strategies that only <em>look</em> good due to perfect-fill assumptions, not to guarantee losses.</p>
 
-Once an order fills, the fill price gets adjusted for slippage before it lands in your portfolio.
 
-### How slippage works
-
-Slippage combines two real effects:
-
-**Spread cost** — bid-ask spreads in prediction markets get much wider at extreme prices. Near 50/50 the spread might be 1 cent. Near 5% or 95% it can be 5–10 cents. That sounds small, but 5 cents of spread on a 10-cent YES contract is 50% of your position cost right off the bat. The model captures this with a spread multiplier that grows as you move away from 50%: at 50% it's 1×, at 15% it's about 2×, at 5% it's about 5×.
-
-**Market impact** — bigger orders move the price against you. If you try to buy 100 contracts in a market that normally trades 10 at a time, you're going to eat through the book and pay more for each successive contract. The model uses square-root scaling for this: an order 4× the typical trade size pays 2× the base impact, and 100× pays 10×. This is the standard approach in quantitative finance (Almgren-Chriss/Kyle-lambda model). The typical trade size is tracked per-market with an exponential moving average that updates as trades come in, so liquid markets stay cheap to trade and thin markets stay expensive.
-
-Both effects stack on top of a configurable base slippage (default 0.5%).
-
-### A note on what backtests can and can't tell you
-
-Running `buy_low` (buy YES when priced below 20%, hold to resolution) against all of this modeling still shows positive returns. That's not a sign the model is wrong — it turns out that in the historical data, markets priced below 20% YES resolved YES about 23% of the time. That's slightly above the implied probability, and it's genuine historical edge. No friction model can realistically close that gap; you'd need to charge fantasy-level slippage to force EV negative.
-
-The point of good liquidity modeling isn't to guarantee any given strategy loses. It's to catch strategies that only *look* profitable because they assume perfect fills — like placing a huge order in a thin market at exactly the quoted price with zero spread cost. Those strategies get correctly penalized now. Whether historical edge holds up out-of-sample is a different question that no backtest can answer for you.
+</td>
+</tr>
+</table>
 
 ## Roadmap
 
 - [x] **Interactive charts** — Bokeh-based HTML charts with linked equity curve, P&L, market prices, drawdown, and cash panels
 - [x] **Slippage, latency, & liquidity modeling** — taker-side-aware fill logic, price-proportional spread cost, and square-root market impact. See "How the Engine Works" above.
-- [x] **Front-testing** — paper trade strategies against live WebSocket data from Kalshi and Polymarket
+- [x] **Front-testing** — paper trade strategies against live WebSocket data from Polymarket (Kalshi coming soon); auto-selects ~30 active markets with real-time price/volume display
 - [ ] **Time span selection** — restrict backtests to a specific date range (e.g. `--start 2024-01-01 --end 2024-12-31`)
 - [ ] **Market filtering** — filter by market type, category, or specific market IDs
 - [ ] **Advanced order types** — market orders, stop-losses, take-profit, and time-in-force options
@@ -91,7 +97,9 @@ The point of good liquidity modeling isn't to guarantee any given strategy loses
 ## Current issues
 
 - [ ] High memory usage (42 GB when loading top 1% volume Polymarket data). The bulk of memory comes from the data feed and plotting pipeline — further work needed on streaming/chunked processing.
-- [ ] Live paper-trading with Polymarket & Kalshi has not yet been verified to work fully. It is a WIP.
+- [ ] Kalshi front testing is not yet available — requires API credential wiring and has not been verified end-to-end.
+
+<img src="media/engine_diagram.png" alt="Engine Architecture Diagram" width="100%">
 
 ## Prerequisites
 
@@ -151,7 +159,10 @@ make backtest
 
 This launches an interactive menu where you select a strategy, platform, and market sample size. Results are printed to the terminal and an event log is saved to `output/`.
 
-<img src="media/running_backtest.gif" alt="Running a backtest" width="600">
+<p>
+  <img src="media/running_backtest_2.gif" alt="Gambling strategy on Polymarket" width="49%">
+  <img src="media/results_&_chart.png" alt="Gambling strategy on Kalshi" width="49%">
+</p>
 
 To run a specific strategy directly:
 
@@ -165,17 +176,23 @@ make backtest <strat_name>
 make fronttest
 ```
 
-This connects to live WebSocket feeds from Kalshi or Polymarket and paper trades your strategy against real-time market data. No real money is used — fills are simulated using the same matching logic as the backtest engine.
+This connects to live WebSocket feeds and paper trades your strategy against real-time market data. No real money is used — fills are simulated using the same matching logic as the backtest engine.
 
-You'll be prompted to select a strategy, platform, and market IDs to watch. Press Enter without providing an ID to auto-select a random active market.
+Currently **Polymarket** is the active platform. Kalshi support is coming soon.
+
+When you select Polymarket and press Enter (without typing condition IDs), the engine automatically fetches ~30 active markets sorted by 24-hour volume, displays a table of each market's current YES price, 24h volume, and close date, then begins streaming live trades across all of them simultaneously.
+
+> This is still a work-in-progress. Don't trust these.
+
+<img src="media/fronttest.png" alt="Front testing on Polymarket" width="700">
+
+Press **Ctrl+C** at any time to stop — a full session summary (P&L, fills, win rate) is printed on exit.
 
 To run a specific strategy directly:
 
 ```bash
 make fronttest <strat_name>
 ```
-
-**Kalshi** requires API credentials — set `KALSHI_API_KEY` and `KALSHI_PRIVATE_KEY_PATH` environment variables. **Polymarket** uses public WebSocket data and needs no authentication.
 
 ## Available Commands
 
@@ -253,49 +270,6 @@ Strategies are auto-discovered — drop a `.py` file in the `strategies/` direct
 | `self.open_orders` | List of currently pending orders |
 | `self.markets` | All available market metadata |
 
-## Project Structure
-
-```
-├── main.py                          # CLI entry point
-├── Makefile                         # build commands (proxies to submodule)
-├── pyproject.toml                   # python dependencies
-├── data -> prediction-market-analysis/data  # symlink to trade data
-├── crates/
-│   └── backtesting_engine/          # compiled rust core (PyO3)
-│       ├── Cargo.toml
-│       └── src/
-│           ├── lib.rs               # PyO3 module definition
-│           ├── engine.rs            # hot loop, event logging, FFI
-│           ├── broker.rs            # order matching (HashMap by market_id)
-│           ├── portfolio.rs         # position tracking, resolution, snapshots
-│           └── models.rs            # internal rust data types
-├── src/
-│   └── backtesting/
-│       ├── rust_engine.py           # python wrapper for the Rust core
-│       ├── front_test_engine.py     # live paper-trading engine
-│       ├── paper_broker.py          # pure-Python broker for paper trading
-│       ├── strategy.py              # abstract strategy base class
-│       ├── models.py                # data models (TradeEvent, Order, Fill, etc.)
-│       ├── metrics.py               # performance metric calculations
-│       ├── plotting.py              # interactive Bokeh charts
-│       ├── logger.py                # event logging
-│       ├── progress.py              # progress bar display
-│       ├── _archive/                # pure-Python engine (fallback)
-│       │   ├── engine.py
-│       │   ├── broker.py
-│       │   └── portfolio.py
-│       ├── feeds/
-│       │   ├── base.py              # abstract data feed interface
-│       │   ├── kalshi.py            # kalshi parquet data feed
-│       │   ├── kalshi_live.py       # live Kalshi eebSocket feed
-│       │   ├── polymarket.py        # polymarket parquet data feed
-│       │   └── polymarket_live.py   # live Polymarket eebSocket feed
-│       └── strategies/              # auto-discovered strategy files
-│           └── gambling_addiction.py# typical gambling tactics
-├── tests/                           # test suite
-├── output/                          # backtest logs and results
-└── prediction-market-analysis/      # data & analysis submodule
-```
 
 ## Data
 

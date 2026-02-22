@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import random
 from collections.abc import AsyncIterator
 from datetime import datetime, timezone
 
@@ -20,7 +21,7 @@ try:
 except ImportError:
     websockets = None  # type: ignore[assignment]
 
-__all__ = ["PolymarketLiveFeed", "fetch_random_polymarket_condition"]
+__all__ = ["PolymarketLiveFeed", "fetch_polymarket_markets", "fetch_random_polymarket_condition"]
 
 _WS_URL = "wss://ws-subscriptions-clob.polymarket.com/ws/market"
 _CLOB_API = "https://clob.polymarket.com"
@@ -39,28 +40,48 @@ def _get(url: str) -> dict | list:
         return json.loads(resp.read())
 
 
-def fetch_random_polymarket_condition() -> str | None:
-    """Fetch a random active market condition ID from the Polymarket Gamma API."""
-    import random
+def fetch_polymarket_markets(n: int = 30) -> list[dict]:
+    """Fetch n active Polymarket markets from the Gamma API, sorted by 24h volume.
 
+    Returns a list of raw Gamma API market dicts.  Each dict includes at minimum:
+    - conditionId: str
+    - question: str
+    - outcomePrices: JSON-encoded list of price strings, e.g. '["0.65", "0.35"]'
+    - volume24hr: float (USD)
+    - volume: float (total USD)
+    - endDate: ISO date string
+    - clobTokenIds: JSON-encoded list of token ID strings
+    """
     try:
-        # Sort by 24h volume descending so we pick an active market
-        data = _get(f"{_GAMMA_API}/markets?active=true&closed=false&limit=50&order=volume24hr&ascending=false")
-        markets = data if isinstance(data, list) else data.get("markets", [])
-        with_tokens = [m for m in markets if m.get("clobTokenIds")]
-        if not with_tokens:
-            with_tokens = markets
-        if not with_tokens:
-            return None
-        # Pick from the top 10 by volume for a better chance of seeing trades
-        top = with_tokens[:10] if len(with_tokens) >= 10 else with_tokens
-        chosen = random.choice(top)
-        title = chosen.get("question", "")
-        if title:
-            print(f"  -> {title}")
-        return chosen.get("conditionId")
-    except Exception:
+        # Fetch up to 200 markets sorted by 24h volume
+        data = _get(f"{_GAMMA_API}/markets?active=true&closed=false&limit=200&order=volume24hr&ascending=false")
+        all_markets = data if isinstance(data, list) else data.get("markets", [])
+
+        # Keep only markets with valid condition IDs and CLOB tokens
+        eligible = [m for m in all_markets if m.get("conditionId") and m.get("clobTokenIds")]
+        if not eligible:
+            eligible = [m for m in all_markets if m.get("conditionId")]
+        if not eligible:
+            return []
+
+        # Sample randomly from the top 100 by volume (more active = better for live testing)
+        pool = eligible[:100] if len(eligible) >= 100 else eligible
+        return random.sample(pool, min(n, len(pool)))
+    except Exception as exc:
+        print(f"  Warning: Could not fetch markets from Gamma API: {exc}")
+        return []
+
+
+def fetch_random_polymarket_condition() -> str | None:
+    """Fetch a single random active market condition ID (legacy helper)."""
+    markets = fetch_polymarket_markets(n=1)
+    if not markets:
         return None
+    m = markets[0]
+    title = m.get("question", "")
+    if title:
+        print(f"  -> {title}")
+    return m.get("conditionId")
 
 
 class PolymarketLiveFeed:
@@ -68,16 +89,18 @@ class PolymarketLiveFeed:
 
     Usage::
 
-        feed = PolymarketLiveFeed(condition_ids=["0x1234...", ...])
+        markets = fetch_polymarket_markets(30)
+        condition_ids = [m["conditionId"] for m in markets]
+        feed = PolymarketLiveFeed(condition_ids=condition_ids, gamma_data=markets)
         async for trade in feed.trades():
             ...
 
     ``condition_ids`` are the Polymarket condition IDs for the markets you
-    want to track.  You can find them on the Polymarket UI or via the
-    Gamma API (GET /markets).
+    want to track.  Pass ``gamma_data`` (from ``fetch_polymarket_markets``) to
+    pre-populate display metadata (prices, volumes, close dates).
     """
 
-    def __init__(self, condition_ids: list[str]):
+    def __init__(self, condition_ids: list[str], gamma_data: list[dict] | None = None):
         if websockets is None:
             raise ImportError("Install websockets: pip install websockets")
 
@@ -85,6 +108,13 @@ class PolymarketLiveFeed:
         self._markets: dict[str, MarketInfo] = {}
         # Maps token_id -> (condition_id, outcome_index)
         self._token_map: dict[str, tuple[str, int]] = {}
+        # Raw Gamma API data keyed by conditionId for rich display
+        self._gamma_data: dict[str, dict] = {}
+        if gamma_data:
+            for m in gamma_data:
+                cid = m.get("conditionId", "")
+                if cid:
+                    self._gamma_data[cid] = m
 
     def _fetch_market_clob(self, cid: str) -> None:
         """Fetch a single market's metadata from the CLOB API."""
@@ -106,7 +136,6 @@ class PolymarketLiveFeed:
 
         closed = data.get("closed", False)
         active = data.get("active", True)
-        # CLOB API doesn't have resolution info directly — assume open if active
         status = MarketStatus.OPEN
         if closed or not active:
             status = MarketStatus.CLOSED
@@ -118,10 +147,14 @@ class PolymarketLiveFeed:
             except Exception:
                 pass
 
+        # Prefer the question from Gamma data if available (often richer)
+        gamma = self._gamma_data.get(cid, {})
+        title = data.get("question") or gamma.get("question") or condition_id
+
         self._markets[condition_id] = MarketInfo(
             market_id=condition_id,
             platform=Platform.POLYMARKET,
-            title=data.get("question", condition_id),
+            title=title,
             open_time=None,
             close_time=end_date,
             result=None,
@@ -132,8 +165,46 @@ class PolymarketLiveFeed:
         """Return cached market metadata (call connect() first)."""
         return dict(self._markets)
 
+    def get_market_summary_rows(self) -> list[dict]:
+        """Return display rows with title, current YES price, volume, and close date.
+
+        Each row is a dict with keys:
+        - condition_id, title, yes_price (float|None), volume_24h (float|None),
+          volume_total (float|None), end_date (str|None), liquidity (float|None)
+        """
+        rows = []
+        for cid in self.condition_ids:
+            extra = self._gamma_data.get(cid, {})
+            info = self._markets.get(cid)
+            title = (info.title if info else None) or extra.get("question", cid[:24])
+
+            yes_price = None
+            try:
+                prices_raw = extra.get("outcomePrices", "[]")
+                prices = json.loads(prices_raw) if isinstance(prices_raw, str) else list(prices_raw)
+                if prices:
+                    yes_price = float(prices[0])
+            except Exception:
+                pass
+
+            end_raw = extra.get("endDate") or extra.get("endDateIso", "")
+            end_date = end_raw[:10] if end_raw else None
+
+            rows.append(
+                {
+                    "condition_id": cid,
+                    "title": title,
+                    "yes_price": yes_price,
+                    "volume_24h": extra.get("volume24hr") or extra.get("oneDayVolume"),
+                    "volume_total": extra.get("volume"),
+                    "end_date": end_date,
+                    "liquidity": extra.get("liquidity"),
+                }
+            )
+        return rows
+
     async def connect(self) -> None:
-        """Fetch market metadata before streaming."""
+        """Fetch market metadata from the CLOB API before streaming."""
         for cid in self.condition_ids:
             self._fetch_market_clob(cid)
 
@@ -181,8 +252,6 @@ class PolymarketLiveFeed:
                                 if trade is not None:
                                     yield trade
                             elif event_type == "price_change":
-                                # price_change events also indicate activity —
-                                # extract last_trade_price if present
                                 ltp = msg.get("last_trade_price")
                                 if ltp is not None:
                                     trade = self._parse_trade(msg)
@@ -208,7 +277,6 @@ class PolymarketLiveFeed:
         if condition_id not in self._markets:
             return None
 
-        # last_trade_price can be a standalone field or nested
         price_val = msg.get("price") or msg.get("last_trade_price")
         if price_val is None:
             return None
@@ -218,7 +286,6 @@ class PolymarketLiveFeed:
 
         size = float(msg.get("size", msg.get("quantity", 1)))
 
-        # outcome_index 0 = YES token, 1 = NO token
         if outcome_index == 0:
             yes_price = price
             no_price = 1.0 - price
@@ -233,7 +300,6 @@ class PolymarketLiveFeed:
             if ts_raw:
                 ts_val = str(ts_raw)
                 if ts_val.isdigit():
-                    # Polymarket timestamps are in milliseconds
                     timestamp = datetime.fromtimestamp(int(ts_val) / 1000, tz=timezone.utc)
                 else:
                     timestamp = datetime.fromisoformat(ts_val.replace("Z", "+00:00"))
