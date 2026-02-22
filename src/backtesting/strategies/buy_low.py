@@ -5,7 +5,7 @@ from src.backtesting.strategy import Strategy
 
 
 class BuyLowStrategy(Strategy):
-    def __init__(self, threshold: float = 0.20, quantity: float = 10.0, initial_cash: float = 10_000.0):
+    def __init__(self, threshold: float = 0.20, quantity: float = 100.0, initial_cash: float = 10_000.0):
         super().__init__(
             name="buy_low",
             description=f"Buy YES when price < {threshold:.0%}, hold to resolution.",
