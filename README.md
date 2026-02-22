@@ -23,6 +23,8 @@ These two graphs below are the output of the gambling strategy. Losing money has
   <img src="media/gambling_strategy_kalshi_1pct.png" alt="Gambling strategy on Kalshi" width="49%">
 </p>
 
+[Click here for an interactive demo](https://evan-kolberg.github.io/prediction-market-backtesting/media/backtest_gambling_addiction_polymarket.html)
+
 Built on top of [prediction-market-analysis](https://github.com/Jon-Becker/prediction-market-analysis) for data indexing and analysis.
 
 <table>
