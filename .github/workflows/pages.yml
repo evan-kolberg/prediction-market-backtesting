@@ -23,8 +23,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Remove broken data symlink
-        run: rm -f data
+      - name: Resolve data symlink target
+        run: mkdir -p prediction-market-analysis/data
 
       - uses: actions/configure-pages@v5
 
