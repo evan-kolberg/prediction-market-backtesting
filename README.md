@@ -66,21 +66,21 @@ Built on top of [prediction-market-analysis](https://github.com/Jon-Becker/predi
 
 <h2 id="how-the-engine-works">How the Engine Works</h2>
 
-<p>Trades are replayed one by one in chronological order. For each trade the engine checks pending orders for fills, updates the portfolio, then calls <code>on_trade</code> so the strategy can react. The hot loop (order matching, portfolio math) runs in compiled Rust; strategy callbacks stay in Python.</p>
+<p>Trades replay chronologically. For each trade, the engine checks pending orders for fills, updates the portfolio, then fires <code>on_trade</code> so the strategy can react. The hot loop (order matching, portfolio math) is compiled Rust; strategy callbacks are Python.</p>
 
-<p><strong>Order fills</strong> require two conditions:</p>
+<p>A limit buy fills when two things are true:</p>
 <ul>
-  <li><strong>Price</strong> — the trade price must be at or below your limit</li>
-  <li><strong>Taker side</strong> — the taker must be on the <em>opposite</em> side from you (your limit buy only fills when someone sells into it, not when another buyer lifts the ask)</li>
+  <li>price: the trade price is at or below your limit</li>
+  <li>taker side: the taker is on the sell side; you won't fill against another buyer lifting the ask</li>
 </ul>
 
-<p><strong>Slippage</strong> models two real costs that stack on a configurable base (default 0.5%):</p>
+<p>Slippage has two components on top of a configurable base fee (default 0.5%):</p>
 <ul>
-  <li><strong>Spread cost</strong> — spreads widen at extreme prices (1¢ near 50/50, up to 5–10¢ near 5%/95%), modeled with a multiplier that scales with distance from 50%</li>
-  <li><strong>Market impact</strong> — large orders eat through the book; square-root scaling (4× typical size → 2× impact, 100× → 10×), tracked per-market via an EMA of trade sizes</li>
+  <li>spread cost: scales with distance from 50%; around 1¢ near even odds, up to 5–10¢ near 5%/95%</li>
+  <li>market impact: square-root scaling off a per-market EMA of trade sizes, so a 4x oversized order costs 2x, not 4x</li>
 </ul>
 
-<p><strong>Backtests show edge where it exists</strong> — <code>buy_low</code> stays profitable because markets below 20% YES resolved YES ~23% of the time historically. The point of realistic modeling is to penalize strategies that only <em>look</em> good due to perfect-fill assumptions, not to guarantee losses.</p>
+<p>The goal of the slippage model is to punish strategies that only look good under perfect-fill assumptions. It's easy to create optimistic backtests, so it's important to stay conservative. Work is being done to allow strategies to be tested in real-time with fronttesting.</p>
 
 
 </td>
@@ -90,12 +90,12 @@ Built on top of [prediction-market-analysis](https://github.com/Jon-Becker/predi
 ## Roadmap
 
 - [x] **Interactive charts** — Bokeh-based HTML charts with linked equity curve, P&L, market prices, drawdown, and cash panels
-- [x] **Slippage, latency, & liquidity modeling** — taker-side-aware fill logic, price-proportional spread cost, and square-root market impact. See "How the Engine Works" above.
+- [x] **Slippage, latency, & liquidity modeling** — taker-side-aware fill logic, price-proportional spread cost, and square-root market impact
 - [x] **Front-testing** — paper trade strategies against live WebSocket data from Polymarket (Kalshi coming soon); auto-selects ~30 active markets with real-time price/volume display
-- [ ] **Time span selection** — restrict backtests to a specific date range (e.g. `--start 2024-01-01 --end 2024-12-31`)
+- [ ] **Assess backtesting engine validity** - It'll  be a good idea to validate the quality of this engine with fronttesting
+- [ ] **Front-testing** - more work has to be done on allowing the user to have more control over how the front-testing works. An arbitrary number of 30 markets will soon need to be variable since strategies come in all types.
 - [ ] **Market filtering** — filter by market type, category, or specific market IDs
 - [ ] **Advanced order types** — market orders, stop-losses, take-profit, and time-in-force options
-- [ ] **Multi-strategy comparison** — run multiple strategies side-by-side and generate comparative reports
 
 ## Current issues
 
