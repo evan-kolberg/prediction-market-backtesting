@@ -207,6 +207,44 @@ def _run_backtest_interactive(strategy, platforms: dict, use_rust: bool = True):
             print(f"{_ts()}  {GREEN}Saved.{RESET}\n")
 
 
+def _fmt_volume(v: float | None) -> str:
+    """Format a dollar volume for compact display (e.g. $1.2M, $890K)."""
+    if v is None:
+        return "    N/A"
+    try:
+        v = float(v)
+    except Exception:
+        return "    N/A"
+    if v >= 1_000_000:
+        return f"${v / 1_000_000:.1f}M"
+    elif v >= 1_000:
+        return f"${v / 1_000:.1f}K"
+    else:
+        return f"${v:.0f}"
+
+
+def _print_market_table(rows: list[dict]) -> None:
+    """Print a colour-coded table of Polymarket market data."""
+    CYAN = "\033[36m"
+    header = f"  {'#':>3}  {'Market Question':<55}  {'YES':>6}  {'Vol 24h':>8}  {'Closes'}"
+    sep = f"  {'─' * 3}  {'─' * 55}  {'─' * 6}  {'─' * 8}  {'─' * 10}"
+    print(f"\n{CYAN}{header}{RESET}")
+    print(f"{DIM}{sep}{RESET}")
+    for i, row in enumerate(rows, 1):
+        title = (row.get("title") or "Unknown")[:55]
+        yp = row.get("yes_price")
+        if yp is not None:
+            yes_str = f"{yp:.1%}"
+            yes_color = GREEN if yp >= 0.5 else RED
+        else:
+            yes_str = "  N/A"
+            yes_color = DIM
+        vol = _fmt_volume(row.get("volume_24h"))
+        end = (row.get("end_date") or "")[:10] or "  N/A    "
+        print(f"  {DIM}{i:>3}{RESET}  {title:<55}  {yes_color}{yes_str:>6}{RESET}  {vol:>8}  {DIM}{end}{RESET}")
+    print()
+
+
 def fronttest(name: str | None = None):
     """Run a strategy against live market data (paper trading)."""
     import asyncio
@@ -252,8 +290,8 @@ def fronttest(name: str | None = None):
         strategy_cls = strategies[choice]
         instance = strategy_cls()  # type: ignore[call-arg]
 
-    # Select platform
-    platform_options = ["Kalshi", "Polymarket", "[Exit]"]
+    # Select platform — only Polymarket is active; Kalshi is shown but blocked.
+    platform_options = ["Kalshi {inactive}", "Polymarket", "[Exit]"]
     menu = TerminalMenu(
         platform_options,
         title="Select live data source:",
@@ -265,45 +303,60 @@ def fronttest(name: str | None = None):
         print("Exiting.")
         return
 
-    # Get market identifiers
     if platform_choice == 0:
-        print("\nEnter Kalshi market tickers to watch (comma-separated, or press Enter for a random active market):")
-        print("  Example: KXBTC-25FEB14-T96000,KXETH-25FEB14-T3000")
-        raw = input("> ").strip()
-        if not raw:
-            from src.backtesting.feeds.kalshi_live import KalshiLiveFeed, fetch_random_kalshi_ticker
+        print(f"\n{_ts()}  {RED}Kalshi front testing is not yet available. Coming soon.{RESET}")
+        return
 
-            ticker = fetch_random_kalshi_ticker()
-            if not ticker:
-                print("Could not fetch a random market from Kalshi. Exiting.")
-                return
-            print(f"\n{_ts()}  Randomly selected: {ticker}")
-            tickers = [ticker]
-        else:
-            from src.backtesting.feeds.kalshi_live import KalshiLiveFeed
+    # --- Polymarket (auto-selects a sample of active markets) ---
+    from src.backtesting.feeds.polymarket_live import PolymarketLiveFeed, fetch_polymarket_markets
 
-            tickers = [t.strip() for t in raw.split(",") if t.strip()]
+    # Allow manual override, but default to auto-selecting 30 active markets
+    print(
+        "\nEnter Polymarket condition IDs (comma-separated) or press Enter to auto-select ~30 active markets by volume:"
+    )
+    raw = input("> ").strip()
 
-        feed = KalshiLiveFeed(market_tickers=tickers)
-    else:
-        print("\nEnter Polymarket condition IDs to watch (comma-separated, or press Enter for a random active market):")
-        print("  Example: 0x1234...,0x5678...")
-        raw = input("> ").strip()
-        if not raw:
-            from src.backtesting.feeds.polymarket_live import PolymarketLiveFeed, fetch_random_polymarket_condition
-
-            condition_id = fetch_random_polymarket_condition()
-            if not condition_id:
-                print("Could not fetch a random market from Polymarket. Exiting.")
-                return
-            print(f"\n{_ts()}  Randomly selected: {condition_id}")
-            condition_ids = [condition_id]
-        else:
-            from src.backtesting.feeds.polymarket_live import PolymarketLiveFeed
-
-            condition_ids = [c.strip() for c in raw.split(",") if c.strip()]
-
+    if raw:
+        condition_ids = [c.strip() for c in raw.split(",") if c.strip()]
         feed = PolymarketLiveFeed(condition_ids=condition_ids)
+    else:
+        print(f"\n{_ts()}  Fetching active Polymarket markets...")
+        gamma_markets = fetch_polymarket_markets(30)
+        if not gamma_markets:
+            print(f"{_ts()}  {RED}Could not fetch markets from Polymarket. Exiting.{RESET}")
+            return
+
+        condition_ids = [m["conditionId"] for m in gamma_markets if m.get("conditionId")]
+        print(f"{_ts()}  {GREEN}Found {len(condition_ids)} markets.{RESET}")
+
+        # Build display rows from Gamma API data (no CLOB call needed here)
+        import json as _json
+
+        display_rows = []
+        for m in gamma_markets:
+            cid = m.get("conditionId", "")
+            if not cid:
+                continue
+            yes_price = None
+            try:
+                prices_raw = m.get("outcomePrices", "[]")
+                prices = _json.loads(prices_raw) if isinstance(prices_raw, str) else list(prices_raw)
+                if prices:
+                    yes_price = float(prices[0])
+            except Exception:
+                pass
+            end_raw = m.get("endDate") or m.get("endDateIso", "")
+            display_rows.append(
+                {
+                    "title": m.get("question", cid[:40]),
+                    "yes_price": yes_price,
+                    "volume_24h": m.get("volume24hr") or m.get("oneDayVolume"),
+                    "end_date": (end_raw[:10] if end_raw else None),
+                }
+            )
+
+        _print_market_table(display_rows)
+        feed = PolymarketLiveFeed(condition_ids=condition_ids, gamma_data=gamma_markets)
 
     engine = FrontTestEngine(feed=feed, strategy=instance)
     asyncio.run(engine.run())

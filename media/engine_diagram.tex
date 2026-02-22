@@ -1,0 +1,150 @@
+\documentclass[tikz, border=20pt]{standalone}
+\usepackage{tikz}
+\usepackage{xcolor}
+\usetikzlibrary{arrows.meta, positioning, backgrounds, fit, calc}
+
+\definecolor{bg}{HTML}{0D1117}
+\definecolor{surf}{HTML}{161B22}
+\definecolor{ink}{HTML}{E6EDF3}
+\definecolor{muted}{HTML}{7D8590}
+
+\pagecolor{bg}
+
+\tikzset{
+  nd/.style={
+    rectangle, rounded corners=6pt,
+    draw=ink, line width=1.4pt,
+    text=ink, fill=surf,
+    align=center,
+    inner xsep=14pt, inner ysep=10pt,
+    font=\large\bfseries,
+  },
+  arr/.style={
+    -{Stealth[length=9pt,width=6pt]},
+    line width=1.5pt, draw=ink,
+  },
+  darr/.style={arr, dashed, draw=ink!55, line width=1.2pt},
+  garr/.style={arr, dashed, draw=ink!35, line width=0.9pt},
+  lbl/.style={font=\normalsize\ttfamily, text=muted, fill=bg, inner sep=3pt},
+  grp/.style={
+    draw=ink!30, dashed, rounded corners=8pt,
+    line width=1.2pt, fill=bg, inner sep=12pt,
+  },
+  glbl/.style={
+    font=\normalsize\bfseries, text=ink!50,
+    fill=bg, rounded corners=2pt, inner sep=3pt,
+  },
+}
+
+\begin{document}
+\begin{tikzpicture}[node distance=0.7cm and 2.5cm]
+
+%% ─── CLI ───────────────────────────────────────────────────────────────
+\node[nd, minimum width=9.2cm] (cli)
+  {\Large\texttt{main.py} \;/\; CLI};
+
+%% ─── Modes ──────────────────────────────────────────────────────────────
+\node[nd, below left =1.0cm and 2.4cm of cli] (bm) {Backtest Mode};
+\node[nd, below right=1.0cm and 2.4cm of cli] (fm) {Front-Test Mode};
+
+%% ─── Feeds ──────────────────────────────────────────────────────────────
+\node[nd, text width=4.4cm, below=0.6cm of bm] (hf)
+  {Historical Feed\\[3pt]
+   {\normalsize\normalfont Kalshi \,/\, Polymarket}};
+
+\node[nd, text width=4.4cm, below=0.6cm of fm] (lf)
+  {Live WebSocket\\[3pt]
+   {\normalsize\normalfont Polymarket CLOB}};
+
+%% ─── Rust Engine ─────────────────────────────────────────────────────────
+\node[nd, text width=4.4cm, below=2.0cm of hf] (rb)
+  {Broker\\[3pt]
+   {\normalsize\normalfont taker-side \,·\, slippage}};
+
+\node[nd, text width=4.4cm, below=0.55cm of rb] (rp)
+  {Portfolio\\[3pt]
+   {\normalsize\normalfont positions \,·\, equity \,·\, P\&L}};
+
+%% ─── FrontTestEngine ────────────────────────────────────────────────────
+\node[nd, text width=4.4cm, below=2.0cm of lf] (pb)
+  {PaperBroker\\[3pt]
+   {\normalsize\normalfont same matching semantics}};
+
+\node[nd, text width=4.4cm, below=0.55cm of pb] (pp)
+  {Portfolio\\[3pt]
+   {\normalsize\normalfont positions \,·\, equity \,·\, P\&L}};
+
+%% ─── Group boxes ────────────────────────────────────────────────────────
+\begin{scope}[on background layer]
+  \node[grp, label={[glbl]left:Rust Engine},    fit=(rb)(rp)] (rg)  {};
+  \node[grp, label={[glbl]right:FrontTestEngine}, fit=(pb)(pp)] (fgn) {};
+\end{scope}
+
+%% ─── Strategy ────────────────────────────────────────────────────────────
+\coordinate (mid) at ($(rg.south)!0.5!(fgn.south)$);
+\node[nd, text width=9.2cm, below=2.0cm of mid] (st)
+  {\Large User Strategy\\[5pt]
+   {\normalsize\normalfont\ttfamily
+    on\_trade() \;\textbf{·}\; on\_fill() \;\textbf{·}\; lifecycle hooks}};
+
+%% ─── Output ──────────────────────────────────────────────────────────────
+\node[nd, text width=3.4cm,
+      below left =0.9cm and 1.0cm of st] (lo)
+  {Logger\\[3pt]{\normalsize\normalfont event log}};
+
+\node[nd, text width=3.8cm,
+      below right=0.9cm and 1.0cm of st] (mt)
+  {Metrics\\[3pt]
+   {\normalsize\normalfont Sharpe \,·\, Sortino \,·\, drawdown}};
+
+%% ════════════════════════════════════════════════════════════════════════
+%% Arrows
+%% ════════════════════════════════════════════════════════════════════════
+
+%% CLI → modes
+\draw[arr] (cli.south) -- ++(0,-0.33)
+  coordinate (cs) -| (bm.north);
+\draw[arr] (cs) -| (fm.north);
+
+%% modes → feeds
+\draw[arr] (bm) -- (hf);
+\draw[arr] (fm) -- (lf);
+
+%% feeds → brokers
+\draw[arr] (hf) -- node[lbl, right] {TradeEvent} (rb);
+\draw[arr] (lf) -- node[lbl, right] {TradeEvent} (pb);
+
+%% broker → portfolio
+\draw[arr] (rb) -- node[lbl, right] {Fill} (rp);
+\draw[arr] (pb) -- node[lbl, right] {Fill} (pp);
+
+%% engines → strategy (callbacks, dashed in)
+\draw[darr]
+  (rg.south) -- ++(0,-0.28)
+  -| ([xshift=-1.2cm]st.north)
+  node[lbl, pos=0.58, left] {\ttfamily on\_trade() / on\_fill()};
+
+\draw[darr]
+  (fgn.south) -- ++(0,-0.28)
+  -| ([xshift=+1.2cm]st.north)
+  node[lbl, pos=0.58, right] {\ttfamily on\_trade() / on\_fill()};
+
+%% strategy → engines (order API, lighter dashed out)
+\draw[garr]
+  ([xshift=-0.45cm]st.north) -- ++(0,+0.52)
+  -| ([xshift=+0.52cm]rg.south)
+  node[lbl, pos=0.33, left] {\ttfamily place\_order()};
+
+\draw[garr]
+  ([xshift=+0.45cm]st.north) -- ++(0,+0.52)
+  -| ([xshift=-0.52cm]fgn.south)
+  node[lbl, pos=0.33, right] {\ttfamily place\_order()};
+
+%% strategy → output
+\draw[arr]
+  (st.south) -- ++(0,-0.33)
+  coordinate (ss) -| (lo.north);
+\draw[arr] (ss) -| (mt.north);
+
+\end{tikzpicture}
+\end{document}
