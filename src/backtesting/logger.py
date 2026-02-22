@@ -16,6 +16,7 @@ if TYPE_CHECKING:
 # ANSI color codes
 _GREEN = "\033[32m"
 _RED = "\033[31m"
+_YELLOW = "\033[33m"
 _BOLD = "\033[1m"
 _DIM = "\033[2m"
 _RESET = "\033[0m"
@@ -115,7 +116,7 @@ class BacktestLogger:
         action = fill.action.value.upper()
         side = fill.side.value.upper()
         short_id = fill.order_id[:8]
-        color = _GREEN if action == "SELL" else ""
+        color = _YELLOW
         self._log(
             timestamp,
             "Order.FILLED",

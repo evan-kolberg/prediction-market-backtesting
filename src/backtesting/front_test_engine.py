@@ -147,13 +147,15 @@ class FrontTestEngine:
 
         last_status = time.monotonic()
 
-        # Handle graceful shutdown
+        # Handle graceful shutdown — cancel the current task so the WebSocket
+        # await is interrupted immediately rather than waiting for the next trade.
         loop = asyncio.get_event_loop()
-        stop_event = asyncio.Event()
+        current_task = asyncio.current_task()
 
         def _signal_handler():
             self._stopped = True
-            stop_event.set()
+            if current_task is not None:
+                current_task.cancel()
 
         try:
             loop.add_signal_handler(signal.SIGINT, _signal_handler)
@@ -203,5 +205,9 @@ class FrontTestEngine:
         except KeyboardInterrupt:
             pass
         finally:
+            try:
+                loop.remove_signal_handler(signal.SIGINT)
+            except Exception:
+                pass
             self.strategy.finalize()
             self._print_final_summary()

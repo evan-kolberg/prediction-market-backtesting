@@ -22,6 +22,7 @@ use crate::portfolio::Portfolio;
 
 const GREEN: &str = "\x1b[32m";
 const RED: &str = "\x1b[31m";
+const YELLOW: &str = "\x1b[33m";
 const BOLD: &str = "\x1b[1m";
 const DIM: &str = "\x1b[2m";
 const RESET: &str = "\x1b[0m";
@@ -452,11 +453,8 @@ impl RustEngine {
                     )
                 };
 
-                // Log fill — BUY plain, SELL green/red based on realized P&L
-                let fill_color = match fill.action {
-                    OrderAction::Buy => "",
-                    OrderAction::Sell => if realized_pnl >= 0.0 { GREEN } else { RED },
-                };
+                // Log fill — always yellow to match front-testing ORDER color
+                let fill_color = YELLOW;
                 let fill_msg = format!(
                     "{} {:.0} {} @ {:.2} {} | comm=${:.2}",
                     fill.action.as_str().to_uppercase(),
