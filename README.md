@@ -18,9 +18,9 @@ An event-driven backtesting engine for prediction market trading strategies. Rep
 
 Take a look at some example graphs below. Losing money has never looked so good.
 
-[--> Click here for an interactive demo <--](https://evan-kolberg.github.io/prediction-market-backtesting/media/backtest_buy_low_polymarket.html) ```buy_low.py``` as of engine date: Fri Feb 27, 2026 commit #39
+[--> Click here for an interactive demo <--](https://evan-kolberg.github.io/prediction-market-backtesting/media/backtest_buy_low_polymarket.html) ```buy_low.py``` as of engine date: Fri Feb 27, 2026 commit #40
 
-[--> Click here for another <--](https://evan-kolberg.github.io/prediction-market-backtesting/media/backtest_gambling_addiction_kalshi.html) ```gambling_addiction.py``` as of engine date: Fri Feb 27, 2026 commit #39
+[--> Click here for another <--](https://evan-kolberg.github.io/prediction-market-backtesting/media/backtest_gambling_addiction_kalshi.html) ```gambling_addiction.py``` as of engine date: Fri Feb 27, 2026 commit #40
 
 <img src="media/arc_screenshot.png" alt="buy low strat screenshot">
 
