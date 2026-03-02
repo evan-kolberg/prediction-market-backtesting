@@ -1,0 +1,48 @@
+[package]
+name = "nautilus-cli"
+readme = "README.md"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Command-line interface for the Nautilus trading engine"
+categories.workspace = true
+keywords.workspace = true
+documentation.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+default = []
+defi = ["dep:nautilus-blockchain", "nautilus-model/defi"]
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+[dependencies]
+nautilus-common = { workspace = true }
+nautilus-core = { workspace = true }
+nautilus-infrastructure = { workspace = true, features = ["postgres"] }
+nautilus-model = { workspace = true }
+
+nautilus-blockchain = { workspace = true, features = [
+  "hypersync",
+], optional = true }
+
+anyhow = { workspace = true }
+clap = { workspace = true }
+dotenvy = { workspace = true }
+log = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+ustr = { workspace = true }
+
+[[bin]]
+name = "nautilus"
+path = "src/bin/cli.rs"
+doc = false

@@ -1,0 +1,59 @@
+[package]
+name = "nautilus-data"
+readme = "README.md"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Core data handling machinery for the Nautilus trading engine"
+categories.workspace = true
+keywords.workspace = true
+documentation.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+name = "nautilus_data"
+crate-type = ["rlib", "cdylib"]
+
+[features]
+default = []
+streaming = ["nautilus-persistence"]
+ffi = [
+  "nautilus-common/ffi",
+  "nautilus-core/ffi",
+  "nautilus-model/ffi",
+  "nautilus-persistence/ffi",
+  "streaming",
+]
+high-precision = ["nautilus-model/high-precision"]
+defi = ["nautilus-common/defi", "nautilus-model/defi", "alloy-primitives"]
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+[dependencies]
+nautilus-common = { workspace = true }
+nautilus-core = { workspace = true }
+nautilus-model = { workspace = true, features = ["stubs"] }
+nautilus-persistence = { workspace = true, optional = true }
+
+ahash = { workspace = true }
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+chrono = { workspace = true }
+futures = { workspace = true }
+indexmap = { workspace = true }
+log = { workspace = true }
+ustr = { workspace = true }
+
+alloy-primitives = { workspace = true, optional = true }
+
+[dev-dependencies]
+rstest = { workspace = true }
+tokio = { workspace = true, features = ["test-util", "macros", "rt"] }

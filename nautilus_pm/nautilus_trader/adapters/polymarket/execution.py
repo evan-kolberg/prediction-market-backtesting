@@ -1,0 +1,1910 @@
+# -------------------------------------------------------------------------------------------------
+#  Copyright (C) 2015-2026 Nautech Systems Pty Ltd. All rights reserved.
+#  https://nautechsystems.io
+#
+#  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
+#  You may not use this file except in compliance with the License.
+#  You may obtain a copy of the License at https://www.gnu.org/licenses/lgpl-3.0.en.html
+#
+#  Unless required by applicable law or agreed to in writing, software
+#  distributed under the License is distributed on an "AS IS" BASIS,
+#  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#  See the License for the specific language governing permissions and
+#  limitations under the License.
+# -------------------------------------------------------------------------------------------------
+
+import asyncio
+import json
+from collections import OrderedDict
+from collections import defaultdict
+from typing import Any
+
+import msgspec
+from py_clob_client.client import BalanceAllowanceParams
+from py_clob_client.client import ClobClient
+from py_clob_client.client import MarketOrderArgs
+from py_clob_client.client import OpenOrderParams
+from py_clob_client.client import OrderArgs
+from py_clob_client.client import PartialCreateOrderOptions
+from py_clob_client.client import TradeParams
+from py_clob_client.clob_types import AssetType
+from py_clob_client.clob_types import PostOrdersArgs
+from py_clob_client.exceptions import PolyApiException
+
+from nautilus_trader.adapters.polymarket.common.cache import get_polymarket_trades_key
+from nautilus_trader.adapters.polymarket.common.constants import POLYMARKET_CANCEL_ALREADY_DONE
+from nautilus_trader.adapters.polymarket.common.constants import POLYMARKET_FINALIZED_TRADE_STATUSES
+from nautilus_trader.adapters.polymarket.common.constants import POLYMARKET_INVALID_API_KEY
+from nautilus_trader.adapters.polymarket.common.constants import POLYMARKET_VENUE
+from nautilus_trader.adapters.polymarket.common.constants import VALID_POLYMARKET_TIME_IN_FORCE
+from nautilus_trader.adapters.polymarket.common.conversion import usdce_from_units
+from nautilus_trader.adapters.polymarket.common.credentials import PolymarketWebSocketAuth
+from nautilus_trader.adapters.polymarket.common.enums import PolymarketEventType
+from nautilus_trader.adapters.polymarket.common.enums import PolymarketTradeStatus
+from nautilus_trader.adapters.polymarket.common.parsing import calculate_commission
+from nautilus_trader.adapters.polymarket.common.parsing import make_composite_trade_id
+from nautilus_trader.adapters.polymarket.common.parsing import validate_ethereum_address
+from nautilus_trader.adapters.polymarket.common.symbol import get_polymarket_condition_id
+from nautilus_trader.adapters.polymarket.common.symbol import get_polymarket_instrument_id
+from nautilus_trader.adapters.polymarket.common.symbol import get_polymarket_token_id
+from nautilus_trader.adapters.polymarket.common.types import JSON
+from nautilus_trader.adapters.polymarket.config import PolymarketExecClientConfig
+from nautilus_trader.adapters.polymarket.http.conversion import convert_tif_to_polymarket_order_type
+from nautilus_trader.adapters.polymarket.http.errors import should_retry
+from nautilus_trader.adapters.polymarket.providers import PolymarketInstrumentProvider
+from nautilus_trader.adapters.polymarket.schemas.trade import PolymarketTradeReport
+from nautilus_trader.adapters.polymarket.schemas.user import PolymarketOpenOrder
+from nautilus_trader.adapters.polymarket.schemas.user import PolymarketUserOrder
+from nautilus_trader.adapters.polymarket.schemas.user import PolymarketUserTrade
+from nautilus_trader.adapters.polymarket.websocket.client import PolymarketWebSocketChannel
+from nautilus_trader.adapters.polymarket.websocket.client import PolymarketWebSocketClient
+from nautilus_trader.adapters.polymarket.websocket.types import USER_WS_MESSAGE
+from nautilus_trader.cache.cache import Cache
+from nautilus_trader.common.component import LiveClock
+from nautilus_trader.common.component import MessageBus
+from nautilus_trader.common.enums import LogColor
+from nautilus_trader.common.enums import LogLevel
+from nautilus_trader.core.datetime import millis_to_nanos
+from nautilus_trader.core.datetime import nanos_to_secs
+from nautilus_trader.core.datetime import secs_to_nanos
+from nautilus_trader.core.nautilus_pyo3 import HttpClient
+from nautilus_trader.core.nautilus_pyo3 import HttpResponse
+from nautilus_trader.core.uuid import UUID4
+from nautilus_trader.execution.messages import BatchCancelOrders
+from nautilus_trader.execution.messages import CancelAllOrders
+from nautilus_trader.execution.messages import CancelOrder
+from nautilus_trader.execution.messages import GenerateFillReports
+from nautilus_trader.execution.messages import GenerateOrderStatusReport
+from nautilus_trader.execution.messages import GenerateOrderStatusReports
+from nautilus_trader.execution.messages import GeneratePositionStatusReports
+from nautilus_trader.execution.messages import QueryAccount
+from nautilus_trader.execution.messages import SubmitOrder
+from nautilus_trader.execution.messages import SubmitOrderList
+from nautilus_trader.execution.reports import FillReport
+from nautilus_trader.execution.reports import OrderStatusReport
+from nautilus_trader.execution.reports import PositionStatusReport
+from nautilus_trader.live.execution_client import LiveExecutionClient
+from nautilus_trader.live.retry import RetryManagerPool
+from nautilus_trader.model.currencies import USDC_POS
+from nautilus_trader.model.enums import AccountType
+from nautilus_trader.model.enums import ContingencyType
+from nautilus_trader.model.enums import LiquiditySide
+from nautilus_trader.model.enums import OmsType
+from nautilus_trader.model.enums import OrderSide
+from nautilus_trader.model.enums import OrderStatus
+from nautilus_trader.model.enums import OrderType
+from nautilus_trader.model.enums import PositionSide
+from nautilus_trader.model.enums import TimeInForce
+from nautilus_trader.model.enums import order_side_to_str
+from nautilus_trader.model.identifiers import AccountId
+from nautilus_trader.model.identifiers import ClientId
+from nautilus_trader.model.identifiers import ClientOrderId
+from nautilus_trader.model.identifiers import InstrumentId
+from nautilus_trader.model.identifiers import TradeId
+from nautilus_trader.model.identifiers import VenueOrderId
+from nautilus_trader.model.objects import AccountBalance
+from nautilus_trader.model.objects import Money
+from nautilus_trader.model.objects import Quantity
+from nautilus_trader.model.orders import Order
+
+
+class PolymarketExecutionClient(LiveExecutionClient):
+    """
+    Provides an execution client for Polymarket, a decentralized predication market.
+
+    Parameters
+    ----------
+    loop : asyncio.AbstractEventLoop
+        The event loop for the client.
+    http_client : py_clob_client.client.ClobClient
+        The Polymarket HTTP client.
+    msgbus : MessageBus
+        The message bus for the client.
+    cache : Cache
+        The cache for the client.
+    clock : LiveClock
+        The clock for the client.
+    instrument_provider : PolymarketInstrumentProvider
+        The instrument provider.
+    config : PolymarketExecClientConfig
+        The configuration for the client.
+    name : str, optional
+        The custom client ID.
+
+    """
+
+    PROCESSED_TRADES_LIMIT = 10_000
+
+    def __init__(
+        self,
+        loop: asyncio.AbstractEventLoop,
+        http_client: ClobClient,
+        msgbus: MessageBus,
+        cache: Cache,
+        clock: LiveClock,
+        instrument_provider: PolymarketInstrumentProvider,
+        ws_auth: PolymarketWebSocketAuth,
+        config: PolymarketExecClientConfig,
+        name: str | None,
+    ) -> None:
+        super().__init__(
+            loop=loop,
+            client_id=ClientId(name or POLYMARKET_VENUE.value),
+            venue=POLYMARKET_VENUE,
+            oms_type=OmsType.NETTING,
+            instrument_provider=instrument_provider,
+            account_type=AccountType.CASH,
+            base_currency=USDC_POS,
+            msgbus=msgbus,
+            cache=cache,
+            clock=clock,
+        )
+
+        # Configuration
+        self._config = config
+        self._log.info(f"{config.signature_type=}", LogColor.BLUE)
+        self._log.info(f"{config.funder=}", LogColor.BLUE)
+        self._log.info(f"{config.max_retries=}", LogColor.BLUE)
+        self._log.info(f"{config.retry_delay_initial_ms=}", LogColor.BLUE)
+        self._log.info(f"{config.retry_delay_max_ms=}", LogColor.BLUE)
+        self._log.info(f"{config.generate_order_history_from_trades=}", LogColor.BLUE)
+        self._log.info(f"{config.log_raw_ws_messages=}", LogColor.BLUE)
+        self._log.info(f"{config.ack_timeout_secs=}", LogColor.BLUE)
+
+        account_id = AccountId(f"{name or POLYMARKET_VENUE.value}-001")
+        self._set_account_id(account_id)
+        self._log.info(f"account_id={account_id.value}", LogColor.BLUE)
+
+        wallet_address = http_client.get_address()
+        if wallet_address is None:
+            raise RuntimeError("Auth error: could not determine `wallet_address`")
+
+        validate_ethereum_address(wallet_address)
+        self._wallet_address = wallet_address
+
+        # Get the user address (funder) - this is the address that holds positions
+        # For proxy wallets, this differs from the signer address
+        user_address = (
+            http_client.builder.funder
+            if hasattr(http_client, "builder")
+            else config.funder or wallet_address
+        )
+        validate_ethereum_address(user_address)
+        self._user_address = user_address
+
+        self._api_key = http_client.creds.api_key
+        self._log.info(f"{wallet_address=}", LogColor.BLUE)
+        self._log.info(f"{user_address=}", LogColor.BLUE)
+
+        # HTTP API
+        self._http_client = http_client
+        self._http_client_async = HttpClient(timeout_secs=15)
+        self._retry_manager_pool = RetryManagerPool[None](
+            pool_size=100,
+            max_retries=config.max_retries or 0,
+            delay_initial_ms=config.retry_delay_initial_ms or 1_000,
+            delay_max_ms=config.retry_delay_max_ms or 10_000,
+            backoff_factor=2,
+            logger=self._log,
+            exc_types=(PolyApiException,),
+            retry_check=should_retry,
+        )
+        self._decoder_order_report = msgspec.json.Decoder(PolymarketOpenOrder)
+        self._decoder_trade_report = msgspec.json.Decoder(PolymarketTradeReport)
+
+        # WebSocket API
+        self._ws_auth = ws_auth
+        self._ws_client: PolymarketWebSocketClient = PolymarketWebSocketClient(
+            self._clock,
+            base_url=self._config.base_url_ws,
+            channel=PolymarketWebSocketChannel.USER,
+            handler=self._handle_ws_message,
+            handler_reconnect=None,
+            loop=self._loop,
+            auth=self._ws_auth,
+            max_subscriptions_per_connection=self._config.ws_max_subscriptions_per_connection,
+        )
+        self._decoder_user_msg = msgspec.json.Decoder(USER_WS_MESSAGE)
+
+        # Hot caches
+        self._processed_fills: OrderedDict[tuple[TradeId, VenueOrderId], None] = OrderedDict()
+        self._processed_trades: OrderedDict[TradeId, PolymarketTradeStatus] = OrderedDict()
+        self._finalized_trades: OrderedDict[TradeId, None] = OrderedDict()
+        self._ack_events_order: dict[VenueOrderId, asyncio.Event] = {}
+        self._ack_events_trade: dict[VenueOrderId, asyncio.Event] = {}
+
+    async def _connect(self) -> None:
+        await self._instrument_provider.initialize()
+
+        # Add initial market subscriptions
+        instruments = self._cache.instruments(venue=POLYMARKET_VENUE)
+        for instrument in instruments:
+            condition_id = get_polymarket_condition_id(instrument.id)
+            self._ws_client.add_subscription(condition_id)
+
+        try:
+            # Only connect if we have subscriptions (avoids empty = all behavior)
+            if self._ws_client.has_subscriptions:
+                await self._ws_client.connect()
+
+            await self._update_account_state()
+            await self._await_account_registered()
+        except PolyApiException as e:
+            self._log.error(repr(e))
+            if e.error_msg["error"] == POLYMARKET_INVALID_API_KEY:
+                await self._ws_client.disconnect()
+            raise e
+
+    async def _disconnect(self) -> None:
+        await self._ws_client.disconnect()
+
+    def _stop(self) -> None:
+        self._retry_manager_pool.shutdown()
+
+    async def _maintain_active_market(self, instrument_id: InstrumentId) -> None:
+        condition_id = get_polymarket_condition_id(instrument_id)
+        await self._ws_client.subscribe(condition_id)
+
+    async def _update_account_state(self) -> None:
+        self._log.info("Checking account balance")
+
+        params = BalanceAllowanceParams(
+            asset_type=AssetType.COLLATERAL,
+            signature_type=self._config.signature_type,
+        )
+        response: dict[str, Any] = await asyncio.to_thread(
+            self._http_client.get_balance_allowance,
+            params,
+        )
+        total = usdce_from_units(int(response["balance"]))
+        account_balance = AccountBalance(
+            total=total,
+            locked=Money.from_raw(0, USDC_POS),
+            free=total,
+        )
+
+        self.generate_account_state(
+            balances=[account_balance],
+            margins=[],  # N/A
+            reported=True,
+            ts_event=self._clock.timestamp_ns(),
+        )
+
+    async def _fetch_user_positions(
+        self,
+        *,
+        limit: int = 100,
+        size_threshold: int = 0,
+    ) -> list[dict[str, Any]]:
+        """
+        Fetch all current positions for the configured user using the Polymarket Data
+        API.
+
+        Implements pagination as the endpoint returns a maximum of 100 entries per
+        request.
+
+        """
+        base_url = "https://data-api.polymarket.com/positions"
+        results: list[dict[str, Any]] = []
+        offset = 0
+
+        while True:
+            params = {
+                "user": self._user_address,
+                "limit": str(limit),
+                "offset": str(offset),
+                "sizeThreshold": str(size_threshold),
+                "sortBy": "TOKENS",
+                "sortDirection": "DESC",
+            }
+            response: HttpResponse = await self._http_client_async.get(
+                url=base_url,
+                params=params,
+            )
+
+            if response.status >= 400:
+                raise RuntimeError(f"HTTP {response.status}: Failed to fetch positions")
+
+            data = msgspec.json.decode(response.body)
+            if not data:
+                break
+            if isinstance(data, list):
+                results.extend(data)
+                if len(data) < limit:
+                    break
+            else:
+                # Unexpected shape; stop to avoid loop
+                break
+            offset += limit
+            if offset > 10000:
+                self._log.warning("Offset exceeded 10000; stopping")
+                break
+
+        return results
+
+    # -- EXECUTION REPORTS ------------------------------------------------------------------------
+
+    async def generate_order_status_reports(  # noqa: C901
+        self,
+        command: GenerateOrderStatusReports,
+    ) -> list[OrderStatusReport]:
+        self._log.debug("Requesting OrderStatusReports...")
+        reports: list[OrderStatusReport] = []
+
+        if command.instrument_id is not None:
+            condition_id = get_polymarket_condition_id(command.instrument_id)
+            asset_id = get_polymarket_token_id(command.instrument_id)
+            params = OpenOrderParams(market=condition_id, asset_id=asset_id)
+        else:
+            params = None
+
+        # Check active orders with venue
+        # Note: py_clob_client.get_orders() handles pagination internally
+        retry_manager = await self._retry_manager_pool.acquire()
+        try:
+            response: list[JSON] | None = await retry_manager.run(
+                "generate_order_status_reports",
+                [command.instrument_id],
+                asyncio.to_thread,
+                self._http_client.get_orders,
+                params=params,
+            )
+            if response:
+                # Uncomment for development
+                # self._log.info(f"Processing {len(response)} orders", LogColor.MAGENTA)
+                for json_obj in response:
+                    raw = msgspec.json.encode(json_obj)
+                    polymarket_order = self._decoder_order_report.decode(raw)
+
+                    instrument_id = get_polymarket_instrument_id(
+                        polymarket_order.market,
+                        polymarket_order.asset_id,
+                    )
+                    instrument = self._cache.instrument(instrument_id)
+                    if instrument is None:
+                        self._log.warning(
+                            f"Cannot handle order report: instrument {instrument_id} not found "
+                            f"(market={polymarket_order.market}, asset_id={polymarket_order.asset_id})",
+                        )
+                        continue
+
+                    venue_order_id = polymarket_order.get_venue_order_id()
+                    client_order_id = self._cache.client_order_id(venue_order_id)
+                    if client_order_id is None:
+                        client_order_id = ClientOrderId(str(UUID4()))
+
+                    report = polymarket_order.parse_to_order_status_report(
+                        account_id=self.account_id,
+                        instrument=instrument,
+                        client_order_id=client_order_id,
+                        ts_init=self._clock.timestamp_ns(),
+                    )
+                    reports.append(report)
+        finally:
+            await self._retry_manager_pool.release(retry_manager)
+
+        if self._config.generate_order_history_from_trades:
+            self._log.warning(
+                "Experimental feature not currently recommended: generating order history from trades",
+            )
+            reported_client_order_ids: set[ClientOrderId] = {r.client_order_id for r in reports}
+            for order in self._cache.orders_open(venue=POLYMARKET_VENUE):
+                if order.client_order_id in reported_client_order_ids:
+                    continue  # Already reported
+
+                command = GenerateOrderStatusReport(
+                    instrument_id=order.instrument_id,
+                    client_order_id=order.client_order_id,
+                    venue_order_id=order.venue_order_id,
+                    command_id=UUID4(),
+                    ts_init=self._clock.timestamp_ns(),
+                )
+                maybe_report = await self.generate_order_status_report(command)
+                if maybe_report:
+                    reports.append(maybe_report)
+
+            known_venue_order_ids: set[VenueOrderId] = {
+                o.venue_order_id for o in self._cache.orders()
+            }
+            known_venue_order_ids.update({r.venue_order_id for r in reports})
+
+            # Check fills to generate order reports
+            fill_command = GenerateFillReports(
+                instrument_id=command.instrument_id,
+                venue_order_id=None,
+                start=None,
+                end=None,
+                command_id=UUID4(),
+                ts_init=self._clock.timestamp_ns(),
+            )
+            fill_reports = await self.generate_fill_reports(fill_command)
+            if fill_reports and not known_venue_order_ids:
+                self._log.warning(
+                    "No previously known venue order IDs found in cache or from active orders",
+                )
+
+            venue_order_id_fill_reports: dict[VenueOrderId, list[FillReport]] = defaultdict(list)
+            for fill in fill_reports:
+                if fill.venue_order_id in known_venue_order_ids:
+                    continue  # Already reported
+                venue_order_id_fill_reports[fill.venue_order_id].append(fill)
+
+            for venue_order_id, fill_reports in venue_order_id_fill_reports.items():
+                first_fill = fill_reports[0]
+                instrument = self._cache.instrument(first_fill.instrument_id)
+                if instrument is None:
+                    self._log.warning(
+                        f"Cannot handle order report: instrument {first_fill.instrument_id} not found "
+                        f"(venue_order_id={venue_order_id})",
+                    )
+                    continue
+
+                order_type = (
+                    OrderType.MARKET
+                    if first_fill.liquidity_side == LiquiditySide.TAKER
+                    else OrderType.LIMIT
+                )
+
+                if order_type == OrderType.LIMIT:
+                    price = first_fill.last_px
+                else:
+                    price = None
+
+                order_side = first_fill.order_side
+
+                avg_px: float = 0.0
+                filled_qty: float = 0.0
+                ts_last: int = first_fill.ts_event
+
+                for fill_report in fill_reports:
+                    avg_px += float(fill_report.last_px) * float(fill_report.last_qty)
+                    filled_qty += float(fill_report.last_qty)
+                    ts_last = fill_report.ts_event
+
+                if filled_qty > 0:
+                    avg_px /= filled_qty
+                else:
+                    avg_px = 0.0
+
+                self._log.warning(f"{venue_order_id=}")
+                self._log.warning(f"{avg_px=}")
+                self._log.warning(f"{filled_qty=}")
+
+                report = OrderStatusReport(
+                    account_id=first_fill.account_id,
+                    instrument_id=first_fill.instrument_id,
+                    client_order_id=ClientOrderId(str(UUID4())),
+                    order_list_id=None,
+                    venue_order_id=venue_order_id,
+                    order_side=order_side,
+                    order_type=order_type,
+                    contingency_type=ContingencyType.NO_CONTINGENCY,
+                    time_in_force=TimeInForce.GTC,
+                    order_status=OrderStatus.FILLED,
+                    price=price,
+                    avg_px=instrument.make_price(avg_px),
+                    quantity=instrument.make_qty(filled_qty),
+                    filled_qty=instrument.make_qty(filled_qty),
+                    ts_accepted=ts_last,
+                    ts_last=ts_last,
+                    report_id=UUID4(),
+                    ts_init=self._clock.timestamp_ns(),
+                )
+                self._log.warning(f"Generated from fill report: {report}")
+                reports.append(report)
+
+        self._log_report_receipt(
+            len(reports),
+            "OrderStatusReport",
+            command.log_receipt_level,
+        )
+
+        return reports
+
+    async def generate_order_status_report(
+        self,
+        command: GenerateOrderStatusReport,
+    ) -> OrderStatusReport | None:
+        await self._maintain_active_market(command.instrument_id)
+
+        venue_order_id = command.venue_order_id
+        if venue_order_id is None:
+            venue_order_id = self._cache.venue_order_id(command.client_order_id)
+            if venue_order_id is None:
+                self._log.error(
+                    "Cannot generate an order status report for Polymarket without the venue order ID",
+                )
+                return None  # Failed
+
+        self._log.info(
+            f"Generating OrderStatusReport for "
+            f"{repr(command.client_order_id) if command.client_order_id else ''} "
+            f"{repr(command.venue_order_id) if command.venue_order_id else ''}",
+        )
+
+        retry_manager = await self._retry_manager_pool.acquire()
+        try:
+            response: JSON | None = await retry_manager.run(
+                "generate_order_status_report",
+                [command.client_order_id, venue_order_id],
+                asyncio.to_thread,
+                self._http_client.get_order,
+                order_id=venue_order_id.value,
+            )
+            if not response:
+                return None
+            # Uncomment for development
+            # self._log.info(str(response), LogColor.MAGENTA)
+            raw_response = msgspec.json.encode(response)
+            polymarket_order = self._decoder_order_report.decode(raw_response)
+            instrument_id = get_polymarket_instrument_id(
+                polymarket_order.market,
+                polymarket_order.asset_id,
+            )
+            instrument = self._cache.instrument(instrument_id)
+            if instrument is None:
+                self._log.warning(
+                    f"Cannot handle order report: instrument {instrument_id} not found "
+                    f"(market={polymarket_order.market}, asset_id={polymarket_order.asset_id})",
+                )
+                return None
+
+            return polymarket_order.parse_to_order_status_report(
+                account_id=self.account_id,
+                instrument=instrument,
+                client_order_id=command.client_order_id,
+                ts_init=self._clock.timestamp_ns(),
+            )
+        finally:
+            await self._retry_manager_pool.release(retry_manager)
+
+    async def generate_fill_reports(
+        self,
+        command: GenerateFillReports,
+    ) -> list[FillReport]:
+        self._log.debug("Requesting FillReports...")
+        reports: list[FillReport] = []
+
+        params = TradeParams()
+        if command.instrument_id:
+            condition_id = get_polymarket_condition_id(command.instrument_id)
+            params.market = condition_id
+            # Note: We intentionally don't filter by asset_id here because the API
+            # filters by TAKER's asset_id, which would miss maker fills from cross-asset
+            # matches (e.g., YES maker matched against NO taker)
+
+        if command.start is not None:
+            params.after = int(command.start.timestamp())
+        if command.end is not None:
+            params.before = int(command.end.timestamp())
+
+        details = []
+        if command.instrument_id:
+            details.append(command.instrument_id)
+
+        # Note: py_clob_client.get_trades() handles pagination internally
+        retry_manager = await self._retry_manager_pool.acquire()
+        try:
+            response: list[JSON] | None = await retry_manager.run(
+                "generate_fill_reports",
+                details,
+                asyncio.to_thread,
+                self._http_client.get_trades,
+                params=params,
+            )
+            if response:
+                # Uncomment for development
+                # self._log.info(f"Processing {len(response)} trades", LogColor.MAGENTA)
+                parsed_fill_keys: set[tuple[TradeId, VenueOrderId]] = set()
+                for json_obj in response:
+                    self._parse_trades_response_object(
+                        command=command,
+                        json_obj=json_obj,
+                        parsed_fill_keys=parsed_fill_keys,
+                        reports=reports,
+                    )
+        finally:
+            await self._retry_manager_pool.release(retry_manager)
+
+        self._log_report_receipt(len(reports), "FillReport", LogLevel.INFO)
+
+        return reports
+
+    async def generate_position_status_reports(
+        self,
+        command: GeneratePositionStatusReports,
+    ) -> list[PositionStatusReport]:
+        reports: list[PositionStatusReport] = []
+
+        if command.instrument_id is not None:
+            instrument_ids = [command.instrument_id]
+        else:
+            instrument_ids = [inst.id for inst in self._cache.instruments(venue=POLYMARKET_VENUE)]
+
+        if self._config.use_data_api:
+            # Fetch all positions once (bulk operation)
+            quantities_by_instrument = await self._fetch_quantities_from_gamma_api(instrument_ids)
+        else:
+            # Fetch positions individually (one API call per instrument)
+            quantities_by_instrument = await self._fetch_quantities_from_clob_api(instrument_ids)
+
+        # Generate reports from quantities
+        for instrument_id, quantity in quantities_by_instrument.items():
+            position_side = PositionSide.LONG if quantity.raw > 0 else PositionSide.FLAT
+            if position_side == PositionSide.LONG:
+                self._log.info(f"Long position for {instrument_id} of {quantity} shares")
+
+            now = self._clock.timestamp_ns()
+            report = PositionStatusReport(
+                account_id=self.account_id,
+                instrument_id=instrument_id,
+                position_side=position_side,
+                quantity=quantity,
+                report_id=UUID4(),
+                ts_last=now,
+                ts_init=now,
+            )
+            reports.append(report)
+
+        self._log_report_receipt(
+            len(reports),
+            "PositionReport",
+            command.log_receipt_level,
+        )
+
+        return reports
+
+    def _parse_trades_response_object(
+        self,
+        command: GenerateFillReports,
+        json_obj: JSON,
+        parsed_fill_keys: set[tuple[TradeId, VenueOrderId]],
+        reports: list[FillReport],
+    ) -> None:
+        raw = msgspec.json.encode(json_obj)
+        polymarket_trade = self._decoder_trade_report.decode(raw)
+
+        filled_user_order_ids = polymarket_trade.get_filled_user_order_ids(
+            self._wallet_address,
+            self._api_key,
+        )
+
+        for order_id in filled_user_order_ids:
+            asset_id = polymarket_trade.get_asset_id(order_id)
+            instrument_id = get_polymarket_instrument_id(polymarket_trade.market, asset_id)
+
+            # Filter by instrument_id if specified in command
+            if command.instrument_id is not None and instrument_id != command.instrument_id:
+                continue
+
+            instrument = self._cache.instrument(instrument_id)
+            if instrument is None:
+                self._log.warning(
+                    f"Cannot handle trade report: instrument {instrument_id} not found "
+                    f"(market={polymarket_trade.market}, asset_id={asset_id})",
+                )
+                continue
+
+            venue_order_id = polymarket_trade.venue_order_id(order_id)
+
+            if command.venue_order_id is not None and venue_order_id != command.venue_order_id:
+                continue
+
+            client_order_id = self._cache.client_order_id(venue_order_id)
+            if client_order_id is None:
+                client_order_id = ClientOrderId(str(UUID4()))
+
+            report = polymarket_trade.parse_to_fill_report(
+                account_id=self.account_id,
+                instrument=instrument,
+                client_order_id=client_order_id,
+                ts_init=self._clock.timestamp_ns(),
+                filled_user_order_id=order_id,
+            )
+
+            fill_key = (report.trade_id, report.venue_order_id)
+            if fill_key in parsed_fill_keys:
+                self._log.warning(f"Duplicate fill key {fill_key}, skipping")
+                continue
+
+            parsed_fill_keys.add(fill_key)
+            reports.append(report)
+
+    async def _fetch_quantities_from_gamma_api(
+        self,
+        instrument_ids: list[InstrumentId],
+    ) -> dict[InstrumentId, Quantity]:
+        """
+        Fetch position quantities using Gamma API (bulk fetch).
+        """
+        self._log.debug("Fetching positions from Gamma API")
+
+        # Fetch all user positions once (paginated)
+        positions: list[dict[str, Any]] = await self._fetch_user_positions(
+            limit=100,
+            size_threshold=0,
+        )
+
+        # Map asset (token id) -> size (shares)
+        size_by_asset: dict[str, float] = {}
+        for p in positions:
+            instrument_id = InstrumentId.from_str(
+                p.get("conditionId", "") + "-" + str(p.get("asset", "")) + ".POLYMARKET",
+            )
+            size_val = p.get("size", 0) or 0
+            try:
+                size_by_asset[instrument_id] = float(size_val)
+            except Exception as e:
+                self._log.warning(
+                    f"Failed to parse position size for instrument {instrument_id}: {e}",
+                )
+                continue
+
+        # Convert to quantities by instrument ID
+        quantities: dict[InstrumentId, Quantity] = {}
+
+        for instrument_id in instrument_ids:
+            size = size_by_asset.get(instrument_id, 0.0)
+            # Gamma API returns size as decimal float (e.g., 1.5 shares)
+            quantities[instrument_id] = Quantity(float(size), precision=USDC_POS.precision)
+
+        return quantities
+
+    async def _fetch_quantities_from_clob_api(
+        self,
+        instrument_ids: list[InstrumentId],
+    ) -> dict[InstrumentId, Quantity]:
+        """
+        Fetch position quantities using CLOB API (individual queries).
+        """
+        quantities: dict[InstrumentId, Quantity] = {}
+
+        for instrument_id in instrument_ids:
+            self._log.debug(f"Requesting position for {instrument_id} from CLOB API")
+            token_id = str(get_polymarket_token_id(instrument_id))
+
+            params = BalanceAllowanceParams(
+                asset_type=AssetType.CONDITIONAL,
+                token_id=token_id,
+                signature_type=self._config.signature_type,
+            )
+            response: dict[str, Any] = await asyncio.to_thread(
+                self._http_client.get_balance_allowance,
+                params,
+            )
+            quantities[instrument_id] = Quantity.from_raw(
+                usdce_from_units(int(response["balance"])).raw,
+                precision=USDC_POS.precision,
+            )
+
+        return quantities
+
+    # -- COMMAND HANDLERS -------------------------------------------------------------------------
+
+    def _generate_cancel_event(
+        self,
+        strategy_id,
+        instrument_id,
+        client_order_id,
+        venue_order_id,
+        reason: str,
+        ts_event: int,
+    ) -> None:
+        # Venue says order is gone (canceled or matched) - suppress event
+        # and let WS deliver the correct terminal event (CANCELLATION or TRADE)
+        if POLYMARKET_CANCEL_ALREADY_DONE in reason:
+            self._log.info(
+                f"Cancel rejected for {client_order_id!r}: {reason} "
+                "- awaiting WS event for terminal state",
+            )
+            return
+
+        self.generate_order_cancel_rejected(
+            strategy_id=strategy_id,
+            instrument_id=instrument_id,
+            client_order_id=client_order_id,
+            venue_order_id=venue_order_id,
+            reason=reason,
+            ts_event=ts_event,
+        )
+
+    def _get_neg_risk_for_instrument(self, instrument) -> bool:
+        if instrument is None or instrument.info is None:
+            return False
+        return instrument.info.get("neg_risk", False)
+
+    async def _query_account(self, _command: QueryAccount) -> None:
+        # Specific account ID (sub account) not yet supported
+        await self._update_account_state()
+
+    async def _cancel_order(self, command: CancelOrder) -> None:
+        # https://docs.polymarket.com/#cancel-an-order
+        await self._maintain_active_market(command.instrument_id)
+
+        order: Order | None = self._cache.order(command.client_order_id)
+
+        if order is None:
+            self._log.error(f"Cannot cancel order: {command.client_order_id!r} not found in cache")
+            return
+
+        if order.is_closed:
+            self._log.warning(
+                f"`CancelOrder` command for {command.client_order_id!r} when order already {order.status_string()} "
+                "(will not send to exchange)",
+            )
+            return
+
+        if order.venue_order_id is None:
+            self._log.warning("Cannot cancel on Polymarket: no VenueOrderId")
+            return
+
+        retry_manager = await self._retry_manager_pool.acquire()
+        try:
+            response: JSON | None = await retry_manager.run(
+                "cancel_order",
+                [order.client_order_id, order.venue_order_id],
+                asyncio.to_thread,
+                self._http_client.cancel,
+                order_id=order.venue_order_id.value,
+            )
+            if not response or not retry_manager.result:
+                reason = retry_manager.message
+            else:
+                reason = response.get("not_canceled")
+
+            if reason:
+                self._generate_cancel_event(
+                    strategy_id=order.strategy_id,
+                    instrument_id=order.instrument_id,
+                    client_order_id=order.client_order_id,
+                    venue_order_id=order.venue_order_id,
+                    reason=str(reason),
+                    ts_event=self._clock.timestamp_ns(),
+                )
+        finally:
+            await self._retry_manager_pool.release(retry_manager)
+
+    async def _batch_cancel_orders(self, command: BatchCancelOrders) -> None:
+        # https://docs.polymarket.com/#cancel-orders
+        await self._maintain_active_market(command.instrument_id)
+
+        # Check open orders for instrument
+        open_order_ids = self._cache.client_order_ids_open(instrument_id=command.instrument_id)
+
+        # Filter orders that are actually open
+        valid_cancels: list[CancelOrder] = []
+        for cancel in command.cancels:
+            if cancel.client_order_id in open_order_ids:
+                valid_cancels.append(cancel)
+                continue
+            self._log.warning(f"{cancel.client_order_id!r} not open for cancel")
+
+        if not valid_cancels:
+            self._log.warning(f"No orders open for {command.instrument_id} batch cancel")
+            return
+
+        retry_manager = await self._retry_manager_pool.acquire()
+        try:
+            order_ids = []
+            for cancel in valid_cancels:
+                order = self._cache.order(cancel.client_order_id)
+                if order and order.venue_order_id:
+                    order_ids.append(order.venue_order_id.value)
+            response: JSON | None = await retry_manager.run(
+                "batch_cancel_orders",
+                [command.instrument_id],
+                asyncio.to_thread,
+                self._http_client.cancel_orders,
+                order_ids=order_ids,
+            )
+            if not response or not retry_manager.result:
+                reason_map = dict.fromkeys(order_ids, retry_manager.message)
+            else:
+                reason_map = response.get("not_canceled", {})
+
+            for order_id, reason in reason_map.items():
+                venue_order_id = VenueOrderId(order_id)
+                client_order_id = self._cache.client_order_id(venue_order_id)
+                if client_order_id:
+                    self._generate_cancel_event(
+                        strategy_id=command.strategy_id,
+                        instrument_id=command.instrument_id,
+                        client_order_id=client_order_id,
+                        venue_order_id=venue_order_id,
+                        reason=str(reason),
+                        ts_event=self._clock.timestamp_ns(),
+                    )
+        finally:
+            await self._retry_manager_pool.release(retry_manager)
+
+    async def _cancel_all_orders(self, command: CancelAllOrders) -> None:
+        # https://docs.polymarket.com/#cancel-orders
+        await self._maintain_active_market(command.instrument_id)
+
+        # Polymarket API does not support side-specific cancellation
+        if command.order_side != OrderSide.NO_ORDER_SIDE:
+            self._log.warning(
+                f"Polymarket does not support order_side filtering for cancel all orders; "
+                f"ignoring order_side={order_side_to_str(command.order_side)} and canceling all orders",
+            )
+
+        open_orders_strategy: list[Order] = self._cache.orders_open(
+            instrument_id=command.instrument_id,
+            strategy_id=command.strategy_id,
+        )
+        if not open_orders_strategy:
+            self._log.warning(f"No open orders to cancel for strategy {command.strategy_id}")
+            return
+
+        retry_manager = await self._retry_manager_pool.acquire()
+        try:
+            order_ids = [o.venue_order_id.value for o in open_orders_strategy if o.venue_order_id]
+            response: JSON | None = await retry_manager.run(
+                "cancel_all_orders",
+                [command.instrument_id],
+                asyncio.to_thread,
+                self._http_client.cancel_orders,
+                order_ids=order_ids,
+            )
+            if not response or not retry_manager.result:
+                reason_map = dict.fromkeys(order_ids, retry_manager.message)
+            else:
+                reason_map = response.get("not_canceled", {})
+
+            for order_id, reason in reason_map.items():
+                venue_order_id = VenueOrderId(order_id)
+                client_order_id = self._cache.client_order_id(venue_order_id)
+                if client_order_id:
+                    self._generate_cancel_event(
+                        strategy_id=command.strategy_id,
+                        instrument_id=command.instrument_id,
+                        client_order_id=client_order_id,
+                        venue_order_id=venue_order_id,
+                        reason=str(reason),
+                        ts_event=self._clock.timestamp_ns(),
+                    )
+        finally:
+            await self._retry_manager_pool.release(retry_manager)
+
+    async def _cancel_all_global(self) -> None:
+        """
+        Cancel all orders for this API key using Polymarket's cancel_all endpoint.
+
+        This cancels ALL orders across all markets and strategies. Use with caution as
+        it cannot be filtered by instrument or strategy.
+
+        Notes
+        -----
+        This is a "fire-and-forget" method. Order state updates are handled via WebSocket
+        events. Local order state will be updated when the WebSocket receives cancel
+        confirmations from Polymarket.
+
+        """
+        self._log.info("Canceling ALL orders globally via Polymarket cancel_all endpoint")
+
+        retry_manager = await self._retry_manager_pool.acquire()
+        try:
+            response: JSON | None = await retry_manager.run(
+                "cancel_all_global",
+                [],
+                asyncio.to_thread,
+                self._http_client.cancel_all,
+            )
+            if not response or not retry_manager.result:
+                self._log.error(f"Failed to cancel all orders: {retry_manager.message}")
+            else:
+                canceled = response.get("canceled", [])
+                not_canceled = response.get("not_canceled", {})
+                self._log.info(
+                    f"Cancel all result: {len(canceled)} canceled, "
+                    f"{len(not_canceled)} not canceled",
+                )
+                for order_id, reason in not_canceled.items():
+                    self._log.warning(f"Order {order_id} not canceled: {reason}")
+        finally:
+            await self._retry_manager_pool.release(retry_manager)
+
+    async def _cancel_market_orders(
+        self,
+        instrument_id: InstrumentId | None = None,
+        asset_id: str = "",
+    ) -> None:
+        """
+        Cancel orders for a specific market using Polymarket's cancel_market_orders
+        endpoint.
+
+        Parameters
+        ----------
+        instrument_id : InstrumentId, optional
+            The instrument ID to derive the market (condition_id).
+        asset_id : str, optional
+            The specific asset ID (token_id) to cancel orders for.
+
+        Notes
+        -----
+        This is a "fire-and-forget" method. Order state updates are handled via WebSocket
+        events. Local order state will be updated when the WebSocket receives cancel
+        confirmations from Polymarket.
+
+        """
+        market = ""
+        if instrument_id is not None:
+            market = get_polymarket_condition_id(instrument_id)
+            if not asset_id:
+                asset_id = get_polymarket_token_id(instrument_id)
+
+        self._log.info(
+            f"Canceling orders for market={market or 'ALL'}, asset_id={asset_id or 'ALL'}",
+        )
+
+        retry_manager = await self._retry_manager_pool.acquire()
+        try:
+            response: JSON | None = await retry_manager.run(
+                "cancel_market_orders",
+                [instrument_id] if instrument_id else [],
+                asyncio.to_thread,
+                self._http_client.cancel_market_orders,
+                market,
+                asset_id,
+            )
+            if not response or not retry_manager.result:
+                self._log.error(f"Failed to cancel market orders: {retry_manager.message}")
+            else:
+                canceled = response.get("canceled", [])
+                not_canceled = response.get("not_canceled", {})
+                self._log.info(
+                    f"Cancel market orders result: {len(canceled)} canceled, "
+                    f"{len(not_canceled)} not canceled",
+                )
+                for order_id, reason in not_canceled.items():
+                    self._log.warning(f"Order {order_id} not canceled: {reason}")
+        finally:
+            await self._retry_manager_pool.release(retry_manager)
+
+    async def _submit_order(self, command: SubmitOrder) -> None:
+        await self._maintain_active_market(command.instrument_id)
+
+        order = command.order
+        if order.is_closed:
+            self._log.warning(f"Order {order} is already closed")
+            return
+
+        if order.is_reduce_only:
+            self._log.error(
+                f"Cannot submit order {order.client_order_id}: "
+                "Reduce-only orders not supported on Polymarket",
+                LogColor.RED,
+            )
+            self.generate_order_denied(
+                strategy_id=order.strategy_id,
+                instrument_id=order.instrument_id,
+                client_order_id=order.client_order_id,
+                reason="REDUCE_ONLY_NOT_SUPPORTED",
+                ts_event=self._clock.timestamp_ns(),
+            )
+            return
+
+        # post_only orders only supported with GTC or GTD time_in_force
+        if order.is_post_only and order.time_in_force not in (TimeInForce.GTC, TimeInForce.GTD):
+            self._log.error(
+                f"Cannot submit order {order.client_order_id}: "
+                "Post-only orders require GTC or GTD time in force",
+                LogColor.RED,
+            )
+            self.generate_order_denied(
+                strategy_id=order.strategy_id,
+                instrument_id=order.instrument_id,
+                client_order_id=order.client_order_id,
+                reason="POST_ONLY_REQUIRES_GTC_OR_GTD",
+                ts_event=self._clock.timestamp_ns(),
+            )
+            return
+
+        if order.time_in_force not in VALID_POLYMARKET_TIME_IN_FORCE:
+            self._log.error(
+                f"Cannot submit order {order.client_order_id}: "
+                f"Order time in force {order.tif_string()} not supported on Polymarket; "
+                "use any of FOK, GTC, GTD, IOC",
+                LogColor.RED,
+            )
+            self.generate_order_denied(
+                strategy_id=order.strategy_id,
+                instrument_id=order.instrument_id,
+                client_order_id=order.client_order_id,
+                reason="UNSUPPORTED_TIME_IN_FORCE",
+                ts_event=self._clock.timestamp_ns(),
+            )
+            return
+
+        instrument = self._cache.instrument(order.instrument_id)
+
+        if order.order_type == OrderType.MARKET:
+            await self._submit_market_order(command, instrument)
+        elif order.order_type == OrderType.LIMIT:
+            await self._submit_limit_order(command, instrument)
+        else:
+            self._log.error(
+                f"Cannot submit order {order.client_order_id}: "
+                f"Order type {order.type_string()} not supported on Polymarket; "
+                "use either MARKET or LIMIT",
+                LogColor.RED,
+            )
+            self.generate_order_denied(
+                strategy_id=order.strategy_id,
+                instrument_id=order.instrument_id,
+                client_order_id=order.client_order_id,
+                reason="UNSUPPORTED_ORDER_TYPE",
+                ts_event=self._clock.timestamp_ns(),
+            )
+
+    def _validate_order_for_batch(self, order: Order) -> str | None:
+        """
+        Validate an order for batch submission.
+
+        Returns None if valid, or an error reason string if invalid.
+
+        """
+        if order.is_reduce_only:
+            return "REDUCE_ONLY_NOT_SUPPORTED"
+
+        if order.is_post_only and order.time_in_force not in (TimeInForce.GTC, TimeInForce.GTD):
+            return "POST_ONLY_REQUIRES_GTC_OR_GTD"
+
+        if order.time_in_force not in VALID_POLYMARKET_TIME_IN_FORCE:
+            return "UNSUPPORTED_TIME_IN_FORCE"
+
+        if order.order_type != OrderType.LIMIT:
+            return "BATCH_ONLY_SUPPORTS_LIMIT_ORDERS"
+
+        if order.is_quote_quantity:
+            return "UNSUPPORTED_QUOTE_QUANTITY"
+
+        return None
+
+    async def _submit_order_list(self, command: SubmitOrderList) -> None:
+        """
+        Submit a batch of orders to Polymarket using the post_orders endpoint.
+
+        Parameters
+        ----------
+        command : SubmitOrderList
+            The command containing the list of orders to submit.
+
+        """
+        order_list = command.order_list
+        orders = order_list.orders
+
+        if not orders:
+            self._log.warning("Order list is empty, nothing to submit")
+            return
+
+        # Filter out closed orders
+        orders = [order for order in orders if not order.is_closed]
+        if not orders:
+            return
+
+        # Validate all orders before processing
+        valid_orders = []
+        for order in orders:
+            denial_reason = self._validate_order_for_batch(order)
+            if denial_reason:
+                self._log.error(
+                    f"Cannot submit order {order.client_order_id}: {denial_reason}",
+                    LogColor.RED,
+                )
+                self.generate_order_denied(
+                    strategy_id=order.strategy_id,
+                    instrument_id=order.instrument_id,
+                    client_order_id=order.client_order_id,
+                    reason=denial_reason,
+                    ts_event=self._clock.timestamp_ns(),
+                )
+                continue
+            valid_orders.append(order)
+
+        if not valid_orders:
+            self._log.warning("No valid orders to submit after validation")
+            return
+
+        self._log.info(f"Submitting batch of {len(valid_orders)} orders to Polymarket")
+
+        # Maintain active markets for all orders
+        for order in valid_orders:
+            await self._maintain_active_market(order.instrument_id)
+
+        # Sign all orders (individual failures are rejected during signing)
+        signed_orders, signed_orders_args = await self._sign_orders_for_batch(valid_orders)
+
+        if not signed_orders:
+            self._log.warning("No orders successfully signed for batch submission")
+            return
+
+        # Generate submitted events only for successfully signed orders
+        now_ns = self._clock.timestamp_ns()
+        for order in signed_orders:
+            self.generate_order_submitted(
+                strategy_id=order.strategy_id,
+                instrument_id=order.instrument_id,
+                client_order_id=order.client_order_id,
+                ts_event=now_ns,
+            )
+
+        # Submit batch
+        await self._post_signed_orders_batch(signed_orders, signed_orders_args)
+
+    async def _sign_orders_for_batch(
+        self,
+        orders: list[Order],
+    ) -> tuple[list[Order], list[PostOrdersArgs]]:
+        """
+        Sign multiple orders for batch submission.
+
+        Returns
+        -------
+        tuple[list[Order], list[PostOrdersArgs]]
+            Tuple of (successfully signed orders, signed order args).
+            Orders that fail to sign are rejected and excluded from the result.
+
+        """
+        signed_orders_args: list[PostOrdersArgs] = []
+        successfully_signed_orders: list[Order] = []
+        signing_start = self._clock.timestamp()
+
+        for order in orders:
+            try:
+                instrument = self._cache.instrument(order.instrument_id)
+
+                order_args = OrderArgs(
+                    price=float(order.price),
+                    token_id=get_polymarket_token_id(order.instrument_id),
+                    size=float(order.quantity),
+                    side=order_side_to_str(order.side),
+                    expiration=int(nanos_to_secs(order.expire_time_ns)),
+                )
+
+                neg_risk = self._get_neg_risk_for_instrument(instrument)
+                options = PartialCreateOrderOptions(neg_risk=neg_risk)
+
+                signed_order = await asyncio.to_thread(
+                    self._http_client.create_order,
+                    order_args,
+                    options=options,
+                )
+
+                order_type = convert_tif_to_polymarket_order_type(order.time_in_force)
+                signed_orders_args.append(
+                    PostOrdersArgs(
+                        order=signed_order,
+                        orderType=order_type,
+                        postOnly=order.is_post_only,
+                    ),
+                )
+                successfully_signed_orders.append(order)
+            except Exception as e:
+                self._log.error(
+                    f"Failed to sign order {order.client_order_id}: {e}",
+                    LogColor.RED,
+                )
+                self.generate_order_rejected(
+                    strategy_id=order.strategy_id,
+                    instrument_id=order.instrument_id,
+                    client_order_id=order.client_order_id,
+                    reason=f"Order signing failed: {e}",
+                    ts_event=self._clock.timestamp_ns(),
+                )
+
+        interval = self._clock.timestamp() - signing_start
+        self._log.info(
+            f"Signed {len(successfully_signed_orders)}/{len(orders)} Polymarket orders "
+            f"in {interval:.3f}s",
+            LogColor.BLUE,
+        )
+
+        return successfully_signed_orders, signed_orders_args
+
+    async def _post_signed_orders_batch(
+        self,
+        orders: list[Order],
+        signed_orders_args: list[PostOrdersArgs],
+    ) -> None:
+        """
+        Post a batch of signed orders to Polymarket.
+        """
+        retry_manager = await self._retry_manager_pool.acquire()
+        try:
+            client_order_ids = [order.client_order_id for order in orders]
+            response = await retry_manager.run(
+                "submit_orders_batch",
+                client_order_ids,
+                asyncio.to_thread,
+                self._http_client.post_orders,
+                signed_orders_args,
+            )
+
+            if not response:
+                self._reject_all_orders(orders, str(retry_manager.message))
+                return
+
+            self._process_batch_response(orders, response)
+
+        except Exception as e:
+            self._log.error(f"Error submitting order batch: {e}")
+            self._reject_all_orders(orders, str(e))
+        finally:
+            await self._retry_manager_pool.release(retry_manager)
+
+    def _reject_all_orders(self, orders: list[Order], reason: str) -> None:
+        """
+        Generate rejection events for all orders.
+        """
+        for order in orders:
+            self.generate_order_rejected(
+                strategy_id=order.strategy_id,
+                instrument_id=order.instrument_id,
+                client_order_id=order.client_order_id,
+                reason=reason,
+                ts_event=self._clock.timestamp_ns(),
+            )
+
+    def _process_batch_response(self, orders: list[Order], response: list) -> None:
+        """
+        Process the response from a batch order submission.
+
+        If response length doesn't match orders, remaining orders are rejected.
+
+        """
+        if len(response) != len(orders):
+            self._log.warning(
+                f"Response length ({len(response)}) != orders length ({len(orders)}). "
+                "Some orders may not have been processed.",
+            )
+            # Reject any orders beyond the response length
+            for order in orders[len(response) :]:
+                self.generate_order_rejected(
+                    strategy_id=order.strategy_id,
+                    instrument_id=order.instrument_id,
+                    client_order_id=order.client_order_id,
+                    reason="Order not included in API response",
+                    ts_event=self._clock.timestamp_ns(),
+                )
+
+        for order, result in zip(orders, response, strict=False):
+            if result.get("success"):
+                venue_order_id = VenueOrderId(result["orderID"])
+                self._cache.add_venue_order_id(order.client_order_id, venue_order_id)
+
+                # Signal order event
+                event = self._ack_events_order.get(venue_order_id)
+                if event:
+                    event.set()
+
+                # Signal trade event
+                trade_event = self._ack_events_trade.get(venue_order_id)
+                if trade_event:
+                    trade_event.set()
+
+                self._log.debug(
+                    f"Order {order.client_order_id} accepted, venue_order_id={venue_order_id}",
+                )
+            else:
+                reason = result.get("errorMsg", "Unknown error")
+                self.generate_order_rejected(
+                    strategy_id=order.strategy_id,
+                    instrument_id=order.instrument_id,
+                    client_order_id=order.client_order_id,
+                    reason=reason,
+                    ts_event=self._clock.timestamp_ns(),
+                )
+                self._log.warning(f"Order {order.client_order_id} rejected: {reason}")
+
+    def _deny_market_order_quantity(self, order: Order, reason: str) -> None:
+        self._log.error(
+            f"Cannot submit market order {order.client_order_id}: {reason}",
+            LogColor.RED,
+        )
+        self.generate_order_denied(
+            strategy_id=order.strategy_id,
+            instrument_id=order.instrument_id,
+            client_order_id=order.client_order_id,
+            reason=reason,
+            ts_event=self._clock.timestamp_ns(),
+        )
+
+    async def _submit_market_order(self, command: SubmitOrder, instrument) -> None:
+        self._log.debug("Creating Polymarket order", LogColor.MAGENTA)
+
+        order = command.order
+
+        if order.side == OrderSide.BUY:
+            if not order.is_quote_quantity:
+                self._deny_market_order_quantity(
+                    order,
+                    "Polymarket market BUY orders require quote-denominated quantities; "
+                    "resubmit with `quote_quantity=True`",
+                )
+                return
+        else:
+            if order.is_quote_quantity:
+                self._deny_market_order_quantity(
+                    order,
+                    "Polymarket market SELL orders require base-denominated quantities; "
+                    "resubmit with `quote_quantity=False`",
+                )
+                return
+
+        amount = float(order.quantity)
+        order_type = convert_tif_to_polymarket_order_type(order.time_in_force)
+
+        market_order_args = MarketOrderArgs(
+            token_id=get_polymarket_token_id(order.instrument_id),
+            amount=amount,
+            side=order_side_to_str(order.side),
+            order_type=order_type,
+        )
+
+        neg_risk = self._get_neg_risk_for_instrument(instrument)
+        options = PartialCreateOrderOptions(neg_risk=neg_risk)
+        signing_start = self._clock.timestamp()
+        signed_order = await asyncio.to_thread(
+            self._http_client.create_market_order,
+            market_order_args,
+            options=options,
+        )
+        interval = self._clock.timestamp() - signing_start
+        self._log.info(f"Signed Polymarket market order in {interval:.3f}s", LogColor.BLUE)
+
+        self.generate_order_submitted(
+            strategy_id=order.strategy_id,
+            instrument_id=order.instrument_id,
+            client_order_id=order.client_order_id,
+            ts_event=self._clock.timestamp_ns(),
+        )
+
+        await self._post_signed_order(order, signed_order)
+
+    async def _submit_limit_order(self, command: SubmitOrder, instrument) -> None:
+        self._log.debug("Creating Polymarket order", LogColor.MAGENTA)
+
+        order = command.order
+
+        if order.is_quote_quantity:
+            self._log.error(
+                f"Cannot submit order {order.client_order_id}: UNSUPPORTED_QUOTE_QUANTITY",
+                LogColor.RED,
+            )
+            self.generate_order_denied(
+                strategy_id=order.strategy_id,
+                instrument_id=order.instrument_id,
+                client_order_id=order.client_order_id,
+                reason="UNSUPPORTED_QUOTE_QUANTITY",
+                ts_event=self._clock.timestamp_ns(),
+            )
+            return
+
+        # Create signed Polymarket limit order
+        order_args = OrderArgs(
+            price=float(order.price),
+            token_id=get_polymarket_token_id(order.instrument_id),
+            size=float(order.quantity),
+            side=order_side_to_str(order.side),
+            expiration=int(nanos_to_secs(order.expire_time_ns)),
+        )
+
+        neg_risk = self._get_neg_risk_for_instrument(instrument)
+        options = PartialCreateOrderOptions(neg_risk=neg_risk)
+        signing_start = self._clock.timestamp()
+        signed_order = await asyncio.to_thread(
+            self._http_client.create_order,
+            order_args,
+            options=options,
+        )
+        interval = self._clock.timestamp() - signing_start
+        self._log.info(f"Signed Polymarket order in {interval:.3f}s", LogColor.BLUE)
+
+        self.generate_order_submitted(
+            strategy_id=order.strategy_id,
+            instrument_id=order.instrument_id,
+            client_order_id=order.client_order_id,
+            ts_event=self._clock.timestamp_ns(),
+        )
+
+        await self._post_signed_order(order, signed_order, post_only=order.is_post_only)
+
+    async def _post_signed_order(
+        self,
+        order: Order,
+        signed_order,
+        post_only: bool = False,
+    ) -> None:
+        retry_manager = await self._retry_manager_pool.acquire()
+        try:
+            response: JSON | None = await retry_manager.run(
+                "submit_order",
+                [order.client_order_id],
+                asyncio.to_thread,
+                self._http_client.post_order,
+                signed_order,
+                convert_tif_to_polymarket_order_type(order.time_in_force),
+                post_only,
+            )
+            if not response or not response.get("success"):
+                self.generate_order_rejected(
+                    strategy_id=order.strategy_id,
+                    instrument_id=order.instrument_id,
+                    client_order_id=order.client_order_id,
+                    reason=str(retry_manager.message),
+                    ts_event=self._clock.timestamp_ns(),
+                )
+            else:
+                venue_order_id = VenueOrderId(response["orderID"])
+                self._cache.add_venue_order_id(order.client_order_id, venue_order_id)
+
+                # Signal order event
+                event = self._ack_events_order.get(venue_order_id)
+                if event:
+                    event.set()
+
+                # Signal trade event
+                trade_event = self._ack_events_trade.get(venue_order_id)
+                if trade_event:
+                    trade_event.set()
+        finally:
+            await self._retry_manager_pool.release(retry_manager)
+
+    def _handle_ws_message(self, raw: bytes) -> None:
+        try:
+            if self._config.log_raw_ws_messages:
+                self._log.info(
+                    str(json.dumps(msgspec.json.decode(raw), indent=4)),
+                    color=LogColor.MAGENTA,
+                )
+
+            msg = self._decoder_user_msg.decode(raw)
+            if isinstance(msg, PolymarketUserOrder):
+                self._handle_ws_order_msg(msg, wait_for_ack=True)
+            elif isinstance(msg, PolymarketUserTrade):
+                self._add_trade_to_cache(msg, raw)
+                self._handle_ws_trade_msg(msg, wait_for_ack=True)
+            else:
+                self._log.error(f"Unrecognized websocket message {msg}")
+        except Exception as e:
+            self._log.exception(
+                f"Error handling websocket message: {e.__class__.__name__} - "
+                f"raw message: {raw.decode(errors='replace')}",
+                e,
+            )
+
+    def _add_trade_to_cache(self, msg: PolymarketUserTrade, raw: bytes) -> None:
+        start_us = self._clock.timestamp_us()
+        cache_key = get_polymarket_trades_key(msg.taker_order_id, msg.id)
+        self._cache.add(cache_key, raw)
+        interval_us = self._clock.timestamp_us() - start_us
+        self._log.info(
+            f"Added trade {msg.id} {msg.status.value} to {cache_key} in {interval_us}μs",
+            LogColor.BLUE,
+        )
+
+    async def _wait_for_ack_order(
+        self,
+        msg: PolymarketUserOrder,
+        venue_order_id: VenueOrderId,
+    ) -> None:
+        client_order_id = self._cache.client_order_id(venue_order_id)
+        if client_order_id is not None:
+            self._handle_ws_order_msg(msg, wait_for_ack=False)
+            return
+
+        # Reuse existing event if present to avoid overwriting a pending waiter
+        event = self._ack_events_order.get(venue_order_id)
+        if event is None:
+            event = asyncio.Event()
+            self._ack_events_order[venue_order_id] = event
+
+        try:
+            await asyncio.wait_for(event.wait(), timeout=self._config.ack_timeout_secs)
+        except TimeoutError:
+            self._log.warning(f"Timed out awaiting placement ack for {venue_order_id!r}")
+        finally:
+            self._ack_events_order.pop(venue_order_id, None)
+
+        self._handle_ws_order_msg(msg, wait_for_ack=False)
+
+    async def _wait_for_ack_trade(
+        self,
+        msg: PolymarketUserTrade,
+        venue_order_id: VenueOrderId,
+    ) -> None:
+        self._log.debug(f"Waiting for trade ack for {venue_order_id!r}...")
+
+        client_order_id = self._cache.client_order_id(venue_order_id)
+        if client_order_id is None:
+            # Reuse existing event if present to avoid overwriting a pending waiter
+            event = self._ack_events_trade.get(venue_order_id)
+            if event is None:
+                event = asyncio.Event()
+                self._ack_events_trade[venue_order_id] = event
+
+            try:
+                await asyncio.wait_for(event.wait(), timeout=self._config.ack_timeout_secs)
+            except TimeoutError:
+                self._log.warning(f"Timed out awaiting placement ack for {venue_order_id!r}")
+            finally:
+                self._ack_events_trade.pop(venue_order_id, None)
+
+        # Process only this specific order, not the entire trade message
+        trade_id = TradeId(msg.id)
+        order_id = venue_order_id.value
+        self._handle_user_trade_in_ws_trade_msg(
+            msg,
+            trade_id,
+            wait_for_ack=False,
+            order_id=order_id,
+        )
+
+    def _handle_ws_order_msg(self, msg: PolymarketUserOrder, wait_for_ack: bool):
+        self._log.debug(f"Handling order message, {wait_for_ack=}")
+
+        venue_order_id = msg.venue_order_id()
+        instrument_id = get_polymarket_instrument_id(msg.market, msg.asset_id)
+        instrument = self._cache.instrument(instrument_id)
+        if instrument is None:
+            self._log.warning(
+                f"Received order message for unknown instrument {instrument_id} "
+                f"(market={msg.market}, asset_id={msg.asset_id}). "
+                f"This may indicate the instrument is not subscribed or cached, skipping order processing",
+            )
+            return
+
+        if wait_for_ack:
+            self.create_task(self._wait_for_ack_order(msg, venue_order_id))
+            return
+
+        client_order_id = self._cache.client_order_id(venue_order_id)
+        self._log.debug(f"Processing order update for {client_order_id!r}")
+
+        strategy_id = None
+        if client_order_id:
+            strategy_id = self._cache.strategy_id_for_order(client_order_id)
+
+        if strategy_id is None:
+            report = msg.parse_to_order_status_report(
+                account_id=self.account_id,
+                instrument=instrument,
+                client_order_id=client_order_id,
+                ts_init=self._clock.timestamp_ns(),
+            )
+            self._send_order_status_report(report)
+            return
+
+        self._log.debug(f"Order {msg.type.value}: {client_order_id!r}", LogColor.MAGENTA)
+
+        match msg.type:
+            case PolymarketEventType.PLACEMENT:
+                order = self._cache.order(client_order_id) if client_order_id else None
+                if order is None or order.status == OrderStatus.SUBMITTED:
+                    self.generate_order_accepted(
+                        strategy_id=strategy_id,
+                        instrument_id=instrument_id,
+                        client_order_id=client_order_id,
+                        venue_order_id=venue_order_id,
+                        ts_event=self._clock.timestamp_ns(),
+                    )
+                else:
+                    self._log.debug(
+                        f"Order {client_order_id!r} in state {order.status_string()} - "
+                        "skipping placement event",
+                    )
+            case PolymarketEventType.CANCELLATION:
+                order = self._cache.order(client_order_id) if client_order_id else None
+                if order is not None and order.status == OrderStatus.CANCELED:
+                    self._log.debug(
+                        f"Order {client_order_id!r} already canceled - "
+                        "skipping duplicate cancellation event",
+                    )
+                    return
+                self.generate_order_canceled(
+                    strategy_id=strategy_id,
+                    instrument_id=instrument_id,
+                    client_order_id=client_order_id,
+                    venue_order_id=venue_order_id,
+                    ts_event=millis_to_nanos(int(msg.timestamp)),
+                )
+            case PolymarketEventType.UPDATE | PolymarketEventType.TRADE:
+                # We skip these events as they are handled by trade messages
+                self._log.debug(f"Skipping order update: {msg}")
+            case _:  # Branch never hit unless code changes (leave in place)
+                raise RuntimeError(f"Unknown `PolymarketEventType`, was '{msg.type.value}'")
+
+    def _truncate_ordered_dict(self, store: OrderedDict[Any, Any]) -> None:
+        while len(store) > self.PROCESSED_TRADES_LIMIT:
+            store.popitem(last=False)
+
+    def _record_processed_trade(
+        self,
+        trade_id: TradeId,
+        status: PolymarketTradeStatus,
+    ) -> None:
+        if status in POLYMARKET_FINALIZED_TRADE_STATUSES:
+            # Keep final trades in their own cache so duplicates are still suppressed
+            # after we stop tracking intermediate status transitions.
+            self._finalized_trades[trade_id] = None
+            self._finalized_trades.move_to_end(trade_id)
+            self._processed_trades.pop(trade_id, None)
+            self._truncate_ordered_dict(self._finalized_trades)
+            return
+
+        self._processed_trades[trade_id] = status
+        self._processed_trades.move_to_end(trade_id)
+        self._truncate_ordered_dict(self._processed_trades)
+
+    def _record_processed_fill(
+        self,
+        trade_id: TradeId,
+        venue_order_id: VenueOrderId,
+    ) -> None:
+        fill_key = (trade_id, venue_order_id)
+        self._processed_fills[fill_key] = None
+        self._processed_fills.move_to_end(fill_key)
+        self._truncate_ordered_dict(self._processed_fills)
+
+    def _handle_ws_trade_msg(self, msg: PolymarketUserTrade, wait_for_ack: bool):
+        self._log.debug(f"Handling trade message, {wait_for_ack=}")
+
+        trade_id = TradeId(msg.id)
+        trade_str = f"Trade {trade_id}"
+        log_msg = f"{trade_str} {msg.status.value}: {msg}"
+
+        match msg.status:
+            case PolymarketTradeStatus.RETRYING:
+                self._log.warning(log_msg)
+                return
+            case PolymarketTradeStatus.FAILED:
+                self._log.error(log_msg)
+                return
+            case _:
+                self._log.info(log_msg, LogColor.BLUE)
+
+        if trade_id in self._finalized_trades:
+            self._log.debug(f"Trade {trade_id} already finalized - skipping duplicate")
+            return
+
+        # Handle status transitions (e.g., MATCHED -> MINED -> CONFIRMED)
+        previous_status = self._processed_trades.get(trade_id)
+        if (
+            previous_status is not None
+            and msg.status in POLYMARKET_FINALIZED_TRADE_STATUSES
+            and previous_status not in POLYMARKET_FINALIZED_TRADE_STATUSES
+        ):
+            self._record_processed_trade(trade_id, msg.status)
+            self._log.debug(
+                f"Trade {trade_id} transitioned from {previous_status.value} "
+                f"to {msg.status.value} - refreshing account state",
+            )
+            self.create_task(self._update_account_state())
+            return
+
+        # For same status or new trades, process fills (per-fill dedup handles duplicates)
+
+        filled_user_order_ids = msg.get_filled_user_order_ids(self._wallet_address, self._api_key)
+        for order_id in filled_user_order_ids:
+            self._handle_user_trade_in_ws_trade_msg(msg, trade_id, wait_for_ack, order_id)
+
+    def _handle_user_trade_in_ws_trade_msg(
+        self,
+        msg: PolymarketUserTrade,
+        trade_id: TradeId,
+        wait_for_ack: bool,
+        order_id: str,
+    ):
+        venue_order_id = msg.venue_order_id(order_id)
+        composite_trade_id = make_composite_trade_id(msg.id, venue_order_id)
+
+        asset_id = msg.get_asset_id(order_id)
+        instrument_id = get_polymarket_instrument_id(msg.market, asset_id)
+        instrument = self._cache.instrument(instrument_id)
+
+        if instrument is None:
+            self._log.warning(
+                f"Received trade message for unknown instrument {instrument_id} "
+                f"(market={msg.market}, asset_id={asset_id}). "
+                f"This may indicate the instrument is not subscribed or cached, skipping trade processing",
+            )
+            return
+
+        if wait_for_ack:
+            self.create_task(self._wait_for_ack_trade(msg, venue_order_id))
+            return
+
+        # Check if this specific fill was already processed (handles multi-order trades)
+        fill_key = (trade_id, venue_order_id)
+        if fill_key in self._processed_fills:
+            self._log.debug(
+                f"Fill {trade_id} for {venue_order_id!r} already processed - skipping",
+            )
+            return
+
+        client_order_id = self._cache.client_order_id(venue_order_id)
+        strategy_id = None
+
+        if client_order_id:
+            strategy_id = self._cache.strategy_id_for_order(client_order_id)
+
+        if strategy_id is None:
+            self._log.warning("Strategy ID not found - parsing fill report")
+            report = msg.parse_to_fill_report(
+                account_id=self.account_id,
+                instrument=instrument,
+                client_order_id=client_order_id,
+                ts_init=self._clock.timestamp_ns(),
+                filled_user_order_id=order_id,
+            )
+            self._send_fill_report(report)
+            self._record_processed_fill(trade_id, venue_order_id)
+            self._record_processed_trade(trade_id, msg.status)
+            return
+
+        order = self._cache.order(client_order_id)
+
+        if order is None:
+            self._log.error(f"Cannot process trade: {client_order_id!r} not found in cache")
+            return
+
+        if composite_trade_id in order.trade_ids:
+            self._log.debug(
+                f"Trade {composite_trade_id} already processed for {order.client_order_id} - skipping",
+            )
+            return
+
+        if order.is_closed:
+            self._log.warning(f"Order already closed - skipping trade processing: {order}")
+            return  # Already closed (only status update)
+
+        last_qty = instrument.make_qty(msg.last_qty(order_id))
+        last_px = instrument.make_price(msg.last_px(order_id))
+        commission = calculate_commission(last_qty, last_px, msg.get_fee_rate_bps(order_id))
+        ts_event = secs_to_nanos(int(msg.match_time))
+
+        self.generate_order_filled(
+            strategy_id=strategy_id,
+            instrument_id=instrument_id,
+            client_order_id=client_order_id,
+            venue_order_id=venue_order_id,
+            venue_position_id=None,  # Not applicable on Polymarket
+            trade_id=composite_trade_id,
+            order_side=order.side,
+            order_type=order.order_type,
+            last_qty=last_qty,
+            last_px=last_px,
+            quote_currency=USDC_POS,
+            commission=Money(commission, USDC_POS),
+            liquidity_side=msg.liquidity_side(),
+            ts_event=ts_event,
+            info=msg.to_dict(),
+        )
+
+        self._record_processed_fill(trade_id, venue_order_id)
+        self._record_processed_trade(trade_id, msg.status)
+
+        # Only update account balance after trade is mined on-chain
+        if msg.status in POLYMARKET_FINALIZED_TRADE_STATUSES:
+            self.create_task(self._update_account_state())

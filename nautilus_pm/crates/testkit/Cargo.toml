@@ -1,0 +1,73 @@
+[package]
+name = "nautilus-testkit"
+readme = "README.md"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Testing utilities for the Nautilus trading engine"
+categories.workspace = true
+keywords.workspace = true
+documentation.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+name = "nautilus_testkit"
+crate-type = ["rlib", "staticlib"]
+
+[features]
+default = []
+extension-module = [
+  "nautilus-common/extension-module",
+  "nautilus-core/extension-module",
+  "nautilus-model/extension-module",
+  "nautilus-trading/extension-module",
+  "python",
+  "pyo3/extension-module",
+]
+python = [
+  "nautilus-common/python",
+  "nautilus-core/python",
+  "nautilus-model/python",
+  "nautilus-trading/python",
+  "pyo3",
+]
+high-precision = ["nautilus-model/high-precision"]
+
+[dependencies]
+nautilus-common = { workspace = true }
+nautilus-core = { workspace = true }
+nautilus-model = { workspace = true, features = ["stubs"] }
+nautilus-network = { workspace = true }
+nautilus-portfolio = { workspace = true }
+nautilus-serialization = { workspace = true, features = ["arrow"] }
+nautilus-trading = { workspace = true }
+
+ahash = { workspace = true }
+anyhow = { workspace = true }
+aws-lc-rs = { workspace = true }
+chrono = { workspace = true }
+hex = { workspace = true }
+indexmap = { workspace = true }
+itchy = { workspace = true }
+log = { workspace = true }
+parquet = { workspace = true, features = ["zstd"] }
+rand = { workspace = true }
+reqwest = { workspace = true }
+rust_decimal = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+
+pyo3 = { workspace = true, optional = true }
+
+[dev-dependencies]
+arrow = { workspace = true }
+axum = { workspace = true }
+rstest = { workspace = true }
+rust_decimal_macros = { workspace = true }
+tempfile = { workspace = true }
