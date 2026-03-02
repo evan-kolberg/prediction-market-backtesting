@@ -1,0 +1,134 @@
+// -------------------------------------------------------------------------------------------------
+//  Copyright (C) 2015-2026 Nautech Systems Pty Ltd. All rights reserved.
+//  https://nautechsystems.io
+//
+//  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
+//  You may not use this file except in compliance with the License.
+//  You may obtain a copy of the License at https://www.gnu.org/licenses/lgpl-3.0.en.html
+//
+//  Unless required by applicable law or agreed to in writing, software
+//  distributed under the License is distributed on an "AS IS" BASIS,
+//  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+//  See the License for the specific language governing permissions and
+//  limitations under the License.
+// -------------------------------------------------------------------------------------------------
+
+//! FFI helpers for the [`UUID4`] wrapper type.
+//!
+//! The functions exported here make it possible for C/Python code to create, compare, and hash
+//! UUID values *without* having to understand the internal representation chosen by
+//! NautilusTrader.
+
+use std::{
+    collections::hash_map::DefaultHasher,
+    ffi::{CStr, c_char},
+    hash::{Hash, Hasher},
+};
+
+use crate::{UUID4, ffi::abort_on_panic};
+
+/// Generate a new random (version-4) UUID and return it by value.
+#[unsafe(no_mangle)]
+pub extern "C" fn uuid4_new() -> UUID4 {
+    abort_on_panic(UUID4::new)
+}
+
+/// Returns a [`UUID4`] from C string pointer.
+///
+/// # Safety
+///
+/// Assumes `ptr` is a valid C string pointer.
+///
+/// # Panics
+///
+/// Panics if `ptr` cannot be cast to a valid C string.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn uuid4_from_cstr(ptr: *const c_char) -> UUID4 {
+    abort_on_panic(|| {
+        assert!(!ptr.is_null(), "`ptr` was NULL");
+        // SAFETY: Caller guarantees ptr is valid per function contract
+        let cstr = unsafe { CStr::from_ptr(ptr) };
+        let value = cstr.to_str().expect("Failed to convert C string to UTF-8");
+        UUID4::from(value)
+    })
+}
+
+/// Return a borrowed *null-terminated* UTF-8 C string representing `uuid`.
+///
+/// The pointer remains valid for as long as the input `UUID4` reference lives – callers **must
+/// not** attempt to free it.
+#[unsafe(no_mangle)]
+pub extern "C" fn uuid4_to_cstr(uuid: &UUID4) -> *const c_char {
+    abort_on_panic(|| uuid.to_cstr().as_ptr())
+}
+
+/// Compare two UUID values, returning `1` when they are equal and `0` otherwise.
+#[unsafe(no_mangle)]
+pub extern "C" fn uuid4_eq(lhs: &UUID4, rhs: &UUID4) -> u8 {
+    abort_on_panic(|| u8::from(lhs == rhs))
+}
+
+/// Compute the stable [`u64`] hash of `uuid` using Rust’s default hasher.
+#[unsafe(no_mangle)]
+pub extern "C" fn uuid4_hash(uuid: &UUID4) -> u64 {
+    abort_on_panic(|| {
+        let mut h = DefaultHasher::new();
+        uuid.hash(&mut h);
+        h.finish()
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use std::ffi::CString;
+
+    use rstest::*;
+    use uuid::{self, Uuid};
+
+    use super::*;
+
+    #[rstest]
+    fn test_new() {
+        let uuid = uuid4_new();
+        let uuid_string = uuid.to_string();
+        let uuid_parsed = Uuid::parse_str(&uuid_string).expect("Uuid::parse_str failed");
+        assert_eq!(uuid_parsed.get_version().unwrap(), uuid::Version::Random);
+    }
+
+    #[rstest]
+    fn test_from_cstr() {
+        let uuid_string = "2d89666b-1a1e-4a75-b193-4eb3b454c757";
+        let uuid_cstring = CString::new(uuid_string).expect("CString::new failed");
+        let uuid_ptr = uuid_cstring.as_ptr();
+        let uuid = unsafe { uuid4_from_cstr(uuid_ptr) };
+        assert_eq!(uuid_string, uuid.to_string());
+    }
+
+    #[rstest]
+    fn test_to_cstr() {
+        let uuid_string = "2d89666b-1a1e-4a75-b193-4eb3b454c757";
+        let uuid = UUID4::from(uuid_string);
+        let uuid_ptr = uuid4_to_cstr(&uuid);
+        let uuid_cstr = unsafe { CStr::from_ptr(uuid_ptr) };
+        let uuid_result_string = uuid_cstr.to_str().expect("CStr::to_str failed").to_string();
+        assert_eq!(uuid_string, uuid_result_string);
+    }
+
+    #[rstest]
+    fn test_eq() {
+        let uuid1 = UUID4::from("2d89666b-1a1e-4a75-b193-4eb3b454c757");
+        let uuid2 = UUID4::from("2d89666b-1a1e-4a75-b193-4eb3b454c757");
+        let uuid3 = UUID4::from("2d89666b-1a1e-4a75-b193-4eb3b454c758");
+        assert_eq!(uuid4_eq(&uuid1, &uuid2), 1);
+        assert_eq!(uuid4_eq(&uuid1, &uuid3), 0);
+    }
+
+    #[rstest]
+    fn test_hash() {
+        let uuid1 = UUID4::from("2d89666b-1a1e-4a75-b193-4eb3b454c757");
+        let uuid2 = UUID4::from("2d89666b-1a1e-4a75-b193-4eb3b454c757");
+        let uuid3 = UUID4::from("2d89666b-1a1e-4a75-b193-4eb3b454c758");
+        assert_eq!(uuid4_hash(&uuid1), uuid4_hash(&uuid2));
+        assert_ne!(uuid4_hash(&uuid1), uuid4_hash(&uuid3));
+    }
+}

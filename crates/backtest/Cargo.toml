@@ -1,0 +1,106 @@
+[package]
+name = "nautilus-backtest"
+readme = "README.md"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Core backtesting machinery for the Nautilus trading engine"
+categories.workspace = true
+keywords.workspace = true
+documentation.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+name = "nautilus_backtest"
+crate-type = ["rlib", "staticlib"]
+
+[features]
+default = []
+examples = ["nautilus-trading/examples"]
+high-precision = ["nautilus-model/high-precision"]
+streaming = ["nautilus-persistence", "nautilus-system/streaming"]
+extension-module = [
+  "nautilus-common/extension-module",
+  "nautilus-core/extension-module",
+  "nautilus-execution/extension-module",
+  "nautilus-model/extension-module",
+  "nautilus-trading/extension-module",
+  "python",
+  "pyo3/extension-module",
+  "streaming",
+]
+ffi = [
+  "cbindgen",
+  "nautilus-core/ffi",
+  "nautilus-common/ffi",
+  "nautilus-execution/ffi",
+  "nautilus-model/ffi",
+]
+python = [
+  "nautilus-common/python",
+  "nautilus-core/python",
+  "nautilus-execution/python",
+  "nautilus-model/python",
+  "nautilus-trading/python",
+  "pyo3",
+  "streaming",
+]
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+[dependencies]
+nautilus-analysis = { workspace = true }
+nautilus-common = { workspace = true }
+nautilus-core = { workspace = true }
+nautilus-data = { workspace = true }
+nautilus-execution = { workspace = true }
+nautilus-model = { workspace = true, features = ["stubs"] }
+nautilus-persistence = { workspace = true, optional = true }
+nautilus-portfolio = { workspace = true }
+nautilus-risk = { workspace = true }
+nautilus-system = { workspace = true }
+nautilus-trading = { workspace = true }
+
+ahash = { workspace = true }
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+log = { workspace = true }
+rust_decimal = { workspace = true }
+ustr = { workspace = true }
+
+pyo3 = { workspace = true, optional = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+nautilus-indicators = { workspace = true }
+nautilus-persistence = { workspace = true }
+nautilus-testkit = { workspace = true }
+nautilus-trading = { workspace = true, features = ["examples"] }
+
+rstest = { workspace = true }
+tempfile = { workspace = true }
+
+[build-dependencies]
+cbindgen = { workspace = true, optional = true }
+
+# Run with `cargo run -p nautilus-backtest --features examples --example engine-ema-cross`
+[[example]]
+name = "engine-ema-cross"
+path = "examples/engine_ema_cross.rs"
+required-features = ["examples"]
+doc = false
+
+# Run with `cargo run -p nautilus-backtest --features examples,streaming --example node-ema-cross`
+[[example]]
+name = "node-ema-cross"
+path = "examples/node_ema_cross.rs"
+required-features = ["examples", "streaming"]
+doc = false

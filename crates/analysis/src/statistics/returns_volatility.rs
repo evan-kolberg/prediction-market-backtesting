@@ -1,0 +1,155 @@
+// -------------------------------------------------------------------------------------------------
+//  Copyright (C) 2015-2026 Nautech Systems Pty Ltd. All rights reserved.
+//  https://nautechsystems.io
+//
+//  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
+//  You may not use this file except in compliance with the License.
+//  You may obtain a copy of the License at https://www.gnu.org/licenses/lgpl-3.0.en.html
+//
+//  Unless required by applicable law or agreed to in writing, software
+//  distributed under the License is distributed on an "AS IS" BASIS,
+//  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+//  See the License for the specific language governing permissions and
+//  limitations under the License.
+// -------------------------------------------------------------------------------------------------
+
+use std::fmt::Display;
+
+use nautilus_model::position::Position;
+
+use crate::{Returns, statistic::PortfolioStatistic};
+
+/// Calculates the annualized volatility (standard deviation) of portfolio returns.
+///
+/// Volatility is calculated as the standard deviation of returns, annualized by
+/// multiplying the daily standard deviation by the square root of the period:
+/// `Standard Deviation * sqrt(period)`
+///
+/// Uses Bessel's correction (ddof=1) for sample standard deviation.
+/// This provides a measure of the portfolio's risk or uncertainty of returns.
+///
+/// # References
+///
+/// - CFA Institute Level I Curriculum: Quantitative Methods
+/// - Hull, J. C. (2018). *Options, Futures, and Other Derivatives* (10th ed.). Pearson.
+/// - Fabozzi, F. J., et al. (2002). *The Handbook of Financial Instruments*. Wiley.
+#[repr(C)]
+#[derive(Debug, Clone)]
+#[cfg_attr(
+    feature = "python",
+    pyo3::pyclass(module = "nautilus_trader.core.nautilus_pyo3.analysis", from_py_object)
+)]
+pub struct ReturnsVolatility {
+    /// The annualization period (default: 252 for daily data).
+    period: usize,
+}
+
+impl ReturnsVolatility {
+    /// Creates a new [`ReturnsVolatility`] instance.
+    #[must_use]
+    pub fn new(period: Option<usize>) -> Self {
+        Self {
+            period: period.unwrap_or(252),
+        }
+    }
+}
+
+impl Display for ReturnsVolatility {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Returns Volatility ({} days)", self.period)
+    }
+}
+
+impl PortfolioStatistic for ReturnsVolatility {
+    type Item = f64;
+
+    fn name(&self) -> String {
+        self.to_string()
+    }
+
+    fn calculate_from_returns(&self, raw_returns: &Returns) -> Option<Self::Item> {
+        if !self.check_valid_returns(raw_returns) {
+            return Some(f64::NAN);
+        }
+
+        let returns = self.downsample_to_daily_bins(raw_returns);
+        let daily_std = self.calculate_std(&returns);
+        let annualized_std = daily_std * (self.period as f64).sqrt();
+        Some(annualized_std)
+    }
+    fn calculate_from_realized_pnls(&self, _realized_pnls: &[f64]) -> Option<Self::Item> {
+        None
+    }
+
+    fn calculate_from_positions(&self, _positions: &[Position]) -> Option<Self::Item> {
+        None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+
+    use nautilus_core::{UnixNanos, approx_eq};
+    use rstest::rstest;
+
+    use super::*;
+
+    fn create_returns(values: Vec<f64>) -> BTreeMap<UnixNanos, f64> {
+        let mut new_return = BTreeMap::new();
+        let one_day_in_nanos = 86_400_000_000_000;
+        let start_time = 1_600_000_000_000_000_000;
+
+        for (i, &value) in values.iter().enumerate() {
+            let timestamp = start_time + i as u64 * one_day_in_nanos;
+            new_return.insert(UnixNanos::from(timestamp), value);
+        }
+
+        new_return
+    }
+
+    #[rstest]
+    fn test_empty_returns() {
+        let volatility = ReturnsVolatility::new(None);
+        let returns = create_returns(vec![]);
+        let result = volatility.calculate_from_returns(&returns);
+        assert!(result.is_some());
+        assert!(result.unwrap().is_nan());
+    }
+
+    #[rstest]
+    fn test_default_period() {
+        let volatility = ReturnsVolatility::new(None);
+        assert_eq!(volatility.period, 252);
+    }
+
+    #[rstest]
+    fn test_custom_period() {
+        let volatility = ReturnsVolatility::new(Some(365));
+        assert_eq!(volatility.period, 365);
+    }
+
+    #[rstest]
+    fn test_volatility_calculation() {
+        let volatility = ReturnsVolatility::new(None);
+
+        let returns = create_returns(vec![
+            0.01, -0.02, 0.03, -0.01, 0.02, 0.04, -0.03, 0.05, -0.04, 0.02,
+        ]);
+        let result = volatility.calculate_from_returns(&returns);
+        assert!(result.is_some());
+
+        assert!(approx_eq!(
+            f64,
+            result.unwrap(),
+            0.48526281538976396,
+            epsilon = 1e-9
+        ));
+    }
+
+    #[rstest]
+    fn test_name() {
+        let volatility = ReturnsVolatility::new(None);
+        assert_eq!(volatility.name(), "Returns Volatility (252 days)");
+    }
+}

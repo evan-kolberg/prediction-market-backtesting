@@ -1,0 +1,86 @@
+[package]
+name = "nautilus-live"
+readme = "README.md"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Core live trading components and machinery for the Nautilus trading engine"
+categories.workspace = true
+keywords.workspace = true
+documentation.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+name = "nautilus_live"
+crate-type = ["rlib", "cdylib"]
+
+[features]
+default = []
+streaming = ["nautilus-persistence", "nautilus-system/streaming"]
+extension-module = [
+  "nautilus-common/extension-module",
+  "nautilus-core/extension-module",
+  "nautilus-execution/extension-module",
+  "nautilus-model/extension-module",
+  "python",
+  "pyo3/extension-module",
+  "streaming",
+]
+ffi = ["nautilus-common/ffi", "nautilus-core/ffi", "nautilus-model/ffi"]
+python = [
+  "nautilus-common/python",
+  "nautilus-core/python",
+  "nautilus-execution/python",
+  "nautilus-model/python",
+  "nautilus-system/python",
+  "pyo3",
+  "streaming",
+]
+defi = ["nautilus-common/defi", "nautilus-data/defi"]
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+[dependencies]
+nautilus-common = { workspace = true, features = ["live"] }
+nautilus-core = { workspace = true }
+nautilus-data = { workspace = true }
+nautilus-execution = { workspace = true }
+nautilus-model = { workspace = true, features = ["stubs"] }
+nautilus-persistence = { workspace = true, optional = true }
+nautilus-portfolio = { workspace = true }
+nautilus-risk = { workspace = true }
+nautilus-system = { workspace = true, features = ["live"] }
+nautilus-trading = { workspace = true }
+
+ahash = { workspace = true }
+anyhow = { workspace = true }
+indexmap = { workspace = true }
+log = { workspace = true }
+rust_decimal = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tabled = { workspace = true }
+tokio = { workspace = true }
+ustr = { workspace = true }
+
+pyo3 = { workspace = true, optional = true }
+
+[dev-dependencies]
+async-trait = { workspace = true }
+criterion = { workspace = true }
+rstest = { workspace = true }
+rust_decimal_macros = { workspace = true }
+ustr = { workspace = true }
+
+# Run with `cargo bench -p nautilus-live --bench runner`
+[[bench]]
+name = "runner"
+harness = false

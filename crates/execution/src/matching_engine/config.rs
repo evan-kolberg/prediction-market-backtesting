@@ -1,0 +1,99 @@
+// -------------------------------------------------------------------------------------------------
+//  Copyright (C) 2015-2026 Nautech Systems Pty Ltd. All rights reserved.
+//  https://nautechsystems.io
+//
+//  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
+//  You may not use this file except in compliance with the License.
+//  You may obtain a copy of the License at https://www.gnu.org/licenses/lgpl-3.0.en.html
+//
+//  Unless required by applicable law or agreed to in writing, software
+//  distributed under the License is distributed on an "AS IS" BASIS,
+//  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+//  See the License for the specific language governing permissions and
+//  limitations under the License.
+// -------------------------------------------------------------------------------------------------
+
+/// Configuration for `OrderMatchingEngine` instances.
+#[derive(Debug, Clone)]
+pub struct OrderMatchingEngineConfig {
+    pub bar_execution: bool,
+    pub bar_adaptive_high_low_ordering: bool,
+    pub trade_execution: bool,
+    pub liquidity_consumption: bool,
+    pub reject_stop_orders: bool,
+    pub support_gtd_orders: bool,
+    pub support_contingent_orders: bool,
+    pub use_position_ids: bool,
+    pub use_random_ids: bool,
+    pub use_reduce_only: bool,
+    pub use_market_order_acks: bool,
+    pub queue_position: bool,
+    pub price_protection_points: Option<u32>,
+}
+
+impl OrderMatchingEngineConfig {
+    /// Creates a new default [`OrderMatchingEngineConfig`] instance.
+    #[must_use]
+    #[allow(clippy::too_many_arguments)]
+    pub const fn new(
+        bar_execution: bool,
+        bar_adaptive_high_low_ordering: bool,
+        trade_execution: bool,
+        liquidity_consumption: bool,
+        reject_stop_orders: bool,
+        support_gtd_orders: bool,
+        support_contingent_orders: bool,
+        use_position_ids: bool,
+        use_random_ids: bool,
+        use_reduce_only: bool,
+        use_market_order_acks: bool,
+    ) -> Self {
+        Self {
+            bar_execution,
+            bar_adaptive_high_low_ordering,
+            trade_execution,
+            liquidity_consumption,
+            reject_stop_orders,
+            support_gtd_orders,
+            support_contingent_orders,
+            use_position_ids,
+            use_random_ids,
+            use_reduce_only,
+            use_market_order_acks,
+            queue_position: false,
+            price_protection_points: None,
+        }
+    }
+
+    /// Sets the price protection points for the matching engine.
+    #[must_use]
+    pub const fn with_price_protection_points(
+        mut self,
+        price_protection_points: Option<u32>,
+    ) -> Self {
+        self.price_protection_points = price_protection_points;
+        self
+    }
+}
+
+#[allow(clippy::derivable_impls)]
+impl Default for OrderMatchingEngineConfig {
+    /// Creates a new default [`OrderMatchingEngineConfig`] instance.
+    fn default() -> Self {
+        Self {
+            bar_execution: false,
+            bar_adaptive_high_low_ordering: false,
+            trade_execution: true,
+            liquidity_consumption: false,
+            reject_stop_orders: false,
+            support_gtd_orders: false,
+            support_contingent_orders: false,
+            use_position_ids: false,
+            use_random_ids: false,
+            use_reduce_only: false,
+            use_market_order_acks: false,
+            queue_position: false,
+            price_protection_points: None,
+        }
+    }
+}
