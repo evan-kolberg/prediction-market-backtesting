@@ -66,7 +66,7 @@ After this, use `uv run python <script>` to run anything — no manual `source .
 
 ## Writing a Strategy
 
-Create a `.py` file in the `strategies/` directory. It must expose three things at module level:
+Create a `.py` file in `strategies/` (for example strategies) or `private_strategies/` (for strategies you want to keep off git). It must expose three things at module level:
 
 ```python
 NAME = "my_strategy"           # shown in the menu
@@ -89,7 +89,7 @@ For custom strategy logic, subclass `Strategy` and `StrategyConfig` from `nautil
 make backtest
 ```
 
-This starts `main.py`, which scans `strategies/`, shows a numbered menu, and runs the selected strategy. Equivalent to `uv run python main.py`.
+This starts `main.py`, which scans `strategies/` and `private_strategies/`, shows a numbered menu, and runs the selected strategy. Equivalent to `uv run python main.py`.
 
 ## Testing
 
