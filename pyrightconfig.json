@@ -1,0 +1,4 @@
+{
+  "typeCheckingMode": "off",
+  "exclude": ["nautilus_pm/**"]
+}
