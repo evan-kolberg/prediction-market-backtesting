@@ -27,7 +27,7 @@ Backtesting framework for prediction market trading strategies on [Kalshi](https
 
 ## Architecture
 
-This repo uses [nautilus_pm](https://github.com/ben-gramling/nautilus_pm) as a git subtree — a fork of NautilusTrader with custom Kalshi and Polymarket adapters. Data is fetched via REST APIs (no more 50 GB downloads like the legacy branch).
+This repo uses [nautilus_pm](https://github.com/ben-gramling/nautilus_pm) as a git subtree — a fork of NautilusTrader with custom Kalshi and Polymarket adapters. Data is fetched via REST APIs (no more 50 GB downloads like the [`legacy`](https://github.com/evan-kolberg/prediction-market-backtesting/tree/legacy) branch).
 
 
 ### Strategy Approaches
@@ -36,8 +36,8 @@ This repo uses [nautilus_pm](https://github.com/ben-gramling/nautilus_pm) as a g
 |---|---|---|---|
 | `kalshi_ema_cross` | Kalshi | Minute OHLCV bars via REST → Parquet catalog | `BacktestNode` |
 | `polymarket_ema_cross` | Polymarket | Trade ticks via REST → in-memory | `BacktestEngine` |
-these are examples that you can take a look at.
-for obvious reasons, winning strategies won't be pushed to the repo to be shared publically.
+
+> These are examples that you can take a look at. For obvious reasons, winning strategies won't be pushed to the repo to be shared publically.
 
 ## Setup
 
@@ -118,7 +118,7 @@ Unlike git submodules, subtrees copy upstream code directly into this repo — t
 
 ## Known Issues
 
-** [ ] the API's rate limit a lot, and this can get annoying when running backtests on many markets.
+- [ ] the API's rate limit a lot, and this can get annoying when running backtests on many markets.
 
 ## License
 
