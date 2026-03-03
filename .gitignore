@@ -36,3 +36,7 @@ crates/*/uv.lock
 .mypy_cache/
 .pytest_cache/
 .ruff_cache/
+strategies/kalshi_spread_capture.py
+strategies/polymarket_spread_capture.py
+tests/test_kalshi_spread_capture.py
+tests/test_polymarket_spread_capture.py
