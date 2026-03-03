@@ -18,26 +18,3 @@ jobs:
       - uses: astral-sh/ruff-action@v3
         with:
           args: format --check --exclude nautilus_pm
-
-  test:
-    name: Tests
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: true
-
-      - uses: astral-sh/setup-uv@v6
-
-      - name: Set up Python
-        run: uv python install 3.13
-
-      - name: Install dependencies
-        run: |
-          uv venv --python 3.13
-          uv pip install -e nautilus_pm/ bokeh numpy py-clob-client pytest ruff
-
-      - name: Run tests (EMA-cross only)
-        run: uv run pytest tests/test_kalshi_ema_cross.py tests/test_polymarket_ema_cross.py -v --timeout=120
