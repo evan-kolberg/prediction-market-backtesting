@@ -10,6 +10,12 @@ Backtesting framework for prediction market trading strategies on [Kalshi](https
 
 > Miss the old engine? See the [`legacy`](https://github.com/evan-kolberg/prediction-market-backtesting/tree/legacy) branch. Though, I don't recommend you continue using that one. 
 
+--
+## In the works:
+- [ ] fee modeling [PR#4](https://github.com/ben-gramling/nautilus_pm/pull/4)
+- [ ] much better & informative charting [PR#5](https://github.com/ben-gramling/nautilus_pm/pull/5)
+
+
 ---
 
 ## Table of Contents
