@@ -50,6 +50,12 @@ from strategies.final_period_momentum import (
 from strategies.final_period_momentum import (
     TradeTickFinalPeriodMomentumStrategy,
 )
+from strategies.late_favorite_limit_hold import (
+    TradeTickLateFavoriteLimitHoldConfig,
+)
+from strategies.late_favorite_limit_hold import (
+    TradeTickLateFavoriteLimitHoldStrategy,
+)
 from strategies.mean_reversion import (
     BarMeanReversionConfig,
 )
@@ -123,6 +129,8 @@ __all__ = [
     "TradeTickEMACrossoverStrategy",
     "TradeTickFinalPeriodMomentumConfig",
     "TradeTickFinalPeriodMomentumStrategy",
+    "TradeTickLateFavoriteLimitHoldConfig",
+    "TradeTickLateFavoriteLimitHoldStrategy",
     "TradeTickMeanReversionConfig",
     "TradeTickMeanReversionStrategy",
     "TradeTickPanicFadeConfig",

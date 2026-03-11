@@ -14,6 +14,9 @@ import pandas as pd
 from nautilus_trader.adapters.polymarket import POLYMARKET_VENUE
 from nautilus_trader.adapters.polymarket import PolymarketDataLoader
 from nautilus_trader.adapters.polymarket.fee_model import PolymarketFeeModel
+from nautilus_trader.adapters.prediction_market.backtest_utils import (
+    infer_realized_outcome,
+)
 from nautilus_trader.adapters.prediction_market.research import print_backtest_summary
 from nautilus_trader.adapters.prediction_market.research import run_market_backtest
 from nautilus_trader.model.currencies import USDC_POS
@@ -115,4 +118,5 @@ async def run_single_market_trade_backtest(
 
     result["token_index"] = token_index
     result["outcome"] = str(loader.instrument.outcome or "")
+    result["realized_outcome"] = infer_realized_outcome(loader.instrument)
     return result

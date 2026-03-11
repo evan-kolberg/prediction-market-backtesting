@@ -223,6 +223,39 @@ def infer_realized_outcome(source: object | None) -> float | None:
     return None
 
 
+def compute_binary_settlement_pnl(
+    fill_events: Sequence[Mapping[object, object]],
+    resolved_outcome: float | None,
+) -> float | None:
+    """
+    Compute binary-market PnL by marking any remaining position to settlement.
+    """
+    if resolved_outcome is None:
+        return None
+
+    cash = 0.0
+    open_qty = 0.0
+    commissions = 0.0
+
+    for event in fill_events:
+        action = str(event.get("action") or "").strip().lower()
+        price = _parse_numeric(event.get("price"), default=0.0)
+        quantity = _parse_numeric(event.get("quantity"), default=0.0)
+        commission = _parse_numeric(event.get("commission"), default=0.0)
+        if quantity <= 0.0:
+            continue
+
+        commissions += commission
+        if action == "buy":
+            cash -= price * quantity
+            open_qty += quantity
+        elif action == "sell":
+            cash += price * quantity
+            open_qty -= quantity
+
+    return cash + (float(resolved_outcome) * open_qty) - commissions
+
+
 def build_brier_inputs(
     points: Sequence[PricePoint],
     window: int,

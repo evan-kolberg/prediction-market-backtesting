@@ -75,9 +75,11 @@ Good public examples:
 
 - Reusable EMA strategy logic: [`strategies/ema_crossover.py`](strategies/ema_crossover.py)
 - Reusable final-period momentum logic: [`strategies/final_period_momentum.py`](strategies/final_period_momentum.py)
+- Reusable late-favorite limit-hold logic: [`strategies/late_favorite_limit_hold.py`](strategies/late_favorite_limit_hold.py)
 - Kalshi runner using a root strategy module: [`backtests/kalshi_breakout.py`](backtests/kalshi_breakout.py)
 - Polymarket runner using a root strategy module: [`backtests/polymarket_vwap_reversion.py`](backtests/polymarket_vwap_reversion.py)
 - Public multi-market runner: [`backtests/polymarket_sports_final_period_momentum.py`](backtests/polymarket_sports_final_period_momentum.py)
+- Public resolved multi-market runner with settlement-adjusted PnL: [`backtests/polymarket_sports_late_favorite_limit_hold.py`](backtests/polymarket_sports_late_favorite_limit_hold.py)
 
 Backtest entrypoints should expose three things at module level:
 
@@ -118,6 +120,7 @@ Direct script execution is usually better once you know which runner you want:
 MARKET_TICKER=KXNEXTIRANLEADER-45JAN01-MKHA uv run python backtests/kalshi_breakout.py
 MARKET_SLUG=will-openai-launch-a-new-consumer-hardware-product-by-march-31-2026 uv run python backtests/polymarket_vwap_reversion.py
 MARKET_SLUGS=nfl-was-gb-2025-09-11,nfl-nyj-cin-2025-10-26 TARGET_RESULTS=2 uv run python backtests/polymarket_sports_final_period_momentum.py
+TARGET_RESULTS=50 uv run python -m backtests.polymarket_sports_late_favorite_limit_hold
 ```
 
 These hit live APIs. Expect latency and rate limits.
@@ -217,6 +220,8 @@ Unlike git submodules, subtrees copy upstream code directly into this repo — t
 - [x] better position sizing capabilities
 - [x] fee modeling, slippage modeling *** exchange fees, maker/taker fees, etc [PR#4](https://github.com/ben-gramling/nautilus_pm/pull/4), [PR#6](https://github.com/ben-gramling/nautilus_pm/pull/6)
 - [x] much better & informative charting [PR#5](https://github.com/ben-gramling/nautilus_pm/pull/5)
+
+> Note: i'm still not entirely positive that slippage was implemented correctly. i aimed for a conservative approach, and supposedly there are slippage limits on these platforms, but still remains a challenge to model properly. TLDR; pain in the ass.
 
 ## Known Issues
 
