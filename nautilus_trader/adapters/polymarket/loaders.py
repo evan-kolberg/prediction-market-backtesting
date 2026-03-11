@@ -18,6 +18,8 @@ Provides data loaders for historical Polymarket data from various APIs.
 
 from __future__ import annotations
 
+from decimal import Decimal
+from decimal import InvalidOperation
 from typing import Any
 
 import msgspec
@@ -61,6 +63,7 @@ class PolymarketDataLoader:
     """
 
     _TRADES_PAGE_LIMIT = 1_000
+    _FEE_RATE_URL = "https://clob.polymarket.com/fee-rate"
 
     def __init__(
         self,
@@ -132,6 +135,64 @@ class PolymarketDataLoader:
             )
 
         return msgspec.json.decode(response.body)
+
+    @staticmethod
+    def _coerce_fee_rate_bps(value: Any) -> Decimal | None:
+        if value in (None, ""):
+            return None
+
+        try:
+            return Decimal(str(value))
+        except (InvalidOperation, TypeError, ValueError):
+            return None
+
+    @classmethod
+    async def _fetch_market_fee_rate_bps(
+        cls,
+        token_id: str,
+        http_client: nautilus_pyo3.HttpClient,
+    ) -> Decimal | None:
+        PyCondition.valid_string(token_id, "token_id")
+
+        response = await http_client.get(
+            url=cls._FEE_RATE_URL,
+            params={"token_id": token_id},
+        )
+        if response.status != 200:
+            return None
+
+        payload = msgspec.json.decode(response.body)
+        if not isinstance(payload, dict):
+            return None
+
+        fee_rate_bps = cls._coerce_fee_rate_bps(payload.get("fee_rate_bps"))
+        if fee_rate_bps is not None:
+            return fee_rate_bps
+
+        return cls._coerce_fee_rate_bps(payload.get("base_fee"))
+
+    @classmethod
+    async def _enrich_market_details_with_fee_rate(
+        cls,
+        market_details: dict[str, Any],
+        token_id: str,
+        http_client: nautilus_pyo3.HttpClient,
+    ) -> dict[str, Any]:
+        existing_maker_fee = cls._coerce_fee_rate_bps(market_details.get("maker_base_fee"))
+        existing_taker_fee = cls._coerce_fee_rate_bps(market_details.get("taker_base_fee"))
+        if (existing_maker_fee is not None and existing_maker_fee > 0) or (
+            existing_taker_fee is not None and existing_taker_fee > 0
+        ):
+            return market_details
+
+        fee_rate_bps = await cls._fetch_market_fee_rate_bps(token_id, http_client)
+        if fee_rate_bps is None:
+            return market_details
+
+        enriched = dict(market_details)
+        enriched["maker_base_fee"] = str(fee_rate_bps)
+        enriched["taker_base_fee"] = str(fee_rate_bps)
+        return enriched
 
     @staticmethod
     async def _fetch_event_by_slug(
@@ -226,6 +287,11 @@ class PolymarketDataLoader:
         )
         if is_50_50_outcome:
             market_details["is_50_50_outcome"] = True
+        market_details = await cls._enrich_market_details_with_fee_rate(
+            market_details,
+            token_id,
+            client,
+        )
 
         instrument = parse_polymarket_instrument(
             market_info=market_details,
@@ -302,6 +368,11 @@ class PolymarketDataLoader:
             token = tokens[token_index]
             token_id = token["token_id"]
             outcome = token["outcome"]
+            market_details = await cls._enrich_market_details_with_fee_rate(
+                market_details,
+                token_id,
+                client,
+            )
 
             instrument = parse_polymarket_instrument(
                 market_info=market_details,

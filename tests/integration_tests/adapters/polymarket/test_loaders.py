@@ -14,6 +14,7 @@
 # -------------------------------------------------------------------------------------------------
 
 import pkgutil
+from decimal import Decimal
 from unittest.mock import AsyncMock
 from unittest.mock import MagicMock
 from unittest.mock import Mock
@@ -66,6 +67,11 @@ def trades_data():
     )
     assert data
     return msgspec.json.decode(data)
+
+
+@pytest.fixture
+def fee_rate_data():
+    return {"base_fee": 0}
 
 
 @pytest.fixture
@@ -158,6 +164,7 @@ async def test_find_market_by_slug_not_found(test_instrument):
 async def test_from_market_slug_uses_slug_endpoint(
     market_slug_data,
     market_details_data,
+    fee_rate_data,
 ):
     # Arrange
     mock_http_client = MagicMock(spec=nautilus_pyo3.HttpClient)
@@ -170,7 +177,11 @@ async def test_from_market_slug_uses_slug_endpoint(
     details_response.status = 200
     details_response.body = msgspec.json.encode(market_details_data)
 
-    mock_http_client.get = AsyncMock(side_effect=[slug_response, details_response])
+    fee_response = Mock()
+    fee_response.status = 200
+    fee_response.body = msgspec.json.encode(fee_rate_data)
+
+    mock_http_client.get = AsyncMock(side_effect=[slug_response, details_response, fee_response])
 
     # Act
     loader = await PolymarketDataLoader.from_market_slug(
@@ -188,6 +199,31 @@ async def test_from_market_slug_uses_slug_endpoint(
         "https://clob.polymarket.com/markets/"
         "0x270d5aa3b23be0d4e713361d603b187dd1919c71c74226ad867699f33972c5f2"
     )
+    assert mock_http_client.get.call_args_list[2].kwargs == {
+        "url": "https://clob.polymarket.com/fee-rate",
+        "params": {"token_id": market_details_data["tokens"][0]["token_id"]},
+    }
+
+
+@pytest.mark.asyncio
+async def test_from_market_slug_uses_fee_rate_endpoint_when_available(
+    market_slug_data,
+    market_details_data,
+):
+    mock_http_client = MagicMock(spec=nautilus_pyo3.HttpClient)
+
+    slug_response = Mock(status=200, body=msgspec.json.encode(market_slug_data))
+    details_response = Mock(status=200, body=msgspec.json.encode(market_details_data))
+    fee_response = Mock(status=200, body=msgspec.json.encode({"base_fee": "200"}))
+    mock_http_client.get = AsyncMock(side_effect=[slug_response, details_response, fee_response])
+
+    loader = await PolymarketDataLoader.from_market_slug(
+        "kamala-harris-divorce-in-2025",
+        http_client=mock_http_client,
+    )
+
+    assert loader.instrument.maker_fee == Decimal("0.02")
+    assert loader.instrument.taker_fee == Decimal("0.02")
 
 
 @pytest.mark.asyncio
@@ -569,7 +605,7 @@ async def test_get_event_markets(test_instrument, event_data):
 
 
 @pytest.mark.asyncio
-async def test_from_event_slug(event_data, market_details_data):
+async def test_from_event_slug(event_data, market_details_data, fee_rate_data):
     # Arrange
     mock_http_client = MagicMock(spec=nautilus_pyo3.HttpClient)
 
@@ -581,9 +617,21 @@ async def test_from_event_slug(event_data, market_details_data):
     details_response.status = 200
     details_response.body = msgspec.json.encode(market_details_data)
 
-    # Event fetch + 3 market detail fetches (one per market in event)
+    fee_response = Mock()
+    fee_response.status = 200
+    fee_response.body = msgspec.json.encode(fee_rate_data)
+
+    # Event fetch + 3 market detail fetches + 3 fee-rate fetches (one per selected token)
     mock_http_client.get = AsyncMock(
-        side_effect=[event_response, details_response, details_response, details_response],
+        side_effect=[
+            event_response,
+            details_response,
+            fee_response,
+            details_response,
+            fee_response,
+            details_response,
+            fee_response,
+        ],
     )
 
     # Act
@@ -600,21 +648,25 @@ async def test_from_event_slug(event_data, market_details_data):
         assert loader.instrument is not None
 
     # Verify API calls
-    assert mock_http_client.get.call_count == 4  # 1 event + 3 market details
+    assert mock_http_client.get.call_count == 7  # 1 event + 3 market details + 3 fee-rate
     # First call should be to events API
     assert mock_http_client.get.call_args_list[0].kwargs["url"] == (
         "https://gamma-api.polymarket.com/events"
     )
     # Subsequent calls should be to CLOB market details API
-    for i in range(1, 4):
+    for i in (1, 3, 5):
         assert (
             "https://clob.polymarket.com/markets/"
             in (mock_http_client.get.call_args_list[i].kwargs["url"])
         )
+    for i in (2, 4, 6):
+        assert mock_http_client.get.call_args_list[i].kwargs["url"] == (
+            "https://clob.polymarket.com/fee-rate"
+        )
 
 
 @pytest.mark.asyncio
-async def test_from_event_slug_with_token_index(event_data, market_details_data):
+async def test_from_event_slug_with_token_index(event_data, market_details_data, fee_rate_data):
     # Arrange
     mock_http_client = MagicMock(spec=nautilus_pyo3.HttpClient)
 
@@ -626,8 +678,20 @@ async def test_from_event_slug_with_token_index(event_data, market_details_data)
     details_response.status = 200
     details_response.body = msgspec.json.encode(market_details_data)
 
+    fee_response = Mock()
+    fee_response.status = 200
+    fee_response.body = msgspec.json.encode(fee_rate_data)
+
     mock_http_client.get = AsyncMock(
-        side_effect=[event_response, details_response, details_response, details_response],
+        side_effect=[
+            event_response,
+            details_response,
+            fee_response,
+            details_response,
+            fee_response,
+            details_response,
+            fee_response,
+        ],
     )
 
     # Act - request second token (No outcome)
