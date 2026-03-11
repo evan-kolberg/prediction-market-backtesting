@@ -22,6 +22,7 @@ Fantastic single & multi-market charting. Featuring: equity (total & individual 
 - [Setup](#setup)
 - [Writing Strategies and Backtests](#writing-strategies-and-backtests)
 - [Running Backtests](#running-backtests)
+- [Execution Modeling](#execution-modeling)
 - [Plotting](#plotting)
 - [Testing](#testing)
 - [Updating the Subtree](#updating-the-subtree)
@@ -129,6 +130,40 @@ Most runners are configured through environment variables. Common ones:
 - `TRADE_SIZE` and `INITIAL_CASH` for sizing
 - `TARGET_RESULTS` for multi-market runners
 
+## Execution Modeling
+
+Backtests here replay venue data from Kalshi and Polymarket into NautilusTrader.
+The main things which affect realized backtest performance beyond the raw API
+data are:
+
+- exchange fee models
+- slippage for taker-style orders
+- existing engine behavior such as IOC handling, price rounding, cash-account limits, and `AccountBalanceNegative` stops
+
+### Fees
+
+- Kalshi uses a nonlinear expected-earnings fee model.
+- Polymarket uses the venue fee model plus CLOB `fee-rate` enrichment when the
+  market payload itself reports zero fees.
+- If a venue reports zero fees for a market, the backtest also applies zero fees.
+
+### Slippage
+
+- Shared prediction-market backtests default to a custom taker fill model.
+- Non-limit orders get a deterministic one-tick adverse fill.
+- Polymarket uses the market's own tick size.
+- Kalshi uses one cent as the effective order tick for taker slippage.
+- Limit orders keep the default Nautilus matching behavior and do not get the
+  forced one-tick adverse move.
+
+### Limits
+
+- This is a conservative taker-execution proxy, not full order-book replay.
+- Historical backtests here do not model queue position, full L2 depth, or
+  exact partial-sweep behavior.
+- Taker-heavy strategies that try to harvest very small price changes can look
+  much worse once fees and one-tick slippage are turned on.
+
 ## Plotting
 
 Single-market plotting is built into the shared runner flow used by the public prediction-market backtests. Good examples:
@@ -180,7 +215,7 @@ Unlike git submodules, subtrees copy upstream code directly into this repo — t
 - [ ] live trading (thinking of [pmxt](https://github.com/pmxt-dev/pmxt))
 - [x] multi-market support within strategies
 - [x] better position sizing capabilities
-- [x] fee modeling, slippage modeling *** exchange fees, maker/taker fees, etc [PR#4](https://github.com/ben-gramling/nautilus_pm/pull/4)
+- [x] fee modeling, slippage modeling *** exchange fees, maker/taker fees, etc [PR#4](https://github.com/ben-gramling/nautilus_pm/pull/4), [PR#6](https://github.com/ben-gramling/nautilus_pm/pull/6)
 - [x] much better & informative charting [PR#5](https://github.com/ben-gramling/nautilus_pm/pull/5)
 
 ## Known Issues
