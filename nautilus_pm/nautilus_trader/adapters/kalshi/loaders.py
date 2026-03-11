@@ -17,13 +17,14 @@ Provides a data loader for historical Kalshi prediction market data.
 
 from __future__ import annotations
 
+import hashlib
 from typing import Any
 
 import msgspec
 import pandas as pd
 
 from nautilus_trader.adapters.kalshi.providers import KALSHI_REST_BASE
-from nautilus_trader.adapters.kalshi.providers import _market_dict_to_instrument
+from nautilus_trader.adapters.kalshi.providers import market_dict_to_instrument
 from nautilus_trader.core import nautilus_pyo3
 from nautilus_trader.core.datetime import secs_to_nanos
 from nautilus_trader.model.data import Bar
@@ -47,7 +48,7 @@ class KalshiDataLoader:
 
     This loader fetches data from the Kalshi REST API:
     - ``GET /markets/{ticker}`` — instrument discovery
-    - ``GET /historical/markets/{ticker}/trades`` — historical trades (cursor-paginated)
+    - ``GET /markets/trades?ticker={ticker}`` — trades (cursor-paginated)
     - ``GET /series/{series_ticker}/markets/{ticker}/candlesticks`` — OHLCV bars
 
     If no ``http_client`` is provided, the loader creates one with a default
@@ -75,6 +76,88 @@ class KalshiDataLoader:
         "Hours1": BarAggregation.HOUR,
         "Days1": BarAggregation.DAY,
     }
+
+    _TRADE_ENDPOINT = f"{KALSHI_REST_BASE}/markets/trades"
+    _TRADE_PAGE_LIMIT = 1_000
+
+    @staticmethod
+    def _normalize_price(raw: float | str) -> float:
+        """
+        Normalize a Kalshi price to the 0-1 dollar range.
+
+        The Kalshi API historically returned cent-scale integers (for example
+        ``42`` for ``0.42``) and now also publishes dollar-scale decimals (for
+        example ``"0.4200"`` or ``1.0``). This helper preserves decimal prices
+        already in the ``0`` to ``1`` range while still converting cent-scale
+        integers into dollar probabilities.
+        """
+        text = str(raw).strip()
+        p = float(raw)
+
+        has_decimal_marker = isinstance(raw, float) or "." in text or "e" in text.lower()
+        if 0.0 <= p < 1.0 or (p == 1.0 and has_decimal_marker):
+            normalized = p
+        else:
+            normalized = p / 100.0
+
+        if not 0.0 <= normalized <= 1.0:
+            raise ValueError(f"Kalshi price {raw!r} normalized outside [0, 1]: {normalized}")
+
+        return normalized
+
+    @staticmethod
+    def _trade_timestamp_ns(trade: dict[str, Any]) -> int:
+        created_time = trade.get("created_time")
+        if created_time:
+            return pd.Timestamp(created_time).value
+        return secs_to_nanos(int(trade["ts"]))
+
+    @classmethod
+    def _trade_timestamp_seconds(cls, trade: dict[str, Any]) -> int:
+        return cls._trade_timestamp_ns(trade) // 1_000_000_000
+
+    @classmethod
+    def _extract_yes_price(cls, trade: dict[str, Any]) -> float:
+        if trade.get("yes_price_dollars") is not None:
+            return float(trade["yes_price_dollars"])
+        if trade.get("yes_price") is not None:
+            return cls._normalize_price(trade["yes_price"])
+        if trade.get("price") is not None:
+            return cls._normalize_price(trade["price"])
+        raise KeyError(f"Kalshi trade payload missing a yes-price field: {trade}")
+
+    @staticmethod
+    def _extract_quantity(
+        payload: dict[str, Any], *, fp_key: str, raw_key: str
+    ) -> str | int | float:
+        if payload.get(fp_key) is not None:
+            return payload[fp_key]
+        return payload[raw_key]
+
+    @staticmethod
+    def _extract_candle_price(price_payload: dict[str, Any], field: str) -> float | None:
+        value = price_payload.get(f"{field}_dollars")
+        if value is not None:
+            return float(value)
+
+        raw_value = price_payload.get(field)
+        if raw_value is None:
+            return None
+
+        return KalshiDataLoader._normalize_price(raw_value)
+
+    @staticmethod
+    def _fallback_trade_id(
+        ticker: str,
+        trade: dict[str, Any],
+        occurrence: int,
+    ) -> TradeId:
+        raw_id = (
+            f"{ticker}|{trade.get('created_time', trade.get('ts'))}|"
+            f"{trade.get('yes_price_dollars', trade.get('yes_price', trade.get('price')))}|"
+            f"{trade.get('count_fp', trade.get('count'))}|{trade.get('taker_side', '')}|{occurrence}"
+        )
+        return TradeId(hashlib.shake_256(raw_id.encode("utf-8")).hexdigest(18))
 
     def __init__(
         self,
@@ -137,7 +220,7 @@ class KalshiDataLoader:
 
         data = msgspec.json.decode(response.body)
         market = data["market"]
-        instrument = _market_dict_to_instrument(market)
+        instrument = market_dict_to_instrument(market)
 
         event_ticker = market["event_ticker"]
         event_response = await client.get(url=f"{KALSHI_REST_BASE}/events/{event_ticker}")
@@ -170,7 +253,7 @@ class KalshiDataLoader:
         max_ts : int, optional
             Maximum Unix timestamp in seconds (inclusive).
         limit : int, default 1000
-            Number of trades per page (Kalshi maximum is 1000).
+            Number of trades per page (capped to Kalshi's public maximum of 1000).
 
         Returns
         -------
@@ -180,9 +263,13 @@ class KalshiDataLoader:
         ticker = self._instrument.id.symbol.value
         all_trades: list[dict[str, Any]] = []
         cursor: str | None = None
+        page_limit = min(limit, self._TRADE_PAGE_LIMIT)
 
         while True:
-            params: dict[str, Any] = {"limit": str(limit)}
+            params: dict[str, Any] = {
+                "ticker": ticker,
+                "limit": str(page_limit),
+            }
             if min_ts is not None:
                 params["min_ts"] = str(min_ts)
             if max_ts is not None:
@@ -191,7 +278,7 @@ class KalshiDataLoader:
                 params["cursor"] = cursor
 
             response = await self._http_client.get(
-                url=f"{KALSHI_REST_BASE}/historical/markets/{ticker}/trades",
+                url=self._TRADE_ENDPOINT,
                 params=params,
             )
 
@@ -279,7 +366,7 @@ class KalshiDataLoader:
         Parameters
         ----------
         trades_data : list[dict[str, Any]]
-            Raw trade dicts from the Kalshi historical trades API.
+            Raw trade dicts from the Kalshi trades API.
 
         Returns
         -------
@@ -290,9 +377,10 @@ class KalshiDataLoader:
         make_price = self._instrument.make_price
         make_qty = self._instrument.make_qty
         trades: list[TradeTick] = []
+        trade_counts: dict[tuple[object, object, object, object], int] = {}
 
         for trade in trades_data:
-            ts_event = secs_to_nanos(trade["ts"])
+            ts_event = self._trade_timestamp_ns(trade)
             taker_side = trade.get("taker_side", "")
             if taker_side == "yes":
                 aggressor_side = AggressorSide.BUYER
@@ -301,14 +389,28 @@ class KalshiDataLoader:
             else:
                 aggressor_side = AggressorSide.NO_AGGRESSOR
 
-            raw_id = f"{ticker}_{trade['ts']}_{trade['yes_price']}_{trade['count']}"
-            trade_id = TradeId(raw_id[:36])
+            key = (
+                trade.get("created_time", trade.get("ts")),
+                trade.get("yes_price_dollars", trade.get("yes_price", trade.get("price"))),
+                trade.get("count_fp", trade.get("count")),
+                taker_side,
+            )
+            occurrence = trade_counts.get(key, 0)
+            trade_counts[key] = occurrence + 1
+
+            raw_trade_id = trade.get("trade_id")
+            if raw_trade_id:
+                trade_id = TradeId(str(raw_trade_id))
+            else:
+                trade_id = self._fallback_trade_id(ticker, trade, occurrence)
 
             trades.append(
                 TradeTick(
                     instrument_id=instrument_id,
-                    price=make_price(trade["yes_price"]),
-                    size=make_qty(trade["count"]),
+                    price=make_price(self._extract_yes_price(trade)),
+                    size=make_qty(
+                        self._extract_quantity(trade, fp_key="count_fp", raw_key="count")
+                    ),
                     aggressor_side=aggressor_side,
                     trade_id=trade_id,
                     ts_event=ts_event,
@@ -362,17 +464,23 @@ class KalshiDataLoader:
         for candle in candlesticks_data:
             price = candle["price"]
             # Skip candles with no trades (OHLC values are None for empty periods)
-            if price["open"] is None:
+            open_price = self._extract_candle_price(price, "open")
+            high_price = self._extract_candle_price(price, "high")
+            low_price = self._extract_candle_price(price, "low")
+            close_price = self._extract_candle_price(price, "close")
+            if open_price is None or high_price is None or low_price is None or close_price is None:
                 continue
             ts_event = secs_to_nanos(candle["end_period_ts"])
             bars.append(
                 Bar(
                     bar_type=bar_type,
-                    open=make_price(price["open"]),
-                    high=make_price(price["high"]),
-                    low=make_price(price["low"]),
-                    close=make_price(price["close"]),
-                    volume=make_qty(candle["volume"]),
+                    open=make_price(open_price),
+                    high=make_price(high_price),
+                    low=make_price(low_price),
+                    close=make_price(close_price),
+                    volume=make_qty(
+                        self._extract_quantity(candle, fp_key="volume_fp", raw_key="volume")
+                    ),
                     ts_event=ts_event,
                     ts_init=ts_event,
                 )
@@ -445,10 +553,10 @@ class KalshiDataLoader:
 
         # Client-side filter (API may return boundary-inclusive extras)
         if min_ts is not None:
-            raw_trades = [t for t in raw_trades if t["ts"] >= min_ts]
+            raw_trades = [t for t in raw_trades if self._trade_timestamp_seconds(t) >= min_ts]
         if max_ts is not None:
-            raw_trades = [t for t in raw_trades if t["ts"] <= max_ts]
+            raw_trades = [t for t in raw_trades if self._trade_timestamp_seconds(t) <= max_ts]
 
-        raw_trades.sort(key=lambda t: t["ts"])
+        raw_trades.sort(key=self._trade_timestamp_ns)
 
         return self.parse_trades(raw_trades)

@@ -273,7 +273,9 @@ max-complexity = 10
   "S101",
   "S105",
   "S106",
-] # Examples can use naive datetimes, asserts, and mock credentials
+  "S112",
+  "S608",
+] # Examples can use naive datetimes, asserts, mock credentials, and inline SQL
 "nautilus_trader/common/config.py" = [
   "S105",
 ] # redacted_password variable is intentional

@@ -21,6 +21,38 @@
 ```
 
 ```{eval-rst}
+.. automodule:: nautilus_trader.analysis.config
+   :show-inheritance:
+   :inherited-members:
+   :members:
+   :member-order: bysource
+```
+
+```{eval-rst}
+.. automodule:: nautilus_trader.analysis.themes
+   :show-inheritance:
+   :inherited-members:
+   :members:
+   :member-order: bysource
+```
+
+```{eval-rst}
+.. automodule:: nautilus_trader.analysis.tearsheet
+   :show-inheritance:
+   :inherited-members:
+   :members:
+   :member-order: bysource
+```
+
+```{eval-rst}
+.. automodule:: nautilus_trader.analysis.legacy_plot_adapter
+   :show-inheritance:
+   :inherited-members:
+   :members:
+   :member-order: bysource
+```
+
+```{eval-rst}
 .. automodule:: nautilus_trader.analysis.statistic
    :show-inheritance:
    :inherited-members:

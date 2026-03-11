@@ -31,6 +31,48 @@ uv pip install "plotly>=6.3.1"
 
 :::
 
+## Plotting paths
+
+NautilusTrader currently has two visualization paths:
+
+1. **Plotly tearsheet framework**:
+   the general-purpose visualization system documented on this page. It is built around
+   `nautilus_trader.analysis.tearsheet`, `TearsheetConfig`, the chart registry, and
+   Plotly-based HTML outputs.
+2. **Prediction-market legacy adapter**:
+   a compatibility layer used by the prediction-market examples to produce the denser
+   YES-price / fills / periodic PnL layout that fits binary-market review better than the
+   generic tearsheet.
+
+The prediction-market path is implemented in
+`nautilus_trader.analysis.legacy_plot_adapter`. It does **not** bypass NautilusTrader's
+backtest computation. The flow is:
+
+1. Run a normal Nautilus `BacktestEngine`.
+2. Extract Nautilus-native account, fills, positions, and market-price inputs.
+3. Adapt those outputs into the legacy prediction-market chart model.
+4. Render via the legacy plotting package.
+5. Apply adapter-level layout cleanup and standardization.
+
+That means Nautilus remains the source of truth for fills, equity, cash, and positions;
+the adapter only swaps the rendering layer.
+
+For prediction-market backtests, this adapter currently adds domain-specific improvements
+that are not yet mirrored in the generic tearsheet path:
+
+- standardized Kalshi and Polymarket chart panels,
+- no legacy downsampling banner,
+- prediction-market-specific YES-price hover behavior,
+- periodic PnL hover cleanup,
+- cumulative Brier advantage integration,
+- unresolved-market Brier placeholders instead of fabricated values.
+
+### Which path to use
+
+- Use `create_tearsheet()` for general Nautilus backtest analysis and custom Plotly chart composition.
+- Use `create_legacy_backtest_chart()` for prediction-market review when you want the
+  PM-specific Bokeh layout used by the Kalshi and Polymarket backtest examples.
+
 ## Tearsheets
 
 A tearsheet is a performance report that combines multiple charts and
@@ -564,6 +606,24 @@ configuration (like `bar_type`) take those parameters directly on the chart obje
 
 Other individual chart functions include `create_equity_curve`, `create_drawdown_chart`,
 `create_monthly_returns_heatmap`, and more. See the API reference for the complete list.
+
+## Prediction-market adapter notes
+
+The prediction-market adapter path lives beside the Plotly framework rather than inside it.
+This is intentional: the PM examples currently prefer the older domain-specific chart layout
+while still relying on NautilusTrader for all computation.
+
+Important behavior in this path:
+
+- The adapter is invoked from the prediction-market backtest orchestration helpers in
+  `nautilus_trader.adapters.prediction_market.research`.
+- Shared PM chart inputs such as market price points, Brier inputs, and realized-outcome
+  inference are prepared in `nautilus_trader.adapters.prediction_market.backtest_utils`.
+- Layout normalization happens in `nautilus_trader.analysis.legacy_plot_adapter`.
+
+The cumulative Brier advantage panel is only computed when a realized market outcome is
+available. For unresolved markets, the adapter shows the same panel slot with an
+unavailable message instead of emitting a misleading live Brier series.
 
 ## Related guides
 

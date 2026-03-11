@@ -19,23 +19,31 @@ and analysis.
 
 from nautilus_trader.analysis.analyzer import PortfolioAnalyzer
 from nautilus_trader.analysis.config import GridLayout
+from nautilus_trader.analysis.config import TearsheetAllocationChart
 from nautilus_trader.analysis.config import TearsheetBarsWithFillsChart
 from nautilus_trader.analysis.config import TearsheetChart
 from nautilus_trader.analysis.config import TearsheetConfig
+from nautilus_trader.analysis.config import TearsheetCumulativeBrierAdvantageChart
 from nautilus_trader.analysis.config import TearsheetCustomChart
 from nautilus_trader.analysis.config import TearsheetDistributionChart
 from nautilus_trader.analysis.config import TearsheetDrawdownChart
 from nautilus_trader.analysis.config import TearsheetEquityChart
 from nautilus_trader.analysis.config import TearsheetMonthlyReturnsChart
+from nautilus_trader.analysis.config import TearsheetPnLChart
 from nautilus_trader.analysis.config import TearsheetRollingSharpeChart
 from nautilus_trader.analysis.config import TearsheetRunInfoChart
 from nautilus_trader.analysis.config import TearsheetStatsTableChart
 from nautilus_trader.analysis.config import TearsheetYearlyReturnsChart
+from nautilus_trader.analysis.legacy_plot_adapter import create_legacy_backtest_chart
+from nautilus_trader.analysis.legacy_plot_adapter import prepare_cumulative_brier_advantage
+from nautilus_trader.analysis.legacy_plot_adapter import resolve_legacy_plot_repo
 from nautilus_trader.analysis.reporter import ReportProvider
 from nautilus_trader.analysis.statistic import PortfolioStatistic
+from nautilus_trader.analysis.tearsheet import create_cumulative_brier_advantage_chart
 from nautilus_trader.analysis.tearsheet import create_drawdown_chart
 from nautilus_trader.analysis.tearsheet import create_equity_curve
 from nautilus_trader.analysis.tearsheet import create_monthly_returns_heatmap
+from nautilus_trader.analysis.tearsheet import create_pnl_chart
 from nautilus_trader.analysis.tearsheet import create_returns_distribution
 from nautilus_trader.analysis.tearsheet import create_rolling_sharpe
 from nautilus_trader.analysis.tearsheet import create_tearsheet
@@ -93,22 +101,28 @@ __all__ = [
     "RiskReturnRatio",
     "SharpeRatio",
     "SortinoRatio",
+    "TearsheetAllocationChart",
     "TearsheetBarsWithFillsChart",
     "TearsheetChart",
     "TearsheetConfig",
+    "TearsheetCumulativeBrierAdvantageChart",
     "TearsheetCustomChart",
     "TearsheetDistributionChart",
     "TearsheetDrawdownChart",
     "TearsheetEquityChart",
     "TearsheetMonthlyReturnsChart",
+    "TearsheetPnLChart",
     "TearsheetRollingSharpeChart",
     "TearsheetRunInfoChart",
     "TearsheetStatsTableChart",
     "TearsheetYearlyReturnsChart",
     "WinRate",
+    "create_cumulative_brier_advantage_chart",
     "create_drawdown_chart",
     "create_equity_curve",
+    "create_legacy_backtest_chart",
     "create_monthly_returns_heatmap",
+    "create_pnl_chart",
     "create_returns_distribution",
     "create_rolling_sharpe",
     "create_tearsheet",
@@ -118,6 +132,8 @@ __all__ = [
     "get_theme",
     "list_charts",
     "list_themes",
+    "prepare_cumulative_brier_advantage",
     "register_chart",
     "register_theme",
+    "resolve_legacy_plot_repo",
 ]

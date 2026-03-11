@@ -2,7 +2,7 @@
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** Create `examples/backtest/kalshi_ema_bars.py` — a two-phase script that fetches Kalshi hourly bars into a `ParquetDataCatalog` and runs an EMA-cross backtest via `BacktestNode`/`BacktestRunConfig`.
+**Goal:** Create `examples/backtest/prediction_markets/kalshi_ema_bars.py` — a two-phase script that fetches Kalshi hourly bars into a `ParquetDataCatalog` and runs an EMA-cross backtest via `BacktestNode`/`BacktestRunConfig`.
 
 **Architecture:** Phase 1 (async) fetches hourly bars from the Kalshi REST API using `KalshiDataLoader` and writes the `BinaryOption` instrument + `Bar` objects to a local parquet catalog. Phase 2 (sync) configures `BacktestVenueConfig` + `BacktestDataConfig` pointing at that catalog and runs the backtest through `BacktestNode`. The two phases are independent: re-running only Phase 2 is fast since data is already on disk.
 
@@ -13,7 +13,7 @@
 ### Task 1: Scaffold the script with imports, constants, and empty stubs
 
 **Files:**
-- Create: `examples/backtest/kalshi_ema_bars.py`
+- Create: `examples/backtest/prediction_markets/kalshi_ema_bars.py`
 
 **Context:**
 
@@ -89,7 +89,7 @@ if __name__ == "__main__":
 **Step 2: Verify syntax compiles**
 
 ```bash
-python -m py_compile examples/backtest/kalshi_ema_bars.py && echo "OK"
+python -m py_compile examples/backtest/prediction_markets/kalshi_ema_bars.py && echo "OK"
 ```
 
 Expected output: `OK`
@@ -97,7 +97,7 @@ Expected output: `OK`
 **Step 3: Commit**
 
 ```bash
-git add examples/backtest/kalshi_ema_bars.py
+git add examples/backtest/prediction_markets/kalshi_ema_bars.py
 git commit -m "feat(kalshi): scaffold catalog-based backtest example"
 ```
 
@@ -106,7 +106,7 @@ git commit -m "feat(kalshi): scaffold catalog-based backtest example"
 ### Task 2: Implement `fetch_and_catalog()`
 
 **Files:**
-- Modify: `examples/backtest/kalshi_ema_bars.py`
+- Modify: `examples/backtest/prediction_markets/kalshi_ema_bars.py`
 
 **Context:**
 
@@ -140,7 +140,7 @@ async def fetch_and_catalog() -> None:
 **Step 2: Verify syntax still compiles**
 
 ```bash
-python -m py_compile examples/backtest/kalshi_ema_bars.py && echo "OK"
+python -m py_compile examples/backtest/prediction_markets/kalshi_ema_bars.py && echo "OK"
 ```
 
 Expected: `OK`
@@ -148,7 +148,7 @@ Expected: `OK`
 **Step 3: Commit**
 
 ```bash
-git add examples/backtest/kalshi_ema_bars.py
+git add examples/backtest/prediction_markets/kalshi_ema_bars.py
 git commit -m "feat(kalshi): implement fetch_and_catalog phase"
 ```
 
@@ -157,7 +157,7 @@ git commit -m "feat(kalshi): implement fetch_and_catalog phase"
 ### Task 3: Implement `run_backtest()`, wire up `__main__`, and validate
 
 **Files:**
-- Modify: `examples/backtest/kalshi_ema_bars.py`
+- Modify: `examples/backtest/prediction_markets/kalshi_ema_bars.py`
 
 **Context:**
 
@@ -304,11 +304,11 @@ def run_backtest() -> None:
 **Step 2: Verify syntax and ruff lint**
 
 ```bash
-python -m py_compile examples/backtest/kalshi_ema_bars.py && echo "OK"
-ruff check examples/backtest/kalshi_ema_bars.py
+python -m py_compile examples/backtest/prediction_markets/kalshi_ema_bars.py && echo "OK"
+ruff check examples/backtest/prediction_markets/kalshi_ema_bars.py
 ```
 
-Expected: `OK` and no ruff errors. If ruff reports issues, fix them (run `ruff check --fix examples/backtest/kalshi_ema_bars.py`).
+Expected: `OK` and no ruff errors. If ruff reports issues, fix them (run `ruff check --fix examples/backtest/prediction_markets/kalshi_ema_bars.py`).
 
 **Step 3: Verify the full script structure reads cleanly**
 
@@ -323,7 +323,7 @@ Read the final file and confirm it has:
 **Step 4: Final commit**
 
 ```bash
-git add examples/backtest/kalshi_ema_bars.py
+git add examples/backtest/prediction_markets/kalshi_ema_bars.py
 git commit -m "feat(kalshi): implement run_backtest phase with BacktestNode"
 ```
 
@@ -337,7 +337,7 @@ git commit -m "feat(kalshi): implement run_backtest phase with BacktestNode"
 **Step 1: Run ruff on all changed Kalshi files**
 
 ```bash
-ruff check nautilus_trader/adapters/kalshi/ examples/backtest/kalshi_ema_bars.py
+ruff check nautilus_trader/adapters/kalshi/ examples/backtest/prediction_markets/kalshi_ema_bars.py
 ```
 
 Expected: no errors.

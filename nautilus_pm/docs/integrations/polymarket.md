@@ -713,7 +713,7 @@ which provides real execution data including price, size, side, and on-chain tra
 
 ### Complete backtest example
 
-A complete working example is available at `examples/backtest/polymarket_simple_quoter.py`:
+A complete working example is available at `examples/backtest/prediction_markets/polymarket_simple_quoter.py`:
 
 ```python
 import asyncio
@@ -776,7 +776,7 @@ asyncio.run(run_backtest())
 **Run the complete example**:
 
 ```bash
-python examples/backtest/polymarket_simple_quoter.py
+python examples/backtest/prediction_markets/polymarket_simple_quoter.py
 ```
 
 ### Helper functions

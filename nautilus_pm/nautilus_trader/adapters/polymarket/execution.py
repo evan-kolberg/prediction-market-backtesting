@@ -42,6 +42,7 @@ from nautilus_trader.adapters.polymarket.common.credentials import PolymarketWeb
 from nautilus_trader.adapters.polymarket.common.enums import PolymarketEventType
 from nautilus_trader.adapters.polymarket.common.enums import PolymarketTradeStatus
 from nautilus_trader.adapters.polymarket.common.parsing import calculate_commission
+from nautilus_trader.adapters.polymarket.common.parsing import infer_fee_exponent
 from nautilus_trader.adapters.polymarket.common.parsing import make_composite_trade_id
 from nautilus_trader.adapters.polymarket.common.parsing import validate_ethereum_address
 from nautilus_trader.adapters.polymarket.common.symbol import get_polymarket_condition_id
@@ -1881,7 +1882,9 @@ class PolymarketExecutionClient(LiveExecutionClient):
 
         last_qty = instrument.make_qty(msg.last_qty(order_id))
         last_px = instrument.make_price(msg.last_px(order_id))
-        commission = calculate_commission(last_qty, last_px, msg.get_fee_rate_bps(order_id))
+        fee_rate_bps = msg.get_fee_rate_bps(order_id)
+        fee_exponent = infer_fee_exponent(fee_rate_bps)
+        commission = calculate_commission(last_qty, last_px, fee_rate_bps, fee_exponent)
         ts_event = secs_to_nanos(int(msg.match_time))
 
         self.generate_order_filled(

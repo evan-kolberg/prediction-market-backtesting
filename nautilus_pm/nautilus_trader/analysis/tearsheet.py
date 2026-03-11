@@ -154,6 +154,173 @@ def _calculate_drawdown(returns: pd.Series) -> pd.Series:
     return (cumulative - running_max) / running_max * 100
 
 
+def _clone_config_with_charts(config, charts: list[TearsheetChart]):
+    """
+    Clone a tearsheet config with an alternate chart list.
+    """
+    from nautilus_trader.analysis import TearsheetConfig
+
+    return TearsheetConfig(
+        charts=charts,
+        theme=config.theme,
+        layout=config.layout,
+        title=config.title,
+        include_benchmark=config.include_benchmark,
+        benchmark_name=config.benchmark_name,
+        height=config.height,
+        show_logo=config.show_logo,
+    )
+
+
+def _prepare_brier_advantage_data(
+    user_probabilities: pd.Series | None = None,
+    market_probabilities: pd.Series | None = None,
+    outcomes: pd.Series | None = None,
+) -> pd.DataFrame:
+    """
+    Prepare cumulative Brier advantage data.
+
+    The advantage is computed as:
+    `(market_brier - strategy_brier)` and then cumulatively summed through time.
+
+    """
+    if user_probabilities is None or market_probabilities is None or outcomes is None:
+        return pd.DataFrame()
+
+    frame = pd.concat(
+        [
+            user_probabilities.rename("user_probability"),
+            market_probabilities.rename("market_probability"),
+            outcomes.rename("outcome"),
+        ],
+        axis=1,
+        join="inner",
+    ).dropna()
+
+    if frame.empty:
+        return frame
+
+    for col in ("user_probability", "market_probability", "outcome"):
+        frame[col] = pd.to_numeric(frame[col], errors="coerce")
+
+    frame = frame.dropna()
+    if frame.empty:
+        return frame
+
+    frame = frame.sort_index()
+    frame["user_probability"] = frame["user_probability"].clip(0.0, 1.0)
+    frame["market_probability"] = frame["market_probability"].clip(0.0, 1.0)
+    frame["outcome"] = frame["outcome"].clip(0.0, 1.0)
+
+    frame["user_brier"] = (frame["user_probability"] - frame["outcome"]) ** 2
+    frame["market_brier"] = (frame["market_probability"] - frame["outcome"]) ** 2
+    frame["brier_advantage"] = frame["market_brier"] - frame["user_brier"]
+    frame["cumulative_brier_advantage"] = frame["brier_advantage"].cumsum()
+    return frame
+
+
+def _extract_account_equity_series(  # noqa: C901
+    engine: BacktestEngine | None,
+) -> tuple[pd.Series, str | None]:
+    """
+    Extract a single-currency equity series from the first available account.
+    """
+    if engine is None:
+        return pd.Series(dtype=float), None
+
+    accounts = []
+
+    # Handle both engine.cache and engine.kernel.cache access patterns.
+    if hasattr(engine, "cache"):
+        try:
+            accounts = list(engine.cache.accounts())
+        except Exception:  # pragma: no cover - defensive fallback
+            accounts = []
+
+    if not accounts and hasattr(engine, "kernel") and hasattr(engine.kernel, "cache"):
+        try:
+            accounts = list(engine.kernel.cache.accounts())
+        except Exception:  # pragma: no cover - defensive fallback
+            accounts = []
+
+    if not accounts:
+        return pd.Series(dtype=float), None
+
+    from nautilus_trader.analysis.reporter import ReportProvider
+
+    account_report = ReportProvider.generate_account_report(accounts[0])
+    if account_report.empty or "total" not in account_report.columns:
+        return pd.Series(dtype=float), None
+
+    report = account_report.copy()
+    report["total"] = pd.to_numeric(report["total"], errors="coerce")
+    report = report.dropna(subset=["total"])
+    if report.empty:
+        return pd.Series(dtype=float), None
+
+    currency = None
+    if "currency" in report.columns:
+        currency_counts = report["currency"].value_counts(dropna=True)
+        if not currency_counts.empty:
+            currency = str(currency_counts.index[0])
+            report = report[report["currency"] == currency]
+
+    equity = report["total"].groupby(report.index).last().sort_index()
+    return equity, currency
+
+
+def _build_allocation_from_fills(fills_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Build a simple instrument allocation time series from cumulative signed fill quantities.
+    """
+    if fills_df.empty:
+        return pd.DataFrame()
+
+    required = {"ts_init", "instrument_id", "order_side", "last_qty"}
+    if not required.issubset(set(fills_df.columns)):
+        return pd.DataFrame()
+
+    fills = fills_df.copy()
+    fills["ts_init"] = pd.to_datetime(fills["ts_init"], errors="coerce")
+    fills["last_qty"] = pd.to_numeric(fills["last_qty"], errors="coerce")
+    fills = fills.dropna(subset=["ts_init", "last_qty"])
+    if fills.empty:
+        return pd.DataFrame()
+
+    side_sign = pd.to_numeric(
+        fills["order_side"].map({"BUY": 1.0, "SELL": -1.0}),
+        errors="coerce",
+    ).fillna(0.0)
+    fills["signed_qty"] = fills["last_qty"] * side_sign
+
+    position_qty = (
+        fills.pivot_table(
+            index="ts_init",
+            columns="instrument_id",
+            values="signed_qty",
+            aggfunc="sum",
+            fill_value=0.0,
+        )
+        .sort_index()
+        .cumsum()
+    )
+    if position_qty.empty:
+        return pd.DataFrame()
+
+    gross = position_qty.abs().sum(axis=1)
+    gross_nonzero = gross.where(gross != 0.0, float("nan"))
+    allocation = position_qty.abs().div(gross_nonzero, axis=0).fillna(0.0)
+
+    # Cap legend complexity for dense universes while preserving total mass.
+    if allocation.shape[1] > 8:
+        top_cols = allocation.iloc[-1].sort_values(ascending=False).head(8).index.tolist()
+        other = allocation.drop(columns=top_cols).sum(axis=1)
+        allocation = allocation[top_cols]
+        allocation["OTHER"] = other
+
+    return allocation
+
+
 def register_chart(name: str, func: Callable | None = None) -> Callable | None:
     """
     Register a custom chart function for use in tearsheets.
@@ -275,6 +442,9 @@ def create_tearsheet(  # noqa: C901
     config=None,
     benchmark_returns: pd.Series | None = None,
     benchmark_name: str = "Benchmark",
+    user_probabilities: pd.Series | None = None,
+    market_probabilities: pd.Series | None = None,
+    outcomes: pd.Series | None = None,
 ) -> str | None:
     """
     Generate an interactive HTML tearsheet from backtest results.
@@ -296,6 +466,12 @@ def create_tearsheet(  # noqa: C901
         on visualizations.
     benchmark_name : str, default "Benchmark"
         Display name for the benchmark.
+    user_probabilities : pd.Series, optional
+        Strategy/user predicted probabilities indexed by timestamp.
+    market_probabilities : pd.Series, optional
+        Market implied probabilities indexed by timestamp.
+    outcomes : pd.Series, optional
+        Realized outcomes (0/1) indexed by timestamp.
 
     Returns
     -------
@@ -400,6 +576,9 @@ def create_tearsheet(  # noqa: C901
         config=config,
         benchmark_returns=benchmark_returns,
         benchmark_name=benchmark_name,
+        user_probabilities=user_probabilities,
+        market_probabilities=market_probabilities,
+        outcomes=outcomes,
         engine=engine,
     )
 
@@ -416,6 +595,9 @@ def create_tearsheet_from_stats(
     benchmark_name: str = "Benchmark",
     run_info: dict[str, Any] | None = None,
     account_info: dict[str, Any] | None = None,
+    user_probabilities: pd.Series | None = None,
+    market_probabilities: pd.Series | None = None,
+    outcomes: pd.Series | None = None,
     engine=None,
 ) -> str | None:
     """
@@ -449,6 +631,12 @@ def create_tearsheet_from_stats(
         Run metadata (run ID, timestamps, backtest period, event counts).
     account_info : dict[str, Any], optional
         Account information (starting/ending balances per currency).
+    user_probabilities : pd.Series, optional
+        Strategy/user predicted probabilities indexed by timestamp.
+    market_probabilities : pd.Series, optional
+        Market implied probabilities indexed by timestamp.
+    outcomes : pd.Series, optional
+        Realized outcomes (0/1) indexed by timestamp.
     engine : BacktestEngine, optional
         The backtest engine. Required for charts that need engine access (e.g., bars_with_fills).
 
@@ -491,22 +679,31 @@ def create_tearsheet_from_stats(
 
         config = TearsheetConfig()
 
-    # Filter out run_info chart if no metadata is available.
-    # This prevents an empty subplot from wasting grid space.
-    if not run_info and not account_info and "run_info" in config.chart_names:
-        from nautilus_trader.analysis import TearsheetConfig
+    brier_data = _prepare_brier_advantage_data(
+        user_probabilities=user_probabilities,
+        market_probabilities=market_probabilities,
+        outcomes=outcomes,
+    )
 
-        # Create new config without run_info chart
-        config = TearsheetConfig(
-            charts=[c for c in config.charts if c.name != "run_info"],
-            theme=config.theme,
-            layout=config.layout,
-            title=config.title,
-            include_benchmark=config.include_benchmark,
-            benchmark_name=config.benchmark_name,
-            height=config.height,
-            show_logo=config.show_logo,
-        )
+    # Remove charts that cannot render with the current input set.
+    filtered_charts: list[TearsheetChart] = []
+    for chart in config.charts:
+        name = chart.name
+        if name == "run_info" and not run_info and not account_info:
+            continue
+        if name in {"bars_with_fills", "allocation"} and engine is None:
+            continue
+        if name == "cumulative_brier_advantage" and brier_data.empty:
+            continue
+        filtered_charts.append(chart)
+
+    if not filtered_charts:
+        from nautilus_trader.analysis import TearsheetStatsTableChart
+
+        filtered_charts = [TearsheetStatsTableChart()]
+
+    if len(filtered_charts) != len(config.charts):
+        config = _clone_config_with_charts(config, filtered_charts)
 
     # Create figure with subplots
     fig = _create_tearsheet_figure(
@@ -520,6 +717,7 @@ def create_tearsheet_from_stats(
         benchmark_name=benchmark_name,
         run_info=run_info or {},
         account_info=account_info or {},
+        brier_data=brier_data,
         engine=engine,
     )
 
@@ -1008,6 +1206,117 @@ def create_yearly_returns(
     return fig
 
 
+def create_pnl_chart(
+    returns: pd.Series,
+    output_path: str | None = None,
+    title: str = "PnL Over Time",
+    theme: str = "plotly_white",
+) -> go.Figure:
+    """
+    Create an interactive cumulative PnL chart from returns.
+    """
+    if not PLOTLY_AVAILABLE:
+        msg = (
+            "plotly is required for visualization. "
+            "Install it with: pip install nautilus_trader[visualization]"
+        )
+        raise ImportError(msg)
+
+    from nautilus_trader.analysis.themes import get_theme
+
+    theme_config = _normalize_theme_config(get_theme(theme))
+    cumulative_return = ((1 + returns).cumprod() - 1.0) * 100.0
+
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scatter(
+            x=cumulative_return.index,
+            y=cumulative_return.values,
+            mode="lines",
+            name="PnL (%)",
+            line={"color": theme_config["colors"]["primary"], "width": 2},
+            hovertemplate="<b>%{x}</b><br>PnL: %{y:.2f}%<extra></extra>",
+        ),
+    )
+    fig.update_layout(
+        title=title,
+        xaxis_title="Date",
+        yaxis_title="PnL (%)",
+        hovermode="x unified",
+        template=theme_config["template"],
+        height=400,
+        showlegend=False,
+    )
+
+    if output_path:
+        fig.write_html(output_path)
+
+    return fig
+
+
+def create_cumulative_brier_advantage_chart(
+    user_probabilities: pd.Series,
+    market_probabilities: pd.Series,
+    outcomes: pd.Series,
+    output_path: str | None = None,
+    title: str = "Cumulative Brier Advantage",
+    theme: str = "plotly_white",
+) -> go.Figure:
+    """
+    Create an interactive cumulative Brier advantage chart.
+    """
+    if not PLOTLY_AVAILABLE:
+        msg = (
+            "plotly is required for visualization. "
+            "Install it with: pip install nautilus_trader[visualization]"
+        )
+        raise ImportError(msg)
+
+    from nautilus_trader.analysis.themes import get_theme
+
+    theme_config = _normalize_theme_config(get_theme(theme))
+    brier_data = _prepare_brier_advantage_data(
+        user_probabilities=user_probabilities,
+        market_probabilities=market_probabilities,
+        outcomes=outcomes,
+    )
+
+    fig = go.Figure()
+    if not brier_data.empty:
+        fig.add_trace(
+            go.Scatter(
+                x=brier_data.index,
+                y=brier_data["cumulative_brier_advantage"].to_numpy(),
+                mode="lines",
+                name="Cumulative Advantage",
+                line={"color": theme_config["colors"]["positive"], "width": 2},
+                hovertemplate=(
+                    "<b>%{x}</b><br>"
+                    "Cumulative: %{y:.4f}<br>"
+                    "Step Advantage: %{customdata:.4f}<extra></extra>"
+                ),
+                customdata=brier_data["brier_advantage"].to_numpy(),
+            ),
+        )
+
+    fig.update_layout(
+        title=title,
+        title_x=0.0,
+        title_xanchor="left",
+        xaxis_title="Date",
+        yaxis_title="Cumulative Brier Advantage",
+        hovermode="x unified",
+        template=theme_config["template"],
+        height=400,
+        showlegend=False,
+    )
+
+    if output_path:
+        fig.write_html(output_path)
+
+    return fig
+
+
 def _create_tearsheet_figure(
     stats_returns: dict[str, Any],
     stats_general: dict[str, Any],
@@ -1019,6 +1328,7 @@ def _create_tearsheet_figure(
     benchmark_name: str = "Benchmark",
     run_info: dict[str, Any] | None = None,
     account_info: dict[str, Any] | None = None,
+    brier_data: pd.DataFrame | None = None,
     engine=None,
 ) -> go.Figure:
     """
@@ -1046,6 +1356,8 @@ def _create_tearsheet_figure(
         Run metadata (run ID, timestamps, backtest period, event counts).
     account_info : dict[str, Any], optional
         Account information (starting/ending balances per currency).
+    brier_data : pd.DataFrame, optional
+        Precomputed Brier advantage data frame.
     engine : BacktestEngine, optional
         The backtest engine. Required for charts that need engine access (e.g., bars_with_fills).
 
@@ -1130,6 +1442,7 @@ def _create_tearsheet_figure(
                 benchmark_name=benchmark_name,
                 run_info=run_info or {},
                 account_info=account_info or {},
+                brier_data=brier_data if brier_data is not None else pd.DataFrame(),
                 engine=engine,
                 **chart_kwargs,
             )
@@ -1394,6 +1707,164 @@ def _render_equity(
 
     fig.update_xaxes(title_text="Date", row=row, col=col)
     fig.update_yaxes(title_text="Equity", row=row, col=col)
+
+
+def _render_pnl(
+    fig: go.Figure,
+    row: int,
+    col: int,
+    returns: pd.Series,
+    theme_config: dict[str, Any],
+    engine=None,
+    **kwargs: Any,
+) -> None:
+    """
+    Render PnL over time.
+
+    When account equity is available from the engine, this chart uses
+    account-level PnL in base-currency units. This avoids misleading
+    explosive percentages in low-priced binary markets.
+    """
+    account_equity, currency = _extract_account_equity_series(engine)
+    if not account_equity.empty:
+        account_pnl = account_equity - account_equity.iloc[0]
+        account_label = f"Account PnL [{currency}]" if currency is not None else "Account PnL"
+        hovertemplate = (
+            f"<b>%{{x}}</b><br>{account_label}: %{{y:.4f}} {currency}<extra></extra>"
+            if currency is not None
+            else "<b>%{x}</b><br>Account PnL: %{y:.4f}<extra></extra>"
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=account_pnl.index,
+                y=account_pnl.to_numpy(),
+                mode="lines",
+                name=account_label,
+                line={"color": theme_config["colors"]["primary"], "width": 2},
+                showlegend=False,
+                hovertemplate=hovertemplate,
+            ),
+            row=row,
+            col=col,
+        )
+        fig.update_yaxes(
+            title_text=f"PnL ({currency})" if currency is not None else "PnL",
+            row=row,
+            col=col,
+        )
+    elif not returns.empty:
+        cumulative_return = ((1 + returns).cumprod() - 1.0) * 100.0
+        fig.add_trace(
+            go.Scatter(
+                x=cumulative_return.index,
+                y=cumulative_return.to_numpy(),
+                mode="lines",
+                name="Strategy PnL (%)",
+                line={"color": theme_config["colors"]["primary"], "width": 2},
+                showlegend=False,
+                hovertemplate="<b>%{x}</b><br>Strategy PnL: %{y:.2f}%<extra></extra>",
+            ),
+            row=row,
+            col=col,
+        )
+        fig.update_yaxes(title_text="PnL (%)", row=row, col=col)
+    else:
+        return
+
+    fig.update_xaxes(title_text="Date", row=row, col=col)
+
+
+def _render_allocation(
+    fig: go.Figure,
+    row: int,
+    col: int,
+    theme_config: dict[str, Any],
+    engine=None,
+    **kwargs: Any,
+) -> None:
+    """
+    Render allocation as a stacked area chart based on cumulative fill quantities.
+    """
+    if engine is None:
+        return
+
+    fills_df = engine.trader.generate_fills_report()
+    allocation = _build_allocation_from_fills(fills_df)
+    if allocation.empty:
+        return
+
+    palette = [
+        theme_config["colors"]["primary"],
+        theme_config["colors"]["positive"],
+        theme_config["colors"]["negative"],
+        "#17becf",
+        "#9467bd",
+        "#8c564b",
+        "#bcbd22",
+        "#1f77b4",
+        "#7f7f7f",
+    ]
+
+    for i, instrument_id in enumerate(allocation.columns):
+        fig.add_trace(
+            go.Scatter(
+                x=allocation.index,
+                y=(allocation[instrument_id] * 100.0).to_numpy(),
+                mode="lines",
+                name=f"Allocation {instrument_id}",
+                stackgroup="allocation",
+                line={"width": 0.8, "color": palette[i % len(palette)]},
+                line_shape="hv",
+                hovertemplate=(f"<b>%{{x}}</b><br>{instrument_id}: %{{y:.2f}}%<extra></extra>"),
+                showlegend=False,
+            ),
+            row=row,
+            col=col,
+        )
+
+    fig.update_xaxes(title_text="Date", row=row, col=col)
+    fig.update_yaxes(title_text="Allocation (%)", range=[0, 100], row=row, col=col)
+
+
+def _render_cumulative_brier_advantage(
+    fig: go.Figure,
+    row: int,
+    col: int,
+    brier_data: pd.DataFrame,
+    theme_config: dict[str, Any],
+    **kwargs: Any,
+) -> None:
+    """
+    Render cumulative Brier advantage (market Brier minus strategy Brier).
+    """
+    if brier_data.empty or "cumulative_brier_advantage" not in brier_data:
+        return
+
+    fig.add_trace(
+        go.Scatter(
+            x=brier_data.index,
+            y=brier_data["cumulative_brier_advantage"].to_numpy(),
+            mode="lines",
+            name="Cumulative Brier Advantage",
+            line={"color": theme_config["colors"]["positive"], "width": 2},
+            customdata=brier_data["brier_advantage"].to_numpy(),
+            hovertemplate=(
+                "<b>%{x}</b><br>"
+                "Cumulative: %{y:.4f}<br>"
+                "Step Advantage: %{customdata:.4f}<extra></extra>"
+            ),
+            showlegend=False,
+        ),
+        row=row,
+        col=col,
+    )
+
+    fig.update_xaxes(title_text="Date", row=row, col=col)
+    fig.update_yaxes(
+        title_text="Cumulative Brier Advantage",
+        row=row,
+        col=col,
+    )
 
 
 def _render_drawdown(
@@ -1672,6 +2143,7 @@ def create_bars_with_fills(
         bar_type=bar_type,
         title=title,
         theme_config=theme_config,
+        show_rangeslider=True,
     )
 
     # Update layout
@@ -1705,6 +2177,7 @@ def _render_bars_with_fills(  # noqa: C901
     bar_type=None,
     title: str | None = None,
     theme_config: dict[str, Any] | None = None,
+    show_rangeslider: bool = False,
     **kwargs: Any,
 ) -> None:
     """
@@ -1726,6 +2199,8 @@ def _render_bars_with_fills(  # noqa: C901
         Chart title override.
     theme_config : dict[str, Any], optional
         Theme configuration dictionary. If None, defaults to plotly_white theme.
+    show_rangeslider : bool, default False
+        Whether to display Plotly's range slider under the x-axis.
     **kwargs : Any
         Additional keyword arguments (ignored).
 
@@ -1779,6 +2254,21 @@ def _render_bars_with_fills(  # noqa: C901
             fills_df["ts_init"] = pd.to_datetime(fills_df["ts_init"])
             fills_df["last_qty"] = pd.to_numeric(fills_df["last_qty"], errors="coerce")
             fills_df["last_px"] = pd.to_numeric(fills_df["last_px"], errors="coerce")
+
+    positions_df = engine.trader.generate_positions_report()
+    if not positions_df.empty:
+        instrument_id = bar_type.instrument_id
+        positions_df = positions_df[positions_df["instrument_id"] == str(instrument_id)].copy()
+        if "is_snapshot" in positions_df.columns:
+            positions_df = positions_df[positions_df["is_snapshot"] == False]  # noqa: E712
+
+        for col_name in ("avg_px_open", "avg_px_close"):
+            if col_name in positions_df.columns:
+                positions_df[col_name] = pd.to_numeric(positions_df[col_name], errors="coerce")
+
+        for ts_col in ("ts_opened", "ts_closed"):
+            if ts_col in positions_df.columns:
+                positions_df[ts_col] = pd.to_datetime(positions_df[ts_col], errors="coerce")
 
     # Add candlestick chart
     fig.add_trace(
@@ -1835,12 +2325,122 @@ def _render_bars_with_fills(  # noqa: C901
             name="Sell Fills",
         )
 
+    # Add entry/exit markers and path segments from position lifecycle.
+    if not positions_df.empty:
+        positive_color = theme_config["colors"]["positive"]
+        negative_color = theme_config["colors"]["negative"]
+        neutral_color = theme_config["colors"]["neutral"]
+
+        if "entry" in positions_df.columns and "ts_opened" in positions_df.columns:
+            buy_entries = positions_df[
+                (positions_df["entry"] == "BUY")
+                & positions_df["ts_opened"].notna()
+                & positions_df["avg_px_open"].notna()
+            ]
+            sell_entries = positions_df[
+                (positions_df["entry"] == "SELL")
+                & positions_df["ts_opened"].notna()
+                & positions_df["avg_px_open"].notna()
+            ]
+
+            if not buy_entries.empty:
+                fig.add_trace(
+                    go.Scatter(
+                        x=buy_entries["ts_opened"],
+                        y=buy_entries["avg_px_open"],
+                        mode="markers",
+                        marker_symbol="circle-open",
+                        marker_size=10,
+                        marker_line_width=2,
+                        marker_color=positive_color,
+                        name="Entries (Buy)",
+                        hovertemplate=("<b>%{x}</b><br>Entry Price: %{y:.4f}<extra></extra>"),
+                        showlegend=True,
+                    ),
+                    row=row,
+                    col=col,
+                )
+
+            if not sell_entries.empty:
+                fig.add_trace(
+                    go.Scatter(
+                        x=sell_entries["ts_opened"],
+                        y=sell_entries["avg_px_open"],
+                        mode="markers",
+                        marker_symbol="circle-open",
+                        marker_size=10,
+                        marker_line_width=2,
+                        marker_color=negative_color,
+                        name="Entries (Sell)",
+                        hovertemplate=("<b>%{x}</b><br>Entry Price: %{y:.4f}<extra></extra>"),
+                        showlegend=True,
+                    ),
+                    row=row,
+                    col=col,
+                )
+
+        if "ts_closed" in positions_df.columns and "avg_px_close" in positions_df.columns:
+            exits = positions_df[
+                positions_df["ts_closed"].notna() & positions_df["avg_px_close"].notna()
+            ]
+            if not exits.empty:
+                fig.add_trace(
+                    go.Scatter(
+                        x=exits["ts_closed"],
+                        y=exits["avg_px_close"],
+                        mode="markers",
+                        marker_symbol="x",
+                        marker_size=10,
+                        marker_line_width=2,
+                        marker_color=neutral_color,
+                        name="Exits",
+                        hovertemplate=("<b>%{x}</b><br>Exit Price: %{y:.4f}<extra></extra>"),
+                        showlegend=True,
+                    ),
+                    row=row,
+                    col=col,
+                )
+
+        segment_x: list[Any] = []
+        segment_y: list[Any] = []
+        for _, position in positions_df.iterrows():
+            ts_opened = position.get("ts_opened")
+            ts_closed = position.get("ts_closed")
+            avg_px_open = position.get("avg_px_open")
+            avg_px_close = position.get("avg_px_close")
+
+            if (
+                pd.isna(ts_opened)
+                or pd.isna(ts_closed)
+                or pd.isna(avg_px_open)
+                or pd.isna(avg_px_close)
+            ):
+                continue
+
+            segment_x.extend([ts_opened, ts_closed, None])
+            segment_y.extend([avg_px_open, avg_px_close, None])
+
+        if segment_x:
+            fig.add_trace(
+                go.Scatter(
+                    x=segment_x,
+                    y=segment_y,
+                    mode="lines",
+                    name="Position Paths",
+                    line={"color": _hex_to_rgba(neutral_color, 0.7), "width": 1.5, "dash": "dot"},
+                    hoverinfo="skip",
+                    showlegend=True,
+                ),
+                row=row,
+                col=col,
+            )
+
     # Update axes with rangeslider for time navigation
     fig.update_xaxes(
         title_text="Time",
         row=row,
         col=col,
-        rangeslider={"visible": True},
+        rangeslider={"visible": show_rangeslider},
     )
     fig.update_yaxes(title_text="Price", row=row, col=col)
     fig.update_yaxes(fixedrange=False, row=row, col=col)
@@ -2007,18 +2607,28 @@ def _calculate_grid_layout(
 
 # Register built-in chart functions (for standalone use)
 register_chart("equity", create_equity_curve)
+register_chart("pnl", create_pnl_chart)
 register_chart("drawdown", create_drawdown_chart)
 register_chart("monthly_returns", create_monthly_returns_heatmap)
 register_chart("distribution", create_returns_distribution)
 register_chart("rolling_sharpe", create_rolling_sharpe)
 register_chart("yearly_returns", create_yearly_returns)
+register_chart("cumulative_brier_advantage", create_cumulative_brier_advantage_chart)
 register_chart("bars_with_fills", create_bars_with_fills)
 
 # Register built-in charts for tearsheet integration
 _register_tearsheet_chart("run_info", "table", "Run Information", _render_run_info)
 _register_tearsheet_chart("stats_table", "table", "Performance Statistics", _render_stats_table)
 _register_tearsheet_chart("equity", "scatter", "Equity Curve", _render_equity)
+_register_tearsheet_chart("pnl", "scatter", "PnL Over Time", _render_pnl)
 _register_tearsheet_chart("drawdown", "scatter", "Drawdown", _render_drawdown)
+_register_tearsheet_chart("allocation", "scatter", "Allocation (%)", _render_allocation)
+_register_tearsheet_chart(
+    "cumulative_brier_advantage",
+    "scatter",
+    "Cumulative Brier Advantage",
+    _render_cumulative_brier_advantage,
+)
 _register_tearsheet_chart("monthly_returns", "heatmap", "Monthly Returns", _render_monthly_returns)
 _register_tearsheet_chart("distribution", "histogram", "Returns Distribution", _render_distribution)
 _register_tearsheet_chart(

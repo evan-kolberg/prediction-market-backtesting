@@ -31,6 +31,7 @@ from nautilus_trader.adapters.polymarket.common.enums import PolymarketTradeStat
 from nautilus_trader.adapters.polymarket.common.parsing import basis_points_as_decimal
 from nautilus_trader.adapters.polymarket.common.parsing import calculate_commission
 from nautilus_trader.adapters.polymarket.common.parsing import determine_order_side
+from nautilus_trader.adapters.polymarket.common.parsing import infer_fee_exponent
 from nautilus_trader.adapters.polymarket.common.parsing import parse_polymarket_instrument
 from nautilus_trader.adapters.polymarket.schemas.book import PolymarketBookLevel
 from nautilus_trader.adapters.polymarket.schemas.book import PolymarketBookSnapshot
@@ -565,8 +566,8 @@ def test_parse_user_trade_taker_commission_with_fees() -> None:
     This test uses a taker trade with 200 bps (2%) fees, as documented for Polymarket
     15-minute crypto prediction markets.
 
-    Commission = size * price * (fee_rate_bps / 10000)          = 100 * 0.50 * (200 /
-    10000)          = 50 * 0.02 = 1.0 USDC
+    Commission = C × p × feeRate × (p × (1 - p))^exponent
+             = 100 × 0.50 × 0.02 × (0.50 × 0.50)^1 = 0.25 USDC
 
     """
     # Arrange
@@ -620,8 +621,8 @@ def test_parse_user_trade_taker_commission_with_fees() -> None:
     )
 
     # Assert
-    # Commission = 100 * 0.50 * (200 / 10000) = 1.0 USDC.e
-    assert fill_report.commission == Money(1.0, USDC_POS)
+    # Commission = 100 × 0.50 × 0.02 × (0.50 × 0.50)^1 = 0.25 USDC.e
+    assert fill_report.commission == Money(0.25, USDC_POS)
 
 
 def test_parse_user_trade_maker_commission_with_fees() -> None:
@@ -631,8 +632,8 @@ def test_parse_user_trade_maker_commission_with_fees() -> None:
     For maker fills, the fee_rate_bps is taken from the individual maker_order, not from
     the top-level trade message.
 
-    Commission = matched_amount * price * (fee_rate_bps / 10000)          = 50 * 0.60 *
-    (100 / 10000)          = 30 * 0.01 = 0.30 USDC
+    Commission = C × p × feeRate × (p × (1 - p))^exponent
+             = 50 × 0.60 × 0.01 × (0.60 × 0.40)^1 = 0.072 USDC
 
     """
     # Arrange
@@ -688,8 +689,8 @@ def test_parse_user_trade_maker_commission_with_fees() -> None:
     )
 
     # Assert
-    # Commission = 50 * 0.60 * (100 / 10000) = 0.30 USDC.e
-    assert fill_report.commission == Money(0.30, USDC_POS)
+    # Commission = 50 × 0.60 × 0.01 × (0.60 × 0.40)^1 = 0.072 USDC.e
+    assert fill_report.commission == Money(0.072, USDC_POS)
 
 
 def test_parse_user_trade_zero_commission_with_no_fees() -> None:
@@ -769,31 +770,59 @@ def test_basis_points_as_decimal(basis_points: Decimal, expected: Decimal) -> No
 
 
 @pytest.mark.parametrize(
-    ("quantity", "price", "fee_rate_bps", "expected"),
+    ("quantity", "price", "fee_rate_bps", "fee_exponent", "expected"),
     [
         # Zero fee rate
-        (Decimal(100), Decimal("0.50"), Decimal(0), 0.0),
-        # Standard fee calculation: 100 * 0.50 * 0.02 = 1.0
-        (Decimal(100), Decimal("0.50"), Decimal(200), 1.0),
-        # Sub-minimum rounds to zero: 1 * 0.01 * 0.0001 = 0.000001 -> 0.0
-        (Decimal(1), Decimal("0.01"), Decimal(1), 0.0),
-        # Exactly at minimum: 1 * 1.0 * 0.0001 = 0.0001
-        (Decimal(1), Decimal("1.0"), Decimal(1), 0.0001),
-        # Rounding to 4 decimals: 123.45 * 0.6789 * 0.015 = 1.25727... -> 1.2572
-        (Decimal("123.45"), Decimal("0.6789"), Decimal(150), 1.2572),
+        (Decimal(100), Decimal("0.50"), Decimal(0), 1, 0.0),
+        # Nonlinear: 100 * 0.50 * 0.02 * (0.50 * 0.50)^1 = 0.25
+        (Decimal(100), Decimal("0.50"), Decimal(200), 1, 0.25),
+        # Sub-minimum rounds to zero
+        (Decimal(1), Decimal("0.01"), Decimal(1), 1, 0.0),
+        # p=1.0 → (1-p)=0 → fee=0 (short-circuited)
+        (Decimal(1), Decimal("1.0"), Decimal(1), 1, 0.0),
+        # Rounding: 123.45 * 0.6789 * 0.015 * (0.6789 * 0.3211) = 0.2741
+        (Decimal("123.45"), Decimal("0.6789"), Decimal(150), 1, 0.2741),
+        # Crypto-like: 100 * 0.50 * 0.0175 * (0.25)^1 = 0.2188
+        (Decimal(100), Decimal("0.50"), Decimal(175), 1, 0.2188),
+        # Sports-like (exp=2): 100 * 0.50 * 0.25 * (0.25)^2 = 0.7812
+        (Decimal(100), Decimal("0.50"), Decimal(2500), 2, 0.7812),
+        # Sports asymmetric: 100 * 0.30 * 0.25 * (0.21)^2 = 0.3307
+        (Decimal(100), Decimal("0.30"), Decimal(2500), 2, 0.3307),
     ],
 )
 def test_calculate_commission(
     quantity: Decimal,
     price: Decimal,
     fee_rate_bps: Decimal,
+    fee_exponent: int,
     expected: float,
 ) -> None:
     """
-    Test commission calculation rounds to 4 decimal places (0.0001 USDC minimum).
+    Test non-linear commission formula: fee = C * p * feeRate * (p*(1-p))^exp.
+
+    Polymarket rounds fees to 4 decimal places (0.0001 USDC minimum).
     """
-    result = calculate_commission(quantity, price, fee_rate_bps)
+    result = calculate_commission(quantity, price, fee_rate_bps, fee_exponent)
     assert result == expected
+
+
+@pytest.mark.parametrize(
+    ("fee_rate_bps", "expected_exponent"),
+    [
+        (Decimal(0), 1),       # Fee-free market → exponent irrelevant, defaults to 1
+        (Decimal(175), 1),     # Crypto market
+        (Decimal(200), 1),     # Below threshold → crypto-like
+        (Decimal(2500), 2),    # Sports market
+        (Decimal(1500), 2),    # Above threshold → sports-like
+    ],
+)
+def test_infer_fee_exponent(
+    fee_rate_bps: Decimal,
+    expected_exponent: int,
+) -> None:
+    """Test fee exponent inference from basis-point rate."""
+    result = infer_fee_exponent(fee_rate_bps)
+    assert result == expected_exponent
 
 
 def test_parse_empty_book_snapshot_in_backtest_engine():

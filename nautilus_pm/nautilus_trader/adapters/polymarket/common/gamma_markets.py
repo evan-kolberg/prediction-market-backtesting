@@ -173,6 +173,46 @@ async def iter_markets(
         offset += limit
 
 
+def _decode_gamma_list(raw: Any) -> list[Any]:
+    if isinstance(raw, list):
+        return raw
+    if isinstance(raw, str):
+        return msgspec.json.decode(raw)
+    return []
+
+
+def infer_gamma_token_winners(
+    gamma_market: dict[str, Any],
+) -> tuple[dict[str, bool], bool]:
+    """
+    Infer resolved token winners from Gamma outcome prices when available.
+    """
+    outcomes = [str(outcome) for outcome in _decode_gamma_list(gamma_market.get("outcomes"))]
+    raw_prices = _decode_gamma_list(gamma_market.get("outcomePrices"))
+    prices: list[float] = []
+    for price in raw_prices:
+        try:
+            prices.append(float(price))
+        except (TypeError, ValueError):
+            prices.append(0.0)
+
+    if not outcomes or not prices:
+        return {}, False
+
+    if all(abs(price - 0.5) <= 1e-6 for price in prices):
+        return {}, True
+
+    winner_index = max(range(len(prices)), key=prices.__getitem__)
+    if prices[winner_index] < 0.99:
+        return {}, False
+
+    winner_lookup = {
+        outcome.strip().casefold(): index == winner_index
+        for index, outcome in enumerate(outcomes)
+    }
+    return winner_lookup, False
+
+
 def normalize_gamma_market_to_clob_format(gamma_market: dict[str, Any]) -> dict[str, Any]:
     """
     Normalize Gamma API market format to CLOB API format.
@@ -206,19 +246,17 @@ def normalize_gamma_market_to_clob_format(gamma_market: dict[str, Any]) -> dict[
     outcomes = gamma_market.get("outcomes", [])
     outcome_prices = gamma_market.get("outcomePrices", [])
 
-    if isinstance(clob_token_ids, str):
-        clob_token_ids = msgspec.json.decode(clob_token_ids)
-    if isinstance(outcomes, str):
-        outcomes = msgspec.json.decode(outcomes)
-    if isinstance(outcome_prices, str):
-        outcome_prices = msgspec.json.decode(outcome_prices)
+    clob_token_ids = _decode_gamma_list(clob_token_ids)
+    outcomes = _decode_gamma_list(outcomes)
+    outcome_prices = _decode_gamma_list(outcome_prices)
+    winner_lookup, is_50_50_outcome = infer_gamma_token_winners(gamma_market)
 
     for i, (token_id, outcome) in enumerate(zip(clob_token_ids, outcomes, strict=False)):
         token_entry = {
             "token_id": token_id,
             "outcome": outcome,
             "price": float(outcome_prices[i]) if i < len(outcome_prices) else 0.5,
-            "winner": False,
+            "winner": winner_lookup.get(str(outcome).strip().casefold(), False),
         }
         tokens.append(token_entry)
 
@@ -257,6 +295,7 @@ def normalize_gamma_market_to_clob_format(gamma_market: dict[str, Any]) -> dict[
         # Rewards and notifications
         "rewards": rewards_dict,
         "notifications_enabled": True,
+        "is_50_50_outcome": is_50_50_outcome,
         # Tokens array (CLOB API format)
         "tokens": tokens,
         # Preserve original data for reference
