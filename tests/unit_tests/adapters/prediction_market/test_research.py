@@ -1,8 +1,15 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
+import pandas as pd
 import pytest
 
+from nautilus_trader.adapters.prediction_market import research
+from nautilus_trader.adapters.prediction_market.fill_model import PredictionMarketTakerFillModel
 from nautilus_trader.adapters.prediction_market.research import save_aggregate_backtest_report
+from nautilus_trader.model.currencies import USDC_POS
+from nautilus_trader.model.identifiers import Venue
 
 
 def test_save_aggregate_backtest_report_writes_legacy_bokeh_html(tmp_path) -> None:
@@ -159,3 +166,82 @@ def test_save_aggregate_backtest_report_writes_legacy_bokeh_html(tmp_path) -> No
     assert "Fills (" in html
     assert "Monthly Returns" in html
     assert "plotly" not in html.lower()
+
+
+def test_run_market_backtest_uses_prediction_market_fill_model_by_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    class DummyTrader:
+        def generate_order_fills_report(self) -> list[object]:
+            return []
+
+        def generate_positions_report(self) -> list[object]:
+            return []
+
+    class DummyEngine:
+        def __init__(self, config) -> None:
+            self.config = config
+            self.trader = DummyTrader()
+
+        def add_venue(self, **kwargs) -> None:
+            captured.update(kwargs)
+
+        def add_instrument(self, instrument) -> None:
+            captured["instrument"] = instrument
+
+        def add_data(self, data) -> None:
+            captured["data"] = data
+
+        def add_strategy(self, strategy) -> None:
+            captured["strategy"] = strategy
+
+        def run(self) -> None:
+            captured["ran"] = True
+
+        def reset(self) -> None:
+            captured["reset"] = True
+
+        def dispose(self) -> None:
+            captured["disposed"] = True
+
+    monkeypatch.setattr(research, "BacktestEngine", DummyEngine)
+    monkeypatch.setattr(research, "extract_realized_pnl", lambda positions: 0.0)
+    monkeypatch.setattr(research, "extract_price_points", lambda data, price_attr: [])
+    monkeypatch.setattr(
+        research,
+        "build_brier_inputs",
+        lambda points, window, realized_outcome: (
+            pd.Series(dtype=float),
+            pd.Series(dtype=float),
+            pd.Series(dtype=float),
+        ),
+    )
+    monkeypatch.setattr(research, "build_market_prices", lambda price_points, resample_rule: [])
+    monkeypatch.setattr(research, "infer_realized_outcome", lambda instrument: None)
+
+    result = research.run_market_backtest(
+        market_id="demo-market",
+        instrument=SimpleNamespace(id="demo-instrument"),
+        data=[],
+        strategy=object(),
+        strategy_name="demo-strategy",
+        output_prefix="demo",
+        platform="polymarket",
+        venue=Venue("POLYMARKET"),
+        base_currency=USDC_POS,
+        fee_model=object(),
+        initial_cash=100.0,
+        probability_window=30,
+        price_attr="price",
+        count_key="trades",
+        emit_html=False,
+    )
+
+    fill_model = captured["fill_model"]
+    assert isinstance(fill_model, PredictionMarketTakerFillModel)
+    assert result["pnl"] == 0.0
+    assert captured["ran"] is True
+    assert captured["reset"] is True
+    assert captured["disposed"] is True

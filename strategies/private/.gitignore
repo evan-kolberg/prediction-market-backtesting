@@ -1,4 +1,0 @@
-# Ignore everything in this directory — strategies stay private.
-*
-# ...except this file, so the folder is tracked by git.
-!.gitignore

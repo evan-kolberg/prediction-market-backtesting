@@ -1,39 +1,132 @@
-# macOS
-.DS_Store
+*.c
+*.exp
+*.lib
+*.o
+*.obj
+*.so
+*.xml
 
-# Environment
-.env
+# Git
+*.diff
 
-# Python
-__pycache__/
+# Logs and patches
+*.log
+*.patch
+log/
+logs/
+
+# Profiler and database
+*.prof
+*.rdb
+*.sqlite
+
+# Secrets and environment files
+*.key
+*.key_secret
+*.env
+
+# Compressed files
+*.tar.gz*
+*.zip
+
+# Data
+*.dbn
+*.dbn.zst
+*.parquet
+
+# IntelliJ and VSCode project
+*.iml
+.idea/
+.vscode/
+
+# Benchmarking and coverage
+.benchmarks*
+.coverage*
+htmlcov/
+
+# Rust related
+*target/
+**/*.rs.bk
+
+# Python related
 *.pyc
-*.pyo
+*.pyd
+.history*
+.cache/
+.codspeed/
+.mypy_cache/
+.profile/
+.pytest_cache/
+.python-version
+.ruff_cache/
+*dask-worker-space*
+__pycache__/
+cython_debug/
+requirements*
+venv*/
+.venv*/
+python/nautilus_trader/_libnautilus.pyi
+
+# Build environment and temp
+_build/
 build/
 dist/
-wheels/
-*.egg-info
+env/
+*.bak
+*.sh
+*tmp/
+*temp/
 
-# Virtual environment
-.venv
+# System and editor specific
+.DS_Store
+.null-ls*
+PERF.JSON
+output.json
 
-# Data (contents come from submodule; symlink is tracked)
-data/
+# AI assistants and tools
+.cursorignore
+.mcp.json
+.mcp.local.json
+mcp/*.json
+.claude/
+claude.config.json
+.cursor/
+.aider*
+.continue/
 
-# Output
-output/
+AGENTS.md
+CLAUDE.md
+CODEX.md
+GEMINI.md
 
-# Temp
-.tmp/
+# Backtest outputs
+/output/
+/*.html
+/kalshi_catalog/
+/examples/backtest/prediction_markets/private_strategies/
 
-# Rust
-crates/*/target/
-crates/*/uv.lock
-*.so
-*.dylib
-*.dll
+# Nautilus specific
+.ipynb_checkpoints/
+bench_data/
+/api_reference/
+/catalog/
+/docs/getting_started/catalog/
+/docs/tutorials/catalog/
+/docs/tutorials/databento/
+/examples/backtest/notebooks/catalog/
+/examples/notebooks/catalog/
+nautilus_trader/**/.gitignore
+nautilus_trader/test_kit/mocks/.nautilus/
+nautilus_trader.egg-info
+tests/test_data/catalog/
+tests/test_data/large/*
+tests/unit_tests/catalog/
+tests/unit_tests/persistence/catalog/
+tests/test_data/**/backtest/**
 
-# Tool caches
-.mypy_cache/
-.pytest_cache/
-.ruff_cache/
-
+# Exceptions
+!tests/test_data/large/checksums.json
+!tests/test_data/large/*.metadata.json
+!tests/test_data/nautilus/*/**.parquet
+!tests/integration_tests/adapters/betfair/responses/*.log
+!/nautilus_core/adapters/src/databento/test_data/*

@@ -29,6 +29,7 @@ from nautilus_trader.adapters.prediction_market.backtest_utils import build_mark
 from nautilus_trader.adapters.prediction_market.backtest_utils import extract_price_points
 from nautilus_trader.adapters.prediction_market.backtest_utils import extract_realized_pnl
 from nautilus_trader.adapters.prediction_market.backtest_utils import infer_realized_outcome
+from nautilus_trader.adapters.prediction_market.fill_model import PredictionMarketTakerFillModel
 from nautilus_trader.analysis import legacy_plot_adapter as legacy_plot_adapter
 from nautilus_trader.analysis.legacy_plot_adapter import build_legacy_backtest_layout
 from nautilus_trader.analysis.legacy_plot_adapter import save_legacy_backtest_layout
@@ -308,6 +309,7 @@ def run_market_backtest(
     venue: Venue,
     base_currency: Currency,
     fee_model: Any,
+    fill_model: Any | None = None,
     initial_cash: float,
     probability_window: int,
     price_attr: str,
@@ -322,7 +324,16 @@ def run_market_backtest(
 ) -> dict[str, Any]:
     """
     Run one prediction-market backtest and emit a legacy chart.
+
+    Prediction-market market orders are taker-style orders against a central
+    limit order book. Historical backtests here replay trades/bars without full
+    book depth, so we apply a deterministic one-tick adverse fill model by
+    default to approximate slippage. Callers can override this with a custom
+    ``fill_model`` if needed.
     """
+    if fill_model is None:
+        fill_model = PredictionMarketTakerFillModel()
+
     engine = BacktestEngine(
         config=BacktestEngineConfig(
             trader_id=TraderId("BACKTESTER-001"),
@@ -336,6 +347,7 @@ def run_market_backtest(
         account_type=AccountType.CASH,
         base_currency=base_currency,
         starting_balances=[Money(initial_cash, base_currency)],
+        fill_model=fill_model,
         fee_model=fee_model,
     )
     engine.add_instrument(instrument)

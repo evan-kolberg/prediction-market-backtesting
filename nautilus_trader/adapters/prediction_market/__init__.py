@@ -6,19 +6,16 @@
 #  You may not use this file except in compliance with the License.
 #  You may obtain a copy of the License at https://www.gnu.org/licenses/lgpl-3.0.en.html
 #
-#  Unless required by applicable law or agreed to in writing, software
-#  distributed under the License is distributed on an "AS IS" BASIS,
-#  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-#  See the License for the specific language governing permissions and
-#  limitations under the License.
+#  Unless required by applicable law or agreed to in writing, software distributed under the
+#  License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+#  KIND, either express or implied. See the License for the specific language governing
+#  permissions and limitations under the License.
 # -------------------------------------------------------------------------------------------------
+
 """
-The test suite for NautilusTrader including unit, integration, acceptance and
-performance tests.
+Shared prediction-market adapter helpers.
 """
 
-from pathlib import Path
+from nautilus_trader.adapters.prediction_market.fill_model import PredictionMarketTakerFillModel
 
-
-TESTS_PACKAGE_ROOT = Path(__file__).parent.resolve()
-TEST_DATA_DIR = TESTS_PACKAGE_ROOT / "test_data"
+__all__ = ["PredictionMarketTakerFillModel"]
