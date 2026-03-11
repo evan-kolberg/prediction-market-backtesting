@@ -1,0 +1,123 @@
+from __future__ import annotations
+
+from decimal import Decimal
+from typing import Protocol
+
+from strategies.core import (
+    LongOnlyPredictionMarketStrategy,
+)
+from nautilus_trader.model.data import Bar
+from nautilus_trader.model.data import BarType
+from nautilus_trader.model.data import TradeTick
+from nautilus_trader.model.enums import OrderSide
+from nautilus_trader.model.identifiers import InstrumentId
+from nautilus_trader.trading.strategy import StrategyConfig
+
+
+class _ThresholdMomentumConfig(Protocol):
+    instrument_id: InstrumentId
+    trade_size: Decimal
+    activation_start_time_ns: int
+    market_close_time_ns: int
+    entry_price: float
+    take_profit_price: float
+    stop_loss_price: float
+
+
+class BarThresholdMomentumConfig(StrategyConfig, frozen=True):  # type: ignore[call-arg]
+    instrument_id: InstrumentId
+    bar_type: BarType
+    trade_size: Decimal = Decimal(1)
+    activation_start_time_ns: int = 0
+    market_close_time_ns: int = 0
+    entry_price: float = 0.80
+    take_profit_price: float = 0.92
+    stop_loss_price: float = 0.50
+
+
+class TradeTickThresholdMomentumConfig(StrategyConfig, frozen=True):  # type: ignore[call-arg]
+    instrument_id: InstrumentId
+    trade_size: Decimal = Decimal(100)
+    activation_start_time_ns: int = 0
+    market_close_time_ns: int = 0
+    entry_price: float = 0.80
+    take_profit_price: float = 0.92
+    stop_loss_price: float = 0.50
+
+
+class _ThresholdMomentumBase(LongOnlyPredictionMarketStrategy):
+    """
+    Buy once on a threshold breakout, then exit on target, stop, or market close.
+    """
+
+    def __init__(self, config: _ThresholdMomentumConfig) -> None:
+        super().__init__(config)
+        self._last_price: float | None = None
+        self._has_entered: bool = False
+
+    def _crossed_above_entry(self, previous_price: float | None, price: float) -> bool:
+        if previous_price is None:
+            return False
+        return previous_price < float(self.config.entry_price) <= price
+
+    def _entry_window_is_open(self, ts_event_ns: int) -> bool:
+        activation_start_ns = int(self.config.activation_start_time_ns)
+        if activation_start_ns > 0 and ts_event_ns < activation_start_ns:
+            return False
+
+        close_time_ns = int(self.config.market_close_time_ns)
+        if close_time_ns > 0 and ts_event_ns > close_time_ns:
+            return False
+
+        return True
+
+    def _on_price(self, *, price: float, ts_event_ns: int) -> None:
+        previous_price = self._last_price
+        self._last_price = price
+
+        if self._pending:
+            return
+
+        if not self._in_position():
+            if self._has_entered:
+                return
+            if not self._entry_window_is_open(ts_event_ns):
+                return
+            if self._crossed_above_entry(previous_price, price):
+                self._submit_entry()
+            return
+
+        if int(self.config.market_close_time_ns) > 0 and ts_event_ns >= int(
+            self.config.market_close_time_ns,
+        ):
+            self._submit_exit()
+            return
+
+        if price >= float(self.config.take_profit_price) or price <= float(self.config.stop_loss_price):
+            self._submit_exit()
+
+    def on_reset(self) -> None:
+        super().on_reset()
+        self._last_price = None
+        self._has_entered = False
+
+    def on_order_filled(self, event) -> None:  # type: ignore[no-untyped-def]
+        super().on_order_filled(event)
+        if event.order_side == OrderSide.BUY:
+            self._has_entered = True
+
+
+class BarThresholdMomentumStrategy(_ThresholdMomentumBase):
+    def _subscribe(self) -> None:
+        self.subscribe_bars(self.config.bar_type)
+
+    def on_bar(self, bar: Bar) -> None:
+        self._on_price(price=float(bar.close), ts_event_ns=int(bar.ts_event))
+
+
+class TradeTickThresholdMomentumStrategy(_ThresholdMomentumBase):
+    def _subscribe(self) -> None:
+        self.subscribe_trade_ticks(self.config.instrument_id)
+
+    def on_trade_tick(self, tick: TradeTick) -> None:
+        self._on_price(price=float(tick.price), ts_event_ns=int(tick.ts_event))
