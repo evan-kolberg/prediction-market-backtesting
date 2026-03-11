@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """Prediction market backtest runner.
 
-Discovers strategies in the strategies/ and private_strategies/ directories
-and presents an interactive menu. Each strategy file must expose:
+Discovers runnable modules in the backtests/ directory tree and presents an
+interactive menu. Each backtest file must expose:
 
     NAME        str   — display name shown in the menu
     DESCRIPTION str   — one-line description shown in the menu
-    run()       async — entry point called when the strategy is selected
+    run()       async — entry point called when the backtest is selected
 
 Run via:
     uv run python main.py
@@ -20,10 +20,8 @@ import importlib
 import sys
 from pathlib import Path
 
-STRATEGIES_DIRS = [
-    Path(__file__).parent / "strategies",
-    Path(__file__).parent / "private_strategies",
-]
+PROJECT_ROOT = Path(__file__).parent
+BACKTESTS_ROOT = PROJECT_ROOT / "backtests"
 
 DIM = "\033[2m"
 BOLD = "\033[1m"
@@ -32,36 +30,41 @@ RESET = "\033[0m"
 
 
 def discover() -> list[dict]:
-    """Scan strategies/ and private_strategies/ for modules that expose NAME, DESCRIPTION, and run()."""
+    """Scan backtests/ recursively for modules that expose NAME, DESCRIPTION, and run()."""
     found = []
-    for strats_dir in STRATEGIES_DIRS:
-        if not strats_dir.exists():
+    if not BACKTESTS_ROOT.exists():
+        return found
+
+    for path in sorted(BACKTESTS_ROOT.rglob("*.py")):
+        relative_parts = path.relative_to(BACKTESTS_ROOT).parts
+        if path.name == "__init__.py":
             continue
-        for path in sorted(strats_dir.glob("*.py")):
-            if path.name.startswith("_"):
-                continue
-            mod_name = f"{strats_dir.name}.{path.stem}"
-            try:
-                mod = importlib.import_module(mod_name)
-            except Exception as exc:
-                print(f"{DIM}  Warning: could not import {path.name}: {exc}{RESET}")
-                continue
-            if not hasattr(mod, "run"):
-                continue
-            found.append(
-                {
-                    "name": getattr(mod, "NAME", path.stem),
-                    "description": getattr(mod, "DESCRIPTION", ""),
-                    "run": mod.run,
-                }
-            )
+        if any(part.startswith("_") for part in relative_parts):
+            continue
+
+        mod_name = ".".join(path.relative_to(PROJECT_ROOT).with_suffix("").parts)
+        try:
+            mod = importlib.import_module(mod_name)
+        except Exception as exc:
+            rel_path = path.relative_to(PROJECT_ROOT)
+            print(f"{DIM}  Warning: could not import {rel_path}: {exc}{RESET}")
+            continue
+        if not hasattr(mod, "run"):
+            continue
+        found.append(
+            {
+                "name": getattr(mod, "NAME", path.stem),
+                "description": getattr(mod, "DESCRIPTION", ""),
+                "run": mod.run,
+            }
+        )
     return found
 
 
-def show_menu(strategies: list[dict]) -> int:
+def show_menu(backtests: list[dict]) -> int:
     """Print numbered menu and return the chosen index (0-based), or -1 to exit."""
-    print(f"\n{BOLD}Select a strategy:{RESET}\n")
-    for i, s in enumerate(strategies, 1):
+    print(f"\n{BOLD}Select a backtest:{RESET}\n")
+    for i, s in enumerate(backtests, 1):
         desc = f" {DIM}— {s['description']}{RESET}" if s["description"] else ""
         print(f"  {CYAN}{i}{RESET}. {s['name']}{desc}")
     print(f"\n  {DIM}0. Exit{RESET}\n")
@@ -79,7 +82,7 @@ def show_menu(strategies: list[dict]) -> int:
 
     if choice == 0:
         return -1
-    if choice < 1 or choice > len(strategies):
+    if choice < 1 or choice > len(backtests):
         print("Invalid choice.")
         return -1
 
@@ -87,21 +90,22 @@ def show_menu(strategies: list[dict]) -> int:
 
 
 def main() -> None:
-    strategies = discover()
+    backtests = discover()
 
-    if not strategies:
+    if not backtests:
         print(
-            f"No strategies found in {' or '.join(str(d) for d in STRATEGIES_DIRS)}\n"
-            "Create a .py file there that exposes NAME, DESCRIPTION, and an async run()."
+            f"No backtests found in {BACKTESTS_ROOT}\n"
+            "Create a .py file in backtests/ or backtests/private/ that exposes "
+            "NAME, DESCRIPTION, and an async run()."
         )
         sys.exit(1)
 
-    idx = show_menu(strategies)
+    idx = show_menu(backtests)
     if idx == -1:
         print("Exiting.")
         sys.exit(0)
 
-    chosen = strategies[idx]
+    chosen = backtests[idx]
     print(f"\n{BOLD}Running: {chosen['name']}{RESET}\n")
     asyncio.run(chosen["run"]())
 

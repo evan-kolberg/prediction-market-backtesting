@@ -24,6 +24,7 @@ import msgspec
 import pandas as pd
 
 from nautilus_trader.adapters.polymarket.common.constants import POLYMARKET_HTTP_RATE_LIMIT
+from nautilus_trader.adapters.polymarket.common.gamma_markets import infer_gamma_token_winners
 from nautilus_trader.adapters.polymarket.common.parsing import parse_polymarket_instrument
 from nautilus_trader.core import nautilus_pyo3
 from nautilus_trader.core.correctness import PyCondition
@@ -58,6 +59,8 @@ class PolymarketDataLoader:
         The HTTP client to use for requests. If not provided, a new client will be created.
 
     """
+
+    _TRADES_PAGE_LIMIT = 1_000
 
     def __init__(
         self,
@@ -193,6 +196,7 @@ class PolymarketDataLoader:
         condition_id = market["conditionId"]
         market_details = await cls._fetch_market_details(condition_id, client)
         tokens = market_details.get("tokens", [])
+        winner_lookup, is_50_50_outcome = infer_gamma_token_winners(market)
 
         if not tokens:
             raise ValueError(f"No tokens found for market: {condition_id}")
@@ -205,6 +209,23 @@ class PolymarketDataLoader:
         token = tokens[token_index]
         token_id = token["token_id"]
         outcome = token["outcome"]
+
+        for market_token in tokens:
+            token_outcome = str(market_token.get("outcome") or "").strip().casefold()
+            if token_outcome in winner_lookup:
+                market_token["winner"] = winner_lookup[token_outcome]
+
+        market_details["tokens"] = tokens
+        market_details["market_slug"] = market.get("slug") or market_details.get("market_slug")
+        market_details["question"] = market.get("question") or market_details.get("question")
+        market_details["description"] = market.get("description") or market_details.get("description")
+        market_details["closed"] = market.get("closed", market_details.get("closed"))
+        market_details["closedTime"] = market.get("closedTime") or market_details.get("closedTime")
+        market_details["uma_resolution_status"] = (
+            market.get("umaResolutionStatus") or market_details.get("uma_resolution_status")
+        )
+        if is_50_50_outcome:
+            market_details["is_50_50_outcome"] = True
 
         instrument = parse_polymarket_instrument(
             market_info=market_details,
@@ -425,9 +446,9 @@ class PolymarketDataLoader:
         Parameters
         ----------
         start : pd.Timestamp, optional
-            Start time filter (client-side). If ``None``, no lower bound.
+            Start time filter. If ``None``, no lower bound.
         end : pd.Timestamp, optional
-            End time filter (client-side). If ``None``, no upper bound.
+            End time filter. If ``None``, no upper bound.
 
         Returns
         -------
@@ -453,14 +474,17 @@ class PolymarketDataLoader:
                 "or pass token_id to __init__()",
             )
 
-        raw_trades = await self.fetch_trades(condition_id=self._condition_id)
+        start_ts = int(start.timestamp()) if start is not None else None
+        end_ts = int(end.timestamp()) if end is not None else None
+
+        raw_trades = await self.fetch_trades(
+            condition_id=self._condition_id,
+            start_ts=start_ts,
+            end_ts=end_ts,
+        )
 
         # Filter by token_id (API returns trades for all tokens in the condition)
         token_trades = [t for t in raw_trades if t["asset"] == self._token_id]
-
-        # Filter by time range (client-side, API has no time params)
-        start_ts = int(start.timestamp()) if start is not None else None
-        end_ts = int(end.timestamp()) if end is not None else None
 
         if start_ts is not None:
             token_trades = [t for t in token_trades if t["timestamp"] >= start_ts]
@@ -688,7 +712,9 @@ class PolymarketDataLoader:
     async def fetch_trades(
         self,
         condition_id: str,
-        limit: int = 10_000,
+        limit: int = _TRADES_PAGE_LIMIT,
+        start_ts: int | None = None,
+        end_ts: int | None = None,
     ) -> list[dict[str, Any]]:
         """
         Fetch trades from the Polymarket Data API.
@@ -697,8 +723,13 @@ class PolymarketDataLoader:
         ----------
         condition_id : str
             The market condition ID.
-        limit : int, default 10_000
-            Number of trades per request (max 10,000).
+        limit : int, default 1,000
+            Number of trades per request. The public API currently caps this at 1,000.
+        start_ts : int, optional
+            Lower timestamp bound in seconds. Used for client-side filtering and
+            to stop pagination once older pages fall outside the requested window.
+        end_ts : int, optional
+            Upper timestamp bound in seconds. Used for client-side filtering.
 
         Returns
         -------
@@ -708,15 +739,17 @@ class PolymarketDataLoader:
         Notes
         -----
         This method automatically handles pagination using offset-based requests.
-        The API caps offset at 10,000, so a maximum of ~20,000 trades can be
-        fetched per condition.
+        It keeps paging until the API returns fewer than the requested page size
+        or an empty page. The public endpoint does not expose reliable time-bound
+        pagination parameters, so bounded loads stop once the fetched pages become
+        older than ``start_ts``.
 
         """
         PyCondition.valid_string(condition_id, "condition_id")
 
         all_trades: list[dict[str, Any]] = []
         offset = 0
-        page_limit = min(limit, 10_000)
+        page_limit = min(limit, self._TRADES_PAGE_LIMIT)
 
         while True:
             params: dict[str, Any] = {
@@ -731,9 +764,15 @@ class PolymarketDataLoader:
             )
 
             if response.status != 200:
+                body_text = response.body.decode("utf-8")
+                if "max historical activity offset" in body_text:
+                    raise RuntimeError(
+                        "Polymarket public trades API hit its historical offset ceiling. "
+                        "Use a lower-activity market or another historical data source. "
+                        f"API response: {body_text}",
+                    )
                 raise RuntimeError(
-                    f"HTTP request failed with status {response.status}: "
-                    f"{response.body.decode('utf-8')}",
+                    f"HTTP request failed with status {response.status}: {body_text}",
                 )
 
             data = msgspec.json.decode(response.body)
@@ -741,10 +780,19 @@ class PolymarketDataLoader:
             if not data:
                 break
 
-            all_trades.extend(data)
+            all_trades.extend(
+                trade
+                for trade in data
+                if (end_ts is None or trade["timestamp"] <= end_ts)
+                and (start_ts is None or trade["timestamp"] >= start_ts)
+            )
+
+            if start_ts is not None and min(trade["timestamp"] for trade in data) < start_ts:
+                break
+
             offset += len(data)
 
-            if len(data) < page_limit or offset > 10_000:
+            if len(data) < page_limit:
                 break
 
         return all_trades

@@ -22,6 +22,7 @@ from nautilus_trader.adapters.polymarket.common.enums import PolymarketLiquidity
 from nautilus_trader.adapters.polymarket.common.enums import PolymarketOrderSide
 from nautilus_trader.adapters.polymarket.common.parsing import calculate_commission
 from nautilus_trader.adapters.polymarket.common.parsing import determine_order_side
+from nautilus_trader.adapters.polymarket.common.parsing import infer_fee_exponent
 from nautilus_trader.adapters.polymarket.common.parsing import make_composite_trade_id
 from nautilus_trader.adapters.polymarket.schemas.user import PolymarketMakerOrder
 from nautilus_trader.core.datetime import secs_to_nanos
@@ -156,7 +157,8 @@ class PolymarketTradeReport(msgspec.Struct, frozen=True):
         last_qty = instrument.make_qty(self.last_qty(filled_user_order_id))
         last_px = instrument.make_price(self.last_px(filled_user_order_id))
         fee_rate_bps = self.get_fee_rate_bps(filled_user_order_id)
-        commission = calculate_commission(last_qty, last_px, fee_rate_bps)
+        fee_exponent = infer_fee_exponent(fee_rate_bps)
+        commission = calculate_commission(last_qty, last_px, fee_rate_bps, fee_exponent)
         venue_order_id = self.venue_order_id(filled_user_order_id)
         composite_trade_id = make_composite_trade_id(self.id, venue_order_id)
 

@@ -28,7 +28,10 @@ range you want to backtest.
 """
 
 import asyncio
+import os
+import sys
 from decimal import Decimal
+from pathlib import Path
 
 import pandas as pd
 
@@ -46,17 +49,54 @@ from nautilus_trader.model.identifiers import Venue
 from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 
 
+try:
+    from _defaults import DEFAULT_INITIAL_CASH
+    from _defaults import DEFAULT_KALSHI_MARKET_TICKER
+    from _defaults import DEFAULT_LOOKBACK_DAYS
+except ModuleNotFoundError:
+    _THIS_DIR = Path(__file__).resolve().parent
+    if str(_THIS_DIR) not in sys.path:
+        sys.path.insert(0, str(_THIS_DIR))
+    from _defaults import DEFAULT_INITIAL_CASH
+    from _defaults import DEFAULT_KALSHI_MARKET_TICKER
+    from _defaults import DEFAULT_LOOKBACK_DAYS
+
+
+# ── Strategy metadata (shown in the menu) ────────────────────────────────────
+NAME = "kalshi_ema_bars"
+DESCRIPTION = "Fetch Kalshi bars to catalog, then run EMA-cross backtest"
+
+BAR_INTERVAL_TO_SPEC = {
+    "Minutes1": "1-MINUTE-LAST",
+    "Hours1": "1-HOUR-LAST",
+    "Days1": "1-DAY-LAST",
+}
+
 # ---------------------------------------------------------------------------
 # Configure these constants for your backtest
 # ---------------------------------------------------------------------------
-MARKET_TICKER = "KXFEDCHAIRNOM-29-KW"        # Kalshi market ticker
-BAR_INTERVAL = "Hours1"           # Minutes1 | Hours1 | Days1
+MARKET_TICKER = os.getenv("MARKET_TICKER", DEFAULT_KALSHI_MARKET_TICKER).upper()
+BAR_INTERVAL = os.getenv("BAR_INTERVAL", "Hours1")  # Minutes1 | Hours1 | Days1
 CATALOG_PATH = "./kalshi_catalog"  # Local directory for parquet catalog
-START = "2026-01-01"               # ISO 8601 UTC date string
-END = "2026-03-01"                 # ISO 8601 UTC exclusive end date
+LOOKBACK_DAYS = int(os.getenv("LOOKBACK_DAYS", str(DEFAULT_LOOKBACK_DAYS)))
+_NOW_UTC = pd.Timestamp.now(tz="UTC")
+START = os.getenv(
+    "START",
+    (_NOW_UTC - pd.Timedelta(days=LOOKBACK_DAYS)).strftime("%Y-%m-%d"),
+)
+END = os.getenv("END", _NOW_UTC.strftime("%Y-%m-%d"))
 FAST_EMA = 10
 SLOW_EMA = 20
-TRADE_SIZE = Decimal("1")          # Number of contracts per trade  # noqa: FURB157
+TRADE_SIZE = Decimal("1")  # Number of contracts per trade  # noqa: FURB157
+
+
+def _bar_spec_for_interval(interval: str) -> str:
+    try:
+        return BAR_INTERVAL_TO_SPEC[interval]
+    except KeyError as exc:
+        raise ValueError(
+            f"Unsupported BAR_INTERVAL {interval!r}. Expected one of {tuple(BAR_INTERVAL_TO_SPEC)}",
+        ) from exc
 
 
 async def fetch_and_catalog() -> None:
@@ -80,23 +120,22 @@ async def fetch_and_catalog() -> None:
 def run_backtest() -> None:
     """Phase 2 - run EMA-cross backtest against the catalog data."""
     instrument_id = f"{MARKET_TICKER}.KALSHI"
-    # NOTE: bar_type must match the interval written by fetch_and_catalog().
-    # If BAR_INTERVAL changes, update "1-HOUR-LAST" here accordingly.
-    bar_type = f"{instrument_id}-1-HOUR-LAST-EXTERNAL"
+    bar_spec = _bar_spec_for_interval(BAR_INTERVAL)
+    bar_type = f"{instrument_id}-{bar_spec}-EXTERNAL"
 
     venue_config = BacktestVenueConfig(
         name="KALSHI",
         oms_type="NETTING",
         account_type="CASH",
         base_currency="USD",
-        starting_balances=["10000 USD"],
+        starting_balances=[f"{int(DEFAULT_INITIAL_CASH)} USD"],
     )
 
     data_config = BacktestDataConfig(
         catalog_path=CATALOG_PATH,
         data_cls=Bar,
         instrument_id=instrument_id,
-        bar_spec="1-HOUR-LAST",
+        bar_spec=bar_spec,
         start_time=START,
         end_time=END,
     )
@@ -140,13 +179,17 @@ def run_backtest() -> None:
         "display.width",
         300,
     ):
-        print(engine.trader.generate_account_report(kalshi_venue))
-        print(engine.trader.generate_order_fills_report())
-        print(engine.trader.generate_positions_report())
+        print(engine.trader.generate_account_report(kalshi_venue))  # pyright: ignore[reportOptionalMemberAccess]
+        print(engine.trader.generate_order_fills_report())  # pyright: ignore[reportOptionalMemberAccess]
+        print(engine.trader.generate_positions_report())  # pyright: ignore[reportOptionalMemberAccess]
 
     node.dispose()
 
 
-if __name__ == "__main__":
-    asyncio.run(fetch_and_catalog())
+async def run() -> None:
+    await fetch_and_catalog()
     run_backtest()
+
+
+if __name__ == "__main__":
+    asyncio.run(run())

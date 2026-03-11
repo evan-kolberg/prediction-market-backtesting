@@ -1,0 +1,4 @@
+# Ignore everything in this directory — backtests stay private.
+*
+# ...except this file, so the folder is tracked by git.
+!.gitignore

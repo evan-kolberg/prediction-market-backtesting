@@ -19,6 +19,23 @@ from typing import TYPE_CHECKING
 
 from nautilus_trader.adapters.kalshi.config import KalshiDataClientConfig
 from nautilus_trader.adapters.kalshi.providers import KalshiInstrumentProvider
+from nautilus_trader.data.messages import RequestBars
+from nautilus_trader.data.messages import RequestInstrument
+from nautilus_trader.data.messages import RequestInstruments
+from nautilus_trader.data.messages import RequestQuoteTicks
+from nautilus_trader.data.messages import RequestTradeTicks
+from nautilus_trader.data.messages import SubscribeBars
+from nautilus_trader.data.messages import SubscribeInstrumentClose
+from nautilus_trader.data.messages import SubscribeInstrumentStatus
+from nautilus_trader.data.messages import SubscribeOrderBook
+from nautilus_trader.data.messages import SubscribeQuoteTicks
+from nautilus_trader.data.messages import SubscribeTradeTicks
+from nautilus_trader.data.messages import UnsubscribeBars
+from nautilus_trader.data.messages import UnsubscribeInstrumentClose
+from nautilus_trader.data.messages import UnsubscribeInstrumentStatus
+from nautilus_trader.data.messages import UnsubscribeOrderBook
+from nautilus_trader.data.messages import UnsubscribeQuoteTicks
+from nautilus_trader.data.messages import UnsubscribeTradeTicks
 from nautilus_trader.live.data_client import LiveMarketDataClient
 from nautilus_trader.model.identifiers import ClientId
 
@@ -83,10 +100,90 @@ class KalshiDataClient(LiveMarketDataClient):
 
     async def _connect(self) -> None:
         await self._instrument_provider.initialize()
+        self._send_all_instruments_to_data_engine()
 
     async def _disconnect(self) -> None:
         pass
 
-    # TODO: implement subscribe_order_book_deltas, subscribe_trade_ticks,
-    # subscribe_bars using the Rust WebSocket client and HTTP candlestick client.
-    # Reference: nautilus_trader/adapters/polymarket/data.py for subscription patterns.
+    def _send_all_instruments_to_data_engine(self) -> None:
+        for instrument in self._instrument_provider.get_all().values():
+            self._handle_data(instrument)
+
+        for currency in self._instrument_provider.currencies().values():
+            self._cache.add_currency(currency)
+
+    def _log_unsupported(self, action: str) -> None:
+        self._log.error(
+            f"KalshiDataClient does not yet support {action}; only instrument discovery is live",
+        )
+
+    async def _subscribe_order_book_deltas(self, command: SubscribeOrderBook) -> None:
+        self._log_unsupported("order book subscriptions")
+
+    async def _subscribe_quote_ticks(self, command: SubscribeQuoteTicks) -> None:
+        self._log_unsupported("quote subscriptions")
+
+    async def _subscribe_trade_ticks(self, command: SubscribeTradeTicks) -> None:
+        self._log_unsupported("trade subscriptions")
+
+    async def _subscribe_bars(self, command: SubscribeBars) -> None:
+        self._log_unsupported("bar subscriptions")
+
+    async def _subscribe_instrument_status(self, command: SubscribeInstrumentStatus) -> None:
+        self._log_unsupported("instrument status subscriptions")
+
+    async def _subscribe_instrument_close(self, command: SubscribeInstrumentClose) -> None:
+        self._log_unsupported("instrument close subscriptions")
+
+    async def _unsubscribe_order_book_deltas(self, command: UnsubscribeOrderBook) -> None:
+        self._log_unsupported("order book unsubscriptions")
+
+    async def _unsubscribe_quote_ticks(self, command: UnsubscribeQuoteTicks) -> None:
+        self._log_unsupported("quote unsubscriptions")
+
+    async def _unsubscribe_trade_ticks(self, command: UnsubscribeTradeTicks) -> None:
+        self._log_unsupported("trade unsubscriptions")
+
+    async def _unsubscribe_bars(self, command: UnsubscribeBars) -> None:
+        self._log_unsupported("bar unsubscriptions")
+
+    async def _unsubscribe_instrument_status(
+        self,
+        command: UnsubscribeInstrumentStatus,
+    ) -> None:
+        self._log_unsupported("instrument status unsubscriptions")
+
+    async def _unsubscribe_instrument_close(self, command: UnsubscribeInstrumentClose) -> None:
+        self._log_unsupported("instrument close unsubscriptions")
+
+    async def _request_instrument(self, request: RequestInstrument) -> None:
+        instrument = self._instrument_provider.find(request.instrument_id)
+        if instrument is None:
+            self._log.error(f"Cannot find instrument for {request.instrument_id}")
+            return
+
+        self._handle_instrument(instrument, request.id, request.start, request.end, request.params)
+
+    async def _request_instruments(self, request: RequestInstruments) -> None:
+        instruments = [
+            instrument
+            for instrument in self._instrument_provider.get_all().values()
+            if request.venue is None or instrument.venue == request.venue
+        ]
+        self._handle_instruments(
+            request.venue,
+            instruments,
+            request.id,
+            request.start,
+            request.end,
+            request.params,
+        )
+
+    async def _request_quote_ticks(self, request: RequestQuoteTicks) -> None:
+        self._log_unsupported("historical quote requests")
+
+    async def _request_trade_ticks(self, request: RequestTradeTicks) -> None:
+        self._log_unsupported("historical trade requests")
+
+    async def _request_bars(self, request: RequestBars) -> None:
+        self._log_unsupported("historical bar requests")

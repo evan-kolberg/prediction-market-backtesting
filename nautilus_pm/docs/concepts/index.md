@@ -81,6 +81,7 @@ Running simulated trading on historical data using a specific system implementat
 
 Interactive tearsheets for analyzing backtest results, including charts, themes,
 customization options, and custom visualizations via the extensible chart registry.
+Also covers the prediction-market legacy adapter path used by Kalshi and Polymarket examples.
 
 ## Live Trading
 

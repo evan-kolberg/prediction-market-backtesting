@@ -20,6 +20,7 @@ import pytest
 
 from nautilus_trader.analysis.config import GridLayout
 from nautilus_trader.analysis.config import TearsheetConfig
+from nautilus_trader.analysis.config import TearsheetCumulativeBrierAdvantageChart
 from nautilus_trader.analysis.config import TearsheetDistributionChart
 from nautilus_trader.analysis.config import TearsheetDrawdownChart
 from nautilus_trader.analysis.config import TearsheetEquityChart
@@ -27,12 +28,16 @@ from nautilus_trader.analysis.config import TearsheetMonthlyReturnsChart
 from nautilus_trader.analysis.config import TearsheetRunInfoChart
 from nautilus_trader.analysis.config import TearsheetStatsTableChart
 from nautilus_trader.analysis.tearsheet import PLOTLY_AVAILABLE
+from nautilus_trader.analysis.tearsheet import _build_allocation_from_fills
 from nautilus_trader.analysis.tearsheet import _create_stats_table
 from nautilus_trader.analysis.tearsheet import _create_tearsheet_figure
 from nautilus_trader.analysis.tearsheet import _normalize_theme_config
+from nautilus_trader.analysis.tearsheet import _prepare_brier_advantage_data
+from nautilus_trader.analysis.tearsheet import create_cumulative_brier_advantage_chart
 from nautilus_trader.analysis.tearsheet import create_drawdown_chart
 from nautilus_trader.analysis.tearsheet import create_equity_curve
 from nautilus_trader.analysis.tearsheet import create_monthly_returns_heatmap
+from nautilus_trader.analysis.tearsheet import create_pnl_chart
 from nautilus_trader.analysis.tearsheet import create_returns_distribution
 from nautilus_trader.analysis.tearsheet import create_tearsheet
 from nautilus_trader.analysis.tearsheet import create_tearsheet_from_stats
@@ -227,6 +232,87 @@ def test_create_returns_distribution_with_valid_data(sample_returns, tmp_path):
     assert fig is not None
     assert output_path.exists()
     assert "Test Distribution" in fig.layout.title.text
+
+
+def test_create_pnl_chart(sample_returns):
+    # Arrange & Act
+    fig = create_pnl_chart(
+        returns=sample_returns,
+        title="PnL Chart",
+    )
+
+    # Assert
+    assert fig is not None
+    assert "PnL Chart" in fig.layout.title.text
+    assert len(fig.data) == 1
+
+
+def test_prepare_brier_advantage_data_calculates_expected_values():
+    # Arrange
+    index = pd.date_range("2025-01-01", periods=2, freq="D")
+    user_probabilities = pd.Series([0.70, 0.20], index=index)
+    market_probabilities = pd.Series([0.60, 0.40], index=index)
+    outcomes = pd.Series([1.0, 0.0], index=index)
+
+    # Act
+    brier = _prepare_brier_advantage_data(
+        user_probabilities=user_probabilities,
+        market_probabilities=market_probabilities,
+        outcomes=outcomes,
+    )
+
+    # Assert
+    assert not brier.empty
+    assert brier["brier_advantage"].iloc[0] == pytest.approx(0.07)
+    assert brier["brier_advantage"].iloc[1] == pytest.approx(0.12)
+    assert brier["cumulative_brier_advantage"].iloc[1] == pytest.approx(0.19)
+
+
+def test_create_cumulative_brier_advantage_chart():
+    # Arrange
+    index = pd.date_range("2025-01-01", periods=3, freq="D")
+    user_probabilities = pd.Series([0.7, 0.2, 0.9], index=index)
+    market_probabilities = pd.Series([0.6, 0.4, 0.7], index=index)
+    outcomes = pd.Series([1.0, 0.0, 1.0], index=index)
+
+    # Act
+    fig = create_cumulative_brier_advantage_chart(
+        user_probabilities=user_probabilities,
+        market_probabilities=market_probabilities,
+        outcomes=outcomes,
+        title="Cumulative Brier Advantage",
+    )
+
+    # Assert
+    assert fig is not None
+    assert "Cumulative Brier Advantage" in fig.layout.title.text
+    assert fig.layout.title.x == 0.0
+    assert fig.layout.title.xanchor == "left"
+    assert len(fig.data) == 1
+    assert fig.data[0].y[-1] > 0  # Positive means strategy is outperforming market on Brier
+
+
+def test_build_allocation_from_fills():
+    # Arrange
+    fills_df = pd.DataFrame(
+        {
+            "ts_init": pd.to_datetime(
+                ["2025-01-01T00:00:00", "2025-01-01T00:01:00", "2025-01-01T00:02:00"],
+            ),
+            "instrument_id": ["A", "B", "A"],
+            "order_side": ["BUY", "BUY", "SELL"],
+            "last_qty": ["10", "10", "5"],
+        },
+    )
+
+    # Act
+    allocation = _build_allocation_from_fills(fills_df)
+
+    # Assert
+    assert not allocation.empty
+    last = allocation.iloc[-1]
+    assert last["A"] == pytest.approx(1 / 3)
+    assert last["B"] == pytest.approx(2 / 3)
 
 
 def test_create_tearsheet_raises_import_error_when_plotly_not_available(monkeypatch):
@@ -599,6 +685,16 @@ def test_tearsheet_config_with_defaults():
     # Assert
     assert config.theme == "plotly_white"
     assert len(config.charts) == 8
+    assert config.chart_names == [
+        "run_info",
+        "stats_table",
+        "equity",
+        "pnl",
+        "drawdown",
+        "allocation",
+        "bars_with_fills",
+        "cumulative_brier_advantage",
+    ]
     assert config.height == 1500
     assert config.include_benchmark is True
     assert config.benchmark_name == "Benchmark"
@@ -794,6 +890,62 @@ def test_run_info_kept_when_account_info_provided(sample_returns):
     # Assert
     assert html is not None
     assert "Starting Balance" in html or "1,000,000 USD" in html
+
+
+def test_brier_chart_filtered_when_inputs_missing(sample_returns):
+    # Arrange
+    config = TearsheetConfig(
+        charts=[
+            TearsheetEquityChart(),
+            TearsheetCumulativeBrierAdvantageChart(),
+        ],
+    )
+
+    # Act
+    html = create_tearsheet_from_stats(
+        stats_pnls={},
+        stats_returns={},
+        stats_general={},
+        returns=sample_returns,
+        output_path=None,
+        config=config,
+    )
+
+    # Assert
+    assert html is not None
+    assert "Cumulative Brier Advantage" not in html
+
+
+def test_brier_chart_included_when_inputs_present(sample_returns):
+    # Arrange
+    index = sample_returns.index
+    user_probabilities = pd.Series(0.55, index=index)
+    market_probabilities = pd.Series(0.50, index=index)
+    outcomes = pd.Series((sample_returns > 0).astype(float), index=index)
+
+    config = TearsheetConfig(
+        charts=[
+            TearsheetEquityChart(),
+            TearsheetCumulativeBrierAdvantageChart(),
+        ],
+    )
+
+    # Act
+    html = create_tearsheet_from_stats(
+        stats_pnls={},
+        stats_returns={},
+        stats_general={},
+        returns=sample_returns,
+        user_probabilities=user_probabilities,
+        market_probabilities=market_probabilities,
+        outcomes=outcomes,
+        output_path=None,
+        config=config,
+    )
+
+    # Assert
+    assert html is not None
+    assert "Cumulative Brier Advantage" in html
 
 
 def test_tearsheet_with_benchmark_overlay(sample_returns):

@@ -364,6 +364,65 @@ async def test_fetch_trades_with_pagination(test_instrument):
     # Assert
     assert mock_http_client.get.call_count == 3
     assert len(trades) == 2
+    assert mock_http_client.get.call_args_list[0].kwargs["params"]["offset"] == 0
+    assert mock_http_client.get.call_args_list[1].kwargs["params"]["offset"] == 1
+    assert mock_http_client.get.call_args_list[2].kwargs["params"]["offset"] == 2
+
+
+@pytest.mark.asyncio
+async def test_fetch_trades_clamps_page_size_to_public_api_limit(test_instrument):
+    mock_http_client = MagicMock(spec=nautilus_pyo3.HttpClient)
+    page1_data = [
+        {
+            "side": "BUY",
+            "asset": "token123",
+            "conditionId": "0xcond",
+            "size": 10.0,
+            "price": 0.5,
+            "timestamp": 1729000060,
+            "transactionHash": "0xhash1",
+            "outcome": "Yes",
+            "outcomeIndex": 0,
+        },
+        {
+            "side": "SELL",
+            "asset": "token123",
+            "conditionId": "0xcond",
+            "size": 20.0,
+            "price": 0.6,
+            "timestamp": 1729000000,
+            "transactionHash": "0xhash2",
+            "outcome": "Yes",
+            "outcomeIndex": 0,
+        },
+    ]
+    page2_data = [
+        {
+            "side": "SELL",
+            "asset": "token123",
+            "conditionId": "0xcond",
+            "size": 5.0,
+            "price": 0.55,
+            "timestamp": 1728999990,
+            "transactionHash": "0xhash3",
+            "outcome": "Yes",
+            "outcomeIndex": 0,
+        },
+    ]
+
+    mock_response1 = Mock(status=200, body=msgspec.json.encode(page1_data))
+    mock_response2 = Mock(status=200, body=msgspec.json.encode(page2_data))
+    mock_http_client.get = AsyncMock(side_effect=[mock_response1, mock_response2])
+
+    loader = PolymarketDataLoader(test_instrument, http_client=mock_http_client)
+    loader._TRADES_PAGE_LIMIT = 2
+
+    trades = await loader.fetch_trades("0xcond", limit=10_000)
+
+    assert len(trades) == 3
+    assert mock_http_client.get.call_args_list[0].kwargs["params"]["limit"] == 2
+    assert mock_http_client.get.call_args_list[0].kwargs["params"]["offset"] == 0
+    assert mock_http_client.get.call_args_list[1].kwargs["params"]["offset"] == 2
 
 
 def test_parse_trades(loader, trades_data):

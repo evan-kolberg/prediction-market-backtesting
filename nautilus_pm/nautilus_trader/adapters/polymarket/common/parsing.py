@@ -247,24 +247,74 @@ def basis_points_as_decimal(basis_points: Decimal) -> Decimal:
     return basis_points / Decimal(10_000)
 
 
+def infer_fee_exponent(fee_rate_bps: Decimal) -> int:
+    """
+    Infer the Polymarket fee exponent from the fee rate.
+
+    Polymarket uses different fee curve exponents by market type:
+    - Crypto markets: feeRate ~175 bps (0.0175), exponent = 1
+    - Sports markets (NCAAB, Serie A): feeRate ~2500 bps (0.25), exponent = 2
+    - Fee-free markets: feeRate = 0, exponent is irrelevant
+
+    Parameters
+    ----------
+    fee_rate_bps : Decimal
+        The fee rate in basis points.
+
+    Returns
+    -------
+    int
+        The fee curve exponent (1 for crypto, 2 for sports).
+
+    """
+    if fee_rate_bps <= 0:
+        return 1  # Irrelevant for zero-fee markets
+    # Sports markets use a much higher base rate (2500 bps) with exponent 2
+    # Crypto markets use a lower rate (175 bps) with exponent 1
+    if fee_rate_bps > Decimal(1000):
+        return 2
+    return 1
+
+
 def calculate_commission(
     quantity: Decimal,
     price: Decimal,
     fee_rate_bps: Decimal,
+    fee_exponent: int = 1,
 ) -> float:
     """
     Calculate commission from trade parameters and fee rate.
 
+    Polymarket's fee formula is::
+
+        fee = C × p × feeRate × (p × (1 - p)) ^ exponent
+
+    Where:
+    - C = number of shares (quantity)
+    - p = share price
+    - feeRate = fee_rate_bps / 10_000
+    - exponent = 1 for crypto markets, 2 for sports markets
+
+    The fee peaks at p = 0.50 and decreases symmetrically toward the
+    extremes (p → 0 or p → 1).  Maximum effective rate is ~1.56%.
+
     Polymarket rounds fees to 4 decimal places (0.0001 USDC minimum).
+
+    References
+    ----------
+    https://docs.polymarket.com/trading/fees
 
     Parameters
     ----------
     quantity : Decimal
         The fill quantity.
     price : Decimal
-        The fill price.
+        The fill price (0 to 1).
     fee_rate_bps : Decimal
         The fee rate in basis points.
+    fee_exponent : int, default 1
+        The exponent applied to the ``p × (1 - p)`` term.
+        Use 1 for crypto markets, 2 for sports (NCAAB / Serie A).
 
     Returns
     -------
@@ -272,5 +322,9 @@ def calculate_commission(
         The commission amount rounded to 4 decimal places.
 
     """
-    commission = float(quantity * price) * basis_points_as_percentage(fee_rate_bps)
+    if fee_rate_bps <= 0:
+        return 0.0
+    p = float(price)
+    fee_rate = basis_points_as_percentage(fee_rate_bps)
+    commission = float(quantity) * p * fee_rate * (p * (1 - p)) ** fee_exponent
     return round(commission, 4)

@@ -73,6 +73,24 @@ class TearsheetDrawdownChart(TearsheetChart, frozen=True, kw_only=True):
         return "drawdown"
 
 
+class TearsheetPnLChart(TearsheetChart, frozen=True, kw_only=True):
+    @property
+    def name(self) -> str:
+        return "pnl"
+
+
+class TearsheetAllocationChart(TearsheetChart, frozen=True, kw_only=True):
+    @property
+    def name(self) -> str:
+        return "allocation"
+
+
+class TearsheetCumulativeBrierAdvantageChart(TearsheetChart, frozen=True, kw_only=True):
+    @property
+    def name(self) -> str:
+        return "cumulative_brier_advantage"
+
+
 class TearsheetMonthlyReturnsChart(TearsheetChart, frozen=True, kw_only=True):
     @property
     def name(self) -> str:
@@ -102,7 +120,7 @@ class TearsheetBarsWithFillsChart(TearsheetChart, frozen=True, kw_only=True):
     Render `bars_with_fills` for a specific bar type (string form accepted).
     """
 
-    bar_type: str
+    bar_type: str | None = None
 
     @property
     def name(self) -> str:
@@ -137,11 +155,11 @@ def _default_charts() -> list[TearsheetChart]:
         TearsheetRunInfoChart(),
         TearsheetStatsTableChart(),
         TearsheetEquityChart(),
+        TearsheetPnLChart(),
         TearsheetDrawdownChart(),
-        TearsheetMonthlyReturnsChart(),
-        TearsheetDistributionChart(),
-        TearsheetRollingSharpeChart(),
-        TearsheetYearlyReturnsChart(),
+        TearsheetAllocationChart(),
+        TearsheetBarsWithFillsChart(),
+        TearsheetCumulativeBrierAdvantageChart(),
     ]
 
 

@@ -13,6 +13,7 @@
 #  limitations under the License.
 # -------------------------------------------------------------------------------------------------
 
+import re
 import time
 from datetime import datetime
 from datetime import timedelta
@@ -747,8 +748,13 @@ class TestTestClock:
         assert "alert time" in error_msg
         assert "was in the past" in error_msg
         assert "current time is" in error_msg
-        # Should contain ISO format timestamps
-        assert "1970-01-01" in error_msg  # Both timestamps should be from epoch
+        timestamps = re.findall(
+            r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:[+-]\d{2}:\d{2})?",
+            error_msg,
+        )
+        assert len(timestamps) == 2
+        parsed = [datetime.fromisoformat(ts) for ts in timestamps]
+        assert (parsed[1] - parsed[0]).total_seconds() == 1.0
 
 
 class TestLiveClock:

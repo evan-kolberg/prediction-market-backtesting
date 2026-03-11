@@ -10,40 +10,25 @@ Backtesting framework for prediction market trading strategies on [Kalshi](https
 
 > Miss the old engine? See the [`legacy`](https://github.com/evan-kolberg/prediction-market-backtesting/tree/legacy) branch. Though, I don't recommend you continue using that one. 
 
---
-## In the works:
-- [ ] fee modeling [PR#4](https://github.com/ben-gramling/nautilus_pm/pull/4)
-- [ ] much better & informative charting [PR#5](https://github.com/ben-gramling/nautilus_pm/pull/5)
 
+## NEW
 
----
+Fantastic single & multi-market charting. Featuring: equity (total & individual markets), profit / loss ticks, P&L periodic bars, market allocation, YES price (with green buy and red sell fills), drawdown, sharpe (with above/below shading), cash / equity, monthly returns, and cumulative brier advantage.
+![Image](https://github.com/user-attachments/assets/e9b00915-9413-42d8-aeff-c2bde627c3d8)
+
 
 ## Table of Contents
 
-- [Architecture](#architecture)
 - [Setup](#setup)
-- [Writing a Strategy](#writing-a-strategy)
-- [Running a Backtest](#running-a-backtest)
+- [Writing Strategies and Backtests](#writing-strategies-and-backtests)
+- [Running Backtests](#running-backtests)
+- [Plotting](#plotting)
 - [Testing](#testing)
+- [Updating the Subtree](#updating-the-subtree)
 - [Roadmap](#roadmap)
 - [Known Issues](#known-issues)
 - [License](#license)
 
----
-
-## Architecture
-
-This repo uses [nautilus_pm](https://github.com/ben-gramling/nautilus_pm) as a git subtree — a fork of NautilusTrader with custom Kalshi and Polymarket adapters. Data is fetched via REST APIs (no more 50 GB downloads like the [`legacy`](https://github.com/evan-kolberg/prediction-market-backtesting/tree/legacy) branch).
-
-
-### Strategy Approaches
-
-| Strategy | Exchange | Data | Engine |
-|---|---|---|---|
-| `kalshi_ema_cross` | Kalshi | Minute OHLCV bars via REST → Parquet catalog | `BacktestNode` |
-| `polymarket_ema_cross` | Polymarket | Trade ticks via REST → in-memory | `BacktestEngine` |
-
-> These are examples that you can take a look at. For obvious reasons, winning strategies won't be pushed to the repo to be shared publically.
 
 ## Setup
 
@@ -65,14 +50,35 @@ unset CONDA_PREFIX
 # create a venv and install everything
 # compiling the rust & cython extensions will take a hot minute
 uv venv --python 3.13
-uv pip install -e nautilus_pm/ bokeh numpy py-clob-client
+uv pip install -e nautilus_pm/ bokeh plotly numpy py-clob-client
 ```
 
-After this, use `uv run python <script>` to run anything — no manual `source .venv/bin/activate` needed.
+You can also use:
 
-## Writing a Strategy
+```bash
+make install
+```
 
-Create a `.py` file in `strategies/` (for example strategies) or `private_strategies/` (for strategies you want to keep off git). It must expose three things at module level:
+After setup, use `uv run python <script>` to run anything. No manual `source .venv/bin/activate` is needed.
+
+## Writing Strategies and Backtests
+
+This repo now has a hard split:
+
+- `strategies/` contains reusable strategy classes and configs.
+- `strategies/private/` is for git-ignored local strategy modules.
+- `backtests/` contains runnable backtest entrypoints and orchestration helpers.
+- `backtests/private/` is for git-ignored local backtest runners.
+
+Good public examples:
+
+- Reusable EMA strategy logic: [`strategies/ema_crossover.py`](strategies/ema_crossover.py)
+- Reusable final-period momentum logic: [`strategies/final_period_momentum.py`](strategies/final_period_momentum.py)
+- Kalshi runner using a root strategy module: [`backtests/kalshi_breakout.py`](backtests/kalshi_breakout.py)
+- Polymarket runner using a root strategy module: [`backtests/polymarket_vwap_reversion.py`](backtests/polymarket_vwap_reversion.py)
+- Public multi-market runner: [`backtests/polymarket_sports_final_period_momentum.py`](backtests/polymarket_sports_final_period_momentum.py)
+
+Backtest entrypoints should expose three things at module level:
 
 ```python
 NAME = "my_strategy"           # shown in the menu
@@ -82,20 +88,75 @@ async def run() -> None:       # called when selected
     ...
 ```
 
-Inside `run()`, fetch data, configure a backtest engine, and run it. Two patterns are available:
+Use the root `strategies` package for signal logic, then import that logic into a thin backtest runner. Export new reusable configs and classes from [`strategies/__init__.py`](strategies/__init__.py) so runners can import them cleanly.
 
-- **Bar data (Kalshi)** — `BacktestNode` + `ParquetDataCatalog`. See [`strategies/kalshi_ema_cross.py`](strategies/kalshi_ema_cross.py).
-- **Trade tick data (Polymarket)** — `BacktestEngine` with in-memory data. See [`strategies/polymarket_ema_cross.py`](strategies/polymarket_ema_cross.py).
+Two common runner patterns already exist:
 
-For custom strategy logic, subclass `Strategy` and `StrategyConfig` from `nautilus_trader.trading.strategy`.
+- Kalshi bar backtests via [`backtests/_kalshi_single_market_runner.py`](backtests/_kalshi_single_market_runner.py)
+- Polymarket trade-tick backtests via [`backtests/_polymarket_single_market_runner.py`](backtests/_polymarket_single_market_runner.py)
 
-## Running a Backtest
+## Running Backtests
+
+Interactive menu:
 
 ```bash
 make backtest
 ```
 
-This starts `main.py`, which scans `strategies/` and `private_strategies/`, shows a numbered menu, and runs the selected strategy. Equivalent to `uv run python main.py`.
+Any module in `backtests/` or `backtests/private/` with `NAME`, `DESCRIPTION`, and `async def run()` shows up here.
+
+Equivalent direct command:
+
+```bash
+uv run python main.py
+```
+
+Direct script execution is usually better once you know which runner you want:
+
+```bash
+MARKET_TICKER=KXNEXTIRANLEADER-45JAN01-MKHA uv run python backtests/kalshi_breakout.py
+MARKET_SLUG=will-openai-launch-a-new-consumer-hardware-product-by-march-31-2026 uv run python backtests/polymarket_vwap_reversion.py
+MARKET_SLUGS=nfl-was-gb-2025-09-11,nfl-nyj-cin-2025-10-26 TARGET_RESULTS=2 uv run python backtests/polymarket_sports_final_period_momentum.py
+```
+
+These hit live APIs. Expect latency and rate limits.
+
+Most runners are configured through environment variables. Common ones:
+
+- `MARKET_TICKER` for Kalshi single-market runners
+- `MARKET_SLUG` for Polymarket single-market runners
+- `LOOKBACK_DAYS` for data window size
+- `TRADE_SIZE` and `INITIAL_CASH` for sizing
+- `TARGET_RESULTS` for multi-market runners
+
+## Plotting
+
+Single-market plotting is built into the shared runner flow used by the public prediction-market backtests. Good examples:
+
+- [`backtests/kalshi_breakout.py`](backtests/kalshi_breakout.py)
+- [`backtests/kalshi_panic_fade.py`](backtests/kalshi_panic_fade.py)
+- [`backtests/polymarket_panic_fade.py`](backtests/polymarket_panic_fade.py)
+- [`backtests/polymarket_vwap_reversion.py`](backtests/polymarket_vwap_reversion.py)
+
+These write HTML charts to `output/`, typically with names like `output/<backtest>_<market>_legacy.html`.
+
+Multi-market plotting example:
+
+- [`backtests/polymarket_sports_final_period_momentum.py`](backtests/polymarket_sports_final_period_momentum.py)
+
+By default that script:
+
+- runs repeated single-market backtests,
+- writes per-market legacy charts to `output/`, and
+- writes an aggregate multi-market chart to `output/polymarket_sports_final_period_momentum_multi_market.html`.
+
+Optional combined-report output is available with:
+
+```bash
+COMBINED_REPORT=true uv run python backtests/polymarket_sports_final_period_momentum.py
+```
+
+That writes `output/polymarket_sports_final_period_momentum_combined_legacy.html`.
 
 ## Testing
 
@@ -103,7 +164,7 @@ This starts `main.py`, which scans `strategies/` and `private_strategies/`, show
 make test
 ```
 
-Runs the end-to-end test suite against the live APIs. Each test redirects file outputs (catalogs, tearsheets) to an isolated pytest temp directory so nothing in the working tree is mutated.
+Runs the end-to-end test suite against the live APIs. Each test redirects generated legacy-chart output to an isolated pytest temp directory so nothing in the working tree is mutated.
 
 ## Updating the Subtree
 
@@ -111,20 +172,21 @@ Runs the end-to-end test suite against the live APIs. Each test redirects file o
 make update
 ```
 
-Unlike git submodules, subtrees copy upstream code directly into this repo — there's no live link. `make update` runs `git subtree pull` against the upstream `nautilus_pm` repo.
+Unlike git submodules, subtrees copy upstream code directly into this repo — there's no live link. `make update` currently pulls the upstream `nautilus_pm` `charting` branch.
 
 ## Roadmap
 
-- [ ] mult-market support witin strategies
 - [ ] live paper trading mode
-- [ ] better position sizing capabilities
-- [ ] fee modeling *** exchange fees, maker/taker fees, etc
-- [ ] slippage modeling ***
-- [ ] liquidity aware sizing
+- [ ] live trading (thinking of [pmxt](https://github.com/pmxt-dev/pmxt))
+- [x] multi-market support within strategies
+- [x] better position sizing capabilities
+- [x] fee modeling, slippage modeling *** exchange fees, maker/taker fees, etc [PR#4](https://github.com/ben-gramling/nautilus_pm/pull/4)
+- [x] much better & informative charting [PR#5](https://github.com/ben-gramling/nautilus_pm/pull/5)
 
 ## Known Issues
 
-- [ ] the API's rate limit a lot, and this can get annoying when running backtests on many markets.
+- [ ] APIs rate-limit a lot. Kalshi seems worse.
+- [ ] just found this: ```[ERROR] BACKTESTER-001.BacktestEngine: Stopping backtest from AccountBalanceNegative(balance=-4.223222, currency=USDC.e)``` will investigate soon
 
 ## License
 
