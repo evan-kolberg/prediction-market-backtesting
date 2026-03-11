@@ -23,11 +23,17 @@ from nautilus_trader.adapters.polymarket.common.market_selection import closed_t
 from nautilus_trader.adapters.polymarket.common.market_selection import end_date_utc
 from nautilus_trader.adapters.polymarket.research import analyze_market_trade_window
 from nautilus_trader.adapters.polymarket.research import discover_live_sports_markets
-from nautilus_trader.adapters.polymarket.research import discover_resolved_sports_markets
+from nautilus_trader.adapters.polymarket.research import (
+    discover_resolved_sports_markets,
+)
 from nautilus_trader.adapters.polymarket.research import fetch_market_by_slug
 from nautilus_trader.adapters.prediction_market.research import print_backtest_summary
-from nautilus_trader.adapters.prediction_market.research import save_aggregate_backtest_report
-from nautilus_trader.adapters.prediction_market.research import save_combined_backtest_report
+from nautilus_trader.adapters.prediction_market.research import (
+    save_aggregate_backtest_report,
+)
+from nautilus_trader.adapters.prediction_market.research import (
+    save_combined_backtest_report,
+)
 from nautilus_trader.core import nautilus_pyo3
 from strategies import (
     TradeTickFinalPeriodMomentumConfig,
@@ -180,8 +186,12 @@ async def _select_markets(*, candidate_limit: int) -> list[dict]:
 
 
 async def run() -> None:
-    target_results = min(TARGET_RESULTS, len(MARKET_SLUGS)) if MARKET_SLUGS else TARGET_RESULTS
-    candidate_budget = max(CANDIDATE_LIMIT, target_results * DISCOVERY_CANDIDATE_MULTIPLIER)
+    target_results = (
+        min(TARGET_RESULTS, len(MARKET_SLUGS)) if MARKET_SLUGS else TARGET_RESULTS
+    )
+    candidate_budget = max(
+        CANDIDATE_LIMIT, target_results * DISCOVERY_CANDIDATE_MULTIPLIER
+    )
     if not MARKET_SLUGS:
         candidate_budget = min(candidate_budget, MAX_DISCOVERY_RESULTS)
 
@@ -241,8 +251,16 @@ async def run() -> None:
                 print(f"Skip {slug}: market close time unavailable")
                 continue
 
-            first_text = f"{float(first_activation_price):.2f}" if first_activation_price is not None else "n/a"
-            max_text = f"{float(max_activation_price):.2f}" if max_activation_price is not None else "n/a"
+            first_text = (
+                f"{float(first_activation_price):.2f}"
+                if first_activation_price is not None
+                else "n/a"
+            )
+            max_text = (
+                f"{float(max_activation_price):.2f}"
+                if max_activation_price is not None
+                else "n/a"
+            )
             print(
                 f"Running {slug} on token_index={token_index} "
                 f"outcome={token_outcome or 'n/a'} "
@@ -301,7 +319,9 @@ async def run() -> None:
         candidate_budget = min(candidate_budget + DISCOVERY_STEP, MAX_DISCOVERY_RESULTS)
 
     if not results:
-        print("No Polymarket sports markets had sufficient data for the current filters.")
+        print(
+            "No Polymarket sports markets had sufficient data for the current filters."
+        )
         return
 
     if len(results) < target_results:

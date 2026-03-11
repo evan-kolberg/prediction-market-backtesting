@@ -22,10 +22,18 @@ import pandas as pd
 from nautilus_trader.adapters.polymarket import POLYMARKET_VENUE
 from nautilus_trader.adapters.polymarket import PolymarketDataLoader
 from nautilus_trader.adapters.polymarket.fee_model import PolymarketFeeModel
-from nautilus_trader.adapters.prediction_market.backtest_utils import build_market_prices
-from nautilus_trader.adapters.prediction_market.backtest_utils import extract_price_points
-from nautilus_trader.adapters.prediction_market.backtest_utils import extract_realized_pnl
-from nautilus_trader.adapters.prediction_market.backtest_utils import infer_realized_outcome
+from nautilus_trader.adapters.prediction_market.backtest_utils import (
+    build_market_prices,
+)
+from nautilus_trader.adapters.prediction_market.backtest_utils import (
+    extract_price_points,
+)
+from nautilus_trader.adapters.prediction_market.backtest_utils import (
+    extract_realized_pnl,
+)
+from nautilus_trader.adapters.prediction_market.backtest_utils import (
+    infer_realized_outcome,
+)
 from nautilus_trader.analysis.legacy_plot_adapter import create_legacy_backtest_chart
 from nautilus_trader.backtest.config import BacktestEngineConfig
 from nautilus_trader.backtest.engine import BacktestEngine
@@ -83,11 +91,19 @@ def _build_probability_frame(
             continue
         rows.append((ts, float(tick.price)))
 
-    frame = pd.DataFrame(rows, columns=["ts", "market_probability"]) if rows else pd.DataFrame()
+    frame = (
+        pd.DataFrame(rows, columns=["ts", "market_probability"])
+        if rows
+        else pd.DataFrame()
+    )
     if frame.empty:
         return frame
 
-    frame = frame.sort_values("ts").drop_duplicates(subset=["ts"], keep="last").set_index("ts")
+    frame = (
+        frame.sort_values("ts")
+        .drop_duplicates(subset=["ts"], keep="last")
+        .set_index("ts")
+    )
     frame["market_probability"] = frame["market_probability"].clip(0.0, 1.0)
 
     signal_mask = frame["market_probability"] <= entry_price_max

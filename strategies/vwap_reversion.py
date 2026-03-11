@@ -43,7 +43,9 @@ class TradeTickVWAPReversionStrategy(LongOnlyPredictionMarketStrategy):
 
     def __init__(self, config: TradeTickVWAPReversionConfig) -> None:
         super().__init__(config)
-        self._window: deque[tuple[float, float]] = deque(maxlen=int(self.config.vwap_window))
+        self._window: deque[tuple[float, float]] = deque(
+            maxlen=int(self.config.vwap_window)
+        )
         self._weighted_sum: float = 0.0
         self._size_sum: float = 0.0
 

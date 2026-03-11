@@ -14,7 +14,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: astral-sh/ruff-action@v3
         with:
+          version: "0.15.5"
           args: check --exclude nautilus_pm
       - uses: astral-sh/ruff-action@v3
         with:
+          version: "0.15.5"
           args: format --check --exclude nautilus_pm

@@ -128,7 +128,9 @@ async def run_single_market_bar_backtest(
     if closes:
         price_range = max(closes) - min(closes)
         if price_range < min_price_range:
-            print(f"Skip {market_ticker}: price range {price_range:.3f} < {min_price_range:.3f}")
+            print(
+                f"Skip {market_ticker}: price range {price_range:.3f} < {min_price_range:.3f}"
+            )
             return
 
     if not bars:

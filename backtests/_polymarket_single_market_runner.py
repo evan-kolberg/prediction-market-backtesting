@@ -71,7 +71,9 @@ async def run_single_market_trade_backtest(
     if prices:
         price_range = max(prices) - min(prices)
         if price_range < min_price_range:
-            print(f"Skip {market_slug}: price range {price_range:.3f} < {min_price_range:.3f}")
+            print(
+                f"Skip {market_slug}: price range {price_range:.3f} < {min_price_range:.3f}"
+            )
             return
 
     if not trades:

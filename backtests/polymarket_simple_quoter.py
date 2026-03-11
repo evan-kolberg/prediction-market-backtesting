@@ -40,7 +40,9 @@ from nautilus_trader.adapters.polymarket.fee_model import PolymarketFeeModel
 from nautilus_trader.backtest.config import BacktestEngineConfig
 from nautilus_trader.backtest.engine import BacktestEngine
 from nautilus_trader.examples.strategies.ema_cross_long_only import EMACrossLongOnly
-from nautilus_trader.examples.strategies.ema_cross_long_only import EMACrossLongOnlyConfig
+from nautilus_trader.examples.strategies.ema_cross_long_only import (
+    EMACrossLongOnlyConfig,
+)
 from nautilus_trader.model.currencies import USDC_POS
 from nautilus_trader.model.data import BarType
 from nautilus_trader.model.enums import AccountType

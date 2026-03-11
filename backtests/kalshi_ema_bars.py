@@ -114,7 +114,9 @@ async def fetch_and_catalog() -> None:
     catalog.write_data([loader.instrument])
     catalog.write_data(bars)
 
-    print(f"Wrote instrument {loader.instrument.id} and {len(bars)} bars to {CATALOG_PATH}")
+    print(
+        f"Wrote instrument {loader.instrument.id} and {len(bars)} bars to {CATALOG_PATH}"
+    )
 
 
 def run_backtest() -> None:

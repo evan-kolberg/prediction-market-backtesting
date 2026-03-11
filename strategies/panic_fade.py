@@ -86,7 +86,9 @@ class _PanicFadeBase(LongOnlyPredictionMarketStrategy):
                 return
             peak = max(self._prices)
             drop = peak - price
-            if price <= float(self.config.panic_price) and drop >= float(self.config.min_drop):
+            if price <= float(self.config.panic_price) and drop >= float(
+                self.config.min_drop
+            ):
                 self._submit_entry()
             return
 

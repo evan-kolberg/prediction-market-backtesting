@@ -96,7 +96,9 @@ class _FinalPeriodMomentumBase(LongOnlyPredictionMarketStrategy):
             self._submit_exit()
             return
 
-        if price >= float(self.config.take_profit_price) or price <= float(self.config.stop_loss_price):
+        if price >= float(self.config.take_profit_price) or price <= float(
+            self.config.stop_loss_price
+        ):
             self._submit_exit()
 
     def on_reset(self) -> None:

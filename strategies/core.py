@@ -45,7 +45,9 @@ class LongOnlyPredictionMarketStrategy(Strategy):
     def on_start(self) -> None:
         self._instrument = self.cache.instrument(self.config.instrument_id)
         if self._instrument is None:
-            self.log.error(f"Instrument {self.config.instrument_id} not found - stopping.")
+            self.log.error(
+                f"Instrument {self.config.instrument_id} not found - stopping."
+            )
             self.stop()
             return
         self._subscribe()

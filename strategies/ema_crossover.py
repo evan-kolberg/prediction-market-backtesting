@@ -68,7 +68,9 @@ class _EMACrossoverBase(LongOnlyPredictionMarketStrategy):
         self._fast_ema: float | None = None
         self._slow_ema: float | None = None
         self._warmup: int = 0
-        self._warmup_needed = max(int(self.config.fast_period), int(self.config.slow_period))
+        self._warmup_needed = max(
+            int(self.config.fast_period), int(self.config.slow_period)
+        )
         self._alpha_fast = 2.0 / (float(self.config.fast_period) + 1.0)
         self._alpha_slow = 2.0 / (float(self.config.slow_period) + 1.0)
 
@@ -79,8 +81,12 @@ class _EMACrossoverBase(LongOnlyPredictionMarketStrategy):
             self._warmup = 1
             return
 
-        self._fast_ema = self._alpha_fast * price + (1.0 - self._alpha_fast) * self._fast_ema
-        self._slow_ema = self._alpha_slow * price + (1.0 - self._alpha_slow) * self._slow_ema
+        self._fast_ema = (
+            self._alpha_fast * price + (1.0 - self._alpha_fast) * self._fast_ema
+        )
+        self._slow_ema = (
+            self._alpha_slow * price + (1.0 - self._alpha_slow) * self._slow_ema
+        )
         self._warmup += 1
 
         if self._warmup < self._warmup_needed or self._pending:
