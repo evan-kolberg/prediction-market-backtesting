@@ -27,12 +27,16 @@ Data sources:
 """
 
 import asyncio
+import os
+import sys
 from decimal import Decimal
+from pathlib import Path
 
 import pandas as pd
 
 from nautilus_trader.adapters.polymarket import POLYMARKET_VENUE
 from nautilus_trader.adapters.polymarket import PolymarketDataLoader
+from nautilus_trader.adapters.polymarket.fee_model import PolymarketFeeModel
 from nautilus_trader.backtest.config import BacktestEngineConfig
 from nautilus_trader.backtest.engine import BacktestEngine
 from nautilus_trader.examples.strategies.ema_cross_long_only import EMACrossLongOnly
@@ -45,12 +49,30 @@ from nautilus_trader.model.identifiers import TraderId
 from nautilus_trader.model.objects import Money
 
 
+try:
+    from _defaults import DEFAULT_INITIAL_CASH
+    from _defaults import DEFAULT_POLYMARKET_MARKET_SLUG
+except ModuleNotFoundError:
+    _THIS_DIR = Path(__file__).resolve().parent
+    if str(_THIS_DIR) not in sys.path:
+        sys.path.insert(0, str(_THIS_DIR))
+    from _defaults import DEFAULT_INITIAL_CASH
+    from _defaults import DEFAULT_POLYMARKET_MARKET_SLUG
+
+
 # Market slug to fetch data for
 # To find active markets, run:
 #   python nautilus_trader/adapters/polymarket/scripts/active_markets.py
 # To find BTC/ETH UpDown markets specifically, run:
 #   python nautilus_trader/adapters/polymarket/scripts/list_updown_markets.py
-MARKET_SLUG = "gta-vi-released-before-june-2026"
+MARKET_SLUG = os.getenv(
+    "MARKET_SLUG",
+    DEFAULT_POLYMARKET_MARKET_SLUG,
+)
+
+# ── Strategy metadata (shown in the menu) ────────────────────────────────────
+NAME = "polymarket_simple_quoter"
+DESCRIPTION = "Load one Polymarket market and run an EMA long-only backtest"
 
 
 async def run_backtest(
@@ -91,7 +113,8 @@ async def run_backtest(
         oms_type=OmsType.NETTING,
         account_type=AccountType.CASH,
         base_currency=USDC_POS,
-        starting_balances=[Money(10_000, USDC_POS)],
+        starting_balances=[Money(DEFAULT_INITIAL_CASH, USDC_POS)],
+        fee_model=PolymarketFeeModel(),
     )
 
     # Add instrument and data
@@ -136,13 +159,13 @@ async def run_backtest(
     engine.dispose()
 
 
+async def run() -> None:
+    await run_backtest(market_slug=MARKET_SLUG)
+
+
 if __name__ == "__main__":
     try:
-        asyncio.run(
-            run_backtest(
-                market_slug=MARKET_SLUG,
-            ),
-        )
+        asyncio.run(run())
     except Exception as e:
         print(f"Error running backtest: {e}")
         raise
