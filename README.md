@@ -10,12 +10,10 @@ Backtesting framework for prediction market trading strategies on [Kalshi](https
 
 > Miss the old engine? See the [`legacy`](https://github.com/evan-kolberg/prediction-market-backtesting/tree/legacy) branch. Though, I don't recommend you continue using that one. 
 
-
-## NEW
-
 Fantastic single & multi-market charting. Featuring: equity (total & individual markets), profit / loss ticks, P&L periodic bars, market allocation, YES price (with green buy and red sell fills), drawdown, sharpe (with above/below shading), cash / equity, monthly returns, and cumulative brier advantage.
 ![Image](https://github.com/user-attachments/assets/e9b00915-9413-42d8-aeff-c2bde627c3d8)
 
+> IMPORTANT: Currently, there's no large public source of historical order book history for Kalshi and Polymarket, so these backtests cannot truly simulate fills correctly. Please take all backtests with a grain of salt. PMXT is currently working creating a public data set that updates hourly; but until then, there isn't much we can do about this. When it gets released, the plan is to simulate fills in this manner: look at the most recent order book snapshot (within an hour) for a given market, then subtract subsequent trades past that time to create a liquidity ceiling. This will prevent backtests from being optimistic. 
 
 ## Table of Contents
 
@@ -215,10 +213,9 @@ Unlike git submodules, subtrees copy upstream code directly into this repo — t
 ## Roadmap
 
 - [ ] live paper trading mode
-- [ ] live trading (thinking of [pmxt](https://github.com/pmxt-dev/pmxt))
 - [x] multi-market support within strategies
 - [x] better position sizing capabilities
-- [x] fee modeling, slippage modeling *** exchange fees, maker/taker fees, etc [PR#4](https://github.com/ben-gramling/nautilus_pm/pull/4), [PR#6](https://github.com/ben-gramling/nautilus_pm/pull/6)
+- [ ] fee modeling, slippage modeling *** exchange fees, maker/taker fees, etc [PR#4](https://github.com/ben-gramling/nautilus_pm/pull/4), [PR#6](https://github.com/ben-gramling/nautilus_pm/pull/6) 
 - [x] much better & informative charting [PR#5](https://github.com/ben-gramling/nautilus_pm/pull/5)
 
 > Note: i'm still not entirely positive that slippage was implemented correctly. i aimed for a conservative approach, and supposedly there are slippage limits on these platforms, but still remains a challenge to model properly. TLDR; pain in the ass.
