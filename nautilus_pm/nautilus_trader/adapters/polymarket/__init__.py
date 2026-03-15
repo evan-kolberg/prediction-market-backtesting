@@ -40,6 +40,7 @@ from nautilus_trader.adapters.polymarket.factories import PolymarketLiveExecClie
 from nautilus_trader.adapters.polymarket.factories import get_polymarket_http_client
 from nautilus_trader.adapters.polymarket.factories import get_polymarket_instrument_provider
 from nautilus_trader.adapters.polymarket.loaders import PolymarketDataLoader
+from nautilus_trader.adapters.polymarket.pmxt import PolymarketPMXTDataLoader
 from nautilus_trader.adapters.polymarket.providers import PolymarketInstrumentProvider
 
 
@@ -53,6 +54,7 @@ __all__ = [
     "POLYMARKET_VENUE",
     "PolymarketDataClientConfig",
     "PolymarketDataLoader",
+    "PolymarketPMXTDataLoader",
     "PolymarketExecClientConfig",
     "PolymarketInstrumentProvider",
     "PolymarketLiveDataClientFactory",

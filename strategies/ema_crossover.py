@@ -22,6 +22,7 @@ from strategies.core import (
 )
 from nautilus_trader.model.data import Bar
 from nautilus_trader.model.data import BarType
+from nautilus_trader.model.data import QuoteTick
 from nautilus_trader.model.data import TradeTick
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.trading.strategy import StrategyConfig
@@ -49,6 +50,16 @@ class BarEMACrossoverConfig(StrategyConfig, frozen=True):  # type: ignore[call-a
 
 
 class TradeTickEMACrossoverConfig(StrategyConfig, frozen=True):  # type: ignore[call-arg]
+    instrument_id: InstrumentId
+    trade_size: Decimal = Decimal(1)
+    fast_period: int = 20
+    slow_period: int = 60
+    entry_buffer: float = 0.0
+    take_profit: float = 0.0
+    stop_loss: float = 0.0
+
+
+class QuoteTickEMACrossoverConfig(StrategyConfig, frozen=True):  # type: ignore[call-arg]
     instrument_id: InstrumentId
     trade_size: Decimal = Decimal(1)
     fast_period: int = 20
@@ -131,3 +142,11 @@ class TradeTickEMACrossoverStrategy(_EMACrossoverBase):
 
     def on_trade_tick(self, tick: TradeTick) -> None:
         self._on_price(float(tick.price))
+
+
+class QuoteTickEMACrossoverStrategy(_EMACrossoverBase):
+    def _subscribe(self) -> None:
+        self.subscribe_quote_ticks(self.config.instrument_id)
+
+    def on_quote_tick(self, tick: QuoteTick) -> None:
+        self._on_price((float(tick.bid_price) + float(tick.ask_price)) / 2.0)

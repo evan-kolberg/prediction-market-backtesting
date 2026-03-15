@@ -38,6 +38,7 @@ from nautilus_trader.backtest.config import BacktestEngineConfig
 from nautilus_trader.backtest.engine import BacktestEngine
 from nautilus_trader.config import LoggingConfig
 from nautilus_trader.model.enums import AccountType
+from nautilus_trader.model.enums import BookType
 from nautilus_trader.model.enums import OmsType
 from nautilus_trader.model.identifiers import TraderId
 from nautilus_trader.model.identifiers import Venue
@@ -310,10 +311,12 @@ def run_market_backtest(
     base_currency: Currency,
     fee_model: Any,
     fill_model: Any | None = None,
+    apply_default_fill_model: bool = True,
     initial_cash: float,
     probability_window: int,
     price_attr: str,
     count_key: str,
+    data_count: int | None = None,
     chart_resample_rule: str | None = None,
     market_key: str = "market",
     open_browser: bool = False,
@@ -321,6 +324,9 @@ def run_market_backtest(
     return_chart_layout: bool = False,
     return_summary_series: bool = False,
     chart_output_path: str | Path | None = None,
+    book_type: BookType = BookType.L1_MBP,
+    liquidity_consumption: bool = False,
+    queue_position: bool = False,
 ) -> dict[str, Any]:
     """
     Run one prediction-market backtest and emit a legacy chart.
@@ -331,7 +337,7 @@ def run_market_backtest(
     default to approximate slippage. Callers can override this with a custom
     ``fill_model`` if needed.
     """
-    if fill_model is None:
+    if fill_model is None and apply_default_fill_model:
         fill_model = PredictionMarketTakerFillModel()
 
     engine = BacktestEngine(
@@ -349,9 +355,12 @@ def run_market_backtest(
         starting_balances=[Money(initial_cash, base_currency)],
         fill_model=fill_model,
         fee_model=fee_model,
+        book_type=book_type,
+        liquidity_consumption=liquidity_consumption,
+        queue_position=queue_position,
     )
     engine.add_instrument(instrument)
-    engine.add_data(list(data))
+    engine.add_data(data if isinstance(data, list) else list(data))
     engine.add_strategy(strategy)
     engine.run()
 
@@ -446,7 +455,7 @@ def run_market_backtest(
 
     result = {
         market_key: market_id,
-        count_key: len(data),
+        count_key: int(data_count) if data_count is not None else len(data),
         "fills": len(fills),
         "pnl": pnl,
     }

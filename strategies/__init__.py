@@ -33,6 +33,12 @@ from strategies.ema_crossover import (
     BarEMACrossoverStrategy,
 )
 from strategies.ema_crossover import (
+    QuoteTickEMACrossoverConfig,
+)
+from strategies.ema_crossover import (
+    QuoteTickEMACrossoverStrategy,
+)
+from strategies.ema_crossover import (
     TradeTickEMACrossoverConfig,
 )
 from strategies.ema_crossover import (
@@ -113,6 +119,8 @@ __all__ = [
     "BarBreakoutStrategy",
     "BarEMACrossoverConfig",
     "BarEMACrossoverStrategy",
+    "QuoteTickEMACrossoverConfig",
+    "QuoteTickEMACrossoverStrategy",
     "BarFinalPeriodMomentumConfig",
     "BarFinalPeriodMomentumStrategy",
     "BarMeanReversionConfig",

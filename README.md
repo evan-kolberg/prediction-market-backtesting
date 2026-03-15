@@ -13,7 +13,7 @@ Backtesting framework for prediction market trading strategies on [Kalshi](https
 Fantastic single & multi-market charting. Featuring: equity (total & individual markets), profit / loss ticks, P&L periodic bars, market allocation, YES price (with green buy and red sell fills), drawdown, sharpe (with above/below shading), cash / equity, monthly returns, and cumulative brier advantage.
 ![Image](https://github.com/user-attachments/assets/e9b00915-9413-42d8-aeff-c2bde627c3d8)
 
-> IMPORTANT: Currently, there's no large public source of historical order book history for Kalshi and Polymarket, so these backtests cannot truly simulate fills correctly. Please take all backtests with a grain of salt. PMXT is currently working creating a public data set that updates hourly; but until then, there isn't much we can do about this. When it gets released, the plan is to simulate fills in this manner: look at the most recent order book snapshot (within an hour) for a given market, then subtract subsequent trades past that time to create a liquidity ceiling. This will prevent backtests from being optimistic. 
+> IMPORTANT: Kalshi public backtests here are still bar/trade replay only. Polymarket now also has a PMXT-backed historical L2 path which replays hourly PMXT order-book events through NautilusTrader's `L2_MBP` matching engine. That is much better than the old one-tick slippage proxy for taker-style execution, but it still does **not** fully solve passive-order realism because public L2 MBP data does not reveal true queue position. Also, pulling those historical order book archives will cause the backtests to take a long time, especially for multiple markets. 
 
 ## Table of Contents
 
@@ -95,6 +95,7 @@ Two common runner patterns already exist:
 
 - Kalshi bar backtests via [`backtests/_kalshi_single_market_runner.py`](backtests/_kalshi_single_market_runner.py)
 - Polymarket trade-tick backtests via [`backtests/_polymarket_single_market_runner.py`](backtests/_polymarket_single_market_runner.py)
+- Polymarket PMXT L2 backtests via [`backtests/_polymarket_single_market_pmxt_runner.py`](backtests/_polymarket_single_market_pmxt_runner.py)
 
 ## Running Backtests
 
@@ -117,6 +118,7 @@ Direct script execution is usually better once you know which runner you want:
 ```bash
 MARKET_TICKER=KXNEXTIRANLEADER-45JAN01-MKHA uv run python backtests/kalshi_breakout.py
 MARKET_SLUG=will-openai-launch-a-new-consumer-hardware-product-by-march-31-2026 uv run python backtests/polymarket_vwap_reversion.py
+MARKET_SLUG=will-openai-launch-a-new-consumer-hardware-product-by-march-31-2026 END_TIME=2026-03-15T18:00:00Z LOOKBACK_HOURS=4 uv run python -m backtests.polymarket_pmxt_ema_crossover
 MARKET_SLUGS=nfl-was-gb-2025-09-11,nfl-nyj-cin-2025-10-26 TARGET_RESULTS=2 uv run python backtests/polymarket_sports_final_period_momentum.py
 TARGET_RESULTS=50 uv run python -m backtests.polymarket_sports_late_favorite_limit_hold
 ```
@@ -128,6 +130,7 @@ Most runners are configured through environment variables. Common ones:
 - `MARKET_TICKER` for Kalshi single-market runners
 - `MARKET_SLUG` for Polymarket single-market runners
 - `LOOKBACK_DAYS` for data window size
+- `LOOKBACK_HOURS` for PMXT L2 runners
 - `TRADE_SIZE` and `INITIAL_CASH` for sizing
 - `TARGET_RESULTS` for multi-market runners
 
@@ -156,6 +159,9 @@ data are:
 - Kalshi uses one cent as the effective order tick for taker slippage.
 - Limit orders keep the default Nautilus matching behavior and do not get the
   forced one-tick adverse move.
+- PMXT-backed Polymarket L2 backtests do **not** use the synthetic one-tick
+  taker fill model. They replay historical `OrderBookDeltas` with
+  `book_type=L2_MBP` and `liquidity_consumption=True`.
 
 ### Limits
 
@@ -164,6 +170,22 @@ data are:
   exact partial-sweep behavior.
 - Taker-heavy strategies that try to harvest very small price changes can look
   much worse once fees and one-tick slippage are turned on.
+- PMXT improves Polymarket taker fills materially, but passive-order fills are
+  still approximate because public L2 MBP data cannot tell you your exact place
+  in queue.
+
+### PMXT Polymarket L2
+
+- PMXT archive files are large hourly parquet dumps, so PMXT runners default to
+  `LOOKBACK_HOURS` rather than multi-day windows.
+- The loader filters one market ID at parquet-scan time, then filters one token
+  in Python and materializes only that market's `OrderBookDeltas` and derived
+  `QuoteTick` records in memory.
+- Current PMXT archive integration here is quote/book based. The public PMXT
+  example runner therefore uses a quote-driven strategy:
+  [`backtests/polymarket_pmxt_ema_crossover.py`](backtests/polymarket_pmxt_ema_crossover.py)
+
+  <img width="794" height="438" alt="Image" src="https://github.com/user-attachments/assets/a1041d97-161f-44b9-92ec-90cf28140e77" />
 
 ## Plotting
 
@@ -215,15 +237,14 @@ Unlike git submodules, subtrees copy upstream code directly into this repo — t
 - [ ] live paper trading mode
 - [x] multi-market support within strategies
 - [x] better position sizing capabilities
-- [ ] fee modeling, slippage modeling *** exchange fees, maker/taker fees, etc [PR#4](https://github.com/ben-gramling/nautilus_pm/pull/4), [PR#6](https://github.com/ben-gramling/nautilus_pm/pull/6) 
+- [ ] fee modeling, slippage modeling *** exchange fees, maker/taker fees, etc [PR#4](https://github.com/ben-gramling/nautilus_pm/pull/4), [PR#6](https://github.com/ben-gramling/nautilus_pm/pull/6), [PR#9](https://github.com/evan-kolberg/prediction-market-backtesting/pull/9)
 - [x] much better & informative charting [PR#5](https://github.com/ben-gramling/nautilus_pm/pull/5)
 
-> Note: i'm still not entirely positive that slippage was implemented correctly. i aimed for a conservative approach, and supposedly there are slippage limits on these platforms, but still remains a challenge to model properly. TLDR; pain in the ass.
 
 ## Known Issues
 
 - [ ] APIs rate-limit a lot. Kalshi seems worse.
-- [ ] just found this: ```[ERROR] BACKTESTER-001.BacktestEngine: Stopping backtest from AccountBalanceNegative(balance=-4.223222, currency=USDC.e)``` will investigate soon
+- [ ] Pulling L2 data from PMXT archives takes an insane amount of time
 
 ## License
 

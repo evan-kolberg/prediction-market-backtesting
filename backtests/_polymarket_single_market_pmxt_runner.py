@@ -1,0 +1,143 @@
+"""
+Shared runner for single-market Polymarket PMXT L2 backtests.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Callable
+from datetime import UTC
+from datetime import datetime
+from typing import Any
+
+import pandas as pd
+
+from nautilus_trader.adapters.polymarket import POLYMARKET_VENUE
+from nautilus_trader.adapters.polymarket import PolymarketPMXTDataLoader
+from nautilus_trader.adapters.polymarket.fee_model import PolymarketFeeModel
+from nautilus_trader.adapters.prediction_market.backtest_utils import (
+    infer_realized_outcome,
+)
+from nautilus_trader.adapters.prediction_market.research import print_backtest_summary
+from nautilus_trader.adapters.prediction_market.research import run_market_backtest
+from nautilus_trader.model.currencies import USDC_POS
+from nautilus_trader.model.data import QuoteTick
+from nautilus_trader.model.enums import BookType
+from nautilus_trader.model.identifiers import InstrumentId
+from nautilus_trader.trading.strategy import Strategy
+
+
+type StrategyFactory = Callable[[InstrumentId], Strategy]
+
+
+async def run_single_market_pmxt_backtest(
+    *,
+    name: str,
+    market_slug: str,
+    token_index: int = 0,
+    lookback_hours: float,
+    strategy_factory: StrategyFactory,
+    probability_window: int,
+    min_quotes: int = 0,
+    min_price_range: float = 0.0,
+    initial_cash: float = 100.0,
+    chart_resample_rule: str | None = None,
+    emit_summary: bool = True,
+    emit_html: bool = True,
+    return_chart_layout: bool = False,
+    return_summary_series: bool = False,
+    end_time: pd.Timestamp | datetime | None = None,
+) -> dict[str, Any] | None:
+    end = pd.Timestamp(end_time if end_time is not None else datetime.now(UTC))
+    if end.tzinfo is None:
+        end = end.tz_localize(UTC)
+    start = end - pd.Timedelta(hours=lookback_hours)
+
+    print(
+        f"Loading PMXT Polymarket market {market_slug} "
+        f"(token_index={token_index}, lookback={lookback_hours:.1f}h, "
+        f"window_end={end.isoformat()})..."
+    )
+
+    try:
+        loader = await PolymarketPMXTDataLoader.from_market_slug(
+            market_slug,
+            token_index=token_index,
+        )
+        data = loader.load_order_book_and_quotes(start, end)
+    except Exception as exc:
+        print(f"Unable to load PMXT Polymarket market {market_slug}: {exc}")
+        return
+
+    quote_count = 0
+    min_mid_price: float | None = None
+    max_mid_price: float | None = None
+    for record in data:
+        if not isinstance(record, QuoteTick):
+            continue
+        quote_count += 1
+        mid_price = (float(record.bid_price) + float(record.ask_price)) / 2.0
+        min_mid_price = (
+            mid_price if min_mid_price is None else min(min_mid_price, mid_price)
+        )
+        max_mid_price = (
+            mid_price if max_mid_price is None else max(max_mid_price, mid_price)
+        )
+
+    if quote_count < min_quotes:
+        print(f"Skip {market_slug}: {quote_count} quotes < {min_quotes} required")
+        return
+
+    if min_mid_price is not None and max_mid_price is not None:
+        price_range = max_mid_price - min_mid_price
+        if price_range < min_price_range:
+            print(
+                f"Skip {market_slug}: price range {price_range:.3f} < {min_price_range:.3f}"
+            )
+            return
+
+    if not data:
+        print(f"No PMXT events returned for {market_slug}")
+        return
+
+    result = run_market_backtest(
+        market_id=market_slug,
+        instrument=loader.instrument,
+        data=data,
+        strategy=strategy_factory(loader.instrument.id),
+        strategy_name=f"{name}:{market_slug}",
+        output_prefix=name,
+        platform="polymarket",
+        venue=POLYMARKET_VENUE,
+        base_currency=USDC_POS,
+        fee_model=PolymarketFeeModel(),
+        fill_model=None,
+        apply_default_fill_model=False,
+        initial_cash=initial_cash,
+        probability_window=probability_window,
+        price_attr="mid_price",
+        count_key="quotes",
+        data_count=quote_count,
+        chart_resample_rule=chart_resample_rule,
+        market_key="slug",
+        emit_html=emit_html,
+        return_chart_layout=return_chart_layout,
+        return_summary_series=return_summary_series,
+        book_type=BookType.L2_MBP,
+        liquidity_consumption=True,
+    )
+
+    if emit_summary:
+        print_backtest_summary(
+            results=[result],
+            market_key="slug",
+            count_key="quotes",
+            count_label="Quotes",
+            pnl_label="PnL (USDC)",
+        )
+        if emit_html and result.get("chart_path"):
+            print(f"\nLegacy chart saved to {result['chart_path']}")
+
+    result["token_index"] = token_index
+    result["outcome"] = str(loader.instrument.outcome or "")
+    result["realized_outcome"] = infer_realized_outcome(loader.instrument)
+    return result

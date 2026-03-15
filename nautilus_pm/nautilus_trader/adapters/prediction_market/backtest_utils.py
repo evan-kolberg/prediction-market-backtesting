@@ -99,10 +99,20 @@ def extract_price_points(
         if ts_raw is None:
             continue
 
-        try:
-            price = float(getattr(record, price_attr))
-        except (AttributeError, TypeError, ValueError):
-            continue
+        if price_attr == "mid_price":
+            bid_price = getattr(record, "bid_price", None)
+            ask_price = getattr(record, "ask_price", None)
+            if bid_price is None or ask_price is None:
+                continue
+            try:
+                price = (float(bid_price) + float(ask_price)) / 2.0
+            except (TypeError, ValueError):
+                continue
+        else:
+            try:
+                price = float(getattr(record, price_attr))
+            except (AttributeError, TypeError, ValueError):
+                continue
 
         points.append((ts_raw, price))
 
