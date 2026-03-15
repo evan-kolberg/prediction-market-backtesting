@@ -10,12 +10,6 @@ import sys
 from decimal import Decimal
 from pathlib import Path
 
-_THIS_DIR = Path(__file__).resolve().parent
-_REPO_ROOT = _THIS_DIR.parent
-for _path in (_REPO_ROOT, _THIS_DIR):
-    if str(_path) not in sys.path:
-        sys.path.insert(0, str(_path))
-
 from strategies import QuoteTickEMACrossoverConfig
 from strategies import QuoteTickEMACrossoverStrategy
 
@@ -25,6 +19,7 @@ try:
     from _defaults import DEFAULT_POLYMARKET_MARKET_SLUG
     from _polymarket_single_market_pmxt_runner import run_single_market_pmxt_backtest
 except ModuleNotFoundError:
+    _THIS_DIR = Path(__file__).resolve().parent
     if str(_THIS_DIR) not in sys.path:
         sys.path.insert(0, str(_THIS_DIR))
     from _defaults import DEFAULT_INITIAL_CASH
