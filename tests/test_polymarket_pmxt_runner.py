@@ -32,7 +32,12 @@ def test_pmxt_runner_uses_l2_execution_settings(monkeypatch):
 
     def _fake_run_market_backtest(**kwargs):  # type: ignore[no-untyped-def]
         captured.update(kwargs)
-        return {"slug": kwargs["market_id"], "quotes": kwargs["data_count"], "fills": 0, "pnl": 0.0}
+        return {
+            "slug": kwargs["market_id"],
+            "quotes": kwargs["data_count"],
+            "fills": 0,
+            "pnl": 0.0,
+        }
 
     monkeypatch.setattr(pmxt_runner, "QuoteTick", _QuoteStub)
     monkeypatch.setattr(
@@ -53,7 +58,9 @@ def test_pmxt_runner_uses_l2_execution_settings(monkeypatch):
             initial_cash=100.0,
             emit_summary=False,
             emit_html=False,
-            strategy_factory=lambda instrument_id: SimpleNamespace(instrument_id=instrument_id),
+            strategy_factory=lambda instrument_id: SimpleNamespace(
+                instrument_id=instrument_id
+            ),
         ),
     )
 
