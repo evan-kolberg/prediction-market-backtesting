@@ -8,6 +8,7 @@ from strategies.core import (
 )
 from nautilus_trader.model.data import Bar
 from nautilus_trader.model.data import BarType
+from nautilus_trader.model.data import QuoteTick
 from nautilus_trader.model.data import TradeTick
 from nautilus_trader.model.enums import OrderSide
 from nautilus_trader.model.identifiers import InstrumentId
@@ -36,6 +37,16 @@ class BarFinalPeriodMomentumConfig(StrategyConfig, frozen=True):  # type: ignore
 
 
 class TradeTickFinalPeriodMomentumConfig(StrategyConfig, frozen=True):  # type: ignore[call-arg]
+    instrument_id: InstrumentId
+    trade_size: Decimal = Decimal(100)
+    market_close_time_ns: int = 0
+    final_period_minutes: int = 30
+    entry_price: float = 0.80
+    take_profit_price: float = 0.92
+    stop_loss_price: float = 0.50
+
+
+class QuoteTickFinalPeriodMomentumConfig(StrategyConfig, frozen=True):  # type: ignore[call-arg]
     instrument_id: InstrumentId
     trade_size: Decimal = Decimal(100)
     market_close_time_ns: int = 0
@@ -126,3 +137,14 @@ class TradeTickFinalPeriodMomentumStrategy(_FinalPeriodMomentumBase):
 
     def on_trade_tick(self, tick: TradeTick) -> None:
         self._on_price(price=float(tick.price), ts_event_ns=int(tick.ts_event))
+
+
+class QuoteTickFinalPeriodMomentumStrategy(_FinalPeriodMomentumBase):
+    def _subscribe(self) -> None:
+        self.subscribe_quote_ticks(self.config.instrument_id)
+
+    def on_quote_tick(self, tick: QuoteTick) -> None:
+        self._on_price(
+            price=(float(tick.bid_price) + float(tick.ask_price)) / 2.0,
+            ts_event_ns=int(tick.ts_event),
+        )

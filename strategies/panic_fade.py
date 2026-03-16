@@ -23,6 +23,7 @@ from strategies.core import (
 )
 from nautilus_trader.model.data import Bar
 from nautilus_trader.model.data import BarType
+from nautilus_trader.model.data import QuoteTick
 from nautilus_trader.model.data import TradeTick
 from nautilus_trader.model.enums import OrderSide
 from nautilus_trader.model.identifiers import InstrumentId
@@ -55,6 +56,18 @@ class BarPanicFadeConfig(StrategyConfig, frozen=True):  # type: ignore[call-arg]
 
 
 class TradeTickPanicFadeConfig(StrategyConfig, frozen=True):  # type: ignore[call-arg]
+    instrument_id: InstrumentId
+    trade_size: Decimal = Decimal(1)
+    drop_window: int = 80
+    min_drop: float = 0.06
+    panic_price: float = 0.30
+    rebound_exit: float = 0.42
+    max_holding_periods: int = 500
+    take_profit: float = 0.04
+    stop_loss: float = 0.03
+
+
+class QuoteTickPanicFadeConfig(StrategyConfig, frozen=True):  # type: ignore[call-arg]
     instrument_id: InstrumentId
     trade_size: Decimal = Decimal(1)
     drop_window: int = 80
@@ -130,3 +143,11 @@ class TradeTickPanicFadeStrategy(_PanicFadeBase):
 
     def on_trade_tick(self, tick: TradeTick) -> None:
         self._on_price(float(tick.price))
+
+
+class QuoteTickPanicFadeStrategy(_PanicFadeBase):
+    def _subscribe(self) -> None:
+        self.subscribe_quote_ticks(self.config.instrument_id)
+
+    def on_quote_tick(self, tick: QuoteTick) -> None:
+        self._on_price((float(tick.bid_price) + float(tick.ask_price)) / 2.0)

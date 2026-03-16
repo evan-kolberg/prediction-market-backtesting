@@ -20,6 +20,7 @@ from decimal import Decimal
 from strategies.core import (
     LongOnlyPredictionMarketStrategy,
 )
+from nautilus_trader.model.data import QuoteTick
 from nautilus_trader.model.data import TradeTick
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.trading.strategy import StrategyConfig
@@ -36,12 +37,26 @@ class TradeTickVWAPReversionConfig(StrategyConfig, frozen=True):  # type: ignore
     stop_loss: float = 0.02
 
 
-class TradeTickVWAPReversionStrategy(LongOnlyPredictionMarketStrategy):
+class QuoteTickVWAPReversionConfig(StrategyConfig, frozen=True):  # type: ignore[call-arg]
+    instrument_id: InstrumentId
+    trade_size: Decimal = Decimal(1)
+    vwap_window: int = 80
+    entry_threshold: float = 0.008
+    exit_threshold: float = 0.002
+    min_tick_size: float = 0.0
+    take_profit: float = 0.015
+    stop_loss: float = 0.02
+
+
+class _VWAPReversionBase(LongOnlyPredictionMarketStrategy):
     """
     Trade-tick VWAP reversion strategy suited to intraday prediction-market noise.
     """
 
-    def __init__(self, config: TradeTickVWAPReversionConfig) -> None:
+    def __init__(
+        self,
+        config: TradeTickVWAPReversionConfig | QuoteTickVWAPReversionConfig,
+    ) -> None:
         super().__init__(config)
         self._window: deque[tuple[float, float]] = deque(
             maxlen=int(self.config.vwap_window)
@@ -49,10 +64,7 @@ class TradeTickVWAPReversionStrategy(LongOnlyPredictionMarketStrategy):
         self._weighted_sum: float = 0.0
         self._size_sum: float = 0.0
 
-    def _subscribe(self) -> None:
-        self.subscribe_trade_ticks(self.config.instrument_id)
-
-    def _append_tick(self, *, price: float, size: float) -> None:
+    def _append_point(self, *, price: float, size: float) -> None:
         if len(self._window) == self._window.maxlen:
             old_price, old_size = self._window.popleft()
             self._weighted_sum -= old_price * old_size
@@ -62,16 +74,14 @@ class TradeTickVWAPReversionStrategy(LongOnlyPredictionMarketStrategy):
         self._weighted_sum += price * size
         self._size_sum += size
 
-    def on_trade_tick(self, tick: TradeTick) -> None:
+    def _on_price_size(self, *, price: float, size: float) -> None:
         if self._pending:
             return
 
-        price = float(tick.price)
-        size = float(tick.size)
         if size < float(self.config.min_tick_size):
             return
 
-        self._append_tick(price=price, size=size)
+        self._append_point(price=price, size=size)
         if len(self._window) < int(self.config.vwap_window) or self._size_sum <= 0.0:
             return
 
@@ -96,3 +106,26 @@ class TradeTickVWAPReversionStrategy(LongOnlyPredictionMarketStrategy):
         self._window.clear()
         self._weighted_sum = 0.0
         self._size_sum = 0.0
+
+
+class TradeTickVWAPReversionStrategy(_VWAPReversionBase):
+    def _subscribe(self) -> None:
+        self.subscribe_trade_ticks(self.config.instrument_id)
+
+    def on_trade_tick(self, tick: TradeTick) -> None:
+        self._on_price_size(price=float(tick.price), size=float(tick.size))
+
+
+class QuoteTickVWAPReversionStrategy(_VWAPReversionBase):
+    """
+    Quote-tick variant using midpoint price and average top-of-book size as a proxy.
+    """
+
+    def _subscribe(self) -> None:
+        self.subscribe_quote_ticks(self.config.instrument_id)
+
+    def on_quote_tick(self, tick: QuoteTick) -> None:
+        self._on_price_size(
+            price=(float(tick.bid_price) + float(tick.ask_price)) / 2.0,
+            size=(float(tick.bid_size) + float(tick.ask_size)) / 2.0,
+        )

@@ -6,7 +6,7 @@
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE) [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/charliermarsh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff) [![uv](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json)](https://github.com/astral-sh/uv) ![Python](https://img.shields.io/badge/python-3.12%2B-3776AB?logo=python&logoColor=white) ![Rust](https://img.shields.io/badge/rust-1.93.1-CE422B?logo=rust&logoColor=white) ![Rust Edition](https://img.shields.io/badge/edition-2024-CE422B?logo=rust&logoColor=white) ![NautilusTrader](https://img.shields.io/badge/NautilusTrader-1.224.0-1E3A5F) ![GitHub last commit](https://img.shields.io/github/last-commit/evan-kolberg/prediction-market-backtesting) ![GitHub commit activity](https://img.shields.io/github/commit-activity/m/evan-kolberg/prediction-market-backtesting) ![GitHub code size](https://img.shields.io/github/languages/code-size/evan-kolberg/prediction-market-backtesting) ![GitHub top language](https://img.shields.io/github/languages/top/evan-kolberg/prediction-market-backtesting) ![GitHub open issues](https://img.shields.io/github/issues/evan-kolberg/prediction-market-backtesting)
 
-Backtesting framework for prediction market trading strategies on [Kalshi](https://kalshi.com) and [Polymarket](https://polymarket.com), powered by [NautilusTrader](https://github.com/nautechsystems/nautilus_trader) with custom exchange adapters.
+Backtesting framework for prediction market trading strategies on [Kalshi](https://kalshi.com) and [Polymarket](https://polymarket.com), built off of [NautilusTrader](https://github.com/nautechsystems/nautilus_trader) with custom exchange adapters.
 
 > Miss the old engine? See the [`legacy`](https://github.com/evan-kolberg/prediction-market-backtesting/tree/legacy) branch. Though, I don't recommend you continue using that one. 
 
@@ -76,8 +76,13 @@ Good public examples:
 - Reusable late-favorite limit-hold logic: [`strategies/late_favorite_limit_hold.py`](strategies/late_favorite_limit_hold.py)
 - Kalshi runner using a root strategy module: [`backtests/kalshi_breakout.py`](backtests/kalshi_breakout.py)
 - Polymarket runner using a root strategy module: [`backtests/polymarket_vwap_reversion.py`](backtests/polymarket_vwap_reversion.py)
+- PMXT Polymarket quote-tick runners live under `backtests/polymarket_pmxt_*.py`.
+  Current public runners cover EMA crossover, breakout, RSI reversion, spread
+  capture, panic fade, VWAP reversion, threshold momentum, final-period
+  momentum, deep value, and late-favorite limit hold.
 - Public multi-market runner: [`backtests/polymarket_sports_final_period_momentum.py`](backtests/polymarket_sports_final_period_momentum.py)
 - Public resolved multi-market runner with settlement-adjusted PnL: [`backtests/polymarket_sports_late_favorite_limit_hold.py`](backtests/polymarket_sports_late_favorite_limit_hold.py)
+- [`backtests/polymarket_sports_vwap_reversion.py`](backtests/polymarket_sports_vwap_reversion.py)
 
 Backtest entrypoints should expose three things at module level:
 
@@ -176,16 +181,46 @@ data are:
 
 ### PMXT Polymarket L2
 
-- PMXT archive files are large hourly parquet dumps, so PMXT runners default to
-  `LOOKBACK_HOURS` rather than multi-day windows.
-- The loader filters one market ID at parquet-scan time, then filters one token
-  in Python and materializes only that market's `OrderBookDeltas` and derived
-  `QuoteTick` records in memory.
-- Current PMXT archive integration here is quote/book based. The public PMXT
-  example runner therefore uses a quote-driven strategy:
-  [`backtests/polymarket_pmxt_ema_crossover.py`](backtests/polymarket_pmxt_ema_crossover.py)
+- PMXT data comes from hourly parquet files on `r2.pmxt.dev`.
+- The loader scans one extra hour before the requested start so it can find a
+  valid snapshot and rebuild the book. File count is therefore roughly
+  `LOOKBACK_HOURS + 2`.
+- Example file counts:
+  - `LOOKBACK_HOURS=2` scans 4 hourly files
+  - `LOOKBACK_HOURS=4` scans 6 hourly files
+  - `LOOKBACK_HOURS=24` scans 26 hourly files
+  - `LOOKBACK_HOURS=48` scans 50 hourly files
+- The loader filters to one market and one token, then keeps the filtered
+  `OrderBookDeltas` and `QuoteTick` records in memory for the current run.
+- There is no local PMXT cache in this repo yet. Separate PMXT runs re-download
+  and re-decode the same window.
+- Recent 2-hour sample on
+  `will-openai-launch-a-new-consumer-hardware-product-by-march-31-2026`
+  (`END_TIME=2026-03-16T13:00:00Z`, `TRADE_SIZE=10`, HTML enabled):
+  - loader-only scan: `1286` quotes + `1286` delta batches in about `86s`
+  - end-to-end runs:
+    `ema_crossover` `176.214s`,
+    `rsi_reversion` `183.718s`,
+    `spread_capture` `173.466s`
+- Fixed quote-breakout sanity sample on the same market over 4 hours
+  (`2026-03-16T09:00:00Z` to `2026-03-16T13:00:00Z`, `TRADE_SIZE=10`,
+  `MIN_PRICE_RANGE=0`): `2484` quotes, `2` fills, `PnL -0.0350`
+- 48-hour sample on the same market
+  (`2026-03-14T13:00:00Z` to `2026-03-16T13:00:00Z`, `TRADE_SIZE=1`, HTML enabled):
+  - loader-only ingest: `1954.49s` (`32.57m`)
+  - files read: `50` unique hourly parquet files, `100` opens total
+  - ingress measured at the file-read layer: `18.277 GiB`
+  - filtered dataset size: `32819` quotes + `32819` delta batches
+  - strategy runtime after the data is already in memory:
+    `ema_crossover` `3.360s`,
+    `rsi_reversion` `3.325s`,
+    `spread_capture` `3.394s`
+  - if you run those PMXT modules separately today, each run still pays the
+    ~`32.6m` loader cost because the window is not cached locally
+- Short windows can still fail if the selected range never includes usable L2
+  book state for that instrument.
 
-  <img width="794" height="438" alt="Image" src="https://github.com/user-attachments/assets/a1041d97-161f-44b9-92ec-90cf28140e77" />
+  <img width="751" height="434" alt="Image" src="https://github.com/user-attachments/assets/4dcfa115-4785-4a7e-ac10-41a4bfb3f8eb" />
 
 ## Plotting
 
@@ -198,9 +233,17 @@ Single-market plotting is built into the shared runner flow used by the public p
 
 These write HTML charts to `output/`, typically with names like `output/<backtest>_<market>_legacy.html`.
 
+PMXT single-market runners do the same. Example outputs:
+
+- `output/polymarket_pmxt_ema_crossover_<market>_legacy.html`
+- `output/polymarket_pmxt_breakout_<market>_legacy.html`
+- `output/polymarket_pmxt_rsi_reversion_<market>_legacy.html`
+- `output/polymarket_pmxt_spread_capture_<market>_legacy.html`
+
 Multi-market plotting example:
 
 - [`backtests/polymarket_sports_final_period_momentum.py`](backtests/polymarket_sports_final_period_momentum.py)
+- [`backtests/polymarket_sports_vwap_reversion.py`](backtests/polymarket_sports_vwap_reversion.py)
 
 By default that script:
 
@@ -237,14 +280,17 @@ Unlike git submodules, subtrees copy upstream code directly into this repo — t
 - [ ] live paper trading mode
 - [x] multi-market support within strategies
 - [x] better position sizing capabilities
-- [ ] fee modeling, slippage modeling *** exchange fees, maker/taker fees, etc [PR#4](https://github.com/ben-gramling/nautilus_pm/pull/4), [PR#6](https://github.com/ben-gramling/nautilus_pm/pull/6), [PR#9](https://github.com/evan-kolberg/prediction-market-backtesting/pull/9)
+- [x] fee modeling [PR#4](https://github.com/ben-gramling/nautilus_pm/pull/4)
+- [ ] total slippage modeling *** [PR#6](https://github.com/ben-gramling/nautilus_pm/pull/6), [PR#9](https://github.com/evan-kolberg/prediction-market-backtesting/pull/9)
+- [x] polymarket L2 order book backtests [PR#10](https://github.com/evan-kolberg/prediction-market-backtesting/pull/10)
+- [ ] kalshi L2 order book backtests
 - [x] much better & informative charting [PR#5](https://github.com/ben-gramling/nautilus_pm/pull/5)
 
 
 ## Known Issues
 
-- [ ] APIs rate-limit a lot. Kalshi seems worse.
-- [ ] Pulling L2 data from PMXT archives takes an insane amount of time
+- [ ] APIs rate-limit a lot. Kalshi seems worse. (for trade tick config)
+- [ ] Pulling L2 data from PMXT archives takes an insane amount of time (and data)
 
 ## License
 

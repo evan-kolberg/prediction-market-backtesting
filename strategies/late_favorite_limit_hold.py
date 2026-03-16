@@ -5,6 +5,7 @@ from decimal import Decimal
 from strategies.core import (
     LongOnlyPredictionMarketStrategy,
 )
+from nautilus_trader.model.data import QuoteTick
 from nautilus_trader.model.data import TradeTick
 from nautilus_trader.model.enums import OrderSide
 from nautilus_trader.model.enums import TimeInForce
@@ -20,7 +21,15 @@ class TradeTickLateFavoriteLimitHoldConfig(StrategyConfig, frozen=True):  # type
     entry_price: float = 0.90
 
 
-class TradeTickLateFavoriteLimitHoldStrategy(LongOnlyPredictionMarketStrategy):
+class QuoteTickLateFavoriteLimitHoldConfig(StrategyConfig, frozen=True):  # type: ignore[call-arg]
+    instrument_id: InstrumentId
+    trade_size: Decimal = Decimal(25)
+    activation_start_time_ns: int = 0
+    market_close_time_ns: int = 0
+    entry_price: float = 0.90
+
+
+class _LateFavoriteLimitHoldBase(LongOnlyPredictionMarketStrategy):
     """
     Submit one limit buy once a late-game favorite reaches the entry threshold.
 
@@ -28,18 +37,20 @@ class TradeTickLateFavoriteLimitHoldStrategy(LongOnlyPredictionMarketStrategy):
     remaining position to settlement after the backtest completes.
     """
 
-    def __init__(self, config: TradeTickLateFavoriteLimitHoldConfig) -> None:
+    def __init__(
+        self,
+        config: TradeTickLateFavoriteLimitHoldConfig
+        | QuoteTickLateFavoriteLimitHoldConfig,
+    ) -> None:
         super().__init__(config)
         self._entered_once = False
 
-    def _subscribe(self) -> None:
-        self.subscribe_trade_ticks(self.config.instrument_id)
-
-    def on_trade_tick(self, tick: TradeTick) -> None:
+    def _on_price(
+        self, *, signal_price: float, order_price: float, ts_event_ns: int
+    ) -> None:
         if self._pending or self._in_position() or self._entered_once:
             return
 
-        ts_event_ns = int(tick.ts_event)
         if int(self.config.activation_start_time_ns) > 0 and ts_event_ns < int(
             self.config.activation_start_time_ns,
         ):
@@ -49,8 +60,7 @@ class TradeTickLateFavoriteLimitHoldStrategy(LongOnlyPredictionMarketStrategy):
         ):
             return
 
-        price = float(tick.price)
-        if price < float(self.config.entry_price):
+        if signal_price < float(self.config.entry_price):
             return
 
         assert self._instrument is not None
@@ -58,7 +68,7 @@ class TradeTickLateFavoriteLimitHoldStrategy(LongOnlyPredictionMarketStrategy):
             instrument_id=self.config.instrument_id,
             order_side=OrderSide.BUY,
             quantity=self._instrument.make_qty(float(self.config.trade_size)),
-            price=self._instrument.make_price(price),
+            price=self._instrument.make_price(order_price),
             time_in_force=TimeInForce.GTC,
         )
         self.submit_order(order)
@@ -76,3 +86,27 @@ class TradeTickLateFavoriteLimitHoldStrategy(LongOnlyPredictionMarketStrategy):
     def on_reset(self) -> None:
         super().on_reset()
         self._entered_once = False
+
+
+class TradeTickLateFavoriteLimitHoldStrategy(_LateFavoriteLimitHoldBase):
+    def _subscribe(self) -> None:
+        self.subscribe_trade_ticks(self.config.instrument_id)
+
+    def on_trade_tick(self, tick: TradeTick) -> None:
+        price = float(tick.price)
+        self._on_price(
+            signal_price=price, order_price=price, ts_event_ns=int(tick.ts_event)
+        )
+
+
+class QuoteTickLateFavoriteLimitHoldStrategy(_LateFavoriteLimitHoldBase):
+    def _subscribe(self) -> None:
+        self.subscribe_quote_ticks(self.config.instrument_id)
+
+    def on_quote_tick(self, tick: QuoteTick) -> None:
+        signal_price = (float(tick.bid_price) + float(tick.ask_price)) / 2.0
+        self._on_price(
+            signal_price=signal_price,
+            order_price=float(tick.ask_price),
+            ts_event_ns=int(tick.ts_event),
+        )

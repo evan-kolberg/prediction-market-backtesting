@@ -19,6 +19,7 @@ from decimal import Decimal
 from strategies.core import (
     LongOnlyPredictionMarketStrategy,
 )
+from nautilus_trader.model.data import QuoteTick
 from nautilus_trader.model.data import TradeTick
 from nautilus_trader.model.enums import OrderSide
 from nautilus_trader.model.identifiers import InstrumentId
@@ -32,19 +33,26 @@ class TradeTickDeepValueHoldConfig(StrategyConfig, frozen=True):  # type: ignore
     single_entry: bool = True
 
 
-class TradeTickDeepValueHoldStrategy(LongOnlyPredictionMarketStrategy):
+class QuoteTickDeepValueHoldConfig(StrategyConfig, frozen=True):  # type: ignore[call-arg]
+    instrument_id: InstrumentId
+    trade_size: Decimal = Decimal(1)
+    entry_price_max: float = 0.25
+    single_entry: bool = True
+
+
+class _DeepValueHoldBase(LongOnlyPredictionMarketStrategy):
     """
     Buy when price is below a threshold and hold until strategy stop.
     """
 
-    def __init__(self, config: TradeTickDeepValueHoldConfig) -> None:
+    def __init__(
+        self,
+        config: TradeTickDeepValueHoldConfig | QuoteTickDeepValueHoldConfig,
+    ) -> None:
         super().__init__(config)
         self._entered_once: bool = False
 
-    def _subscribe(self) -> None:
-        self.subscribe_trade_ticks(self.config.instrument_id)
-
-    def on_trade_tick(self, tick: TradeTick) -> None:
+    def _on_price(self, price: float) -> None:
         if self._pending:
             return
 
@@ -54,7 +62,7 @@ class TradeTickDeepValueHoldStrategy(LongOnlyPredictionMarketStrategy):
         if self.config.single_entry and self._entered_once:
             return
 
-        if float(tick.price) <= float(self.config.entry_price_max):
+        if price <= float(self.config.entry_price_max):
             self._submit_entry()
 
     def on_order_filled(self, event) -> None:  # type: ignore[no-untyped-def]
@@ -65,3 +73,19 @@ class TradeTickDeepValueHoldStrategy(LongOnlyPredictionMarketStrategy):
     def on_reset(self) -> None:
         super().on_reset()
         self._entered_once = False
+
+
+class TradeTickDeepValueHoldStrategy(_DeepValueHoldBase):
+    def _subscribe(self) -> None:
+        self.subscribe_trade_ticks(self.config.instrument_id)
+
+    def on_trade_tick(self, tick: TradeTick) -> None:
+        self._on_price(float(tick.price))
+
+
+class QuoteTickDeepValueHoldStrategy(_DeepValueHoldBase):
+    def _subscribe(self) -> None:
+        self.subscribe_quote_ticks(self.config.instrument_id)
+
+    def on_quote_tick(self, tick: QuoteTick) -> None:
+        self._on_price((float(tick.bid_price) + float(tick.ask_price)) / 2.0)
