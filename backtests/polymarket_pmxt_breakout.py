@@ -1,5 +1,5 @@
 """
-EMA crossover momentum on one Polymarket market using PMXT historical L2 data.
+Breakout strategy on one Polymarket market using PMXT historical L2 data.
 """
 
 # ruff: noqa: E402
@@ -16,8 +16,8 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
-from strategies import QuoteTickEMACrossoverConfig
-from strategies import QuoteTickEMACrossoverStrategy
+from strategies import QuoteTickBreakoutConfig
+from strategies import QuoteTickBreakoutStrategy
 
 
 try:
@@ -33,8 +33,8 @@ except ModuleNotFoundError:
     from _polymarket_single_market_pmxt_runner import run_single_market_pmxt_backtest
 
 
-NAME = "polymarket_pmxt_ema_crossover"
-DESCRIPTION = "EMA crossover momentum on a single Polymarket market using PMXT L2 data"
+NAME = "polymarket_pmxt_breakout"
+DESCRIPTION = "Volatility breakout on a single Polymarket market using PMXT L2 data"
 
 MARKET_SLUG = os.getenv(
     "MARKET_SLUG",
@@ -45,11 +45,15 @@ MIN_QUOTES = int(os.getenv("MIN_QUOTES", "500"))
 MIN_PRICE_RANGE = float(os.getenv("MIN_PRICE_RANGE", "0.005"))
 END_TIME = os.getenv("END_TIME")
 
-FAST_PERIOD = int(os.getenv("FAST_PERIOD", "64"))
-SLOW_PERIOD = int(os.getenv("SLOW_PERIOD", "256"))
-ENTRY_BUFFER = float(os.getenv("ENTRY_BUFFER", "0.0005"))
-TAKE_PROFIT = float(os.getenv("TAKE_PROFIT", "0.010"))
-STOP_LOSS = float(os.getenv("STOP_LOSS", "0.010"))
+WINDOW = int(os.getenv("WINDOW", "120"))
+BREAKOUT_STD = float(os.getenv("BREAKOUT_STD", "1.5"))
+BREAKOUT_BUFFER = float(os.getenv("BREAKOUT_BUFFER", "0.001"))
+MEAN_REVERSION_BUFFER = float(os.getenv("MEAN_REVERSION_BUFFER", "0.0005"))
+MIN_HOLDING_PERIODS = int(os.getenv("MIN_HOLDING_PERIODS", "20"))
+REENTRY_COOLDOWN = int(os.getenv("REENTRY_COOLDOWN", "80"))
+MAX_ENTRY_PRICE = float(os.getenv("MAX_ENTRY_PRICE", "0.92"))
+TAKE_PROFIT = float(os.getenv("TAKE_PROFIT", "0.015"))
+STOP_LOSS = float(os.getenv("STOP_LOSS", "0.020"))
 
 TRADE_SIZE = Decimal(os.getenv("TRADE_SIZE", "100"))
 INITIAL_CASH = float(os.getenv("INITIAL_CASH", str(DEFAULT_INITIAL_CASH)))
@@ -63,15 +67,19 @@ async def run() -> None:
         min_quotes=MIN_QUOTES,
         min_price_range=MIN_PRICE_RANGE,
         initial_cash=INITIAL_CASH,
-        probability_window=SLOW_PERIOD,
+        probability_window=WINDOW,
         end_time=None if not END_TIME else END_TIME,
-        strategy_factory=lambda instrument_id: QuoteTickEMACrossoverStrategy(
-            config=QuoteTickEMACrossoverConfig(
+        strategy_factory=lambda instrument_id: QuoteTickBreakoutStrategy(
+            config=QuoteTickBreakoutConfig(
                 instrument_id=instrument_id,
                 trade_size=TRADE_SIZE,
-                fast_period=FAST_PERIOD,
-                slow_period=SLOW_PERIOD,
-                entry_buffer=ENTRY_BUFFER,
+                window=WINDOW,
+                breakout_std=BREAKOUT_STD,
+                breakout_buffer=BREAKOUT_BUFFER,
+                mean_reversion_buffer=MEAN_REVERSION_BUFFER,
+                min_holding_periods=MIN_HOLDING_PERIODS,
+                reentry_cooldown=REENTRY_COOLDOWN,
+                max_entry_price=MAX_ENTRY_PRICE,
                 take_profit=TAKE_PROFIT,
                 stop_loss=STOP_LOSS,
             ),

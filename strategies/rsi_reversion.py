@@ -23,6 +23,7 @@ from strategies.core import (
 )
 from nautilus_trader.model.data import Bar
 from nautilus_trader.model.data import BarType
+from nautilus_trader.model.data import QuoteTick
 from nautilus_trader.model.data import TradeTick
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.trading.strategy import StrategyConfig
@@ -50,6 +51,16 @@ class BarRSIReversionConfig(StrategyConfig, frozen=True):  # type: ignore[call-a
 
 
 class TradeTickRSIReversionConfig(StrategyConfig, frozen=True):  # type: ignore[call-arg]
+    instrument_id: InstrumentId
+    trade_size: Decimal = Decimal(1)
+    period: int = 40
+    entry_rsi: float = 25.0
+    exit_rsi: float = 52.0
+    take_profit: float = 0.02
+    stop_loss: float = 0.015
+
+
+class QuoteTickRSIReversionConfig(StrategyConfig, frozen=True):  # type: ignore[call-arg]
     instrument_id: InstrumentId
     trade_size: Decimal = Decimal(1)
     period: int = 40
@@ -137,3 +148,11 @@ class TradeTickRSIReversionStrategy(_RSIReversionBase):
 
     def on_trade_tick(self, tick: TradeTick) -> None:
         self._on_price(float(tick.price))
+
+
+class QuoteTickRSIReversionStrategy(_RSIReversionBase):
+    def _subscribe(self) -> None:
+        self.subscribe_quote_ticks(self.config.instrument_id)
+
+    def on_quote_tick(self, tick: QuoteTick) -> None:
+        self._on_price((float(tick.bid_price) + float(tick.ask_price)) / 2.0)

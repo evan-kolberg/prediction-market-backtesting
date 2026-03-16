@@ -23,6 +23,7 @@ from strategies.core import (
 )
 from nautilus_trader.model.data import Bar
 from nautilus_trader.model.data import BarType
+from nautilus_trader.model.data import QuoteTick
 from nautilus_trader.model.data import TradeTick
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.trading.strategy import StrategyConfig
@@ -50,6 +51,15 @@ class TradeTickMeanReversionConfig(StrategyConfig, frozen=True):  # type: ignore
     instrument_id: InstrumentId
     trade_size: Decimal = Decimal(1)
     vwap_window: int = 20
+    entry_threshold: float = 0.0
+    take_profit: float = 0.0
+    stop_loss: float = 0.0
+
+
+class QuoteTickMeanReversionConfig(StrategyConfig, frozen=True):  # type: ignore[call-arg]
+    instrument_id: InstrumentId
+    trade_size: Decimal = Decimal(1)
+    window: int = 20
     entry_threshold: float = 0.0
     take_profit: float = 0.0
     stop_loss: float = 0.0
@@ -108,3 +118,11 @@ class TradeTickMeanReversionStrategy(_MeanReversionBase):
 
     def on_trade_tick(self, tick: TradeTick) -> None:
         self._on_price(float(tick.price))
+
+
+class QuoteTickMeanReversionStrategy(_MeanReversionBase):
+    def _subscribe(self) -> None:
+        self.subscribe_quote_ticks(self.config.instrument_id)
+
+    def on_quote_tick(self, tick: QuoteTick) -> None:
+        self._on_price((float(tick.bid_price) + float(tick.ask_price)) / 2.0)

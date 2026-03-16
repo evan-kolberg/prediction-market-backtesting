@@ -544,10 +544,11 @@ def save_aggregate_backtest_report(
         return None
 
     models_module, plotting_module = legacy_plot_adapter._load_legacy_modules()
+    downsample_point_limit = max(5000, max_points_per_market * 12)
     legacy_plot_adapter._configure_legacy_downsampling(
         plotting_module,
         adaptive=True,
-        max_points=max(5000, max_points_per_market * 12),
+        max_points=downsample_point_limit,
     )
 
     market_prices: dict[str, list[tuple[datetime, float]]] = {}
@@ -754,6 +755,10 @@ def save_aggregate_backtest_report(
     layout = legacy_plot_adapter._apply_layout_overrides(
         layout,
         initial_cash=float(initial_cash),
+        hide_yes_price_fill_markers=legacy_plot_adapter._should_hide_yes_price_fill_markers(
+            fill_count=len(fills),
+            max_points=downsample_point_limit,
+        ),
     )
 
     brier_frames = _aggregate_brier_frames(results)

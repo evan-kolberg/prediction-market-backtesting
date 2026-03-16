@@ -38,6 +38,17 @@ from nautilus_trader.analysis.reporter import ReportProvider
 LEGACY_BACKTESTING_ROOT = Path(__file__).resolve().parent / "legacy_backtesting"
 
 
+def _should_hide_yes_price_fill_markers(fill_count: int, max_points: int) -> bool:
+    """
+    Hide YES-price fill markers when they exceed a readable marker budget.
+    """
+    if max_points <= 0:
+        marker_budget = 250
+    else:
+        marker_budget = max(50, min(250, max_points // 10))
+    return fill_count > marker_budget
+
+
 def _parse_float(value: Any, default: float = 0.0) -> float:
     """
     Parse a float from numbers and money-like strings.
@@ -1685,7 +1696,14 @@ def build_legacy_backtest_layout(
         open_browser=open_browser,
         progress=progress,
     )
-    layout = _apply_layout_overrides(layout, initial_cash=float(initial_cash))
+    layout = _apply_layout_overrides(
+        layout,
+        initial_cash=float(initial_cash),
+        hide_yes_price_fill_markers=_should_hide_yes_price_fill_markers(
+            fill_count=len(fills),
+            max_points=max_downsample_points,
+        ),
+    )
 
     brier_frame = prepare_cumulative_brier_advantage(
         user_probabilities=user_probabilities,
