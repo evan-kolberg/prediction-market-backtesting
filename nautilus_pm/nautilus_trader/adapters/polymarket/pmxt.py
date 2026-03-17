@@ -1,3 +1,7 @@
+# Added by Evan Kolberg to the NautilusTrader-derived subtree on 2026-03-15.
+# Distributed under the GNU Lesser General Public License Version 3.0 or later.
+# See the repository NOTICE file for provenance and licensing scope.
+
 from __future__ import annotations
 
 from datetime import UTC

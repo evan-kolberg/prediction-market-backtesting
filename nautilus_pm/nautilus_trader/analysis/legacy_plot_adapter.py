@@ -12,6 +12,9 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 # -------------------------------------------------------------------------------------------------
+#  Modified by Evan Kolberg in this repository on 2026-03-11 and 2026-03-16.
+#  See the repository NOTICE file for provenance and licensing scope.
+#
 """
 Bridge Nautilus backtest results into the vendored legacy prediction-market plotting framework.
 

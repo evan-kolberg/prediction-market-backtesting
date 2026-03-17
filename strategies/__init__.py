@@ -11,6 +11,10 @@
 #  KIND, either express or implied. See the License for the specific language governing
 #  permissions and limitations under the License.
 # -------------------------------------------------------------------------------------------------
+#  Derived from NautilusTrader prediction-market example code.
+#  Modified by Evan Kolberg in this repository on 2026-03-02, 2026-03-11, 2026-03-15, and 2026-03-16.
+#  See the repository NOTICE file for provenance and licensing scope.
+#
 
 """
 Prediction market strategy examples.

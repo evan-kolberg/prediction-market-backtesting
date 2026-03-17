@@ -4,7 +4,7 @@
 ![GitHub forks](https://img.shields.io/github/forks/evan-kolberg/prediction-market-backtesting?style=social)
 ![GitHub watchers](https://img.shields.io/github/watchers/evan-kolberg/prediction-market-backtesting?style=social)
 
-[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE) [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/charliermarsh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff) [![uv](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json)](https://github.com/astral-sh/uv) ![Python](https://img.shields.io/badge/python-3.12%2B-3776AB?logo=python&logoColor=white) ![Rust](https://img.shields.io/badge/rust-1.93.1-CE422B?logo=rust&logoColor=white) ![Rust Edition](https://img.shields.io/badge/edition-2024-CE422B?logo=rust&logoColor=white) ![NautilusTrader](https://img.shields.io/badge/NautilusTrader-1.224.0-1E3A5F) ![GitHub last commit](https://img.shields.io/github/last-commit/evan-kolberg/prediction-market-backtesting) ![GitHub commit activity](https://img.shields.io/github/commit-activity/m/evan-kolberg/prediction-market-backtesting) ![GitHub code size](https://img.shields.io/github/languages/code-size/evan-kolberg/prediction-market-backtesting) ![GitHub top language](https://img.shields.io/github/languages/top/evan-kolberg/prediction-market-backtesting) ![GitHub open issues](https://img.shields.io/github/issues/evan-kolberg/prediction-market-backtesting)
+[![Licensing: Mixed](https://img.shields.io/badge/licensing-MIT%20%2B%20LGPL--3.0--or--later-blue.svg)](NOTICE) [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/charliermarsh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff) [![uv](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json)](https://github.com/astral-sh/uv) ![Python](https://img.shields.io/badge/python-3.12%2B-3776AB?logo=python&logoColor=white) ![Rust](https://img.shields.io/badge/rust-1.93.1-CE422B?logo=rust&logoColor=white) ![Rust Edition](https://img.shields.io/badge/edition-2024-CE422B?logo=rust&logoColor=white) ![NautilusTrader](https://img.shields.io/badge/NautilusTrader-1.224.0-1E3A5F) ![GitHub last commit](https://img.shields.io/github/last-commit/evan-kolberg/prediction-market-backtesting) ![GitHub commit activity](https://img.shields.io/github/commit-activity/m/evan-kolberg/prediction-market-backtesting) ![GitHub code size](https://img.shields.io/github/languages/code-size/evan-kolberg/prediction-market-backtesting) ![GitHub top language](https://img.shields.io/github/languages/top/evan-kolberg/prediction-market-backtesting) ![GitHub open issues](https://img.shields.io/github/issues/evan-kolberg/prediction-market-backtesting)
 
 Backtesting framework for prediction market trading strategies on [Kalshi](https://kalshi.com) and [Polymarket](https://polymarket.com), built off of [NautilusTrader](https://github.com/nautechsystems/nautilus_trader) with custom exchange adapters.
 
@@ -294,7 +294,15 @@ Unlike git submodules, subtrees copy upstream code directly into this repo — t
 
 ## License
 
-This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
+This repository uses mixed licensing.
+
+- `nautilus_pm/` stays under LGPL-3.0-or-later, with upstream notices preserved.
+- Root files called out in [NOTICE](NOTICE) as NautilusTrader-derived are also
+  LGPL-3.0-or-later.
+- Root files not called out there remain MIT.
+
+See [LICENSE](LICENSE), [LICENSE-MIT](LICENSE-MIT), [COPYING.LESSER](COPYING.LESSER),
+[COPYING](COPYING), and [NOTICE](NOTICE) for the repo-level breakdown.
 
 ---
 
