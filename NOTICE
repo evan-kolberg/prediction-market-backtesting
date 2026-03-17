@@ -70,8 +70,6 @@ notices with file-specific change dates:
 - `tests/test_backtest_utils.py`
 - `tests/test_legacy_plot_fill_markers.py`
 - `tests/test_quote_tick_strategy_configs.py`
-- `tests/test_legacy_plot_fill_markers.py`
-- `tests/test_quote_tick_strategy_configs.py`
 
 Local modifications inside the vendored NautilusTrader subtree
 --------------------------------------------------------------

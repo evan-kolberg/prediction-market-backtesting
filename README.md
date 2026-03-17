@@ -4,7 +4,18 @@
 ![GitHub forks](https://img.shields.io/github/forks/evan-kolberg/prediction-market-backtesting?style=social)
 ![GitHub watchers](https://img.shields.io/github/watchers/evan-kolberg/prediction-market-backtesting?style=social)
 
-[![Licensing: Mixed](https://img.shields.io/badge/licensing-MIT%20%2B%20LGPL--3.0--or--later-blue.svg)](NOTICE) [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/charliermarsh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff) [![uv](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json)](https://github.com/astral-sh/uv) ![Python](https://img.shields.io/badge/python-3.12%2B-3776AB?logo=python&logoColor=white) ![Rust](https://img.shields.io/badge/rust-1.93.1-CE422B?logo=rust&logoColor=white) ![Rust Edition](https://img.shields.io/badge/edition-2024-CE422B?logo=rust&logoColor=white) ![NautilusTrader](https://img.shields.io/badge/NautilusTrader-1.224.0-1E3A5F) ![GitHub last commit](https://img.shields.io/github/last-commit/evan-kolberg/prediction-market-backtesting) ![GitHub commit activity](https://img.shields.io/github/commit-activity/m/evan-kolberg/prediction-market-backtesting) ![GitHub code size](https://img.shields.io/github/languages/code-size/evan-kolberg/prediction-market-backtesting) ![GitHub top language](https://img.shields.io/github/languages/top/evan-kolberg/prediction-market-backtesting) ![GitHub open issues](https://img.shields.io/github/issues/evan-kolberg/prediction-market-backtesting)
+[![Licensing: Mixed](https://img.shields.io/badge/licensing-MIT%20%2B%20LGPL--3.0--or--later-blue.svg)](NOTICE)
+[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/charliermarsh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+[![uv](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json)](https://github.com/astral-sh/uv)
+![Python](https://img.shields.io/badge/python-3.12%2B-3776AB?logo=python&logoColor=white)
+![Rust](https://img.shields.io/badge/rust-1.93.1-CE422B?logo=rust&logoColor=white)
+![Rust Edition](https://img.shields.io/badge/edition-2024-CE422B?logo=rust&logoColor=white)
+![NautilusTrader](https://img.shields.io/badge/NautilusTrader-1.224.0-1E3A5F)
+![GitHub last commit](https://img.shields.io/github/last-commit/evan-kolberg/prediction-market-backtesting)
+![GitHub commit activity](https://img.shields.io/github/commit-activity/m/evan-kolberg/prediction-market-backtesting)
+![GitHub code size](https://img.shields.io/github/languages/code-size/evan-kolberg/prediction-market-backtesting)
+![GitHub top language](https://img.shields.io/github/languages/top/evan-kolberg/prediction-market-backtesting)
+![GitHub open issues](https://img.shields.io/github/issues/evan-kolberg/prediction-market-backtesting)
 
 Backtesting framework for prediction market trading strategies on [Kalshi](https://kalshi.com) and [Polymarket](https://polymarket.com), built off of [NautilusTrader](https://github.com/nautechsystems/nautilus_trader) with custom exchange adapters.
 
@@ -27,6 +38,9 @@ Fantastic single & multi-market charting. Featuring: equity (total & individual 
 - [Roadmap](#roadmap)
 - [Known Issues](#known-issues)
 - [License](#license)
+  - [What is LGPL-3.0-or-later](#what-is-lgpl-30-or-later)
+  - [NautilusTrader attribution](#nautilustrader-attribution)
+  - [What this means for you](#what-this-means-for-you)
 
 
 ## Setup
@@ -81,8 +95,7 @@ Good public examples:
   capture, panic fade, VWAP reversion, threshold momentum, final-period
   momentum, deep value, and late-favorite limit hold.
 - Public multi-market runner: [`backtests/polymarket_sports_final_period_momentum.py`](backtests/polymarket_sports_final_period_momentum.py)
-- Public resolved multi-market runner with settlement-adjusted PnL: [`backtests/polymarket_sports_late_favorite_limit_hold.py`](backtests/polymarket_sports_late_favorite_limit_hold.py)
-- [`backtests/polymarket_sports_vwap_reversion.py`](backtests/polymarket_sports_vwap_reversion.py)
+- Public resolved multi-market runner with settlement-adjusted PnL: [`backtests/polymarket_sports_late_favorite_limit_hold.py`](backtests/polymarket_sports_late_favorite_limit_hold.py), [`backtests/polymarket_sports_vwap_reversion.py`](backtests/polymarket_sports_vwap_reversion.py)
 
 Backtest entrypoints should expose three things at module level:
 
@@ -96,7 +109,7 @@ async def run() -> None:       # called when selected
 
 Use the root `strategies` package for signal logic, then import that logic into a thin backtest runner. Export new reusable configs and classes from [`strategies/__init__.py`](strategies/__init__.py) so runners can import them cleanly.
 
-Two common runner patterns already exist:
+Three common runner patterns already exist:
 
 - Kalshi bar backtests via [`backtests/_kalshi_single_market_runner.py`](backtests/_kalshi_single_market_runner.py)
 - Polymarket trade-tick backtests via [`backtests/_polymarket_single_market_runner.py`](backtests/_polymarket_single_market_runner.py)
@@ -277,7 +290,7 @@ Unlike git submodules, subtrees copy upstream code directly into this repo — t
 
 ## Roadmap
 
-- [ ] live paper trading mode
+- [ ] Live paper trading mode
 - [x] multi-market support within strategies
 - [x] better position sizing capabilities
 - [x] fee modeling [PR#4](https://github.com/ben-gramling/nautilus_pm/pull/4)
@@ -294,15 +307,48 @@ Unlike git submodules, subtrees copy upstream code directly into this repo — t
 
 ## License
 
-This repository uses mixed licensing.
+This repository uses **mixed licensing** because it vendors and extends
+[NautilusTrader](https://github.com/nautechsystems/nautilus_trader), which is
+licensed under the
+[GNU Lesser General Public License v3.0 or later (LGPL-3.0-or-later)](https://www.gnu.org/licenses/lgpl-3.0.en.html).
 
-- `nautilus_pm/` stays under LGPL-3.0-or-later, with upstream notices preserved.
-- Root files called out in [NOTICE](NOTICE) as NautilusTrader-derived are also
-  LGPL-3.0-or-later.
-- Root files not called out there remain MIT.
+### What is LGPL-3.0-or-later
 
-See [LICENSE](LICENSE), [LICENSE-MIT](LICENSE-MIT), [COPYING.LESSER](COPYING.LESSER),
-[COPYING](COPYING), and [NOTICE](NOTICE) for the repo-level breakdown.
+| Scope | License | File |
+|---|---|---|
+| `nautilus_pm/` (vendored NautilusTrader subtree) | LGPL-3.0-or-later | [`nautilus_pm/LICENSE`](nautilus_pm/LICENSE) |
+| Root files with a "Derived from NautilusTrader" or "Modified by Evan Kolberg" notice (most of `backtests/`, `strategies/`, and select `tests/` files) | LGPL-3.0-or-later | [`COPYING.LESSER`](COPYING.LESSER), [`COPYING`](COPYING) |
+| Everything else (`main.py`, `Makefile`, docs, repo metadata, etc.) | MIT | [`LICENSE-MIT`](LICENSE-MIT) |
+
+The full LGPL and GPL license texts are in [`COPYING.LESSER`](COPYING.LESSER) and
+[`COPYING`](COPYING). The [`NOTICE`](NOTICE) file lists every LGPL-covered file
+outside the subtree, along with modification dates and upstream lineage.
+
+### NautilusTrader attribution
+
+This project includes a vendored copy of
+[NautilusTrader](https://github.com/nautechsystems/nautilus_trader)
+(Copyright 2015-2026 Nautech Systems Pty Ltd) under `nautilus_pm/`. The upstream
+LGPL-3.0-or-later license and copyright notices are preserved in
+[`nautilus_pm/LICENSE`](nautilus_pm/LICENSE). All files modified or added within
+the vendored subtree carry dated file-level notices identifying the changes. The
+most recent subtree sync references upstream split commit `f51c805c9f`.
+
+### What this means for you
+
+- **Using this repo as-is**: no action needed. The LGPL obligations are satisfied
+  by the notices already present.
+- **Forking or redistributing**: you must keep the LGPL license files, the
+  [`NOTICE`](NOTICE), and the per-file modification headers intact. Any further
+  modifications to LGPL-covered files must also be noted.
+- **Linking as a library**: if you import LGPL-covered modules into your own
+  proprietary project, the LGPL requires that users can re-link against modified
+  versions of the LGPL code. See the
+  [LGPL FAQ](https://www.gnu.org/licenses/gpl-faq.html#LGPLStaticVsDynamic) for
+  details.
+
+See [`LICENSE`](LICENSE) for the top-level guide, or [`NOTICE`](NOTICE) for the
+full file-by-file breakdown.
 
 ---
 
