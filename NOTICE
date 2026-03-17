@@ -26,6 +26,7 @@ notices with file-specific change dates:
 - `backtests/_defaults.py`
 - `backtests/_kalshi_single_market_runner.py`
 - `backtests/_kalshi_single_market_trade_runner.py`
+- `backtests/_polymarket_single_market_pmxt_runner.py`
 - `backtests/_polymarket_single_market_runner.py`
 - `backtests/_script_helpers.py`
 - `backtests/kalshi_breakout.py`
@@ -36,10 +37,22 @@ notices with file-specific change dates:
 - `backtests/kalshi_spread_capture.py`
 - `backtests/polymarket_deep_value_resolution_hold.py`
 - `backtests/polymarket_ema_crossover.py`
+- `backtests/polymarket_pmxt_breakout.py`
+- `backtests/polymarket_pmxt_deep_value_hold.py`
+- `backtests/polymarket_pmxt_ema_crossover.py`
+- `backtests/polymarket_pmxt_final_period_momentum.py`
+- `backtests/polymarket_pmxt_late_favorite_limit_hold.py`
+- `backtests/polymarket_pmxt_panic_fade.py`
+- `backtests/polymarket_pmxt_rsi_reversion.py`
+- `backtests/polymarket_pmxt_spread_capture.py`
+- `backtests/polymarket_pmxt_threshold_momentum.py`
+- `backtests/polymarket_pmxt_vwap_reversion.py`
 - `backtests/polymarket_panic_fade.py`
 - `backtests/polymarket_rsi_reversion.py`
 - `backtests/polymarket_simple_quoter.py`
 - `backtests/polymarket_sports_final_period_momentum.py`
+- `backtests/polymarket_sports_late_favorite_limit_hold.py`
+- `backtests/polymarket_sports_vwap_reversion.py`
 - `backtests/polymarket_spread_capture.py`
 - `backtests/polymarket_vwap_reversion.py`
 - `strategies/__init__.py`
@@ -48,34 +61,49 @@ notices with file-specific change dates:
 - `strategies/deep_value.py`
 - `strategies/ema_crossover.py`
 - `strategies/final_period_momentum.py`
+- `strategies/late_favorite_limit_hold.py`
 - `strategies/mean_reversion.py`
 - `strategies/panic_fade.py`
 - `strategies/rsi_reversion.py`
 - `strategies/threshold_momentum.py`
 - `strategies/vwap_reversion.py`
 - `tests/test_backtest_utils.py`
+- `tests/test_legacy_plot_fill_markers.py`
+- `tests/test_quote_tick_strategy_configs.py`
+- `tests/test_legacy_plot_fill_markers.py`
+- `tests/test_quote_tick_strategy_configs.py`
 
-Current modifications to upstream NautilusTrader files
-------------------------------------------------------
+Local modifications inside the vendored NautilusTrader subtree
+--------------------------------------------------------------
 
-The following upstream NautilusTrader files in the vendored subtree were
-modified in this repository and now carry dated modification notices:
+Python files changed in this repository since the original subtree import now
+carry dated file-level notices. That includes modified upstream files and local
+additions under:
+
+- `nautilus_pm/examples/backtest/prediction_markets/`
+- `nautilus_pm/nautilus_trader/adapters/kalshi/`
+- `nautilus_pm/nautilus_trader/adapters/polymarket/`
+- `nautilus_pm/nautilus_trader/adapters/prediction_market/`
+- `nautilus_pm/nautilus_trader/analysis/`
+- `nautilus_pm/nautilus_trader/examples/strategies/prediction_market/`
+- `nautilus_pm/tests/integration_tests/adapters/polymarket/`
+- `nautilus_pm/tests/unit_tests/adapters/kalshi/`
+- `nautilus_pm/tests/unit_tests/adapters/prediction_market/`
+- `nautilus_pm/tests/unit_tests/analysis/`
+- `nautilus_pm/tests/unit_tests/examples/strategies/`
+
+Examples:
 
 - `nautilus_pm/nautilus_trader/adapters/polymarket/__init__.py`
   Modified on 2026-03-11 and 2026-03-15.
-- `nautilus_pm/nautilus_trader/adapters/prediction_market/backtest_utils.py`
-  Modified on 2026-03-11 and 2026-03-15.
+- `nautilus_pm/nautilus_trader/adapters/polymarket/pmxt.py`
+  Added locally on 2026-03-15 within the LGPL-covered subtree.
 - `nautilus_pm/nautilus_trader/adapters/prediction_market/research.py`
   Modified on 2026-03-11, 2026-03-15, and 2026-03-16.
-- `nautilus_pm/nautilus_trader/analysis/legacy_plot_adapter.py`
-  Modified on 2026-03-11 and 2026-03-16.
-
-Local additions inside the LGPL-covered subtree
------------------------------------------------
-
-- `nautilus_pm/nautilus_trader/adapters/polymarket/pmxt.py`
-  Added locally on 2026-03-15 within the NautilusTrader-derived subtree and
-  distributed under LGPL-3.0-or-later.
+- `nautilus_pm/nautilus_trader/examples/strategies/prediction_market/core.py`
+  Modified on 2026-03-11.
+- `nautilus_pm/examples/backtest/prediction_markets/polymarket_ema_crossover.py`
+  Modified on 2026-03-11.
 
 Upstream lineage
 ----------------

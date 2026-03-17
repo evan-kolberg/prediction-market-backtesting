@@ -1,3 +1,8 @@
+# Derived from or added to the NautilusTrader subtree in this repository.
+# Distributed under the GNU Lesser General Public License Version 3.0 or later.
+# Modified in this repository on 2026-03-11.
+# See the repository NOTICE file for provenance and licensing scope.
+
 """Unified, platform-agnostic data types for the backtesting engine.
 
 All prices are normalized to float in [0.0, 1.0]. Kalshi cents are divided

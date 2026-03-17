@@ -11,6 +11,9 @@
 #  KIND, either express or implied. See the License for the specific language governing
 #  permissions and limitations under the License.
 # -------------------------------------------------------------------------------------------------
+#  Modified by Evan Kolberg in this repository on 2026-03-11.
+#  See the repository NOTICE file for provenance and licensing scope.
+#
 
 import decimal
 from unittest.mock import AsyncMock
