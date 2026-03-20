@@ -32,7 +32,9 @@ def test_resolve_cache_dir_is_opt_in(monkeypatch, tmp_path):
 
 
 def test_resolve_prefetch_workers_parses_env(monkeypatch):
-    monkeypatch.delenv(PolymarketPMXTDataLoader._PMXT_PREFETCH_WORKERS_ENV, raising=False)
+    monkeypatch.delenv(
+        PolymarketPMXTDataLoader._PMXT_PREFETCH_WORKERS_ENV, raising=False
+    )
     assert PolymarketPMXTDataLoader._resolve_prefetch_workers() == 4
 
     monkeypatch.setenv(PolymarketPMXTDataLoader._PMXT_PREFETCH_WORKERS_ENV, "8")
@@ -43,8 +45,12 @@ def test_resolve_prefetch_workers_parses_env(monkeypatch):
 
 
 def test_resolve_http_tuning_parses_env(monkeypatch):
-    monkeypatch.delenv(PolymarketPMXTDataLoader._PMXT_HTTP_BLOCK_SIZE_MB_ENV, raising=False)
-    monkeypatch.delenv(PolymarketPMXTDataLoader._PMXT_HTTP_CACHE_TYPE_ENV, raising=False)
+    monkeypatch.delenv(
+        PolymarketPMXTDataLoader._PMXT_HTTP_BLOCK_SIZE_MB_ENV, raising=False
+    )
+    monkeypatch.delenv(
+        PolymarketPMXTDataLoader._PMXT_HTTP_CACHE_TYPE_ENV, raising=False
+    )
 
     assert PolymarketPMXTDataLoader._resolve_http_block_size() == 32 * 1024 * 1024
     assert PolymarketPMXTDataLoader._resolve_http_cache_type() == "readahead"
@@ -82,11 +88,20 @@ def test_load_market_table_writes_token_filtered_cache(tmp_path):
 
     assert loaded is not None
     assert loaded.to_pylist() == [
-        {"update_type": "book_snapshot", "data": '{"token_id":"token-yes-123","payload":"keep-1"}'},
-        {"update_type": "price_change", "data": '{"token_id":"token-yes-123","payload":"keep-2"}'},
+        {
+            "update_type": "book_snapshot",
+            "data": '{"token_id":"token-yes-123","payload":"keep-1"}',
+        },
+        {
+            "update_type": "price_change",
+            "data": '{"token_id":"token-yes-123","payload":"keep-2"}',
+        },
     ]
     assert loader._cache_path_for_hour(hour) == (
-        tmp_path / "condition-123" / "token-yes-123" / "polymarket_orderbook_2026-03-16T12.parquet"
+        tmp_path
+        / "condition-123"
+        / "token-yes-123"
+        / "polymarket_orderbook_2026-03-16T12.parquet"
     )
 
     cached = loader._load_cached_market_table(hour)
