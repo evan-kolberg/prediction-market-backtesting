@@ -34,6 +34,8 @@ AmbientCapabilities=
 SystemCallArchitectures=native
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 ReadWritePaths=/srv/pmxt-relay
+MemoryMax=2500M
+MemorySwapMax=512M
 
 [Install]
 WantedBy=multi-user.target
