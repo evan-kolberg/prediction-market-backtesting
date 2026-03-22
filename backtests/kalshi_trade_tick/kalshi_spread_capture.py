@@ -4,10 +4,10 @@
 # See the repository NOTICE file for provenance and licensing scope.
 
 """
-Bar-based mean-reversion (spread capture) on one Kalshi market.
+Trade-tick mean-reversion (spread capture) on one Kalshi market.
 
 Defaults to KXNEXTIRANLEADER-45JAN01-MKHA
-and uses a 30-day minute-bar lookback.
+and uses a 30-day trade-tick lookback.
 """
 
 from __future__ import annotations
@@ -19,10 +19,10 @@ from decimal import Decimal
 from pathlib import Path
 
 from strategies.mean_reversion import (
-    BarMeanReversionConfig,
+    TradeTickMeanReversionConfig,
 )
 from strategies.mean_reversion import (
-    BarMeanReversionStrategy as BarMeanReversion,
+    TradeTickMeanReversionStrategy as TradeTickMeanReversion,
 )
 
 
@@ -30,7 +30,7 @@ try:
     from _defaults import DEFAULT_INITIAL_CASH
     from _defaults import DEFAULT_KALSHI_MARKET_TICKER
     from _defaults import DEFAULT_LOOKBACK_DAYS
-    from _kalshi_single_market_runner import run_single_market_bar_backtest
+    from _kalshi_single_market_trade_runner import run_single_market_trade_backtest
 except ModuleNotFoundError:
     _THIS_DIR = Path(__file__).resolve().parent
     if str(_THIS_DIR) not in sys.path:
@@ -38,21 +38,22 @@ except ModuleNotFoundError:
     from _defaults import DEFAULT_INITIAL_CASH
     from _defaults import DEFAULT_KALSHI_MARKET_TICKER
     from _defaults import DEFAULT_LOOKBACK_DAYS
-    from _kalshi_single_market_runner import run_single_market_bar_backtest
+    from _kalshi_single_market_trade_runner import run_single_market_trade_backtest
 
 
 # ── Strategy metadata (shown in the menu) ────────────────────────────────────
 NAME = "kalshi_spread_capture"
-DESCRIPTION = "Mean-reversion spread capture on a single Kalshi market"
+DESCRIPTION = (
+    "Mean-reversion spread capture on a single Kalshi market using trade ticks"
+)
 
 # ── Configure here ────────────────────────────────────────────────────────────
 MARKET_TICKER = os.getenv("MARKET_TICKER", DEFAULT_KALSHI_MARKET_TICKER).upper()
 LOOKBACK_DAYS = int(os.getenv("LOOKBACK_DAYS", str(DEFAULT_LOOKBACK_DAYS)))
-BAR_INTERVAL = os.getenv("BAR_INTERVAL", "Minutes1")
-MIN_BARS = int(os.getenv("MIN_BARS", "1000"))
+MIN_TRADES = int(os.getenv("MIN_TRADES", "1000"))
 MIN_PRICE_RANGE = float(os.getenv("MIN_PRICE_RANGE", "0.03"))
 
-WINDOW = 20  # rolling average window
+VWAP_WINDOW = 20  # rolling average window
 ENTRY_THRESHOLD = 0.01  # enter when close is 1¢ below rolling average (0-1 scale)
 TAKE_PROFIT = 0.01  # exit when price recovers 1¢ above fill price
 STOP_LOSS = 0.03  # stop out 3¢ below fill price
@@ -62,21 +63,19 @@ INITIAL_CASH = float(os.getenv("INITIAL_CASH", str(DEFAULT_INITIAL_CASH)))
 
 
 async def run() -> None:
-    await run_single_market_bar_backtest(
+    await run_single_market_trade_backtest(
         name=NAME,
         market_ticker=MARKET_TICKER,
         lookback_days=LOOKBACK_DAYS,
-        interval=BAR_INTERVAL,
-        min_bars=MIN_BARS,
+        min_trades=MIN_TRADES,
         min_price_range=MIN_PRICE_RANGE,
         initial_cash=INITIAL_CASH,
-        probability_window=WINDOW,
-        strategy_factory=lambda instrument_id, bar_type: BarMeanReversion(
-            config=BarMeanReversionConfig(
+        probability_window=VWAP_WINDOW,
+        strategy_factory=lambda instrument_id: TradeTickMeanReversion(
+            config=TradeTickMeanReversionConfig(
                 instrument_id=instrument_id,
-                bar_type=bar_type,
                 trade_size=TRADE_SIZE,
-                window=WINDOW,
+                vwap_window=VWAP_WINDOW,
                 entry_threshold=ENTRY_THRESHOLD,
                 take_profit=TAKE_PROFIT,
                 stop_loss=STOP_LOSS,

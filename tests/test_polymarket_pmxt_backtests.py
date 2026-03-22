@@ -37,52 +37,52 @@ INSTRUMENT_ID = InstrumentId(Symbol("PM-TEST-YES"), Venue("POLYMARKET"))
     ("module_name", "strategy_cls", "config_cls"),
     [
         (
-            "backtests.polymarket_pmxt_breakout",
+            "backtests.polymarket_pmxt_relay_breakout",
             QuoteTickBreakoutStrategy,
             QuoteTickBreakoutConfig,
         ),
         (
-            "backtests.polymarket_pmxt_deep_value_hold",
+            "backtests.polymarket_pmxt_relay_deep_value_hold",
             QuoteTickDeepValueHoldStrategy,
             QuoteTickDeepValueHoldConfig,
         ),
         (
-            "backtests.polymarket_pmxt_ema_crossover",
+            "backtests.polymarket_pmxt_relay_ema_crossover",
             QuoteTickEMACrossoverStrategy,
             QuoteTickEMACrossoverConfig,
         ),
         (
-            "backtests.polymarket_pmxt_final_period_momentum",
+            "backtests.polymarket_pmxt_relay_final_period_momentum",
             QuoteTickFinalPeriodMomentumStrategy,
             QuoteTickFinalPeriodMomentumConfig,
         ),
         (
-            "backtests.polymarket_pmxt_late_favorite_limit_hold",
+            "backtests.polymarket_pmxt_relay_late_favorite_limit_hold",
             QuoteTickLateFavoriteLimitHoldStrategy,
             QuoteTickLateFavoriteLimitHoldConfig,
         ),
         (
-            "backtests.polymarket_pmxt_panic_fade",
+            "backtests.polymarket_pmxt_relay_panic_fade",
             QuoteTickPanicFadeStrategy,
             QuoteTickPanicFadeConfig,
         ),
         (
-            "backtests.polymarket_pmxt_rsi_reversion",
+            "backtests.polymarket_pmxt_relay_rsi_reversion",
             QuoteTickRSIReversionStrategy,
             QuoteTickRSIReversionConfig,
         ),
         (
-            "backtests.polymarket_pmxt_spread_capture",
+            "backtests.polymarket_pmxt_relay_spread_capture",
             QuoteTickMeanReversionStrategy,
             QuoteTickMeanReversionConfig,
         ),
         (
-            "backtests.polymarket_pmxt_threshold_momentum",
+            "backtests.polymarket_pmxt_relay_threshold_momentum",
             QuoteTickThresholdMomentumStrategy,
             QuoteTickThresholdMomentumConfig,
         ),
         (
-            "backtests.polymarket_pmxt_vwap_reversion",
+            "backtests.polymarket_pmxt_relay_vwap_reversion",
             QuoteTickVWAPReversionStrategy,
             QuoteTickVWAPReversionConfig,
         ),
@@ -114,4 +114,5 @@ def test_pmxt_backtests_build_expected_quote_tick_strategy(
     assert isinstance(strategy.config, config_cls)
     assert captured["name"] == module.NAME
     assert captured["market_slug"] == module.MARKET_SLUG
+    assert captured["token_index"] == module.TOKEN_INDEX
     assert captured["lookback_hours"] == module.LOOKBACK_HOURS

@@ -1,0 +1,468 @@
+from __future__ import annotations
+
+import asyncio
+import os
+from pathlib import Path
+
+import pyarrow as pa
+import pyarrow.parquet as pq
+from aiohttp.test_utils import TestClient
+from aiohttp.test_utils import TestServer
+
+from pmxt_relay.api import (
+    INDEX_APP_KEY,
+    RequestRateLimiter,
+    _collect_inflight_processes,
+    _resolve_filtered_path,
+    _resolve_raw_path,
+    create_app,
+)
+from pmxt_relay.config import RelayConfig
+from pmxt_relay.index_db import FilteredHourArtifact
+
+
+def _make_config(tmp_path: Path) -> RelayConfig:
+    return RelayConfig(
+        data_dir=tmp_path,
+        bind_host="127.0.0.1",
+        bind_port=8080,
+        public_base_url=None,
+        archive_listing_url="https://archive.pmxt.dev/data/Polymarket",
+        raw_base_url="https://r2.pmxt.dev",
+        poll_interval_secs=900,
+        http_timeout_secs=30,
+        archive_stale_pages=3,
+        archive_max_pages=None,
+        duckdb_threads=1,
+        duckdb_memory_limit="1GB",
+        expose_raw=False,
+        event_retention=1000,
+        api_rate_limit_per_minute=2400,
+        api_list_max_hours=2000,
+    )
+
+
+def test_rate_limiter_enforces_sliding_window():
+    limiter = RequestRateLimiter(requests_per_minute=2)
+
+    assert limiter.allow("203.0.113.1", now=0.0) is True
+    assert limiter.allow("203.0.113.1", now=10.0) is True
+    assert limiter.allow("203.0.113.1", now=20.0) is False
+    assert limiter.allow("203.0.113.1", now=61.0) is True
+    assert limiter.bucket_size("203.0.113.1", now=61.0) == 2
+
+
+def test_filtered_path_resolution_blocks_traversal(tmp_path: Path):
+    config = _make_config(tmp_path)
+
+    safe_path = _resolve_filtered_path(
+        config,
+        "0x" + ("ab" * 32),
+        "123456789",
+        "polymarket_orderbook_2026-03-21T12.parquet",
+    )
+    blocked_path = _resolve_filtered_path(
+        config,
+        "..",
+        "123456789",
+        "polymarket_orderbook_2026-03-21T12.parquet",
+    )
+
+    assert safe_path == (
+        config.filtered_root
+        / ("0x" + ("ab" * 32))
+        / "123456789"
+        / "polymarket_orderbook_2026-03-21T12.parquet"
+    )
+    assert blocked_path is None
+
+
+def test_raw_path_resolution_requires_known_archive_layout(tmp_path: Path):
+    config = _make_config(tmp_path)
+
+    safe_path = _resolve_raw_path(
+        config,
+        "2026/03/21/polymarket_orderbook_2026-03-21T12.parquet",
+    )
+    blocked_path = _resolve_raw_path(
+        config,
+        "../../etc/passwd",
+    )
+
+    assert safe_path == (
+        config.raw_root
+        / "2026"
+        / "03"
+        / "21"
+        / "polymarket_orderbook_2026-03-21T12.parquet"
+    )
+    assert blocked_path is None
+
+
+def test_collect_inflight_processes_reports_tmp_tree(tmp_path: Path):
+    config = _make_config(tmp_path)
+    inflight_root = (
+        config.tmp_root / "polymarket_orderbook_2026-03-21T12.parquet.filtered"
+    )
+    target_dir = inflight_root / "condition-a" / "token-yes"
+    target_dir.mkdir(parents=True)
+    payload_path = target_dir / "part-0.parquet"
+    payload_path.write_bytes(b"abc")
+    os.utime(payload_path, (1234, 1234))
+
+    inflight = _collect_inflight_processes(config)
+
+    assert inflight == [
+        {
+            "filename": "polymarket_orderbook_2026-03-21T12.parquet",
+            "path": str(inflight_root),
+            "dir_count": 3,
+            "file_count": 1,
+            "byte_size": 3,
+            "latest_mtime": 1234.0,
+        }
+    ]
+
+
+def test_badge_endpoints_return_shields_payloads(tmp_path: Path):
+    async def scenario() -> None:
+        config = _make_config(tmp_path)
+        config.ensure_directories()
+        ready_filename = "polymarket_orderbook_2026-03-21T12.parquet"
+        processing_filename = "polymarket_orderbook_2026-03-21T13.parquet"
+
+        app = create_app(config)
+        index = app[INDEX_APP_KEY]
+        index.upsert_discovered_hour(
+            ready_filename,
+            f"https://r2.pmxt.dev/{ready_filename}",
+            1,
+        )
+        index.mark_mirrored(
+            ready_filename,
+            local_path="/tmp/raw-ready.parquet",
+            etag=None,
+            content_length=None,
+            last_modified=None,
+        )
+        index.replace_filtered_hours(ready_filename, [])
+
+        index.upsert_discovered_hour(
+            processing_filename,
+            f"https://r2.pmxt.dev/{processing_filename}",
+            1,
+        )
+        index.mark_mirrored(
+            processing_filename,
+            local_path="/tmp/raw.parquet",
+            etag=None,
+            content_length=None,
+            last_modified=None,
+        )
+        index.mark_processing(processing_filename)
+        index.log_event(
+            level="INFO",
+            event_type="process_start",
+            filename=processing_filename,
+            message="Started processing hour",
+        )
+
+        server = TestServer(app)
+        client = TestClient(server)
+        await client.start_server()
+        try:
+            status_response = await client.get("/v1/badge/status")
+            assert status_response.status == 200
+            status_payload = await status_response.json()
+
+            backfill_response = await client.get("/v1/badge/backfill")
+            assert backfill_response.status == 200
+            backfill_payload = await backfill_response.json()
+
+            latest_response = await client.get("/v1/badge/latest")
+            assert latest_response.status == 200
+            latest_payload = await latest_response.json()
+
+            lag_response = await client.get("/v1/badge/lag")
+            assert lag_response.status == 200
+            lag_payload = await lag_response.json()
+        finally:
+            await client.close()
+
+        assert status_payload == {
+            "schemaVersion": 1,
+            "label": "PMXT relay",
+            "message": "processing",
+            "color": "brightgreen",
+        }
+        assert backfill_payload == {
+            "schemaVersion": 1,
+            "label": "PMXT backfill",
+            "message": "1/2 hrs",
+            "color": "green",
+        }
+        assert latest_payload == {
+            "schemaVersion": 1,
+            "label": "PMXT latest",
+            "message": "2026-03-21T12Z",
+            "color": "blue",
+        }
+        assert lag_payload == {
+            "schemaVersion": 1,
+            "label": "PMXT lag",
+            "message": "1 hrs",
+            "color": "green",
+        }
+
+    asyncio.run(scenario())
+
+
+def test_filtered_api_materializes_cached_file_from_partition_dir(tmp_path: Path):
+    async def scenario() -> None:
+        config = _make_config(tmp_path)
+        config.ensure_directories()
+        filename = "polymarket_orderbook_2026-03-21T12.parquet"
+        partition_dir = (
+            config.processed_root / filename / ("0x" + ("ab" * 32)) / "123456789"
+        )
+        partition_dir.mkdir(parents=True, exist_ok=True)
+        pq.write_table(
+            pa.table(
+                {
+                    "relay_row_index": [3, 1, 2],
+                    "update_type": ["price_change", "book_snapshot", "price_change"],
+                    "data": [
+                        '{"token_id":"123456789","seq":3}',
+                        '{"token_id":"123456789","seq":1}',
+                        '{"token_id":"123456789","seq":2}',
+                    ],
+                }
+            ),
+            partition_dir / "part-0.parquet",
+        )
+
+        app = create_app(config)
+        index = app[INDEX_APP_KEY]
+        index.upsert_discovered_hour(
+            filename,
+            f"https://r2.pmxt.dev/{filename}",
+            1,
+        )
+        index.mark_mirrored(
+            filename,
+            local_path="/tmp/raw.parquet",
+            etag=None,
+            content_length=None,
+            last_modified=None,
+        )
+        index.replace_filtered_hours(
+            filename,
+            [
+                FilteredHourArtifact(
+                    filename=filename,
+                    hour="2026-03-21T12:00:00+00:00",
+                    condition_id="0x" + ("ab" * 32),
+                    token_id="123456789",
+                    local_path=str(partition_dir),
+                    row_count=0,
+                    byte_size=123,
+                )
+            ],
+        )
+
+        server = TestServer(app)
+        client = TestClient(server)
+        await client.start_server()
+        try:
+            response = await client.get(
+                "/v1/filtered/" + ("0x" + ("ab" * 32)) + "/123456789/" + filename
+            )
+            assert response.status == 200
+            await response.read()
+        finally:
+            await client.close()
+
+        cached_path = (
+            config.filtered_root / ("0x" + ("ab" * 32)) / "123456789" / filename
+        )
+        assert cached_path.exists()
+        assert pq.read_table(cached_path).to_pylist() == [
+            {
+                "update_type": "book_snapshot",
+                "data": '{"token_id":"123456789","seq":1}',
+            },
+            {"update_type": "price_change", "data": '{"token_id":"123456789","seq":2}'},
+            {"update_type": "price_change", "data": '{"token_id":"123456789","seq":3}'},
+        ]
+
+    asyncio.run(scenario())
+
+
+def test_filtered_api_materializes_cached_file_from_processed_hour_file(tmp_path: Path):
+    async def scenario() -> None:
+        config = _make_config(tmp_path)
+        config.ensure_directories()
+        filename = "polymarket_orderbook_2026-03-21T12.parquet"
+        processed_path = config.processed_root / "2026" / "03" / "21" / filename
+        processed_path.parent.mkdir(parents=True, exist_ok=True)
+        pq.write_table(
+            pa.table(
+                {
+                    "market_id": [
+                        "0x" + ("ab" * 32),
+                        "0x" + ("cd" * 32),
+                        "0x" + ("ab" * 32),
+                    ],
+                    "token_id": ["123456789", "999999", "123456789"],
+                    "update_type": [
+                        "book_snapshot",
+                        "price_change",
+                        "price_change",
+                    ],
+                    "data": [
+                        '{"token_id":"123456789","seq":1}',
+                        '{"token_id":"999999","seq":2}',
+                        '{"token_id":"123456789","seq":3}',
+                    ],
+                }
+            ),
+            processed_path,
+        )
+
+        app = create_app(config)
+        index = app[INDEX_APP_KEY]
+        index.upsert_discovered_hour(
+            filename,
+            f"https://r2.pmxt.dev/{filename}",
+            1,
+        )
+        index.mark_mirrored(
+            filename,
+            local_path="/tmp/raw.parquet",
+            etag=None,
+            content_length=None,
+            last_modified=None,
+        )
+        index.replace_filtered_hours(
+            filename,
+            [
+                FilteredHourArtifact(
+                    filename=filename,
+                    hour="2026-03-21T12:00:00+00:00",
+                    condition_id="0x" + ("ab" * 32),
+                    token_id="123456789",
+                    local_path=str(processed_path),
+                    row_count=2,
+                    byte_size=processed_path.stat().st_size,
+                )
+            ],
+        )
+
+        server = TestServer(app)
+        client = TestClient(server)
+        await client.start_server()
+        try:
+            response = await client.get(
+                "/v1/filtered/" + ("0x" + ("ab" * 32)) + "/123456789/" + filename
+            )
+            assert response.status == 200
+            await response.read()
+        finally:
+            await client.close()
+
+        cached_path = (
+            config.filtered_root / ("0x" + ("ab" * 32)) / "123456789" / filename
+        )
+        assert cached_path.exists()
+        assert pq.read_table(cached_path).to_pylist() == [
+            {
+                "update_type": "book_snapshot",
+                "data": '{"token_id":"123456789","seq":1}',
+            },
+            {"update_type": "price_change", "data": '{"token_id":"123456789","seq":3}'},
+        ]
+
+    asyncio.run(scenario())
+
+
+def test_filtered_api_materializes_cached_file_from_processed_hour(tmp_path: Path):
+    async def scenario() -> None:
+        config = _make_config(tmp_path)
+        config.ensure_directories()
+        filename = "polymarket_orderbook_2026-03-21T12.parquet"
+        processed_path = config.processed_root / "2026" / "03" / "21" / filename
+        processed_path.parent.mkdir(parents=True, exist_ok=True)
+        pq.write_table(
+            pa.table(
+                {
+                    "market_id": ["0x" + ("ab" * 32), "0x" + ("ab" * 32), "other"],
+                    "token_id": ["123456789", "123456789", "999"],
+                    "update_type": [
+                        "book_snapshot",
+                        "price_change",
+                        "price_change",
+                    ],
+                    "data": [
+                        '{"token_id":"123456789","seq":1}',
+                        '{"token_id":"123456789","seq":2}',
+                        '{"token_id":"999","seq":3}',
+                    ],
+                }
+            ),
+            processed_path,
+        )
+
+        app = create_app(config)
+        index = app[INDEX_APP_KEY]
+        index.upsert_discovered_hour(
+            filename,
+            f"https://r2.pmxt.dev/{filename}",
+            1,
+        )
+        index.mark_mirrored(
+            filename,
+            local_path="/tmp/raw.parquet",
+            etag=None,
+            content_length=None,
+            last_modified=None,
+        )
+        index.replace_filtered_hours(
+            filename,
+            [
+                FilteredHourArtifact(
+                    filename=filename,
+                    hour="2026-03-21T12:00:00+00:00",
+                    condition_id="0x" + ("ab" * 32),
+                    token_id="123456789",
+                    local_path=str(processed_path),
+                    row_count=2,
+                    byte_size=processed_path.stat().st_size,
+                )
+            ],
+        )
+
+        server = TestServer(app)
+        client = TestClient(server)
+        await client.start_server()
+        try:
+            response = await client.get(
+                "/v1/filtered/" + ("0x" + ("ab" * 32)) + "/123456789/" + filename
+            )
+            assert response.status == 200
+            await response.read()
+        finally:
+            await client.close()
+
+        cached_path = (
+            config.filtered_root / ("0x" + ("ab" * 32)) / "123456789" / filename
+        )
+        assert cached_path.exists()
+        assert pq.read_table(cached_path).to_pylist() == [
+            {
+                "update_type": "book_snapshot",
+                "data": '{"token_id":"123456789","seq":1}',
+            },
+            {"update_type": "price_change", "data": '{"token_id":"123456789","seq":2}'},
+        ]
+
+    asyncio.run(scenario())

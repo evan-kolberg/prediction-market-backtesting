@@ -22,6 +22,9 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).parent
 BACKTESTS_ROOT = PROJECT_ROOT / "backtests"
+DISCOVERY_EXCLUDED_DIRS = {
+    "polymarket_trade_tick",
+}
 
 DIM = "\033[2m"
 BOLD = "\033[1m"
@@ -38,6 +41,8 @@ def discover() -> list[dict]:
     for path in sorted(BACKTESTS_ROOT.rglob("*.py")):
         relative_parts = path.relative_to(BACKTESTS_ROOT).parts
         if path.name == "__init__.py":
+            continue
+        if any(part in DISCOVERY_EXCLUDED_DIRS for part in relative_parts[:-1]):
             continue
         if any(part.startswith("_") for part in relative_parts):
             continue

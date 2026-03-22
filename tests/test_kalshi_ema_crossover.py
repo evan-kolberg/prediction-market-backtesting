@@ -4,7 +4,7 @@ import asyncio
 
 import pytest
 
-import backtests.kalshi_ema_crossover as strat
+import backtests.kalshi_trade_tick.kalshi_ema_crossover as strat
 
 
 @pytest.fixture(autouse=True)

@@ -175,8 +175,8 @@ class PolymarketQuote(msgspec.Struct, frozen=True):
     side: PolymarketOrderSide
     size: str
     hash: str
-    best_bid: str
-    best_ask: str
+    best_bid: str | None
+    best_ask: str | None
 
 
 class PolymarketQuotes(msgspec.Struct, tag="price_change", tag_field="event_type", frozen=True):

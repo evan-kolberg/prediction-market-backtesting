@@ -6,15 +6,20 @@ from pathlib import Path
 import pandas as pd
 import pyarrow as pa
 
+from nautilus_trader.adapters.polymarket import pmxt as pmxt_module
 from nautilus_trader.adapters.polymarket.pmxt import PolymarketPMXTDataLoader
 
 
 def _make_loader(cache_dir: Path | None) -> PolymarketPMXTDataLoader:
     loader = object.__new__(PolymarketPMXTDataLoader)
     loader._pmxt_cache_dir = cache_dir
+    loader._pmxt_relay_base_url = None
     loader._condition_id = "condition-123"
     loader._token_id = "token-yes-123"
     loader._pmxt_prefetch_workers = 2
+    loader._pmxt_http_block_size = 32 * 1024 * 1024
+    loader._pmxt_http_cache_type = "readahead"
+    loader._reset_http_filesystem()
     return loader
 
 
@@ -42,6 +47,28 @@ def test_resolve_prefetch_workers_parses_env(monkeypatch):
 
     monkeypatch.setenv(PolymarketPMXTDataLoader._PMXT_PREFETCH_WORKERS_ENV, "invalid")
     assert PolymarketPMXTDataLoader._resolve_prefetch_workers() == 16
+
+
+def test_resolve_relay_base_url_parses_env(monkeypatch):
+    monkeypatch.delenv(PolymarketPMXTDataLoader._PMXT_RELAY_BASE_URL_ENV, raising=False)
+    assert (
+        PolymarketPMXTDataLoader._resolve_relay_base_url()
+        == "http://209.209.10.83:8080"
+    )
+
+    monkeypatch.setenv(
+        PolymarketPMXTDataLoader._PMXT_RELAY_BASE_URL_ENV,
+        "http://relay.local:8080/",
+    )
+    assert (
+        PolymarketPMXTDataLoader._resolve_relay_base_url() == "http://relay.local:8080"
+    )
+
+    monkeypatch.setenv(
+        PolymarketPMXTDataLoader._PMXT_RELAY_BASE_URL_ENV,
+        "0",
+    )
+    assert PolymarketPMXTDataLoader._resolve_relay_base_url() is None
 
 
 def test_resolve_http_tuning_parses_env(monkeypatch):
@@ -129,6 +156,87 @@ def test_load_market_table_prefers_cached_table(tmp_path):
 
     assert loaded is not None
     assert loaded.to_pylist() == cached_table.to_pylist()
+
+
+def test_load_market_batches_prefers_relay_before_remote(tmp_path):
+    loader = _make_loader(tmp_path)
+    loader._pmxt_relay_base_url = "http://relay.local:8080"
+    hour = pd.Timestamp("2026-03-16T13:00:00Z")
+    relay_batch = pa.record_batch(
+        [
+            pa.array(["book_snapshot"]),
+            pa.array(['{"token_id":"token-yes-123","payload":"relay"}']),
+        ],
+        names=["update_type", "data"],
+    )
+
+    loader._load_relay_market_batches = (  # type: ignore[method-assign]
+        lambda _hour, *, batch_size: [relay_batch]
+    )
+
+    def _fail_remote(*args, **kwargs):  # type: ignore[no-untyped-def]
+        raise AssertionError("remote load should not run when relay responds")
+
+    loader._load_remote_market_batches = _fail_remote  # type: ignore[method-assign]
+
+    batches = loader._load_market_batches(hour, batch_size=1_000)
+
+    assert batches is not None
+    assert (
+        batches[0].column("data")[0].as_py()
+        == '{"token_id":"token-yes-123","payload":"relay"}'
+    )
+
+
+def test_load_market_batches_falls_back_to_remote_when_relay_errors(
+    tmp_path, monkeypatch
+):
+    loader = _make_loader(tmp_path)
+    loader._pmxt_relay_base_url = "http://relay.local:8080"
+    hour = pd.Timestamp("2026-03-16T13:00:00Z")
+    remote_batch = pa.record_batch(
+        [
+            pa.array(["book_snapshot"]),
+            pa.array(['{"token_id":"token-yes-123","payload":"remote"}']),
+        ],
+        names=["update_type", "data"],
+    )
+
+    def _raise_relay(*args, **kwargs):  # type: ignore[no-untyped-def]
+        raise OSError("429 Too Many Requests")
+
+    monkeypatch.setattr(pmxt_module.ds, "dataset", _raise_relay)
+    loader._load_remote_market_batches = lambda _hour, *, batch_size: [remote_batch]  # type: ignore[method-assign]
+
+    batches = loader._load_market_batches(hour, batch_size=1_000)
+
+    assert batches is not None
+    assert (
+        batches[0].column("data")[0].as_py()
+        == '{"token_id":"token-yes-123","payload":"remote"}'
+    )
+
+
+def test_decode_book_snapshot_accepts_null_top_of_book_fields():
+    payload = PolymarketPMXTDataLoader._decode_book_snapshot(
+        '{"update_type":"book_snapshot","market_id":"condition-123","token_id":"token-yes-123",'
+        '"side":"NO","best_bid":null,"best_ask":"0.02","timestamp":1771767624.001295,'
+        '"bids":[],"asks":[["0.99","10"]]}'
+    )
+
+    assert payload.best_bid is None
+    assert payload.best_ask == "0.02"
+
+
+def test_decode_price_change_accepts_null_top_of_book_fields():
+    payload = PolymarketPMXTDataLoader._decode_price_change(
+        '{"update_type":"price_change","market_id":"condition-123","token_id":"token-yes-123",'
+        '"side":"NO","best_bid":null,"best_ask":"0.02","timestamp":1771767624.001295,'
+        '"change_price":"0.02","change_size":"10","change_side":"SELL"}'
+    )
+
+    assert payload.best_bid is None
+    assert payload.best_ask == "0.02"
 
 
 def test_iter_market_tables_preserves_hour_order(tmp_path):
