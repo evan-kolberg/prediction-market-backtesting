@@ -165,3 +165,28 @@ def test_list_hours_needing_process_pending_only_skips_errors(tmp_path: Path):
     assert [row["filename"] for row in rows] == [
         "polymarket_orderbook_2026-03-21T13.parquet"
     ]
+
+
+def test_mark_processed_tracks_filtered_artifact_count(tmp_path: Path):
+    index = RelayIndex(tmp_path / "relay.sqlite3")
+    index.initialize()
+    filename = "polymarket_orderbook_2026-03-21T12.parquet"
+    index.upsert_discovered_hour(
+        filename,
+        "https://r2.pmxt.dev/polymarket_orderbook_2026-03-21T12.parquet",
+        1,
+    )
+    index.mark_mirrored(
+        filename,
+        local_path="/tmp/a",
+        etag=None,
+        content_length=None,
+        last_modified=None,
+    )
+    index.mark_processed(filename, filtered_artifact_count=42)
+
+    stats = index.stats()
+    rows = index.list_hours_needing_filtered_prebuild()
+
+    assert stats["filtered_hours"] == 42
+    assert rows == []

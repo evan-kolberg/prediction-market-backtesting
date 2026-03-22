@@ -106,6 +106,34 @@ def test_hour_processor_writes_one_processed_shard_per_hour(tmp_path):
             "data": '{"token_id":"token-no","seq":4}',
         },
     ]
+    filtered_yes_path = (
+        config.filtered_root
+        / "condition-a"
+        / "token-yes"
+        / "polymarket_orderbook_2026-03-21T12.parquet"
+    )
+    filtered_no_path = (
+        config.filtered_root
+        / "condition-b"
+        / "token-no"
+        / "polymarket_orderbook_2026-03-21T12.parquet"
+    )
+    assert pq.read_table(filtered_yes_path).to_pylist() == [
+        {
+            "update_type": "book_snapshot",
+            "data": '{"token_id":"token-yes","seq":1}',
+        },
+        {
+            "update_type": "price_change",
+            "data": '{"token_id":"token-yes","seq":2}',
+        },
+    ]
+    assert pq.read_table(filtered_no_path).to_pylist() == [
+        {
+            "update_type": "price_change",
+            "data": '{"token_id":"token-no","seq":4}',
+        }
+    ]
 
 
 def test_materialized_filtered_hour_preserves_original_row_order(tmp_path):

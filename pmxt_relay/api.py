@@ -19,6 +19,7 @@ from pmxt_relay.config import RelayConfig
 from pmxt_relay.index_db import RelayIndex
 from pmxt_relay.processor import materialize_filtered_hour
 from pmxt_relay.processor import materialize_partition_dir
+from pmxt_relay.storage import parse_archive_hour
 from pmxt_relay.storage import processed_relative_path
 
 _CONDITION_ID_RE = re.compile(r"^0x[a-f0-9]{64}$", re.IGNORECASE)
@@ -615,6 +616,14 @@ async def list_filtered_hours(request: web.Request) -> web.Response:
         start_hour=start_hour,
         end_hour=end_hour,
     )
+    if not rows:
+        rows = _scan_filtered_hours(
+            config,
+            condition_id,
+            token_id,
+            start_hour=start_hour,
+            end_hour=end_hour,
+        )
     truncated = len(rows) > config.api_list_max_hours
     if truncated:
         rows = rows[: config.api_list_max_hours]
@@ -643,6 +652,40 @@ async def list_filtered_hours(request: web.Request) -> web.Response:
             "truncated": truncated,
         }
     )
+
+
+def _scan_filtered_hours(
+    config: RelayConfig,
+    condition_id: str,
+    token_id: str,
+    *,
+    start_hour: str | None = None,
+    end_hour: str | None = None,
+) -> list[dict[str, object]]:
+    token_root = config.filtered_root / condition_id / token_id
+    if not token_root.exists():
+        return []
+
+    entries: list[dict[str, object]] = []
+    for path in sorted(token_root.glob("polymarket_orderbook_*.parquet")):
+        hour = parse_archive_hour(path.name).isoformat()
+        if start_hour is not None and hour < start_hour:
+            continue
+        if end_hour is not None and hour > end_hour:
+            continue
+        try:
+            byte_size = path.stat().st_size
+        except FileNotFoundError:
+            continue
+        entries.append(
+            {
+                "filename": path.name,
+                "hour": hour,
+                "row_count": None,
+                "byte_size": byte_size,
+            }
+        )
+    return entries
 
 
 async def serve_filtered(request: web.Request) -> web.StreamResponse:

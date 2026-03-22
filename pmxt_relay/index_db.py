@@ -53,6 +53,7 @@ class RelayIndex:
                 last_modified TEXT,
                 mirror_status TEXT NOT NULL DEFAULT 'pending',
                 process_status TEXT NOT NULL DEFAULT 'pending',
+                filtered_artifact_count INTEGER NOT NULL DEFAULT 0,
                 mirrored_at TEXT,
                 processed_at TEXT,
                 last_error TEXT
@@ -90,11 +91,23 @@ class RelayIndex:
             ON relay_events (created_at DESC, id DESC);
             """
         )
+        self._ensure_archive_hours_column(
+            "filtered_artifact_count",
+            "INTEGER NOT NULL DEFAULT 0",
+        )
         self._conn.commit()
         self.prune_events()
         if reset_inflight:
             return self.reset_inflight_work()
         return 0, 0
+
+    def _ensure_archive_hours_column(self, name: str, definition: str) -> None:
+        columns = {
+            row[1] for row in self._conn.execute("PRAGMA table_info(archive_hours)")
+        }
+        if name in columns:
+            return
+        self._conn.execute(f"ALTER TABLE archive_hours ADD COLUMN {name} {definition}")
 
     def prune_events(self) -> None:
         with self._conn:
@@ -190,6 +203,7 @@ class RelayIndex:
                     last_modified = ?,
                     mirror_status = 'ready',
                     process_status = 'pending',
+                    filtered_artifact_count = 0,
                     mirrored_at = ?,
                     last_error = NULL
                 WHERE filename = ?
@@ -312,16 +326,48 @@ class RelayIndex:
                 (_utc_now(), filename),
             )
 
-    def mark_processed(self, filename: str) -> None:
+    def mark_processed(
+        self,
+        filename: str,
+        *,
+        filtered_artifact_count: int | None = None,
+    ) -> None:
         with self._conn:
-            self._conn.execute(
-                """
-                UPDATE archive_hours
-                SET process_status = 'ready', processed_at = ?, last_error = NULL
-                WHERE filename = ?
-                """,
-                (_utc_now(), filename),
-            )
+            if filtered_artifact_count is None:
+                self._conn.execute(
+                    """
+                    UPDATE archive_hours
+                    SET process_status = 'ready', processed_at = ?, last_error = NULL
+                    WHERE filename = ?
+                    """,
+                    (_utc_now(), filename),
+                )
+            else:
+                self._conn.execute(
+                    """
+                    UPDATE archive_hours
+                    SET process_status = 'ready',
+                        processed_at = ?,
+                        filtered_artifact_count = ?,
+                        last_error = NULL
+                    WHERE filename = ?
+                    """,
+                    (_utc_now(), filtered_artifact_count, filename),
+                )
+
+    def list_hours_needing_filtered_prebuild(self) -> list[sqlite3.Row]:
+        cursor = self._conn.execute(
+            """
+            SELECT *
+            FROM archive_hours
+            WHERE mirror_status = 'ready'
+              AND process_status = 'ready'
+              AND filtered_artifact_count = 0
+              AND local_path IS NOT NULL
+            ORDER BY hour DESC
+            """
+        )
+        return cursor.fetchall()
 
     def list_filtered_for_filename(self, filename: str) -> list[sqlite3.Row]:
         cursor = self._conn.execute(
@@ -390,7 +436,13 @@ class RelayIndex:
             """
         ).fetchone()
         filtered_hours = self._conn.execute(
-            "SELECT COUNT(*) FROM filtered_hours"
+            """
+            SELECT COALESCE(
+                NULLIF(SUM(filtered_artifact_count), 0),
+                (SELECT COUNT(*) FROM filtered_hours)
+            )
+            FROM archive_hours
+            """
         ).fetchone()[0]
         last_event_at = self._conn.execute(
             "SELECT MAX(created_at) FROM relay_events"

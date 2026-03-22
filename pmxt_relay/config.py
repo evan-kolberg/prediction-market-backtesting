@@ -41,6 +41,7 @@ class RelayConfig:
     event_retention: int
     api_rate_limit_per_minute: int
     api_list_max_hours: int
+    filtered_materialization_workers: int = 4
 
     @classmethod
     def from_env(cls) -> RelayConfig:
@@ -80,6 +81,13 @@ class RelayConfig:
             api_list_max_hours=max(
                 1,
                 _env_int("PMXT_RELAY_API_LIST_MAX_HOURS", 2000),
+            ),
+            filtered_materialization_workers=max(
+                1,
+                _env_int(
+                    "PMXT_RELAY_FILTERED_WORKERS",
+                    max(1, _env_int("PMXT_RELAY_DUCKDB_THREADS", 4)),
+                ),
             ),
         )
 

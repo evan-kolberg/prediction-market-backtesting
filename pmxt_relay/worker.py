@@ -71,7 +71,8 @@ class RelayWorker:
         discovered = self._discover_archive_hours()
         mirrored = self._mirror_pending_hours()
         processed = self._process_pending_hours()
-        total = discovered + mirrored + processed
+        prebuilt = self._prebuild_filtered_hours(limit=1)
+        total = discovered + mirrored + processed + prebuilt
         self._record_event(
             level="INFO",
             event_type="cycle_complete",
@@ -80,13 +81,15 @@ class RelayWorker:
                 "discovered": discovered,
                 "mirrored": mirrored,
                 "processed": processed,
+                "prebuilt": prebuilt,
             },
         )
         LOG.info(
-            "Relay cycle complete: discovered=%s mirrored=%s processed=%s",
+            "Relay cycle complete: discovered=%s mirrored=%s processed=%s prebuilt=%s",
             discovered,
             mirrored,
             processed,
+            prebuilt,
         )
         return total
 
@@ -257,7 +260,14 @@ class RelayWorker:
                 filename
             )
             if processed_path.exists() and processed_path.stat().st_size > 0:
-                self._index.mark_processed(filename)
+                artifacts = self._processor.prebuild_filtered_from_processed(
+                    filename,
+                    processed_path,
+                )
+                self._index.mark_processed(
+                    filename,
+                    filtered_artifact_count=len(artifacts),
+                )
                 self._record_event(
                     level="INFO",
                     event_type="process_reuse",
@@ -266,6 +276,7 @@ class RelayWorker:
                     payload={
                         "processed_path": str(processed_path),
                         "byte_size": processed_path.stat().st_size,
+                        "filtered_files": len(artifacts),
                     },
                 )
                 LOG.info("Reused processed shard %s from %s", filename, processed_path)
@@ -341,10 +352,13 @@ class RelayWorker:
                 existing_path = Path(existing["local_path"])
                 if existing_path.is_dir():
                     shutil.rmtree(existing_path, ignore_errors=True)
-                else:
+                elif existing_path.is_relative_to(self._config.filtered_root):
                     existing_path.unlink(missing_ok=True)
 
-            self._index.mark_processed(filename)
+            self._index.mark_processed(
+                filename,
+                filtered_artifact_count=len(artifacts),
+            )
             self._record_event(
                 level="INFO",
                 event_type="process_complete",
@@ -360,3 +374,56 @@ class RelayWorker:
             if limit is not None and processed >= limit:
                 break
         return processed
+
+    def _prebuild_filtered_hours(self, *, limit: int | None = None) -> int:
+        prebuilt = 0
+        for row in self._index.list_hours_needing_filtered_prebuild():
+            filename = row["filename"]
+            processed_path = self._config.processed_root / processed_relative_path(
+                filename
+            )
+            if not processed_path.exists() or processed_path.stat().st_size <= 0:
+                continue
+            self._record_event(
+                level="INFO",
+                event_type="filtered_prebuild_start",
+                filename=filename,
+                message=f"Prebuilding filtered hours for {filename}",
+                payload={"processed_path": str(processed_path)},
+            )
+            try:
+                artifacts = self._processor.prebuild_filtered_from_processed(
+                    filename,
+                    processed_path,
+                )
+            except Exception as exc:  # noqa: BLE001
+                self._record_event(
+                    level="ERROR",
+                    event_type="filtered_prebuild_error",
+                    filename=filename,
+                    message=f"Failed to prebuild filtered hours for {filename}",
+                    payload={"error": str(exc)},
+                )
+                LOG.exception("Failed to prebuild filtered hours for %s", filename)
+                continue
+
+            self._index.mark_processed(
+                filename,
+                filtered_artifact_count=len(artifacts),
+            )
+            self._record_event(
+                level="INFO",
+                event_type="filtered_prebuild_complete",
+                filename=filename,
+                message=f"Prebuilt filtered hours for {filename}",
+                payload={"filtered_files": len(artifacts)},
+            )
+            LOG.info(
+                "Prebuilt filtered hours for %s into %s files",
+                filename,
+                len(artifacts),
+            )
+            prebuilt += 1
+            if limit is not None and prebuilt >= limit:
+                break
+        return prebuilt

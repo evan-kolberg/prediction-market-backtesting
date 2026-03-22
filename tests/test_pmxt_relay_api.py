@@ -676,3 +676,51 @@ def test_filtered_api_returns_404_when_processed_hour_has_no_matching_token(
             await client.close()
 
     asyncio.run(scenario())
+
+
+def test_list_filtered_hours_scans_filesystem_when_index_is_empty(tmp_path: Path):
+    async def scenario() -> None:
+        config = _make_config(tmp_path)
+        config.ensure_directories()
+        condition_id = "0x" + ("ab" * 32)
+        token_id = "123456789"
+        filtered_dir = config.filtered_root / condition_id / token_id
+        filtered_dir.mkdir(parents=True, exist_ok=True)
+        hour_path = filtered_dir / "polymarket_orderbook_2026-03-21T12.parquet"
+        pq.write_table(
+            pa.table(
+                {
+                    "update_type": ["book_snapshot"],
+                    "data": ['{"token_id":"123456789","seq":1}'],
+                }
+            ),
+            hour_path,
+        )
+
+        app = create_app(config)
+        server = TestServer(app)
+        client = TestClient(server)
+        await client.start_server()
+        try:
+            response = await client.get(
+                f"/v1/markets/{condition_id}/tokens/{token_id}/hours"
+            )
+            assert response.status == 200
+            payload = await response.json()
+        finally:
+            await client.close()
+
+        assert payload["condition_id"] == condition_id
+        assert payload["token_id"] == token_id
+        assert payload["truncated"] is False
+        assert payload["hours"] == [
+            {
+                "hour": "2026-03-21T12:00:00+00:00",
+                "filename": "polymarket_orderbook_2026-03-21T12.parquet",
+                "row_count": None,
+                "byte_size": hour_path.stat().st_size,
+                "url": f"/v1/filtered/{condition_id}/{token_id}/polymarket_orderbook_2026-03-21T12.parquet",
+            }
+        ]
+
+    asyncio.run(scenario())
