@@ -22,6 +22,29 @@ The relay keeps the exact filtered shape the loader already uses today:
 That means the backtests do not need a new schema. They just need a faster
 source for already-filtered hours.
 
+## Pipeline Stages
+
+Each hourly archive file moves through four stages:
+
+| Stage     | DB column          | Meaning                                          |
+|-----------|--------------------|--------------------------------------------------|
+| Discovered| `mirror_status`    | Filename found on PMXT archive index             |
+| Mirrored  | `mirror_status=ready` | Raw parquet downloaded to `raw/`              |
+| Sharded   | `process_status=ready` | Canonical shard with extracted columns in `processed/` |
+| Processed | `prebuild_status=ready` | Final per-(condition_id, token_id, hour) parquet in `filtered/` |
+
+**"Processed" always means the final backtest-ready prebuilt output**, not an
+intermediate shard. The public badges and `/v1/stats` use this definition:
+
+- `mirrored` badge: `mirror_status=ready` / total discovered
+- `processed` badge: `prebuild_status=ready` / `mirror_status=ready`
+
+The inflight reset on startup is split by stage so the worker and prebuild
+service don't clobber each other's state:
+
+- Worker resets: mirror + process inflight (not prebuild)
+- Prebuild service resets: prebuild inflight (not mirror/process)
+
 ## Directory Layout
 
 By default the relay stores data under `/srv/pmxt-relay`:
@@ -57,23 +80,24 @@ Run three long-lived services:
 - Worker: `uv run python -m pmxt_relay worker`
 - Prebuild: `uv run python -m pmxt_relay prebuild-filtered`
 
-The worker:
+The worker handles discovery, mirroring, and sharding only (no prebuilding):
 
 1. scrapes `https://archive.pmxt.dev/data/Polymarket?page=N`
 2. discovers every hourly archive filename
 3. downloads missing raw parquet files from `https://r2.pmxt.dev`
 4. streams each raw hour through Arrow, extracts `token_id` from `data`, and
-   writes one canonical processed parquet shard for that hour
-5. writes the final filtered `(condition_id, token_id, hour)` parquet files
-   for newly processed hours
-6. keeps polling for new hours
+   writes one canonical processed shard per hour
+5. keeps polling for new hours
 
-The prebuild service:
+The prebuild service is the only process that writes final filtered output:
 
-1. walks previously processed hours that predate eager filtered output
+1. walks sharded hours whose `prebuild_status` is `pending`
 2. materializes their final `(condition_id, token_id, hour)` parquet files
-3. keeps running in the background so old processed shards get converted
-   without waiting for an API request
+3. keeps running in the background so shards get converted to backtest-ready
+   files without waiting for an API request
+
+The worker **never** prebuilds (`skip_prebuild=True`). This prevents memory
+contention on small VPS instances where both services share limited RAM.
 
 Mirror and preprocess work is interleaved, so the relay starts producing
 queryable filtered hours during the initial backfill instead of waiting for the
@@ -199,7 +223,9 @@ Common env vars:
 - `PMXT_RELAY_BIND_PORT=8080`
 - `PMXT_RELAY_PUBLIC_BASE_URL=https://209-209-10-83.sslip.io`
 - `PMXT_RELAY_POLL_INTERVAL_SECS=900`
-- `PMXT_RELAY_FILTERED_WORKERS=4`
+- `PMXT_RELAY_DUCKDB_THREADS=2`
+- `PMXT_RELAY_DUCKDB_MEMORY_LIMIT=1500MB`
+- `PMXT_RELAY_FILTERED_WORKERS=1`
 - `PMXT_RELAY_EXPOSE_RAW=0`
 - `PMXT_RELAY_API_RATE_LIMIT_PER_MINUTE=2400`
 - `PMXT_RELAY_API_LIST_MAX_HOURS=2000`
@@ -222,6 +248,31 @@ The shipped units are hardened for public deployment:
 - write access limited to `/srv/pmxt-relay`
 - private `/tmp`
 - no device access or Linux capability set
+
+## Memory Tuning
+
+The prebuild service is the heaviest consumer. Each hourly parquet file
+contains ~30M rows spread across thousands of `(condition_id, token_id)`
+partitions. Materializing one hour can use 3-4 GB of RAM.
+
+On a 6 GB VPS the safe configuration is:
+
+| Service  | `MemoryMax` | `MemorySwapMax` | Notes                            |
+|----------|-------------|-----------------|----------------------------------|
+| Worker   | 2500M       | 512M            | Mirror + shard only, no prebuild |
+| Prebuild | 4G          | 486M            | One hour at a time               |
+
+Key env vars that control memory:
+
+- `PMXT_RELAY_DUCKDB_MEMORY_LIMIT` - DuckDB query memory cap (set to ~25% of
+  total RAM when two services run concurrently)
+- `PMXT_RELAY_DUCKDB_THREADS` - DuckDB parallelism (lower = less peak memory)
+- `PMXT_RELAY_FILTERED_WORKERS` - concurrent partition materializers in the
+  prebuild step (keep at 1 on low-RAM machines)
+
+The systemd units in `systemd/` include `MemoryMax` to prevent OOM kills from
+crashing the whole machine. If a service hits its limit, systemd kills just
+that service and `Restart=always` brings it back.
 
 ## Public Relay Hardening
 

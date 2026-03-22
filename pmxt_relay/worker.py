@@ -23,13 +23,28 @@ LOG = logging.getLogger(__name__)
 
 
 class RelayWorker:
-    def __init__(self, config: RelayConfig) -> None:
+    def __init__(
+        self,
+        config: RelayConfig,
+        *,
+        reset_inflight: bool = True,
+        reset_mirror_inflight: bool = True,
+        reset_process_inflight: bool = True,
+        reset_prebuild_inflight: bool = True,
+        skip_prebuild: bool = False,
+    ) -> None:
         self._config = config
+        self._skip_prebuild = skip_prebuild
         self._config.ensure_directories()
         self._index = RelayIndex(config.db_path, event_retention=config.event_retention)
-        reset_mirror, reset_process = self._index.initialize(reset_inflight=True)
+        reset_mirror, reset_process, reset_prebuild = self._index.initialize(
+            reset_inflight=reset_inflight,
+            reset_mirror_inflight=reset_mirror_inflight,
+            reset_process_inflight=reset_process_inflight,
+            reset_prebuild_inflight=reset_prebuild_inflight,
+        )
         self._processor = RelayHourProcessor(config)
-        if reset_mirror or reset_process:
+        if reset_mirror or reset_process or reset_prebuild:
             self._record_event(
                 level="WARNING",
                 event_type="resume_inflight",
@@ -37,6 +52,7 @@ class RelayWorker:
                 payload={
                     "reset_mirror": reset_mirror,
                     "reset_process": reset_process,
+                    "reset_prebuild": reset_prebuild,
                 },
             )
 
@@ -71,7 +87,7 @@ class RelayWorker:
         discovered = self._discover_archive_hours()
         mirrored = self._mirror_pending_hours()
         processed = self._process_pending_hours()
-        prebuilt = self._prebuild_filtered_hours(limit=1)
+        prebuilt = 0 if self._skip_prebuild else self._prebuild_filtered_hours(limit=1)
         total = discovered + mirrored + processed + prebuilt
         self._record_event(
             level="INFO",
@@ -259,40 +275,6 @@ class RelayWorker:
             processed_path = self._config.processed_root / processed_relative_path(
                 filename
             )
-            if processed_path.exists() and processed_path.stat().st_size > 0:
-                artifacts = self._processor.prebuild_filtered_from_processed(
-                    filename,
-                    processed_path,
-                )
-                self._index.mark_processed(
-                    filename,
-                    filtered_artifact_count=len(artifacts),
-                )
-                self._record_event(
-                    level="INFO",
-                    event_type="process_reuse",
-                    filename=filename,
-                    message=f"Reused processed shard for {filename}",
-                    payload={
-                        "processed_path": str(processed_path),
-                        "byte_size": processed_path.stat().st_size,
-                        "filtered_files": len(artifacts),
-                    },
-                )
-                LOG.info("Reused processed shard %s from %s", filename, processed_path)
-                processed += 1
-                if limit is not None and processed >= limit:
-                    break
-                continue
-            self._index.mark_processing(filename)
-            self._record_event(
-                level="INFO",
-                event_type="process_start",
-                filename=filename,
-                message=f"Processing {filename}",
-                payload={"raw_path": str(raw_path)},
-            )
-            existing_rows = self._index.list_filtered_for_filename(filename)
             last_reported_rows = -1
             last_report_monotonic = 0.0
 
@@ -319,6 +301,70 @@ class RelayWorker:
                         "total_rows": total_rows,
                     },
                 )
+
+            if processed_path.exists() and processed_path.stat().st_size > 0:
+                self._index.mark_sharded(filename)
+                if self._skip_prebuild:
+                    self._record_event(
+                        level="INFO",
+                        event_type="process_reuse",
+                        filename=filename,
+                        message=f"Reused processed shard for {filename} (prebuild deferred)",
+                        payload={
+                            "processed_path": str(processed_path),
+                            "byte_size": processed_path.stat().st_size,
+                        },
+                    )
+                    processed += 1
+                    continue
+                self._index.mark_prebuilding(filename)
+                try:
+                    artifacts = self._processor.prebuild_filtered_from_processed(
+                        filename,
+                        processed_path,
+                        progress_callback=report_progress,
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    self._index.mark_prebuild_error(filename, str(exc))
+                    self._record_event(
+                        level="ERROR",
+                        event_type="process_reuse_error",
+                        filename=filename,
+                        message=f"Failed to reuse processed shard for {filename}",
+                        payload={"error": str(exc)},
+                    )
+                    LOG.exception("Failed to reuse processed shard for %s", filename)
+                    continue
+                self._index.mark_prebuilt(
+                    filename,
+                    filtered_artifact_count=len(artifacts),
+                    artifacts=artifacts,
+                )
+                self._record_event(
+                    level="INFO",
+                    event_type="process_reuse",
+                    filename=filename,
+                    message=f"Reused processed shard for {filename}",
+                    payload={
+                        "processed_path": str(processed_path),
+                        "byte_size": processed_path.stat().st_size,
+                        "filtered_files": len(artifacts),
+                    },
+                )
+                LOG.info("Reused processed shard %s from %s", filename, processed_path)
+                processed += 1
+                if limit is not None and processed >= limit:
+                    break
+                continue
+            self._index.mark_processing(filename)
+            self._record_event(
+                level="INFO",
+                event_type="process_start",
+                filename=filename,
+                message=f"Processing {filename}",
+                payload={"raw_path": str(raw_path)},
+            )
+            existing_rows = self._index.list_filtered_for_filename(filename)
 
             try:
                 result = self._processor.process_hour(
@@ -355,9 +401,11 @@ class RelayWorker:
                 elif existing_path.is_relative_to(self._config.filtered_root):
                     existing_path.unlink(missing_ok=True)
 
-            self._index.mark_processed(
+            self._index.mark_sharded(filename)
+            self._index.mark_prebuilt(
                 filename,
                 filtered_artifact_count=len(artifacts),
+                artifacts=artifacts,
             )
             self._record_event(
                 level="INFO",
@@ -384,6 +432,7 @@ class RelayWorker:
             )
             if not processed_path.exists() or processed_path.stat().st_size <= 0:
                 continue
+            self._index.mark_prebuilding(filename)
             self._record_event(
                 level="INFO",
                 event_type="filtered_prebuild_start",
@@ -425,6 +474,7 @@ class RelayWorker:
                     progress_callback=report_progress,
                 )
             except Exception as exc:  # noqa: BLE001
+                self._index.mark_prebuild_error(filename, str(exc))
                 self._record_event(
                     level="ERROR",
                     event_type="filtered_prebuild_error",
@@ -435,9 +485,10 @@ class RelayWorker:
                 LOG.exception("Failed to prebuild filtered hours for %s", filename)
                 continue
 
-            self._index.mark_processed(
+            self._index.mark_prebuilt(
                 filename,
                 filtered_artifact_count=len(artifacts),
+                artifacts=artifacts,
             )
             self._record_event(
                 level="INFO",

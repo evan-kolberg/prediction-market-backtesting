@@ -366,6 +366,7 @@ class RelayHourProcessor:
             existing_data_behavior="overwrite_or_ignore",
             basename_template=basename_template,
             max_open_files=self._config.filtered_materialization_workers * 8,
+            max_partitions=8192,
             use_threads=self._config.filtered_materialization_workers > 1,
         )
 

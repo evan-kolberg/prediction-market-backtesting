@@ -626,7 +626,7 @@ def test_filtered_api_materializes_from_processed_hour_without_filtered_index(
             content_length=None,
             last_modified=None,
         )
-        index.mark_processed(filename)
+        index.mark_sharded(filename)
 
         server = TestServer(app)
         client = TestClient(server)
@@ -690,7 +690,7 @@ def test_filtered_api_returns_404_when_processed_hour_has_no_matching_token(
             content_length=None,
             last_modified=None,
         )
-        index.mark_processed(filename)
+        index.mark_sharded(filename)
 
         server = TestServer(app)
         client = TestClient(server)
