@@ -9,8 +9,8 @@ What it does:
 - keeps polling the PMXT archive index for new hours
 - precomputes one canonical processed parquet shard per hour with extracted
   `market_id` and `token_id` columns
-- lazily materializes tiny filtered parquet slices keyed by
-  `(condition_id, token_id, hour)` when clients actually request them
+- eagerly prebuilds tiny filtered parquet slices keyed by
+  `(condition_id, token_id, hour)` so request-time fetches stay fast
 - serves those slices over HTTP so the backtest loader can skip the expensive
   remote market scan on first run
 
@@ -41,8 +41,8 @@ This means the relay keeps two persistent layers:
 - `processed/` stores one canonical prefiltered shard per hour with
   `market_id` and `token_id` extracted out of JSON
 
-`filtered/` is then just a lazy cache of the exact tiny parquet files the
-backtest loader wants.
+`filtered/` is the final tiny parquet layer the backtest loader wants. The
+relay now fills it ahead of demand with a dedicated background prebuild worker.
 
 So yes, the processed data is stored in addition to the raw mirror. The
 filtered layer is still much smaller than the raw mirror because it keeps only
@@ -51,10 +51,11 @@ market/token/hour. Temporary `.tmp` files only exist during atomic writes.
 
 ## Processes
 
-Run two long-lived services:
+Run three long-lived services:
 
 - API: `uv run python -m pmxt_relay api`
 - Worker: `uv run python -m pmxt_relay worker`
+- Prebuild: `uv run python -m pmxt_relay prebuild-filtered`
 
 The worker:
 
@@ -63,10 +64,16 @@ The worker:
 3. downloads missing raw parquet files from `https://r2.pmxt.dev`
 4. streams each raw hour through Arrow, extracts `token_id` from `data`, and
    writes one canonical processed parquet shard for that hour
-5. records every discovered `(condition_id, token_id)` pair for the hour in SQLite
-6. lets the API materialize the exact filtered `(condition_id, token_id, hour)`
-   parquet lazily on first request
-7. keeps polling for new hours
+5. writes the final filtered `(condition_id, token_id, hour)` parquet files
+   for newly processed hours
+6. keeps polling for new hours
+
+The prebuild service:
+
+1. walks previously processed hours that predate eager filtered output
+2. materializes their final `(condition_id, token_id, hour)` parquet files
+3. keeps running in the background so old processed shards get converted
+   without waiting for an API request
 
 Mirror and preprocess work is interleaved, so the relay starts producing
 queryable filtered hours during the initial backfill instead of waiting for the
@@ -76,7 +83,7 @@ The design is restart-safe:
 
 - raw downloads go through a temp file and atomic rename
 - processed hour shards go through a temp file and atomic rename
-- lazily materialized filtered outputs go through a temp file and atomic rename
+- eagerly prebuilt filtered outputs go through a temp file and atomic rename
 - relay state lives in `state/relay.sqlite3`
 - the worker can resume after interruption without losing already mirrored or
   already processed hours
@@ -109,9 +116,11 @@ Install the systemd units:
 ```bash
 cp pmxt_relay/systemd/pmxt-relay-api.service /etc/systemd/system/
 cp pmxt_relay/systemd/pmxt-relay-worker.service /etc/systemd/system/
+cp pmxt_relay/systemd/pmxt-relay-prebuild.service /etc/systemd/system/
 systemctl daemon-reload
 systemctl enable --now pmxt-relay-api.service
 systemctl enable --now pmxt-relay-worker.service
+systemctl enable --now pmxt-relay-prebuild.service
 ```
 
 Turn on the firewall with only SSH and the public relay port exposed:
@@ -190,17 +199,19 @@ Common env vars:
 - `PMXT_RELAY_BIND_PORT=8080`
 - `PMXT_RELAY_PUBLIC_BASE_URL=https://209-209-10-83.sslip.io`
 - `PMXT_RELAY_POLL_INTERVAL_SECS=900`
+- `PMXT_RELAY_FILTERED_WORKERS=4`
 - `PMXT_RELAY_EXPOSE_RAW=0`
 - `PMXT_RELAY_API_RATE_LIMIT_PER_MINUTE=2400`
 - `PMXT_RELAY_API_LIST_MAX_HOURS=2000`
 
 ## Systemd
 
-Example unit files live in [`systemd/`](./systemd/). Enable both:
+Example unit files live in [`systemd/`](./systemd/). Enable all three:
 
 ```bash
 systemctl enable --now pmxt-relay-worker.service
 systemctl enable --now pmxt-relay-api.service
+systemctl enable --now pmxt-relay-prebuild.service
 ```
 
 The shipped units are hardened for public deployment:

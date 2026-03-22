@@ -275,6 +275,58 @@ def _backfill_badge_payload(
     )
 
 
+def _ratio_badge_payload(
+    *,
+    label: str,
+    numerator: int,
+    denominator: int,
+) -> dict[str, object]:
+    if denominator <= 0:
+        return _badge_payload(label=label, message="0/0 hrs", color="lightgrey")
+
+    progress = numerator / denominator
+    if progress >= 1.0:
+        color = "brightgreen"
+    elif progress >= 0.5:
+        color = "green"
+    elif progress >= 0.1:
+        color = "yellowgreen"
+    else:
+        color = "orange"
+
+    return _badge_payload(
+        label=label,
+        message=f"{numerator}/{denominator} hrs",
+        color=color,
+    )
+
+
+def _mirrored_badge_payload(
+    *,
+    stats: dict[str, int | str | None],
+) -> dict[str, object]:
+    mirrored_hours = int(stats.get("mirrored_hours") or 0)
+    archive_hours = int(stats.get("archive_hours") or 0)
+    return _ratio_badge_payload(
+        label="PMXT mirrored",
+        numerator=mirrored_hours,
+        denominator=archive_hours,
+    )
+
+
+def _processed_badge_payload(
+    *,
+    stats: dict[str, int | str | None],
+) -> dict[str, object]:
+    processed_hours = int(stats.get("processed_hours") or 0)
+    mirrored_hours = int(stats.get("mirrored_hours") or 0)
+    return _ratio_badge_payload(
+        label="PMXT processed",
+        numerator=processed_hours,
+        denominator=mirrored_hours,
+    )
+
+
 def _latest_processed_badge_payload(
     *,
     queue: dict[str, int | str | None],
@@ -538,6 +590,16 @@ async def badge_backfill(request: web.Request) -> web.Response:
     return web.json_response(_backfill_badge_payload(stats=index.stats()))
 
 
+async def badge_mirrored(request: web.Request) -> web.Response:
+    index = request.app[INDEX_APP_KEY]
+    return web.json_response(_mirrored_badge_payload(stats=index.stats()))
+
+
+async def badge_processed(request: web.Request) -> web.Response:
+    index = request.app[INDEX_APP_KEY]
+    return web.json_response(_processed_badge_payload(stats=index.stats()))
+
+
 async def badge_latest(request: web.Request) -> web.Response:
     index = request.app[INDEX_APP_KEY]
     return web.json_response(
@@ -585,6 +647,16 @@ async def badge_status_svg(request: web.Request) -> web.Response:
 async def badge_backfill_svg(request: web.Request) -> web.Response:
     index = request.app[INDEX_APP_KEY]
     return _badge_svg_response(_backfill_badge_payload(stats=index.stats()))
+
+
+async def badge_mirrored_svg(request: web.Request) -> web.Response:
+    index = request.app[INDEX_APP_KEY]
+    return _badge_svg_response(_mirrored_badge_payload(stats=index.stats()))
+
+
+async def badge_processed_svg(request: web.Request) -> web.Response:
+    index = request.app[INDEX_APP_KEY]
+    return _badge_svg_response(_processed_badge_payload(stats=index.stats()))
 
 
 async def badge_latest_svg(request: web.Request) -> web.Response:
@@ -785,10 +857,14 @@ def create_app(config: RelayConfig) -> web.Application:
     app.router.add_get("/v1/system", system_metrics)
     app.router.add_get("/v1/badge/status", badge_status)
     app.router.add_get("/v1/badge/backfill", badge_backfill)
+    app.router.add_get("/v1/badge/mirrored", badge_mirrored)
+    app.router.add_get("/v1/badge/processed", badge_processed)
     app.router.add_get("/v1/badge/latest", badge_latest)
     app.router.add_get("/v1/badge/lag", badge_lag)
     app.router.add_get("/v1/badge/status.svg", badge_status_svg)
     app.router.add_get("/v1/badge/backfill.svg", badge_backfill_svg)
+    app.router.add_get("/v1/badge/mirrored.svg", badge_mirrored_svg)
+    app.router.add_get("/v1/badge/processed.svg", badge_processed_svg)
     app.router.add_get("/v1/badge/latest.svg", badge_latest_svg)
     app.router.add_get("/v1/badge/lag.svg", badge_lag_svg)
     app.router.add_get("/v1/badge/cpu.svg", badge_cpu_svg)

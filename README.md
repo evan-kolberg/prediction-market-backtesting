@@ -19,7 +19,8 @@
 
 Relay VPS:
 [![PMXT relay](https://209-209-10-83.sslip.io/v1/badge/status.svg)](https://209-209-10-83.sslip.io/v1/stats)
-[![PMXT backfill](https://209-209-10-83.sslip.io/v1/badge/backfill.svg)](https://209-209-10-83.sslip.io/v1/stats)
+[![PMXT mirrored](https://209-209-10-83.sslip.io/v1/badge/mirrored.svg)](https://209-209-10-83.sslip.io/v1/stats)
+[![PMXT processed](https://209-209-10-83.sslip.io/v1/badge/processed.svg)](https://209-209-10-83.sslip.io/v1/stats)
 [![PMXT latest](https://209-209-10-83.sslip.io/v1/badge/latest.svg?v=3)](https://209-209-10-83.sslip.io/v1/queue)
 [![PMXT lag](https://209-209-10-83.sslip.io/v1/badge/lag.svg?v=3)](https://209-209-10-83.sslip.io/v1/queue)
 [![Relay CPU](https://209-209-10-83.sslip.io/v1/badge/cpu.svg)](https://209-209-10-83.sslip.io/v1/system)
@@ -367,8 +368,9 @@ Relay progress can be checked over HTTP:
 - `/v1/events?limit=100` for recent discover/download/process/error events
 - `/v1/inflight` for active temp-tree progress while a large hour is still
   being crunched
-- `/v1/badge/status`, `/v1/badge/backfill`, `/v1/badge/latest`,
-  `/v1/badge/lag`, `/v1/badge/cpu`, `/v1/badge/mem`, and
+- `/v1/badge/status`, `/v1/badge/backfill`, `/v1/badge/mirrored`,
+  `/v1/badge/processed`, `/v1/badge/latest`, `/v1/badge/lag`,
+  `/v1/badge/cpu`, `/v1/badge/mem`, and
   `/v1/badge/disk` for the live README status tags
 
 The relay mirrors the full PMXT archive and stores a single processed shard per

@@ -227,6 +227,8 @@ class RelayHourProcessor:
         self,
         filename: str,
         processed_path: Path,
+        *,
+        progress_callback: Callable[[int, int], None] | None = None,
     ) -> list[FilteredHourArtifact]:
         hour = parse_archive_hour(filename).isoformat()
         temp_root = self._config.tmp_root / f"{filename}.prebuild.filtered"
@@ -235,6 +237,7 @@ class RelayHourProcessor:
         partition_root.mkdir(parents=True, exist_ok=True)
 
         dataset = ds.dataset(processed_path, format="parquet")
+        total_rows = pq.ParquetFile(processed_path).metadata.num_rows
         row_offset = 0
         partition_counter = 0
 
@@ -267,7 +270,11 @@ class RelayHourProcessor:
                     basename_template=f"part-{partition_counter}-{{i}}.parquet",
                 )
                 partition_counter += 1
+                if progress_callback is not None:
+                    progress_callback(row_offset, total_rows)
 
+            if progress_callback is not None:
+                progress_callback(total_rows, total_rows)
             return self._materialize_partition_tree(filename, hour, partition_root)
         finally:
             shutil.rmtree(temp_root, ignore_errors=True)

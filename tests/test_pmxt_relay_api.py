@@ -180,6 +180,14 @@ def test_badge_endpoints_return_shields_payloads(tmp_path: Path):
             assert backfill_response.status == 200
             backfill_payload = await backfill_response.json()
 
+            mirrored_response = await client.get("/v1/badge/mirrored")
+            assert mirrored_response.status == 200
+            mirrored_payload = await mirrored_response.json()
+
+            processed_response = await client.get("/v1/badge/processed")
+            assert processed_response.status == 200
+            processed_payload = await processed_response.json()
+
             latest_response = await client.get("/v1/badge/latest")
             assert latest_response.status == 200
             latest_payload = await latest_response.json()
@@ -199,6 +207,18 @@ def test_badge_endpoints_return_shields_payloads(tmp_path: Path):
         assert backfill_payload == {
             "schemaVersion": 1,
             "label": "PMXT backfill",
+            "message": "1/2 hrs",
+            "color": "green",
+        }
+        assert mirrored_payload == {
+            "schemaVersion": 1,
+            "label": "PMXT mirrored",
+            "message": "2/2 hrs",
+            "color": "brightgreen",
+        }
+        assert processed_payload == {
+            "schemaVersion": 1,
+            "label": "PMXT processed",
             "message": "1/2 hrs",
             "color": "green",
         }
@@ -244,16 +264,24 @@ def test_badge_svg_endpoints_return_svg(tmp_path: Path):
         client = TestClient(server)
         await client.start_server()
         try:
-            status_response = await client.get("/v1/badge/status.svg")
-            assert status_response.status == 200
-            assert status_response.headers["Content-Type"].startswith("image/svg+xml")
-            svg = await status_response.text()
+            svg_payloads = {}
+            for path in (
+                "/v1/badge/status.svg",
+                "/v1/badge/mirrored.svg",
+                "/v1/badge/processed.svg",
+            ):
+                response = await client.get(path)
+                assert response.status == 200
+                assert response.headers["Content-Type"].startswith("image/svg+xml")
+                svg_payloads[path] = await response.text()
         finally:
             await client.close()
 
-        assert "PMXT relay" in svg
-        assert "starting" in svg
-        assert "<svg" in svg
+        assert "PMXT relay" in svg_payloads["/v1/badge/status.svg"]
+        assert "starting" in svg_payloads["/v1/badge/status.svg"]
+        assert "<svg" in svg_payloads["/v1/badge/status.svg"]
+        assert "PMXT mirrored" in svg_payloads["/v1/badge/mirrored.svg"]
+        assert "PMXT processed" in svg_payloads["/v1/badge/processed.svg"]
 
     asyncio.run(scenario())
 

@@ -391,10 +391,38 @@ class RelayWorker:
                 message=f"Prebuilding filtered hours for {filename}",
                 payload={"processed_path": str(processed_path)},
             )
+            last_reported_rows = -1
+            last_report_monotonic = 0.0
+
+            def report_progress(processed_rows: int, total_rows: int) -> None:
+                nonlocal last_reported_rows, last_report_monotonic
+                current = time.monotonic()
+                should_log = (
+                    processed_rows >= total_rows
+                    or last_reported_rows < 0
+                    or (processed_rows - last_reported_rows) >= 5_000_000
+                    or (current - last_report_monotonic) >= 5.0
+                )
+                if not should_log:
+                    return
+                last_reported_rows = processed_rows
+                last_report_monotonic = current
+                self._record_event(
+                    level="INFO",
+                    event_type="filtered_prebuild_progress",
+                    filename=filename,
+                    message=f"Prebuild progress for {filename}",
+                    payload={
+                        "processed_rows": processed_rows,
+                        "total_rows": total_rows,
+                    },
+                )
+
             try:
                 artifacts = self._processor.prebuild_filtered_from_processed(
                     filename,
                     processed_path,
+                    progress_callback=report_progress,
                 )
             except Exception as exc:  # noqa: BLE001
                 self._record_event(
