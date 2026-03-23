@@ -251,109 +251,108 @@ class RelayHourProcessor:
         temp_root.mkdir(parents=True, exist_ok=True)
 
         processed_path_str = str(processed_path)
+        sorted_path = temp_root / "sorted.parquet"
+        partition_root = temp_root / "partitions"
         artifacts: list[FilteredHourArtifact] = []
 
         try:
+            # Phase 1: DuckDB sorts the file by (market_id, token_id).
+            # Single full scan of the processed file.
             con = duckdb.connect(":memory:")
             con.execute(f"SET threads = {self._config.duckdb_threads}")
             con.execute(f"SET memory_limit = '{self._config.duckdb_memory_limit}'")
             con.execute(f"SET temp_directory = '{temp_root}'")
-
-            # Get unique keys (lightweight metadata scan).
-            keys = con.execute(
-                "SELECT DISTINCT market_id, token_id "
-                f"FROM parquet_scan('{processed_path_str}') "
-                "ORDER BY market_id, token_id",
-            ).fetchall()
-
-            total_keys = len(keys)
-            if progress_callback is not None:
-                progress_callback(0, total_keys)
-
-            # Process in batches to balance memory vs speed.
-            # Each batch uses COPY PARTITION_BY with a bounded number of
-            # open output buffers (PREBUILD_BATCH_SIZE keys per batch).
-            done = 0
-            for batch_start in range(0, total_keys, PREBUILD_BATCH_SIZE):
-                batch_keys = keys[batch_start : batch_start + PREBUILD_BATCH_SIZE]
-                batch_out = temp_root / f"batch_{batch_start}"
-                batch_out.mkdir(parents=True, exist_ok=True)
-
-                # Build a WHERE IN filter for this batch of keys.
-                # Create a temp table with the batch keys for efficient join.
-                con.execute(
-                    "CREATE OR REPLACE TEMP TABLE batch_keys "
-                    "(market_id VARCHAR, token_id VARCHAR)"
+            con.execute(
+                f"""
+                COPY (
+                    SELECT market_id, token_id, update_type, data
+                    FROM parquet_scan('{processed_path_str}')
+                    ORDER BY market_id, token_id
                 )
-                con.executemany("INSERT INTO batch_keys VALUES (?, ?)", batch_keys)
-
-                con.execute(
-                    f"""
-                    COPY (
-                        SELECT s.market_id, s.token_id, s.update_type, s.data
-                        FROM parquet_scan('{processed_path_str}') s
-                        SEMI JOIN batch_keys b
-                        ON s.market_id = b.market_id AND s.token_id = b.token_id
-                    )
-                    TO '{batch_out}'
-                    (FORMAT PARQUET, PARTITION_BY (market_id, token_id),
-                     COMPRESSION ZSTD, OVERWRITE_OR_IGNORE)
-                    """
-                )
-
-                # Walk the batch output and move files to final paths.
-                for market_dir in sorted(batch_out.iterdir()):
-                    if not market_dir.is_dir():
-                        continue
-                    condition_id = market_dir.name.split("=", 1)[1]
-                    for token_dir in sorted(market_dir.iterdir()):
-                        if not token_dir.is_dir():
-                            continue
-                        token_id = token_dir.name.split("=", 1)[1]
-                        src_files = sorted(token_dir.glob("*.parquet"))
-                        if not src_files:
-                            continue
-                        output_path = filtered_root / filtered_relative_path(
-                            condition_id, token_id, filename
-                        )
-                        output_path.parent.mkdir(parents=True, exist_ok=True)
-                        if len(src_files) == 1:
-                            os.replace(src_files[0], output_path)
-                        else:
-                            table = ds.dataset(src_files, format="parquet").to_table(
-                                columns=["update_type", "data"]
-                            )
-                            tmp_out = output_path.with_name(f"{output_path.name}.tmp")
-                            try:
-                                pq.write_table(table, tmp_out, compression="zstd")
-                                os.replace(tmp_out, output_path)
-                            finally:
-                                tmp_out.unlink(missing_ok=True)
-
-                        stat = output_path.stat()
-                        row_count = pq.ParquetFile(output_path).metadata.num_rows
-                        artifacts.append(
-                            FilteredHourArtifact(
-                                filename=filename,
-                                hour=hour,
-                                condition_id=condition_id,
-                                token_id=token_id,
-                                local_path=str(output_path),
-                                row_count=row_count,
-                                byte_size=stat.st_size,
-                            )
-                        )
-                        done += 1
-
-                # Clean up batch temp dir to free disk space.
-                shutil.rmtree(batch_out, ignore_errors=True)
-
-                if progress_callback is not None:
-                    progress_callback(done, total_keys)
-
+                TO '{sorted_path}'
+                (FORMAT PARQUET, COMPRESSION ZSTD,
+                 ROW_GROUP_SIZE {PREBUILD_BATCH_SIZE})
+                """
+            )
             con.close()
+            del con
+
+            # Phase 2: Stream sorted file into per-key parquet files.
+            # Since the input is sorted, PyArrow's partitioned writer only
+            # needs one open output file at a time — memory stays bounded
+            # regardless of how many unique keys exist.
+            sorted_dataset = ds.dataset(sorted_path, format="parquet")
+            total_rows = sorted_dataset.count_rows()
             if progress_callback is not None:
-                progress_callback(total_keys, total_keys)
+                progress_callback(0, total_rows)
+
+            ds.write_dataset(
+                sorted_dataset,
+                base_dir=str(partition_root),
+                format="parquet",
+                partitioning=ds.partitioning(
+                    pa.schema([("market_id", pa.string()), ("token_id", pa.string())]),
+                    flavor="hive",
+                ),
+                existing_data_behavior="overwrite_or_ignore",
+                max_open_files=64,
+                max_partitions=65536,
+                file_options=ds.ParquetFileFormat().make_write_options(
+                    compression="zstd"
+                ),
+            )
+
+            # Remove sorted intermediate to free disk.
+            sorted_path.unlink(missing_ok=True)
+
+            if progress_callback is not None:
+                progress_callback(total_rows // 2, total_rows)
+
+            # Phase 3: Walk partition tree and move files to final paths.
+            for market_dir in sorted(partition_root.iterdir()):
+                if not market_dir.is_dir():
+                    continue
+                condition_id = market_dir.name.split("=", 1)[1]
+                for token_dir in sorted(market_dir.iterdir()):
+                    if not token_dir.is_dir():
+                        continue
+                    token_id = token_dir.name.split("=", 1)[1]
+                    src_files = sorted(token_dir.glob("*.parquet"))
+                    if not src_files:
+                        continue
+                    output_path = filtered_root / filtered_relative_path(
+                        condition_id, token_id, filename
+                    )
+                    output_path.parent.mkdir(parents=True, exist_ok=True)
+                    if len(src_files) == 1:
+                        os.replace(src_files[0], output_path)
+                    else:
+                        table = ds.dataset(src_files, format="parquet").to_table(
+                            columns=["update_type", "data"]
+                        )
+                        tmp_out = output_path.with_name(f"{output_path.name}.tmp")
+                        try:
+                            pq.write_table(table, tmp_out, compression="zstd")
+                            os.replace(tmp_out, output_path)
+                        finally:
+                            tmp_out.unlink(missing_ok=True)
+
+                    stat = output_path.stat()
+                    row_count = pq.ParquetFile(output_path).metadata.num_rows
+                    artifacts.append(
+                        FilteredHourArtifact(
+                            filename=filename,
+                            hour=hour,
+                            condition_id=condition_id,
+                            token_id=token_id,
+                            local_path=str(output_path),
+                            row_count=row_count,
+                            byte_size=stat.st_size,
+                        )
+                    )
+
+            if progress_callback is not None:
+                progress_callback(total_rows, total_rows)
             return artifacts
         finally:
             shutil.rmtree(temp_root, ignore_errors=True)
