@@ -260,11 +260,12 @@ class RelayHourProcessor:
             con.execute(f"SET temp_directory = '{temp_root}'")
 
             # Get unique keys first (lightweight metadata scan).
+            # parquet_scan() and COPY TO don't accept ? placeholders,
+            # so we interpolate the trusted local path as a literal.
             keys = con.execute(
                 "SELECT DISTINCT market_id, token_id "
-                "FROM parquet_scan(?) "
+                f"FROM parquet_scan('{processed_path_str}') "
                 "ORDER BY market_id, token_id",
-                [processed_path_str],
             ).fetchall()
 
             total_keys = len(keys)
@@ -284,10 +285,10 @@ class RelayHourProcessor:
                     con.execute(
                         "COPY ("
                         "SELECT update_type, data "
-                        "FROM parquet_scan(?) "
+                        f"FROM parquet_scan('{processed_path_str}') "
                         "WHERE market_id = ? AND token_id = ?"
-                        ") TO ? (FORMAT PARQUET, COMPRESSION ZSTD)",
-                        [processed_path_str, condition_id, token_id, str(tmp_path)],
+                        f") TO '{tmp_path}' (FORMAT PARQUET, COMPRESSION ZSTD)",
+                        [condition_id, token_id],
                     )
                     os.replace(tmp_path, output_path)
                 except Exception:
