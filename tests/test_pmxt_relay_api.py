@@ -14,6 +14,7 @@ from pmxt_relay.api import (
     INDEX_APP_KEY,
     RequestRateLimiter,
     _collect_inflight_processes,
+    _cpu_percent_from_loadavg,
     _resolve_filtered_path,
     _resolve_raw_path,
     create_app,
@@ -41,6 +42,21 @@ def _make_config(tmp_path: Path) -> RelayConfig:
         api_rate_limit_per_minute=2400,
         api_list_max_hours=2000,
     )
+
+
+def test_cpu_percent_uses_load_average():
+    with patch("pmxt_relay.api.os.cpu_count", return_value=4):
+        with patch("pmxt_relay.api.os.getloadavg", return_value=(3.5, 3.0, 2.5)):
+            result = _cpu_percent_from_loadavg()
+            assert result == 87.5  # 3.5 / 4 * 100
+
+        with patch("pmxt_relay.api.os.getloadavg", return_value=(0.0, 0.0, 0.0)):
+            result = _cpu_percent_from_loadavg()
+            assert result == 0.0
+
+        with patch("pmxt_relay.api.os.getloadavg", return_value=(5.0, 4.0, 3.0)):
+            result = _cpu_percent_from_loadavg()
+            assert result == 100.0  # capped at 100
 
 
 def test_rate_limiter_enforces_sliding_window():

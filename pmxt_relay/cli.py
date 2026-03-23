@@ -55,11 +55,13 @@ def main(argv: list[str] | None = None) -> int:
             RelayWorker(
                 config,
                 reset_prebuild_inflight=False,
+                skip_prebuild=True,
             ).run_once()
         else:
             worker = RelayWorker(
                 config,
                 reset_prebuild_inflight=False,
+                skip_prebuild=True,
             )
             discovered = worker._discover_archive_hours()  # noqa: SLF001
             mirrored = worker._mirror_pending_hours()  # noqa: SLF001
@@ -85,8 +87,11 @@ def main(argv: list[str] | None = None) -> int:
             reset_process_inflight=False,
             reset_prebuild_inflight=True,
         )
-        count = worker._prebuild_filtered_hours(limit=args.limit)  # noqa: SLF001
-        print(json.dumps({"prebuilt_hours": count}, indent=2, sort_keys=True))
+        if args.limit is not None:
+            count = worker._prebuild_filtered_hours(limit=args.limit)  # noqa: SLF001
+            print(json.dumps({"prebuilt_hours": count}, indent=2, sort_keys=True))
+        else:
+            worker.run_prebuild_forever()
         return 0
 
     if args.command == "stats":

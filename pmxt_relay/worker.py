@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import gc
 import logging
 import os
 import shutil
@@ -108,6 +109,16 @@ class RelayWorker:
             prebuilt,
         )
         return total
+
+    def run_prebuild_forever(self) -> None:
+        while True:
+            prebuilt = self._prebuild_filtered_hours(limit=1)
+            if prebuilt == 0:
+                LOG.info(
+                    "No prebuild work pending, sleeping for %ss",
+                    self._config.poll_interval_secs,
+                )
+                time.sleep(self._config.poll_interval_secs)
 
     def _discover_archive_hours(self) -> int:
         discovered = 0
@@ -364,13 +375,12 @@ class RelayWorker:
                 message=f"Processing {filename}",
                 payload={"raw_path": str(raw_path)},
             )
-            existing_rows = self._index.list_filtered_for_filename(filename)
-
             try:
                 result = self._processor.process_hour(
                     filename,
                     raw_path,
                     progress_callback=report_progress,
+                    skip_filtered=self._skip_prebuild,
                 )
             except Exception as exc:  # noqa: BLE001
                 self._index.mark_process_error(filename, str(exc))
@@ -384,40 +394,52 @@ class RelayWorker:
                 LOG.exception("Failed to process %s", filename)
                 continue
 
-            artifacts = result.artifacts
-            keep_paths = {artifact.local_path for artifact in artifacts}
-            for existing in existing_rows:
-                cached_path = self._config.filtered_root / filtered_relative_path(
-                    existing["condition_id"],
-                    existing["token_id"],
-                    existing["filename"],
-                )
-                cached_path.unlink(missing_ok=True)
-                if existing["local_path"] in keep_paths:
-                    continue
-                existing_path = Path(existing["local_path"])
-                if existing_path.is_dir():
-                    shutil.rmtree(existing_path, ignore_errors=True)
-                elif existing_path.is_relative_to(self._config.filtered_root):
-                    existing_path.unlink(missing_ok=True)
-
             self._index.mark_sharded(filename)
-            self._index.mark_prebuilt(
-                filename,
-                filtered_artifact_count=len(artifacts),
-                artifacts=artifacts,
-            )
-            self._record_event(
-                level="INFO",
-                event_type="process_complete",
-                filename=filename,
-                message=f"Processed {filename}",
-                payload={
-                    "filtered_files": len(artifacts),
-                    "filtered_rows": result.total_filtered_rows,
-                },
-            )
-            LOG.info("Processed %s into %s filtered files", filename, len(artifacts))
+            if self._skip_prebuild:
+                self._record_event(
+                    level="INFO",
+                    event_type="process_complete",
+                    filename=filename,
+                    message=f"Sharded {filename} (prebuild deferred)",
+                    payload={
+                        "filtered_rows": result.total_filtered_rows,
+                    },
+                )
+                LOG.info("Sharded %s (prebuild deferred)", filename)
+            else:
+                artifacts = result.artifacts
+                existing_rows = self._index.list_filtered_for_filename(filename)
+                keep_paths = {artifact.local_path for artifact in artifacts}
+                for existing in existing_rows:
+                    cached_path = self._config.filtered_root / filtered_relative_path(
+                        existing["condition_id"],
+                        existing["token_id"],
+                        existing["filename"],
+                    )
+                    cached_path.unlink(missing_ok=True)
+                    if existing["local_path"] in keep_paths:
+                        continue
+                    existing_path = Path(existing["local_path"])
+                    if existing_path.is_dir():
+                        shutil.rmtree(existing_path, ignore_errors=True)
+                    elif existing_path.is_relative_to(self._config.filtered_root):
+                        existing_path.unlink(missing_ok=True)
+                self._index.mark_prebuilt(
+                    filename,
+                    filtered_artifact_count=len(artifacts),
+                    artifacts=artifacts,
+                )
+                self._record_event(
+                    level="INFO",
+                    event_type="process_complete",
+                    filename=filename,
+                    message=f"Processed {filename}",
+                    payload={
+                        "filtered_files": len(artifacts),
+                        "filtered_rows": result.total_filtered_rows,
+                    },
+                )
+                LOG.info("Processed %s into %s filtered files", filename, len(artifacts))
             processed += 1
             if limit is not None and processed >= limit:
                 break
@@ -502,6 +524,8 @@ class RelayWorker:
                 filename,
                 len(artifacts),
             )
+            del artifacts
+            gc.collect()
             prebuilt += 1
             if limit is not None and prebuilt >= limit:
                 break

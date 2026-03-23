@@ -260,7 +260,7 @@ On a 6 GB VPS the safe configuration is:
 | Service  | `MemoryMax` | `MemorySwapMax` | Notes                            |
 |----------|-------------|-----------------|----------------------------------|
 | Worker   | 2500M       | 512M            | Mirror + shard only, no prebuild |
-| Prebuild | 4G          | 486M            | One hour at a time               |
+| Prebuild | 4500M       | 486M            | One hour at a time               |
 
 Key env vars that control memory:
 

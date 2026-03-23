@@ -65,7 +65,8 @@ class RelayIndex:
                 mirrored_at TEXT,
                 processed_at TEXT,
                 prebuilt_at TEXT,
-                last_error TEXT
+                last_error TEXT,
+                error_count INTEGER NOT NULL DEFAULT 0
             );
 
             CREATE TABLE IF NOT EXISTS filtered_hours (
@@ -111,6 +112,10 @@ class RelayIndex:
         self._ensure_archive_hours_column(
             "prebuilt_at",
             "TEXT",
+        )
+        self._ensure_archive_hours_column(
+            "error_count",
+            "INTEGER NOT NULL DEFAULT 0",
         )
         self._conn.execute(
             """
@@ -252,6 +257,7 @@ class RelayIndex:
             SELECT *
             FROM archive_hours
             WHERE mirror_status IN ('pending', 'error')
+              AND error_count < 3
             ORDER BY hour
             """
         )
@@ -282,7 +288,8 @@ class RelayIndex:
                     mirrored_at = ?,
                     processed_at = NULL,
                     prebuilt_at = NULL,
-                    last_error = NULL
+                    last_error = NULL,
+                    error_count = 0
                 WHERE filename = ?
                 """,
                 (
@@ -311,7 +318,9 @@ class RelayIndex:
             self._conn.execute(
                 """
                 UPDATE archive_hours
-                SET mirror_status = 'error', last_error = ?
+                SET mirror_status = 'error',
+                    last_error = ?,
+                    error_count = error_count + 1
                 WHERE filename = ?
                 """,
                 (error, filename),
@@ -329,6 +338,7 @@ class RelayIndex:
             SELECT *
             FROM archive_hours
             WHERE mirror_status = 'ready' AND process_status IN ({placeholders})
+              AND error_count < 3
             ORDER BY hour
             """,
             statuses,
@@ -351,7 +361,9 @@ class RelayIndex:
             self._conn.execute(
                 """
                 UPDATE archive_hours
-                SET process_status = 'error', last_error = ?
+                SET process_status = 'error',
+                    last_error = ?,
+                    error_count = error_count + 1
                 WHERE filename = ?
                 """,
                 (error, filename),
@@ -402,7 +414,8 @@ class RelayIndex:
                     processed_at = ?,
                     prebuilt_at = ?,
                     filtered_artifact_count = ?,
-                    last_error = NULL
+                    last_error = NULL,
+                    error_count = 0
                 WHERE filename = ?
                 """,
                 (_utc_now(), _utc_now(), len(artifacts), filename),
@@ -418,7 +431,8 @@ class RelayIndex:
                 UPDATE archive_hours
                 SET process_status = 'ready',
                     processed_at = ?,
-                    last_error = NULL
+                    last_error = NULL,
+                    error_count = 0
                 WHERE filename = ?
                 """,
                 (_utc_now(), filename),
@@ -442,7 +456,8 @@ class RelayIndex:
                 """
                 UPDATE archive_hours
                 SET prebuild_status = 'error',
-                    last_error = ?
+                    last_error = ?,
+                    error_count = error_count + 1
                 WHERE filename = ?
                 """,
                 (error, filename),
@@ -488,7 +503,8 @@ class RelayIndex:
                 SET prebuild_status = 'ready',
                     prebuilt_at = ?,
                     filtered_artifact_count = ?,
-                    last_error = NULL
+                    last_error = NULL,
+                    error_count = 0
                 WHERE filename = ?
                 """,
                 (_utc_now(), filtered_artifact_count, filename),
@@ -502,6 +518,7 @@ class RelayIndex:
             WHERE mirror_status = 'ready'
               AND process_status = 'ready'
               AND prebuild_status IN ('pending', 'error')
+              AND error_count < 3
               AND local_path IS NOT NULL
             ORDER BY hour DESC
             """

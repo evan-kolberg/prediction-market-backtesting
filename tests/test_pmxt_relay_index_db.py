@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from pmxt_relay.index_db import RelayIndex
+from pmxt_relay.index_db import FilteredHourArtifact, RelayIndex
 
 
 def test_relay_index_events_and_queue_summary(tmp_path: Path):
@@ -233,3 +233,111 @@ def test_mark_prebuilt_tracks_filtered_artifact_count(tmp_path: Path):
     assert stats["ready_to_prebuild_hours"] == 0
     assert stats["filtered_hours"] == 42
     assert index.list_hours_needing_filtered_prebuild() == []
+
+
+def test_error_count_exhausts_retries_after_three_failures(tmp_path: Path):
+    index = RelayIndex(tmp_path / "relay.sqlite3")
+    index.initialize()
+    filename = "polymarket_orderbook_2026-03-21T12.parquet"
+    index.upsert_discovered_hour(filename, "https://r2.pmxt.dev/" + filename, 1)
+
+    # Mirror errors: first 2 retries still appear in the queue
+    index.mark_mirror_error(filename, "timeout 1")
+    assert len(index.list_hours_needing_mirror()) == 1
+    index.mark_mirror_error(filename, "timeout 2")
+    assert len(index.list_hours_needing_mirror()) == 1
+    # Third error exhausts retries
+    index.mark_mirror_error(filename, "timeout 3")
+    assert len(index.list_hours_needing_mirror()) == 0
+
+    # Success resets error_count
+    index.mark_mirrored(
+        filename, local_path="/tmp/a", etag=None,
+        content_length=None, last_modified=None,
+    )
+    index.mark_process_error(filename, "corrupt 1")
+    assert len(index.list_hours_needing_process()) == 1
+    index.mark_process_error(filename, "corrupt 2")
+    index.mark_process_error(filename, "corrupt 3")
+    assert len(index.list_hours_needing_process()) == 0
+
+    # Prebuild errors
+    index.mark_sharded(filename)  # resets error_count
+    index.mark_prebuild_error(filename, "oom 1")
+    assert len(index.list_hours_needing_filtered_prebuild()) == 1
+    index.mark_prebuild_error(filename, "oom 2")
+    index.mark_prebuild_error(filename, "oom 3")
+    assert len(index.list_hours_needing_filtered_prebuild()) == 0
+
+
+def test_mark_prebuilt_registers_artifacts_in_filtered_hours(tmp_path: Path):
+    index = RelayIndex(tmp_path / "relay.sqlite3")
+    index.initialize()
+    filename = "polymarket_orderbook_2026-03-21T12.parquet"
+    index.upsert_discovered_hour(filename, "https://r2.pmxt.dev/" + filename, 1)
+    index.mark_mirrored(
+        filename, local_path="/tmp/a", etag=None,
+        content_length=None, last_modified=None,
+    )
+    index.mark_sharded(filename)
+
+    artifacts = [
+        FilteredHourArtifact(
+            filename=filename,
+            hour="2026-03-21T12:00:00+00:00",
+            condition_id="0x" + "ab" * 32,
+            token_id="123",
+            local_path="/srv/filtered/0xab/123/" + filename,
+            row_count=100,
+            byte_size=5000,
+        ),
+        FilteredHourArtifact(
+            filename=filename,
+            hour="2026-03-21T12:00:00+00:00",
+            condition_id="0x" + "cd" * 32,
+            token_id="456",
+            local_path="/srv/filtered/0xcd/456/" + filename,
+            row_count=50,
+            byte_size=2500,
+        ),
+    ]
+    index.mark_prebuilt(filename, filtered_artifact_count=2, artifacts=artifacts)
+
+    # Verify filtered_hours table
+    rows = index.list_filtered_for_filename(filename)
+    assert len(rows) == 2
+    assert rows[0]["condition_id"] == "0x" + "ab" * 32
+    assert rows[0]["row_count"] == 100
+    assert rows[1]["condition_id"] == "0x" + "cd" * 32
+
+    # Verify the listing API works
+    listed = index.list_filtered_hours("0x" + "ab" * 32, "123")
+    assert len(listed) == 1
+    assert listed[0]["filename"] == filename
+
+    # Re-prebuilt replaces old artifacts
+    new_artifacts = [artifacts[0]]
+    index.mark_prebuilt(filename, filtered_artifact_count=1, artifacts=new_artifacts)
+    rows = index.list_filtered_for_filename(filename)
+    assert len(rows) == 1
+
+
+def test_mark_prebuilt_without_artifacts_does_not_touch_filtered_hours(tmp_path: Path):
+    index = RelayIndex(tmp_path / "relay.sqlite3")
+    index.initialize()
+    filename = "polymarket_orderbook_2026-03-21T12.parquet"
+    index.upsert_discovered_hour(filename, "https://r2.pmxt.dev/" + filename, 1)
+    index.mark_mirrored(
+        filename, local_path="/tmp/a", etag=None,
+        content_length=None, last_modified=None,
+    )
+    index.mark_sharded(filename)
+
+    # mark_prebuilt without artifacts should NOT insert into filtered_hours
+    index.mark_prebuilt(filename, filtered_artifact_count=42)
+    rows = index.list_filtered_for_filename(filename)
+    assert len(rows) == 0
+
+    # But archive_hours should still show ready
+    stats = index.stats()
+    assert stats["processed_hours"] == 1

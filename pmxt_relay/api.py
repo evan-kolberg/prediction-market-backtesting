@@ -10,7 +10,6 @@ import json
 import os
 from pathlib import Path
 import shutil
-import time as time_module
 from xml.sax.saxutils import escape
 
 from aiohttp import web
@@ -114,23 +113,10 @@ def _usage_color(percent: float) -> str:
     return "brightgreen"
 
 
-def _read_cpu_totals() -> tuple[int, int]:
-    with Path("/proc/stat").open() as handle:
-        parts = handle.readline().split()
-    values = [int(value) for value in parts[1:]]
-    idle = values[3] + (values[4] if len(values) > 4 else 0)
-    total = sum(values)
-    return idle, total
-
-
-def _sample_cpu_percent(interval_secs: float = 0.1) -> float:
-    idle_before, total_before = _read_cpu_totals()
-    time_module.sleep(interval_secs)
-    idle_after, total_after = _read_cpu_totals()
-    total_delta = max(1, total_after - total_before)
-    idle_delta = max(0, idle_after - idle_before)
-    used_fraction = 1.0 - min(1.0, idle_delta / total_delta)
-    return max(0.0, min(100.0, used_fraction * 100.0))
+def _cpu_percent_from_loadavg() -> float:
+    cpu_count = os.cpu_count() or 1
+    load_1min = os.getloadavg()[0]
+    return max(0.0, min(100.0, (load_1min / cpu_count) * 100.0))
 
 
 def _memory_percent() -> float:
@@ -152,7 +138,7 @@ def _disk_percent(path: Path) -> float:
 
 def _system_metrics_snapshot(config: RelayConfig) -> dict[str, float]:
     return {
-        "cpu_percent": round(_sample_cpu_percent(), 1),
+        "cpu_percent": round(_cpu_percent_from_loadavg(), 1),
         "mem_percent": round(_memory_percent(), 1),
         "disk_percent": round(_disk_percent(config.data_dir), 1),
     }
@@ -385,6 +371,10 @@ class RequestRateLimiter:
             return False
 
         bucket.append(current)
+        if len(self._requests) > 10000:
+            stale = [k for k, v in self._requests.items() if not v]
+            for k in stale:
+                del self._requests[k]
         return True
 
     def bucket_size(self, client_id: str, *, now: float | None = None) -> int:

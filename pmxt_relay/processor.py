@@ -147,6 +147,7 @@ class RelayHourProcessor:
         raw_path: Path,
         *,
         progress_callback: Callable[[int, int], None] | None = None,
+        skip_filtered: bool = False,
     ) -> ProcessedHourResult:
         hour = parse_archive_hour(filename).isoformat()
         temp_root = self._config.tmp_root / f"{filename}.filtered"
@@ -155,7 +156,8 @@ class RelayHourProcessor:
         final_path = self._config.processed_root / processed_relative_path(filename)
         shutil.rmtree(temp_root, ignore_errors=True)
         temp_root.mkdir(parents=True, exist_ok=True)
-        partition_root.mkdir(parents=True, exist_ok=True)
+        if not skip_filtered:
+            partition_root.mkdir(parents=True, exist_ok=True)
         final_path.parent.mkdir(parents=True, exist_ok=True)
 
         parquet_file = pq.ParquetFile(raw_path)
@@ -190,12 +192,13 @@ class RelayHourProcessor:
                             schema=PROCESSED_SCHEMA,
                         )
                     )
-                    self._write_partition_batch(
-                        batch,
-                        partition_root,
-                        basename_template=f"part-{partition_counter}-{{i}}.parquet",
-                    )
-                    partition_counter += 1
+                    if not skip_filtered:
+                        self._write_partition_batch(
+                            batch,
+                            partition_root,
+                            basename_template=f"part-{partition_counter}-{{i}}.parquet",
+                        )
+                        partition_counter += 1
                     wrote_any = True
                 if progress_callback is not None:
                     progress_callback(processed_rows, total_rows)
@@ -209,11 +212,14 @@ class RelayHourProcessor:
                 return ProcessedHourResult(artifacts=[], total_filtered_rows=0)
 
             os.replace(temp_path, final_path)
-            artifacts = self._materialize_partition_tree(
-                filename,
-                hour,
-                partition_root,
-            )
+            if skip_filtered:
+                artifacts: list[FilteredHourArtifact] = []
+            else:
+                artifacts = self._materialize_partition_tree(
+                    filename,
+                    hour,
+                    partition_root,
+                )
             return ProcessedHourResult(
                 artifacts=artifacts,
                 total_filtered_rows=total_filtered_rows,
@@ -236,12 +242,12 @@ class RelayHourProcessor:
         shutil.rmtree(temp_root, ignore_errors=True)
         partition_root.mkdir(parents=True, exist_ok=True)
 
-        dataset = ds.dataset(processed_path, format="parquet")
         total_rows = pq.ParquetFile(processed_path).metadata.num_rows
         row_offset = 0
         partition_counter = 0
 
         try:
+            dataset = ds.dataset(processed_path, format="parquet")
             for batch in dataset.to_batches(
                 columns=["market_id", "token_id", "update_type", "data"],
                 batch_size=PARQUET_BATCH_SIZE,
@@ -272,6 +278,7 @@ class RelayHourProcessor:
                 partition_counter += 1
                 if progress_callback is not None:
                     progress_callback(row_offset, total_rows)
+            del dataset
 
             if progress_callback is not None:
                 progress_callback(total_rows, total_rows)
