@@ -46,6 +46,7 @@ PROCESSED_SCHEMA = pa.schema(
 )
 RELEVANT_UPDATE_TYPES = pa.array(["book_snapshot", "price_change"])
 PARQUET_BATCH_SIZE = 65536
+PREBUILD_BATCH_SIZE = 524288
 
 
 @dataclass(frozen=True)
@@ -67,20 +68,26 @@ def materialize_partition_dir(
     output_path.parent.mkdir(parents=True, exist_ok=True)
     tmp_path = output_path.with_name(f"{output_path.name}.tmp")
     partition_dataset = ds.dataset(partition_files, format="parquet")
-    table = partition_dataset.to_table(
-        columns=["relay_row_index", "update_type", "data"]
-    )
-    sort_indices = pc.sort_indices(
-        table,
-        sort_keys=[("relay_row_index", "ascending")],
-    )
-    ordered_table = table.take(sort_indices).select(["update_type", "data"])
+    columns = [
+        c
+        for c in partition_dataset.schema.names
+        if c != "market_id" and c != "token_id"
+    ]
+    table = partition_dataset.to_table(columns=columns)
+    if "relay_row_index" in table.schema.names:
+        sort_indices = pc.sort_indices(
+            table,
+            sort_keys=[("relay_row_index", "ascending")],
+        )
+        table = table.take(sort_indices).select(["update_type", "data"])
+    else:
+        table = table.select(["update_type", "data"])
     try:
-        pq.write_table(ordered_table, tmp_path, compression="zstd")
+        pq.write_table(table, tmp_path, compression="zstd")
         os.replace(tmp_path, output_path)
     finally:
         tmp_path.unlink(missing_ok=True)
-    return ordered_table.num_rows, output_path.stat().st_size
+    return table.num_rows, output_path.stat().st_size
 
 
 def materialize_filtered_hour(
@@ -250,28 +257,14 @@ class RelayHourProcessor:
             dataset = ds.dataset(processed_path, format="parquet")
             for batch in dataset.to_batches(
                 columns=["market_id", "token_id", "update_type", "data"],
-                batch_size=PARQUET_BATCH_SIZE,
+                batch_size=PREBUILD_BATCH_SIZE,
                 use_threads=True,
             ):
                 if batch.num_rows == 0:
                     continue
-                row_indices = pa.array(
-                    range(row_offset, row_offset + batch.num_rows),
-                    type=pa.int64(),
-                )
                 row_offset += batch.num_rows
-                partition_batch = pa.record_batch(
-                    [
-                        batch.column("market_id"),
-                        batch.column("token_id"),
-                        row_indices,
-                        batch.column("update_type"),
-                        batch.column("data"),
-                    ],
-                    schema=PARTITION_SCHEMA,
-                )
                 self._write_partition_batch(
-                    partition_batch,
+                    batch,
                     partition_root,
                     basename_template=f"part-{partition_counter}-{{i}}.parquet",
                 )
