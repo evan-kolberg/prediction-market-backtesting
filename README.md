@@ -32,7 +32,7 @@ Relay VPS:
 Backtesting framework for prediction market trading strategies on [Kalshi](https://kalshi.com) and [Polymarket](https://polymarket.com), built off of [NautilusTrader](https://github.com/nautechsystems/nautilus_trader) with custom exchange adapters. More focus on Polymarket because of the free availability of L2 data.
 
 Fantastic single & multi-market charting. Featuring: equity (total & individual markets), profit / loss ticks, P&L periodic bars, market allocation, YES price (with green buy and red sell fills), drawdown, sharpe (with above/below shading), cash / equity, monthly returns, and cumulative brier advantage.
-![Charting preview](docs/assets/charting-preview.jpeg)
+![Charting preview](https://raw.githubusercontent.com/evan-kolberg/prediction-market-backtesting/main/docs/assets/charting-preview.jpeg)
 
 > IMPORTANT: Kalshi public backtests here are trade-tick replay only. Polymarket public backtests now default to the PMXT relay-backed historical L2 path, which replays hourly PMXT order-book events through NautilusTrader's `L2_MBP` matching engine. That is much better than the old one-tick slippage proxy for taker-style execution, but it still does **not** fully solve passive-order realism because public L2 MBP data does not reveal true queue position. Also, cold PMXT archive ingestion can still take a long time, especially for larger windows. That is why I set up a mirror/relay on a VPS that pre-crunches book data for each market. More on that below.
 

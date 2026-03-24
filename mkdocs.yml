@@ -8,6 +8,7 @@ theme:
   palette:
     scheme: slate
     primary: black
+    accent: light blue
   features:
     - navigation.instant
     - navigation.sections
