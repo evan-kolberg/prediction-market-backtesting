@@ -16,6 +16,9 @@ wheels/
 # Virtual environment
 .venv
 
+# MkDocs build output
+site/
+
 # Data (contents come from submodule; symlink is tracked)
 data/
 

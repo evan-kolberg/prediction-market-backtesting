@@ -1,0 +1,32 @@
+site_name: prediction-market-backtesting
+site_url: https://evan-kolberg.github.io/prediction-market-backtesting/
+repo_url: https://github.com/evan-kolberg/prediction-market-backtesting
+repo_name: evan-kolberg/prediction-market-backtesting
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.instant
+    - navigation.sections
+    - search.highlight
+    - content.code.copy
+
+nav:
+  - Home: index.md
+  - PMXT Fetch Sources: pmxt-fetch-sources.md
+
+markdown_extensions:
+  - tables
+  - fenced_code
+  - codehilite
