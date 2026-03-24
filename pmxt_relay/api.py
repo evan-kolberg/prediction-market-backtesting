@@ -745,7 +745,6 @@ def _scan_filtered_hours(
 
 async def serve_filtered(request: web.Request) -> web.StreamResponse:
     config = request.app[CONFIG_APP_KEY]
-    index = request.app[INDEX_APP_KEY]
     condition_id = request.match_info["condition_id"]
     token_id = request.match_info["token_id"]
     filename = request.match_info["filename"]

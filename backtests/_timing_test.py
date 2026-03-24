@@ -120,7 +120,10 @@ def _load_backtest_module(path_str: str):
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("Usage: uv run python backtests/_timing_test.py <backtest_file>", file=sys.stderr)
+        print(
+            "Usage: uv run python backtests/_timing_test.py <backtest_file>",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     install_timing()

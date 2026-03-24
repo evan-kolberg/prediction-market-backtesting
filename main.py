@@ -116,6 +116,7 @@ def main() -> None:
 
     try:
         from backtests._timing_test import install_timing
+
         install_timing()
     except ImportError:
         pass
