@@ -45,7 +45,7 @@ MARKET_SLUG = os.getenv(
     "MARKET_SLUG",
     DEFAULT_POLYMARKET_MARKET_SLUG,
 )
-LOOKBACK_HOURS = float(os.getenv("LOOKBACK_HOURS", "24"))
+LOOKBACK_HOURS = float(os.getenv("LOOKBACK_HOURS", "120"))
 TOKEN_INDEX = int(os.getenv("TOKEN_INDEX", "0"))
 MIN_QUOTES = int(os.getenv("MIN_QUOTES", "500"))
 MIN_PRICE_RANGE = float(os.getenv("MIN_PRICE_RANGE", "0.005"))

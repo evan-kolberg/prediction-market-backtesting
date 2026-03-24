@@ -156,7 +156,7 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
 
         configured = os.getenv(cls._PMXT_CACHE_DIR_ENV)
         if configured is None:
-            return None
+            return cls._default_cache_dir()
 
         value = configured.strip()
         if not value or value.casefold() in {"0", "false", "no", "off", "none", "disabled"}:

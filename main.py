@@ -18,6 +18,7 @@ from __future__ import annotations
 import asyncio
 import importlib
 import sys
+import time
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).parent
@@ -112,7 +113,18 @@ def main() -> None:
 
     chosen = backtests[idx]
     print(f"\n{BOLD}Running: {chosen['name']}{RESET}\n")
+
+    try:
+        from backtests._timing_test import install_timing
+
+        install_timing()
+    except ImportError:
+        pass
+
+    wall_start = time.perf_counter()
     asyncio.run(chosen["run"]())
+    wall_total = time.perf_counter() - wall_start
+    print(f"\nTotal wall time: {wall_total:.2f}s")
 
 
 if __name__ == "__main__":
