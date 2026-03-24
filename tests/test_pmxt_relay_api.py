@@ -20,7 +20,6 @@ from pmxt_relay.api import (
     create_app,
 )
 from pmxt_relay.config import RelayConfig
-from pmxt_relay.index_db import FilteredHourArtifact
 
 
 def _make_config(tmp_path: Path) -> RelayConfig:
@@ -385,88 +384,9 @@ def test_system_endpoints_return_live_metrics_and_svg(tmp_path: Path):
     asyncio.run(scenario())
 
 
-def test_filtered_api_materializes_cached_file_from_partition_dir(tmp_path: Path):
-    async def scenario() -> None:
-        config = _make_config(tmp_path)
-        config.ensure_directories()
-        filename = "polymarket_orderbook_2026-03-21T12.parquet"
-        partition_dir = (
-            config.processed_root / filename / ("0x" + ("ab" * 32)) / "123456789"
-        )
-        partition_dir.mkdir(parents=True, exist_ok=True)
-        pq.write_table(
-            pa.table(
-                {
-                    "relay_row_index": [3, 1, 2],
-                    "update_type": ["price_change", "book_snapshot", "price_change"],
-                    "data": [
-                        '{"token_id":"123456789","seq":3}',
-                        '{"token_id":"123456789","seq":1}',
-                        '{"token_id":"123456789","seq":2}',
-                    ],
-                }
-            ),
-            partition_dir / "part-0.parquet",
-        )
+def test_filtered_api_returns_404_for_non_prebuilt_hour(tmp_path: Path):
+    """Relay must not scan processed parquet on the fly — return 404 instead."""
 
-        app = create_app(config)
-        index = app[INDEX_APP_KEY]
-        index.upsert_discovered_hour(
-            filename,
-            f"https://r2.pmxt.dev/{filename}",
-            1,
-        )
-        index.mark_mirrored(
-            filename,
-            local_path="/tmp/raw.parquet",
-            etag=None,
-            content_length=None,
-            last_modified=None,
-        )
-        index.replace_filtered_hours(
-            filename,
-            [
-                FilteredHourArtifact(
-                    filename=filename,
-                    hour="2026-03-21T12:00:00+00:00",
-                    condition_id="0x" + ("ab" * 32),
-                    token_id="123456789",
-                    local_path=str(partition_dir),
-                    row_count=0,
-                    byte_size=123,
-                )
-            ],
-        )
-
-        server = TestServer(app)
-        client = TestClient(server)
-        await client.start_server()
-        try:
-            response = await client.get(
-                "/v1/filtered/" + ("0x" + ("ab" * 32)) + "/123456789/" + filename
-            )
-            assert response.status == 200
-            await response.read()
-        finally:
-            await client.close()
-
-        cached_path = (
-            config.filtered_root / ("0x" + ("ab" * 32)) / "123456789" / filename
-        )
-        assert cached_path.exists()
-        assert pq.read_table(cached_path).to_pylist() == [
-            {
-                "update_type": "book_snapshot",
-                "data": '{"token_id":"123456789","seq":1}',
-            },
-            {"update_type": "price_change", "data": '{"token_id":"123456789","seq":2}'},
-            {"update_type": "price_change", "data": '{"token_id":"123456789","seq":3}'},
-        ]
-
-    asyncio.run(scenario())
-
-
-def test_filtered_api_materializes_cached_file_from_processed_hour_file(tmp_path: Path):
     async def scenario() -> None:
         config = _make_config(tmp_path)
         config.ensure_directories()
@@ -476,55 +396,16 @@ def test_filtered_api_materializes_cached_file_from_processed_hour_file(tmp_path
         pq.write_table(
             pa.table(
                 {
-                    "market_id": [
-                        "0x" + ("ab" * 32),
-                        "0x" + ("cd" * 32),
-                        "0x" + ("ab" * 32),
-                    ],
-                    "token_id": ["123456789", "999999", "123456789"],
-                    "update_type": [
-                        "book_snapshot",
-                        "price_change",
-                        "price_change",
-                    ],
-                    "data": [
-                        '{"token_id":"123456789","seq":1}',
-                        '{"token_id":"999999","seq":2}',
-                        '{"token_id":"123456789","seq":3}',
-                    ],
+                    "market_id": ["0x" + ("ab" * 32)],
+                    "token_id": ["123456789"],
+                    "update_type": ["book_snapshot"],
+                    "data": ['{"token_id":"123456789","seq":1}'],
                 }
             ),
             processed_path,
         )
 
         app = create_app(config)
-        index = app[INDEX_APP_KEY]
-        index.upsert_discovered_hour(
-            filename,
-            f"https://r2.pmxt.dev/{filename}",
-            1,
-        )
-        index.mark_mirrored(
-            filename,
-            local_path="/tmp/raw.parquet",
-            etag=None,
-            content_length=None,
-            last_modified=None,
-        )
-        index.replace_filtered_hours(
-            filename,
-            [
-                FilteredHourArtifact(
-                    filename=filename,
-                    hour="2026-03-21T12:00:00+00:00",
-                    condition_id="0x" + ("ab" * 32),
-                    token_id="123456789",
-                    local_path=str(processed_path),
-                    row_count=2,
-                    byte_size=processed_path.stat().st_size,
-                )
-            ],
-        )
 
         server = TestServer(app)
         client = TestClient(server)
@@ -533,177 +414,11 @@ def test_filtered_api_materializes_cached_file_from_processed_hour_file(tmp_path
             response = await client.get(
                 "/v1/filtered/" + ("0x" + ("ab" * 32)) + "/123456789/" + filename
             )
-            assert response.status == 200
-            await response.read()
+            assert response.status == 404
+            body = await response.text()
+            assert "not yet prebuilt" in body
         finally:
             await client.close()
-
-        cached_path = (
-            config.filtered_root / ("0x" + ("ab" * 32)) / "123456789" / filename
-        )
-        assert cached_path.exists()
-        assert pq.read_table(cached_path).to_pylist() == [
-            {
-                "update_type": "book_snapshot",
-                "data": '{"token_id":"123456789","seq":1}',
-            },
-            {"update_type": "price_change", "data": '{"token_id":"123456789","seq":3}'},
-        ]
-
-    asyncio.run(scenario())
-
-
-def test_filtered_api_materializes_cached_file_from_processed_hour(tmp_path: Path):
-    async def scenario() -> None:
-        config = _make_config(tmp_path)
-        config.ensure_directories()
-        filename = "polymarket_orderbook_2026-03-21T12.parquet"
-        processed_path = config.processed_root / "2026" / "03" / "21" / filename
-        processed_path.parent.mkdir(parents=True, exist_ok=True)
-        pq.write_table(
-            pa.table(
-                {
-                    "market_id": ["0x" + ("ab" * 32), "0x" + ("ab" * 32), "other"],
-                    "token_id": ["123456789", "123456789", "999"],
-                    "update_type": [
-                        "book_snapshot",
-                        "price_change",
-                        "price_change",
-                    ],
-                    "data": [
-                        '{"token_id":"123456789","seq":1}',
-                        '{"token_id":"123456789","seq":2}',
-                        '{"token_id":"999","seq":3}',
-                    ],
-                }
-            ),
-            processed_path,
-        )
-
-        app = create_app(config)
-        index = app[INDEX_APP_KEY]
-        index.upsert_discovered_hour(
-            filename,
-            f"https://r2.pmxt.dev/{filename}",
-            1,
-        )
-        index.mark_mirrored(
-            filename,
-            local_path="/tmp/raw.parquet",
-            etag=None,
-            content_length=None,
-            last_modified=None,
-        )
-        index.replace_filtered_hours(
-            filename,
-            [
-                FilteredHourArtifact(
-                    filename=filename,
-                    hour="2026-03-21T12:00:00+00:00",
-                    condition_id="0x" + ("ab" * 32),
-                    token_id="123456789",
-                    local_path=str(processed_path),
-                    row_count=2,
-                    byte_size=processed_path.stat().st_size,
-                )
-            ],
-        )
-
-        server = TestServer(app)
-        client = TestClient(server)
-        await client.start_server()
-        try:
-            response = await client.get(
-                "/v1/filtered/" + ("0x" + ("ab" * 32)) + "/123456789/" + filename
-            )
-            assert response.status == 200
-            await response.read()
-        finally:
-            await client.close()
-
-        cached_path = (
-            config.filtered_root / ("0x" + ("ab" * 32)) / "123456789" / filename
-        )
-        assert cached_path.exists()
-        assert pq.read_table(cached_path).to_pylist() == [
-            {
-                "update_type": "book_snapshot",
-                "data": '{"token_id":"123456789","seq":1}',
-            },
-            {"update_type": "price_change", "data": '{"token_id":"123456789","seq":2}'},
-        ]
-
-    asyncio.run(scenario())
-
-
-def test_filtered_api_materializes_from_processed_hour_without_filtered_index(
-    tmp_path: Path,
-):
-    async def scenario() -> None:
-        config = _make_config(tmp_path)
-        config.ensure_directories()
-        filename = "polymarket_orderbook_2026-03-21T12.parquet"
-        processed_path = config.processed_root / "2026" / "03" / "21" / filename
-        processed_path.parent.mkdir(parents=True, exist_ok=True)
-        pq.write_table(
-            pa.table(
-                {
-                    "market_id": ["0x" + ("ab" * 32), "0x" + ("ab" * 32), "other"],
-                    "token_id": ["123456789", "123456789", "999"],
-                    "update_type": [
-                        "book_snapshot",
-                        "price_change",
-                        "price_change",
-                    ],
-                    "data": [
-                        '{"token_id":"123456789","seq":1}',
-                        '{"token_id":"123456789","seq":2}',
-                        '{"token_id":"999","seq":3}',
-                    ],
-                }
-            ),
-            processed_path,
-        )
-
-        app = create_app(config)
-        index = app[INDEX_APP_KEY]
-        index.upsert_discovered_hour(
-            filename,
-            f"https://r2.pmxt.dev/{filename}",
-            1,
-        )
-        index.mark_mirrored(
-            filename,
-            local_path="/tmp/raw.parquet",
-            etag=None,
-            content_length=None,
-            last_modified=None,
-        )
-        index.mark_sharded(filename)
-
-        server = TestServer(app)
-        client = TestClient(server)
-        await client.start_server()
-        try:
-            response = await client.get(
-                "/v1/filtered/" + ("0x" + ("ab" * 32)) + "/123456789/" + filename
-            )
-            assert response.status == 200
-            await response.read()
-        finally:
-            await client.close()
-
-        cached_path = (
-            config.filtered_root / ("0x" + ("ab" * 32)) / "123456789" / filename
-        )
-        assert cached_path.exists()
-        assert pq.read_table(cached_path).to_pylist() == [
-            {
-                "update_type": "book_snapshot",
-                "data": '{"token_id":"123456789","seq":1}',
-            },
-            {"update_type": "price_change", "data": '{"token_id":"123456789","seq":2}'},
-        ]
 
     asyncio.run(scenario())
 

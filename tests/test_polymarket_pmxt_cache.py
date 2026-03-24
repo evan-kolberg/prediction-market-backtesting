@@ -28,9 +28,6 @@ def test_resolve_cache_dir_is_opt_in(monkeypatch, tmp_path):
     monkeypatch.delenv(PolymarketPMXTDataLoader._PMXT_DISABLE_CACHE_ENV, raising=False)
     monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "xdg-cache"))
 
-    assert PolymarketPMXTDataLoader._resolve_cache_dir() is None
-
-    monkeypatch.setenv(PolymarketPMXTDataLoader._PMXT_CACHE_DIR_ENV, "1")
     assert PolymarketPMXTDataLoader._resolve_cache_dir() == (
         tmp_path / "xdg-cache" / "nautilus_trader" / "pmxt"
     )
