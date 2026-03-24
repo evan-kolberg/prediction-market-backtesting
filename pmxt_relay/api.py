@@ -16,7 +16,10 @@ from aiohttp import web
 
 from pmxt_relay.config import RelayConfig
 from pmxt_relay.index_db import RelayIndex
+from pmxt_relay.processor import materialize_filtered_hour
+from pmxt_relay.processor import materialize_partition_dir
 from pmxt_relay.storage import parse_archive_hour
+from pmxt_relay.storage import processed_relative_path
 
 _CONDITION_ID_RE = re.compile(r"^0x[a-f0-9]{64}$", re.IGNORECASE)
 _TOKEN_ID_RE = re.compile(r"^\d+$")
@@ -386,6 +389,10 @@ class RequestRateLimiter:
 CONFIG_APP_KEY = web.AppKey("config", RelayConfig)
 INDEX_APP_KEY = web.AppKey("index", RelayIndex)
 RATE_LIMITER_APP_KEY = web.AppKey("rate_limiter", RequestRateLimiter)
+MATERIALIZE_LOCKS_APP_KEY = web.AppKey(
+    "materialize_locks",
+    dict[str, asyncio.Lock],
+)
 
 
 def _client_id(request: web.Request) -> str:
@@ -753,10 +760,55 @@ async def serve_filtered(request: web.Request) -> web.StreamResponse:
     if cache_path is None:
         raise web.HTTPNotFound(text="filtered hour not found")
 
-    if not cache_path.exists():
-        # Don't scan the full processed parquet on the fly — it pegs the CPU
-        # and blocks prebuild progress. Let the client fall back to r2.pmxt.dev.
-        raise web.HTTPNotFound(text="filtered hour not yet prebuilt")
+    if cache_path.exists():
+        response = web.FileResponse(cache_path)
+        response.headers["Cache-Control"] = _CACHE_CONTROL_FILE
+        return response
+
+    row = index.get_filtered_hour(condition_id, token_id, filename)
+    if row is not None:
+        local_path = Path(row["local_path"])
+    else:
+        local_path = config.processed_root / processed_relative_path(filename)
+        if not local_path.exists():
+            legacy_partition_dir = (
+                config.processed_root / filename / condition_id / token_id
+            )
+            local_path = legacy_partition_dir
+            if not local_path.exists():
+                raise web.HTTPNotFound(text="filtered hour not found")
+
+    if local_path.is_file():
+        materialize_locks = request.app[MATERIALIZE_LOCKS_APP_KEY]
+        lock = materialize_locks.setdefault(str(cache_path), asyncio.Lock())
+        async with lock:
+            if not cache_path.exists():
+                try:
+                    await asyncio.to_thread(
+                        materialize_filtered_hour,
+                        local_path,
+                        cache_path,
+                        condition_id=condition_id,
+                        token_id=token_id,
+                    )
+                except FileNotFoundError as exc:
+                    raise web.HTTPNotFound(text="filtered hour not found") from exc
+        response = web.FileResponse(cache_path)
+        response.headers["Cache-Control"] = _CACHE_CONTROL_FILE
+        return response
+    if not local_path.is_dir():
+        raise web.HTTPNotFound(text="filtered hour not found")
+
+    materialize_locks = request.app[MATERIALIZE_LOCKS_APP_KEY]
+    lock = materialize_locks.setdefault(str(cache_path), asyncio.Lock())
+    async with lock:
+        if not cache_path.exists():
+            try:
+                await asyncio.to_thread(
+                    materialize_partition_dir, local_path, cache_path
+                )
+            except FileNotFoundError as exc:
+                raise web.HTTPNotFound(text="filtered hour not found") from exc
 
     response = web.FileResponse(cache_path)
     response.headers["Cache-Control"] = _CACHE_CONTROL_FILE
@@ -784,6 +836,7 @@ def create_app(config: RelayConfig) -> web.Application:
         config.db_path, event_retention=config.event_retention
     )
     app[RATE_LIMITER_APP_KEY] = RequestRateLimiter(config.api_rate_limit_per_minute)
+    app[MATERIALIZE_LOCKS_APP_KEY] = {}
     app[INDEX_APP_KEY].initialize()
     app.on_response_prepare.append(on_prepare_response)
     app.router.add_get("/healthz", healthz)
