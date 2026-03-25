@@ -464,6 +464,8 @@ class RelayIndex:
                 (error, filename),
             )
 
+    _PREBUILT_BATCH_SIZE = 5000
+
     def mark_prebuilt(
         self,
         filename: str,
@@ -471,33 +473,37 @@ class RelayIndex:
         filtered_artifact_count: int,
         artifacts: list[FilteredHourArtifact] | None = None,
     ) -> None:
-        with self._conn:
-            if artifacts:
+        if artifacts:
+            with self._conn:
                 self._conn.execute(
                     "DELETE FROM filtered_hours WHERE filename = ?",
                     (filename,),
                 )
-                self._conn.executemany(
-                    """
-                    INSERT INTO filtered_hours (
-                        filename, hour, condition_id, token_id,
-                        local_path, row_count, byte_size, created_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    [
-                        (
-                            a.filename,
-                            a.hour,
-                            a.condition_id,
-                            a.token_id,
-                            a.local_path,
-                            a.row_count,
-                            a.byte_size,
-                            _utc_now(),
-                        )
-                        for a in artifacts
-                    ],
-                )
+            for offset in range(0, len(artifacts), self._PREBUILT_BATCH_SIZE):
+                batch = artifacts[offset : offset + self._PREBUILT_BATCH_SIZE]
+                with self._conn:
+                    self._conn.executemany(
+                        """
+                        INSERT INTO filtered_hours (
+                            filename, hour, condition_id, token_id,
+                            local_path, row_count, byte_size, created_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        [
+                            (
+                                a.filename,
+                                a.hour,
+                                a.condition_id,
+                                a.token_id,
+                                a.local_path,
+                                a.row_count,
+                                a.byte_size,
+                                _utc_now(),
+                            )
+                            for a in batch
+                        ],
+                    )
+        with self._conn:
             self._conn.execute(
                 """
                 UPDATE archive_hours

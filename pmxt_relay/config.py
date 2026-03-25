@@ -68,7 +68,7 @@ class RelayConfig:
             ).rstrip("/"),
             poll_interval_secs=max(60, _env_int("PMXT_RELAY_POLL_INTERVAL_SECS", 900)),
             http_timeout_secs=max(5, _env_int("PMXT_RELAY_HTTP_TIMEOUT_SECS", 60)),
-            archive_stale_pages=max(1, _env_int("PMXT_RELAY_ARCHIVE_STALE_PAGES", 3)),
+            archive_stale_pages=max(1, _env_int("PMXT_RELAY_ARCHIVE_STALE_PAGES", 1)),
             archive_max_pages=archive_max_pages or None,
             duckdb_threads=max(1, _env_int("PMXT_RELAY_DUCKDB_THREADS", 4)),
             duckdb_memory_limit=os.getenv("PMXT_RELAY_DUCKDB_MEMORY_LIMIT", "4GB"),
