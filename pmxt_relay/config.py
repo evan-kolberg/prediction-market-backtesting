@@ -23,6 +23,14 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
+def _env_csv(name: str, default: tuple[str, ...] = ()) -> tuple[str, ...]:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    parts = tuple(part.strip() for part in value.split(",") if part.strip())
+    return parts or default
+
+
 @dataclass(frozen=True)
 class RelayConfig:
     data_dir: Path
@@ -41,6 +49,7 @@ class RelayConfig:
     event_retention: int
     api_rate_limit_per_minute: int
     api_list_max_hours: int
+    trusted_proxy_ips: tuple[str, ...] = ("127.0.0.1", "::1")
     filtered_materialization_workers: int = 4
 
     @classmethod
@@ -81,6 +90,10 @@ class RelayConfig:
             api_list_max_hours=max(
                 1,
                 _env_int("PMXT_RELAY_API_LIST_MAX_HOURS", 2000),
+            ),
+            trusted_proxy_ips=_env_csv(
+                "PMXT_RELAY_TRUSTED_PROXY_IPS",
+                ("127.0.0.1", "::1"),
             ),
             filtered_materialization_workers=max(
                 1,

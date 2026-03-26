@@ -32,6 +32,9 @@ from nautilus_trader.adapters.prediction_market.backtest_utils import build_mark
 from nautilus_trader.adapters.prediction_market.backtest_utils import extract_price_points
 from nautilus_trader.adapters.prediction_market.backtest_utils import extract_realized_pnl
 from nautilus_trader.adapters.prediction_market.backtest_utils import infer_realized_outcome
+from nautilus_trader.adapters.prediction_market.backtest_utils import (
+    _timestamp_to_naive_utc_datetime,
+)
 from nautilus_trader.adapters.prediction_market.fill_model import PredictionMarketTakerFillModel
 from nautilus_trader.analysis import legacy_plot_adapter as legacy_plot_adapter
 from nautilus_trader.analysis.legacy_plot_adapter import build_legacy_backtest_layout
@@ -137,10 +140,7 @@ def _pairs_to_series(pairs: Sequence[tuple[str, float]] | Sequence[tuple[Any, fl
 
 
 def _to_legacy_datetime(timestamp: pd.Timestamp) -> datetime:
-    ts = pd.Timestamp(timestamp)
-    if ts.tzinfo is None:
-        ts = ts.tz_localize(UTC)
-    return ts.tz_convert(UTC).tz_localize(None).to_pydatetime()
+    return _timestamp_to_naive_utc_datetime(pd.Timestamp(timestamp))
 
 
 def _series_to_iso_pairs(series: pd.Series) -> list[tuple[str, float]]:

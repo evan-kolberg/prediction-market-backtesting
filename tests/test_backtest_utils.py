@@ -3,12 +3,16 @@
 # Modified in this repository on 2026-03-11 and 2026-03-15.
 # See the repository NOTICE file for provenance and licensing scope.
 
+from datetime import datetime
+import warnings
+
 from nautilus_trader.adapters.prediction_market.backtest_utils import (
     compute_binary_settlement_pnl,
 )
 from nautilus_trader.adapters.prediction_market.backtest_utils import (
     extract_price_points,
 )
+from nautilus_trader.adapters.prediction_market.backtest_utils import to_naive_utc
 
 
 def test_compute_binary_settlement_pnl_marks_open_position_to_resolution():
@@ -57,3 +61,11 @@ def test_extract_price_points_supports_mid_price():
     points = extract_price_points([_QuoteStub()], price_attr="mid_price")
 
     assert points == [(123, 0.42)]
+
+
+def test_to_naive_utc_truncates_nanoseconds_without_warning():
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", UserWarning)
+        value = to_naive_utc("2026-02-22T12:55:24.290235905Z")
+
+    assert value == datetime(2026, 2, 22, 12, 55, 24, 290235)

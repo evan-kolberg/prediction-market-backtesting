@@ -133,7 +133,9 @@ install -o pmxtrelay -g pmxtrelay -d /srv/pmxt-relay /srv/pmxt-relay/raw /srv/pm
 cp pmxt_relay/systemd/pmxt-relay.env.example /etc/pmxt-relay.env
 ```
 
-Then edit `/etc/pmxt-relay.env` for your actual IP, data dir, and port.
+Then edit `/etc/pmxt-relay.env` for your actual public URL, data dir, port, and
+trusted proxy IPs if you are fronting the relay with Caddy or another reverse
+proxy.
 
 Install the systemd units:
 
@@ -229,6 +231,7 @@ Common env vars:
 - `PMXT_RELAY_EXPOSE_RAW=0`
 - `PMXT_RELAY_API_RATE_LIMIT_PER_MINUTE=2400`
 - `PMXT_RELAY_API_LIST_MAX_HOURS=2000`
+- `PMXT_RELAY_TRUSTED_PROXY_IPS=127.0.0.1,::1`
 - `PMXT_RELAY_ARCHIVE_STALE_PAGES=9999` — how many consecutive already-known
   archive listing pages the worker will scan through before stopping. Default is
   3, which is fine when the relay is already caught up. Set high (e.g. 9999) to

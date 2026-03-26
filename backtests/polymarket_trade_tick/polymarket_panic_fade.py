@@ -7,6 +7,8 @@
 Panic-fade strategy on one Polymarket market.
 """
 
+# ruff: noqa: E402
+
 from __future__ import annotations
 
 import asyncio
@@ -14,6 +16,13 @@ import os
 import sys
 from decimal import Decimal
 from pathlib import Path
+
+try:
+    from ._script_helpers import ensure_repo_root
+except ImportError:
+    from _script_helpers import ensure_repo_root
+
+ensure_repo_root(__file__)
 
 from strategies import TradeTickPanicFadeConfig
 from strategies import TradeTickPanicFadeStrategy

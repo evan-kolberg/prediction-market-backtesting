@@ -99,7 +99,18 @@ def _to_naive_utc(value: Any) -> datetime | None:
         ts = ts[0]
 
     assert isinstance(ts, pd.Timestamp)
-    return ts.tz_convert("UTC").tz_localize(None).to_pydatetime()
+    return _timestamp_to_naive_utc_datetime(ts)
+
+
+def _timestamp_to_naive_utc_datetime(ts: pd.Timestamp) -> datetime:
+    if ts.tzinfo is None:
+        ts = ts.tz_localize("UTC")
+    else:
+        ts = ts.tz_convert("UTC")
+    ts = ts.tz_localize(None)
+    if ts.nanosecond:
+        ts = ts.floor("us")
+    return ts.to_pydatetime()
 
 
 def _first_value(row: pd.Series, *keys: str) -> Any:
@@ -395,7 +406,7 @@ def _build_portfolio_snapshots(
     account_report: pd.DataFrame,
     fills: list[Any],
 ) -> list[Any]:
-    snapshot_times = [ts.to_pydatetime() for ts in account_report.index]
+    snapshot_times = [_timestamp_to_naive_utc_datetime(ts) for ts in account_report.index]
     num_positions = _position_count_by_snapshot(snapshot_times, fills)
 
     snapshots: list[Any] = []
@@ -575,7 +586,7 @@ def _build_dense_portfolio_snapshots(
         # No open positions; keep dense cash-only timeline.
         return [
             models_module.PortfolioSnapshot(
-                timestamp=ts.to_pydatetime(),
+                timestamp=_timestamp_to_naive_utc_datetime(ts),
                 cash=float(cash_series[i]),
                 total_equity=float(cash_series[i]),
                 unrealized_pnl=0.0,
@@ -604,7 +615,7 @@ def _build_dense_portfolio_snapshots(
     total_equity = cash_series + total_pos_value
     return [
         models_module.PortfolioSnapshot(
-            timestamp=ts.to_pydatetime(),
+            timestamp=_timestamp_to_naive_utc_datetime(ts),
             cash=float(cash_series[i]),
             total_equity=float(total_equity[i]),
             unrealized_pnl=float(total_pos_value[i]),
@@ -656,9 +667,12 @@ def _normalize_market_prices(
         # Keep the latest value for duplicate timestamps.
         frame = pd.DataFrame(values, columns=["ts", "price"]).sort_values("ts")
         frame = frame.drop_duplicates(subset=["ts"], keep="last")
-        normalized[str(market_id)] = [
-            (row.ts.to_pydatetime(), float(row.price)) for row in frame.itertuples(index=False)
-        ]
+        normalized[str(market_id)] = []
+        for row in frame.itertuples(index=False):
+            timestamp = _to_naive_utc(row.ts)
+            if timestamp is None:
+                continue
+            normalized[str(market_id)].append((timestamp, float(row.price)))
 
     return normalized
 

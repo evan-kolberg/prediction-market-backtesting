@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import importlib
+import os
 import sys
 import time
 from pathlib import Path
@@ -31,6 +32,14 @@ DIM = "\033[2m"
 BOLD = "\033[1m"
 CYAN = "\033[36m"
 RESET = "\033[0m"
+ENABLE_TIMING_ENV = "BACKTEST_ENABLE_TIMING"
+
+
+def _env_flag_enabled(name: str) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return True
+    return value.strip().casefold() not in {"0", "false", "no", "off"}
 
 
 def discover() -> list[dict]:
@@ -114,12 +123,13 @@ def main() -> None:
     chosen = backtests[idx]
     print(f"\n{BOLD}Running: {chosen['name']}{RESET}\n")
 
-    try:
-        from backtests._timing_test import install_timing
+    if _env_flag_enabled(ENABLE_TIMING_ENV):
+        try:
+            from backtests._timing_test import install_timing
 
-        install_timing()
-    except ImportError:
-        pass
+            install_timing()
+        except ImportError:
+            pass
 
     wall_start = time.perf_counter()
     asyncio.run(chosen["run"]())

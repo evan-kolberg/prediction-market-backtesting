@@ -23,7 +23,7 @@ def _make_loader(cache_dir: Path | None) -> PolymarketPMXTDataLoader:
     return loader
 
 
-def test_resolve_cache_dir_is_opt_in(monkeypatch, tmp_path):
+def test_resolve_cache_dir_defaults_to_xdg_cache_home(monkeypatch, tmp_path):
     monkeypatch.delenv(PolymarketPMXTDataLoader._PMXT_CACHE_DIR_ENV, raising=False)
     monkeypatch.delenv(PolymarketPMXTDataLoader._PMXT_DISABLE_CACHE_ENV, raising=False)
     monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "xdg-cache"))
