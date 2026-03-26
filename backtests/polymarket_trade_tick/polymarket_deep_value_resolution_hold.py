@@ -10,6 +10,8 @@ Runs on a single configured Polymarket market slug and renders a legacy chart
 for side-by-side strategy comparison.
 """
 
+# ruff: noqa: E402
+
 from __future__ import annotations
 
 import asyncio
@@ -23,6 +25,13 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
+
+try:
+    from ._script_helpers import ensure_repo_root
+except ImportError:
+    from _script_helpers import ensure_repo_root
+
+ensure_repo_root(__file__)
 
 from nautilus_trader.adapters.polymarket import POLYMARKET_VENUE
 from nautilus_trader.adapters.polymarket import PolymarketDataLoader

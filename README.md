@@ -27,7 +27,7 @@ Relay VPS:
 [![Relay mem](https://209-209-10-83.sslip.io/v1/badge/mem.svg)](https://209-209-10-83.sslip.io/v1/system)
 [![Relay disk](https://209-209-10-83.sslip.io/v1/badge/disk.svg)](https://209-209-10-83.sslip.io/v1/system)
 
-# Note: This is still in development
+## Note: This is still in development
 
 Backtesting framework for prediction market trading strategies on [Kalshi](https://kalshi.com) and [Polymarket](https://polymarket.com), built off of [NautilusTrader](https://github.com/nautechsystems/nautilus_trader) with custom exchange adapters. More focus on Polymarket because of the free availability of L2 data.
 
@@ -74,7 +74,7 @@ unset CONDA_PREFIX
 # create a venv and install everything
 # compiling the rust & cython extensions will take a hot minute
 uv venv --python 3.13
-uv pip install -e nautilus_pm/ bokeh plotly numpy py-clob-client
+uv pip install -e nautilus_pm/ bokeh plotly numpy py-clob-client duckdb
 ```
 
 You can also use:
@@ -143,10 +143,14 @@ uv run python main.py
 Direct script execution is usually better once you know which runner you want:
 
 ```bash
-MARKET_TICKER=KXNEXTIRANLEADER-45JAN01-MKHA uv run python backtests/kalshi_trade_tick/kalshi_breakout.py
-MARKET_SLUG=will-openai-launch-a-new-consumer-hardware-product-by-march-31-2026 END_TIME=2026-03-15T18:00:00Z LOOKBACK_HOURS=4 uv run python -m backtests.polymarket_pmxt_relay_ema_crossover
-MARKET_SLUG=will-openai-launch-a-new-consumer-hardware-product-by-march-31-2026 uv run python backtests/polymarket_trade_tick/polymarket_vwap_reversion.py
+MARKET_TICKER=<kalshi-market-ticker> uv run python backtests/kalshi_trade_tick/kalshi_breakout.py
+MARKET_SLUG=<polymarket-market-slug> END_TIME=<utc-iso8601> LOOKBACK_HOURS=4 uv run python -m backtests.polymarket_pmxt_relay_ema_crossover
+MARKET_SLUG=<polymarket-market-slug> uv run python backtests/polymarket_trade_tick/polymarket_vwap_reversion.py
 ```
+
+If you omit the market env vars, the public runners fall back to the defaults
+bundled in each module. The PMXT examples also ship with a fixed sample end
+time so the same historical window can be replayed repeatedly.
 
 Most runners are configured through environment variables. Common ones:
 
@@ -155,10 +159,21 @@ Most runners are configured through environment variables. Common ones:
 - `TOKEN_INDEX` to choose which Polymarket outcome token to backtest
 - `LOOKBACK_DAYS` for data window size
 - `LOOKBACK_HOURS` for PMXT L2 runners
+- `END_TIME` to pin a PMXT run to a specific historical window end
 - `PMXT_RELAY_BASE_URL` to override the default public relay or disable it
   with `PMXT_RELAY_BASE_URL=0`
+- `PMXT_CACHE_DIR` / `PMXT_DISABLE_CACHE` to control the local PMXT filtered
+  parquet cache
 - `TRADE_SIZE` and `INITIAL_CASH` for sizing
 - `TARGET_RESULTS` for multi-market runners
+
+The interactive menu always prints total wall time. PMXT fetch timing
+instrumentation is enabled by default in `make backtest` / `uv run python
+main.py`. If you want a quieter run, turn it off explicitly:
+
+```bash
+BACKTEST_ENABLE_TIMING=0 make backtest
+```
 
 ## Execution Modeling
 
@@ -257,9 +272,9 @@ https://209-209-10-83.sslip.io/v1/filtered/<condition_id>/<token_id>/polymarket_
   - `PMXT_PREFETCH_WORKERS=8` changes hourly prefetch parallelism
   - `PMXT_HTTP_BLOCK_SIZE_MB=64` changes the in-memory HTTP readahead block size
   - `PMXT_HTTP_CACHE_TYPE=bytes` switches the HTTP file cache strategy
-- Local PMXT disk cache is optional and off by default. If `PMXT_CACHE_DIR` is
-  set, the loader writes the filtered hourly parquet table for one
-  market/token/hour to:
+- Local PMXT disk cache is enabled by default at
+  `~/.cache/nautilus_trader/pmxt`. The loader writes the filtered hourly parquet
+  table for one market/token/hour to:
 
 ```text
 ~/.cache/nautilus_trader/pmxt/<condition_id>/<token_id>/polymarket_orderbook_YYYY-MM-DDTHH.parquet
@@ -271,14 +286,15 @@ https://209-209-10-83.sslip.io/v1/filtered/<condition_id>/<token_id>/polymarket_
   - same hour, different market: no reuse, because the cache key includes `condition_id`
   - same market, different token/outcome: no reuse, because the cache key includes `token_id`
 - This means repeated runs of the same PMXT market can get much faster after
-  the first pass if disk cache is enabled, but multi-market runs still do not
+  the first pass, but multi-market runs still do not
   share a universal raw-hour cache.
 - Local cache controls:
-  - `PMXT_CACHE_DIR=1` enables disk cache at `~/.cache/nautilus_trader/pmxt`
-  - `PMXT_CACHE_DIR=/custom/path` enables disk cache at a custom root
+  - unset `PMXT_CACHE_DIR` to use the default cache root at `~/.cache/nautilus_trader/pmxt`
+  - `PMXT_CACHE_DIR=/custom/path` uses a custom cache root
+  - `PMXT_CACHE_DIR=0` disables local PMXT disk cache
   - `PMXT_DISABLE_CACHE=1` disables local PMXT disk cache entirely
 - Cache size is currently unbounded. There is no eviction policy or size cap.
-  If disk cache is enabled, it grows with the number of unique
+  If disk cache stays enabled, it grows with the number of unique
   `(condition_id, token_id, hour)` tuples you backtest. Very active markets and
   long lookbacks will produce larger cached parquet files than quiet markets
   and short windows. Check current size with:
@@ -287,10 +303,11 @@ https://209-209-10-83.sslip.io/v1/filtered/<condition_id>/<token_id>/polymarket_
 du -sh ~/.cache/nautilus_trader/pmxt
 ```
 
-- Example: force local PMXT disk cache on for a relay-backed backtest:
+- Example: run a relay-backed PMXT backtest with the runner's bundled sample
+  market/window and the default local cache:
 
 ```bash
-PMXT_CACHE_DIR=1 END_TIME=2026-03-16T13:00:00Z LOOKBACK_HOURS=2 MIN_PRICE_RANGE=0 TRADE_SIZE=10 \
+LOOKBACK_HOURS=4 MIN_PRICE_RANGE=0 TRADE_SIZE=10 \
   uv run python backtests/polymarket_pmxt_relay_ema_crossover.py
 ```
 
@@ -427,7 +444,11 @@ combined multi-market plotting flow.
 make test
 ```
 
-Runs the end-to-end test suite against the live APIs. Each test redirects generated legacy-chart output to an isolated pytest temp directory so nothing in the working tree is mutated.
+Runs the repo pytest suite. Coverage is mixed: fast unit tests for strategy,
+loader, cache, and relay logic; relay processor/API integration tests against
+temp dirs; and a small number of smoke tests that exercise real backtest flows.
+Generated legacy-chart output is redirected to isolated pytest temp directories
+so nothing in the working tree is mutated.
 
 ## Updating the Subtree
 
@@ -445,7 +466,7 @@ Unlike git submodules, subtrees copy upstream code directly into this repo — t
 - [x] fee modeling [PR#4](https://github.com/ben-gramling/nautilus_pm/pull/4)
 - [ ] total slippage modeling *** PMXT L2 data is good for taker modeling, but we can't model maker w/o L3 [PR#6](https://github.com/ben-gramling/nautilus_pm/pull/6), [PR#9](https://github.com/evan-kolberg/prediction-market-backtesting/pull/9)
 - [x] polymarket L2 order book backtests [PR#10](https://github.com/evan-kolberg/prediction-market-backtesting/pull/10)
-- [x] public relay on a VPS for pre-crunching book data from PMXT -- massively speeds up backtests [PR#17](https://github.com/evan-kolberg/prediction-market-backtesting/pull/17), [PR#18](https://github.com/evan-kolberg/prediction-market-backtesting/pull/18), [PR#19](https://github.com/evan-kolberg/prediction-market-backtesting/pull/19), [PR#20](https://github.com/evan-kolberg/prediction-market-backtesting/pull/20), [PR#21](https://github.com/evan-kolberg/prediction-market-backtesting/pull/21), [PR#22](https://github.com/evan-kolberg/prediction-market-backtesting/pull/22), [PR#24](https://github.com/evan-kolberg/prediction-market-backtesting/pull/24)
+- [x] public relay on a VPS for pre-crunching book data from PMXT -- massively speeds up backtests [PR#17](https://github.com/evan-kolberg/prediction-market-backtesting/pull/17), [PR#18](https://github.com/evan-kolberg/prediction-market-backtesting/pull/18), [PR#19](https://github.com/evan-kolberg/prediction-market-backtesting/pull/19), [PR#20](https://github.com/evan-kolberg/prediction-market-backtesting/pull/20), [PR#21](https://github.com/evan-kolberg/prediction-market-backtesting/pull/21), [PR#22](https://github.com/evan-kolberg/prediction-market-backtesting/pull/22), [PR#24](https://github.com/evan-kolberg/prediction-market-backtesting/pull/24), [PR#25](https://github.com/evan-kolberg/prediction-market-backtesting/pull/25)
 - [ ] kalshi L2 order book backtests **** we don't have this data yet
 - [x] much better & informative charting [PR#5](https://github.com/ben-gramling/nautilus_pm/pull/5)
 
@@ -454,6 +475,8 @@ Unlike git submodules, subtrees copy upstream code directly into this repo — t
 
 - [ ] Poly/Kalshi APIs rate-limit a lot. Kalshi seems worse. (for trade tick config)
 - [x] PMXT relay misses or raw-fallback PMXT L2 loads can still take a long time -- relay now returns 404 for non-prebuilt hours (no more server-side scanning), client falls back to r2.pmxt.dev [PR#22](https://github.com/evan-kolberg/prediction-market-backtesting/pull/22)
+- [x] Public relay rate-limiting previously collapsed proxied clients into one shared bucket behind Caddy; relay now trusts forwarded client IPs only from configured local proxies [PR#25](https://github.com/evan-kolberg/prediction-market-backtesting/pull/25)
+- [x] Relay request-rate buckets could accumulate stale one-off clients forever; expired buckets are now pruned instead of lingering in memory [PR#25](https://github.com/evan-kolberg/prediction-market-backtesting/pull/25)
 - [ ] multi-market runs do not yet share a universal raw per-hour cache, and optional local filtered-disk-cache growth is currently unbounded
 
 ## License

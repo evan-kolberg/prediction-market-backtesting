@@ -354,6 +354,21 @@ class RequestRateLimiter:
         self._requests_per_minute = requests_per_minute
         self._requests: dict[str, deque[float]] = defaultdict(deque)
 
+    @staticmethod
+    def _prune_bucket(bucket: deque[float], *, window_start: float) -> None:
+        while bucket and bucket[0] <= window_start:
+            bucket.popleft()
+
+    def _prune_stale_buckets(self, *, now: float) -> None:
+        window_start = now - 60.0
+        stale_clients: list[str] = []
+        for client_id, bucket in self._requests.items():
+            self._prune_bucket(bucket, window_start=window_start)
+            if not bucket:
+                stale_clients.append(client_id)
+        for client_id in stale_clients:
+            del self._requests[client_id]
+
     def allow(self, client_id: str, *, now: float | None = None) -> bool:
         if self._requests_per_minute <= 0:
             return True
@@ -361,25 +376,25 @@ class RequestRateLimiter:
         current = time.monotonic() if now is None else now
         window_start = current - 60.0
         bucket = self._requests[client_id]
-        while bucket and bucket[0] <= window_start:
-            bucket.popleft()
+        self._prune_bucket(bucket, window_start=window_start)
 
         if len(bucket) >= self._requests_per_minute:
             return False
 
         bucket.append(current)
         if len(self._requests) > 10000:
-            stale = [k for k, v in self._requests.items() if not v]
-            for k in stale:
-                del self._requests[k]
+            self._prune_stale_buckets(now=current)
         return True
 
     def bucket_size(self, client_id: str, *, now: float | None = None) -> int:
         current = time.monotonic() if now is None else now
         window_start = current - 60.0
-        bucket = self._requests[client_id]
-        while bucket and bucket[0] <= window_start:
-            bucket.popleft()
+        bucket = self._requests.get(client_id)
+        if bucket is None:
+            return 0
+        self._prune_bucket(bucket, window_start=window_start)
+        if not bucket:
+            del self._requests[client_id]
         return len(bucket)
 
 
@@ -388,9 +403,20 @@ INDEX_APP_KEY = web.AppKey("index", RelayIndex)
 RATE_LIMITER_APP_KEY = web.AppKey("rate_limiter", RequestRateLimiter)
 
 
-def _client_id(request: web.Request) -> str:
-    if request.remote:
-        return request.remote
+def _client_id(
+    request: web.Request,
+    *,
+    trusted_proxy_ips: tuple[str, ...] = (),
+) -> str:
+    remote = request.remote
+    if remote in trusted_proxy_ips:
+        forwarded_for = request.headers.get("X-Forwarded-For", "")
+        for candidate in forwarded_for.split(","):
+            client_ip = candidate.strip()
+            if client_ip:
+                return client_ip
+    if remote:
+        return remote
     peername = (
         request.transport.get_extra_info("peername") if request.transport else None
     )
@@ -484,8 +510,9 @@ async def hardening_middleware(
         for header, value in _SECURITY_HEADERS.items():
             response.headers.setdefault(header, value)
 
+    config = request.app[CONFIG_APP_KEY]
     limiter = request.app[RATE_LIMITER_APP_KEY]
-    client_id = _client_id(request)
+    client_id = _client_id(request, trusted_proxy_ips=config.trusted_proxy_ips)
     if not limiter.allow(client_id):
         exc = web.HTTPTooManyRequests(
             text="rate limit exceeded",
@@ -553,7 +580,8 @@ async def events(request: web.Request) -> web.Response:
 
 async def inflight(request: web.Request) -> web.Response:
     config = request.app[CONFIG_APP_KEY]
-    return web.json_response({"inflight": _collect_inflight_processes(config)})
+    payload = await asyncio.to_thread(_collect_inflight_processes, config)
+    return web.json_response({"inflight": payload})
 
 
 async def system_metrics(request: web.Request) -> web.Response:

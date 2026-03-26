@@ -161,7 +161,15 @@ Total wall time: 54.36s
 
 ## How to see this output
 
-The timing instrumentation is built into `make backtest` (via `main.py`). It can also be run standalone against any backtest file:
+The timing instrumentation is enabled by default in `make backtest`.
+Turn it off explicitly with `BACKTEST_ENABLE_TIMING=0`, or run the timing
+harness standalone against any backtest file:
+
+```bash
+BACKTEST_ENABLE_TIMING=0 make backtest
+```
+
+Or:
 
 ```bash
 uv run python backtests/_timing_test.py backtests/polymarket_pmxt_relay_ema_crossover.py

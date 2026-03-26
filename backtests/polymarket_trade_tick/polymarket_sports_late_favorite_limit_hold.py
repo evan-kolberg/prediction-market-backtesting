@@ -10,6 +10,8 @@ The strategy submits one passive buy after a late-game probability breakout and
 then marks any remaining position to the resolved 0/1 settlement outcome.
 """
 
+# ruff: noqa: E402
+
 from __future__ import annotations
 
 import asyncio
@@ -21,6 +23,13 @@ from decimal import Decimal
 from pathlib import Path
 
 import pandas as pd
+
+try:
+    from ._script_helpers import ensure_repo_root
+except ImportError:
+    from _script_helpers import ensure_repo_root
+
+ensure_repo_root(__file__)
 
 from nautilus_trader.adapters.polymarket.common.market_selection import closed_time_utc
 from nautilus_trader.adapters.polymarket.common.market_selection import end_date_utc

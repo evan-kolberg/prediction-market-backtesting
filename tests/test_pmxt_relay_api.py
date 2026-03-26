@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 import os
 from pathlib import Path
 from unittest.mock import patch
@@ -13,6 +14,7 @@ from aiohttp.test_utils import TestServer
 from pmxt_relay.api import (
     INDEX_APP_KEY,
     RequestRateLimiter,
+    _client_id,
     _collect_inflight_processes,
     _cpu_percent_from_loadavg,
     _resolve_filtered_path,
@@ -78,25 +80,40 @@ def test_rate_limiter_evicts_stale_buckets_above_threshold():
     # All buckets still exist because they have entries
     assert len(limiter._requests) == 10001
 
-    # Expire all entries by advancing past the 60s window
-    # Then trigger one more allow to cause eviction
+    # Expire all entries by advancing past the 60s window and trigger eviction.
     limiter.allow("trigger_client", now=120.0)
-    # The trigger_client allow will clean expired entries from trigger_client's bucket
-    # But the eviction only removes EMPTY buckets after the append
-    # Each old bucket still has its entry (expired but not yet cleaned)
-    # bucket_size accesses clean them lazily, but the eviction in allow()
-    # checks `not v` which is False for non-empty deques even with expired entries
+    assert len(limiter._requests) == 1
+    assert limiter.bucket_size("client_0", now=120.0) == 0
 
-    # Now call allow for a client whose bucket will be emptied during the window check
-    # and then one more new client to trigger eviction again
-    for i in range(10001):
-        # Access each old client to drain expired entries
-        limiter.bucket_size(f"client_{i}", now=120.0)
 
-    # Now the old buckets are empty deques - next allow triggers eviction
-    limiter.allow("final_trigger", now=120.0)
-    # Stale (empty) buckets should be evicted
-    assert len(limiter._requests) < 10001
+def test_client_id_uses_forwarded_for_from_trusted_proxy():
+    class _Transport:
+        def get_extra_info(self, name: str):  # type: ignore[no-untyped-def]
+            if name == "peername":
+                return ("127.0.0.1", 12345)
+            return None
+
+    class _Request:
+        remote = "127.0.0.1"
+        headers = {"X-Forwarded-For": "198.51.100.7, 127.0.0.1"}
+        transport = _Transport()
+
+    assert _client_id(_Request(), trusted_proxy_ips=("127.0.0.1",)) == "198.51.100.7"
+
+
+def test_client_id_ignores_forwarded_for_from_untrusted_remote():
+    class _Transport:
+        def get_extra_info(self, name: str):  # type: ignore[no-untyped-def]
+            if name == "peername":
+                return ("203.0.113.9", 12345)
+            return None
+
+    class _Request:
+        remote = "203.0.113.9"
+        headers = {"X-Forwarded-For": "198.51.100.7"}
+        transport = _Transport()
+
+    assert _client_id(_Request(), trusted_proxy_ips=("127.0.0.1",)) == "203.0.113.9"
 
 
 def test_rate_limiter_disabled_when_zero():
@@ -175,6 +192,38 @@ def test_collect_inflight_processes_reports_tmp_tree(tmp_path: Path):
             "latest_mtime": 1234.0,
         }
     ]
+
+
+def test_proxy_forwarded_clients_do_not_share_rate_limit_bucket(tmp_path: Path):
+    async def scenario() -> None:
+        config = replace(_make_config(tmp_path), api_rate_limit_per_minute=1)
+        config.ensure_directories()
+        app = create_app(config)
+
+        server = TestServer(app)
+        client = TestClient(server)
+        await client.start_server()
+        try:
+            first = await client.get(
+                "/healthz",
+                headers={"X-Forwarded-For": "198.51.100.1"},
+            )
+            second = await client.get(
+                "/healthz",
+                headers={"X-Forwarded-For": "198.51.100.1"},
+            )
+            third = await client.get(
+                "/healthz",
+                headers={"X-Forwarded-For": "198.51.100.2"},
+            )
+        finally:
+            await client.close()
+
+        assert first.status == 200
+        assert second.status == 429
+        assert third.status == 200
+
+    asyncio.run(scenario())
 
 
 def test_badge_endpoints_return_shields_payloads(tmp_path: Path):

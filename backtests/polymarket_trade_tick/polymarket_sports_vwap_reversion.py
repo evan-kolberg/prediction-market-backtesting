@@ -22,9 +22,12 @@ from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
 
-_REPO_ROOT = Path(__file__).resolve().parent.parent
-if str(_REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(_REPO_ROOT))
+try:
+    from ._script_helpers import ensure_repo_root
+except ImportError:
+    from _script_helpers import ensure_repo_root
+
+ensure_repo_root(__file__)
 
 from nautilus_trader.adapters.polymarket.common.market_selection import closed_time_utc
 from nautilus_trader.adapters.polymarket.common.market_selection import end_date_utc

@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import warnings
 from datetime import UTC
 from datetime import datetime
 from types import SimpleNamespace
@@ -18,6 +19,42 @@ from nautilus_trader.analysis import legacy_plot_adapter as adapter
 class _DummyLayout:
     def __init__(self, children: list[object] | None = None) -> None:
         self.children = list(children or [])
+
+
+def test_to_naive_utc_truncates_nanoseconds_without_warning() -> None:
+    ts = pd.Timestamp("2026-02-22T12:55:24.290235905Z")
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        converted = adapter._to_naive_utc(ts)
+
+    assert converted == datetime(2026, 2, 22, 12, 55, 24, 290235)
+    assert not any(
+        "Discarding nonzero nanoseconds" in str(warning.message) for warning in caught
+    )
+
+
+def test_build_portfolio_snapshots_truncates_nanoseconds_without_warning() -> None:
+    account_report = pd.DataFrame(
+        {"total": [100.0], "free": [100.0]},
+        index=pd.DatetimeIndex([pd.Timestamp("2026-02-22T12:55:24.290235905Z")]),
+    )
+    models_module = SimpleNamespace(
+        PortfolioSnapshot=lambda **kwargs: SimpleNamespace(**kwargs)
+    )
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        snapshots = adapter._build_portfolio_snapshots(
+            models_module,
+            account_report,
+            fills=[],
+        )
+
+    assert snapshots[0].timestamp == datetime(2026, 2, 22, 12, 55, 24, 290235)
+    assert not any(
+        "Discarding nonzero nanoseconds" in str(warning.message) for warning in caught
+    )
 
 
 def test_should_hide_yes_price_fill_markers_only_when_fill_count_exceeds_marker_budget() -> (

@@ -58,6 +58,17 @@ def extract_realized_pnl(pos_report: pd.DataFrame) -> float:
     return total
 
 
+def _timestamp_to_naive_utc_datetime(ts: pd.Timestamp) -> datetime:
+    if ts.tzinfo is None:
+        ts = ts.tz_localize("UTC")
+    else:
+        ts = ts.tz_convert("UTC")
+    ts = ts.tz_localize(None)
+    if ts.nanosecond:
+        ts = ts.floor("us")
+    return ts.to_pydatetime()
+
+
 def to_naive_utc(value: object) -> datetime | None:
     """
     Convert a timestamp-like value to a naive UTC ``datetime``.
@@ -79,7 +90,7 @@ def to_naive_utc(value: object) -> datetime | None:
         ts = ts[0]
 
     assert isinstance(ts, pd.Timestamp)
-    return ts.tz_convert("UTC").tz_localize(None).to_pydatetime()
+    return _timestamp_to_naive_utc_datetime(ts)
 
 
 def extract_price_points(
@@ -337,4 +348,7 @@ def build_market_prices(
     frame = frame.drop_duplicates(subset=["ts"], keep="last")
     if resample_rule:
         frame = frame.set_index("ts").resample(resample_rule).last().dropna().reset_index()
-    return [(row.ts.to_pydatetime(), float(row.price)) for row in frame.itertuples(index=False)]
+    return [
+        (_timestamp_to_naive_utc_datetime(pd.Timestamp(row.ts)), float(row.price))
+        for row in frame.itertuples(index=False)
+    ]
