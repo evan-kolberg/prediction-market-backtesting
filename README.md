@@ -473,13 +473,15 @@ Unlike git submodules, subtrees copy upstream code directly into this repo — t
 
 ## Known Issues
 
-- [ ] Poly/Kalshi APIs rate-limit a lot. Kalshi seems worse. (for trade tick config)
+No outstanding repo-level issues are currently tracked here.
+
+Recently fixed:
+
 - [x] PMXT relay misses or raw-fallback PMXT L2 loads can still take a long time -- relay now returns 404 for non-prebuilt hours (no more server-side scanning), client falls back to r2.pmxt.dev [PR#22](https://github.com/evan-kolberg/prediction-market-backtesting/pull/22)
 - [x] Public relay rate-limiting previously collapsed proxied clients into one shared bucket behind Caddy; relay now trusts forwarded client IPs only from configured local proxies [PR#25](https://github.com/evan-kolberg/prediction-market-backtesting/pull/25)
 - [x] Relay request-rate buckets could accumulate stale one-off clients forever; expired buckets are now pruned instead of lingering in memory [PR#25](https://github.com/evan-kolberg/prediction-market-backtesting/pull/25)
 - [x] PMXT L2 backtests could fail with `No order book data found` on longer windows because quote ticks could be replayed ahead of their first book snapshot; PMXT events are now ordered by event time with book updates before quotes [PR#26](https://github.com/evan-kolberg/prediction-market-backtesting/pull/26)
 - [x] `polymarket_simple_quoter.py` could fail when run directly because the repo-root bootstrap happened too late for `_defaults`; direct-script imports now initialize the repo root first [PR#26](https://github.com/evan-kolberg/prediction-market-backtesting/pull/26)
-- [ ] multi-market runs do not yet share a universal raw per-hour cache, and optional local filtered-disk-cache growth is currently unbounded
 
 ## License
 

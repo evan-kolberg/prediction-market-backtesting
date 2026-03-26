@@ -71,6 +71,20 @@ When reviewing behavior, separate:
 
 The latter is not automatically a code bug.
 
+## End-To-End Claims
+
+- If the user says `test everything`, `end-to-end`, `all backtests`, or asks whether `everything works`, verify the current worktree, not just `HEAD` or the PR diff.
+- Do not claim `all backtests passed` until every runnable entrypoint under `backtests/` has returned `0` on the current tree.
+- If the worktree is dirty, explicitly separate:
+  - current-worktree verification
+  - what is actually included in the PR/commit
+- If the user reports a specific failing command, rerun that exact command first. Do not substitute a nearby script and call it equivalent.
+- When touching PMXT loader behavior, runner bootstrap, `main.py`, or default backtest selection/parameters, verify both:
+  - the direct script path for the affected runner
+  - the interactive/menu path, e.g. `make backtest`
+- Do not merge a backtest-affecting PR after only partial smokes if the user asked for full end-to-end validation.
+- Clean up temporary sweep artifacts and long-running background verification processes before finishing.
+
 ## Backtest Runner Conventions
 
 - Timing/progress output should stay enabled by default in `main.py`.
@@ -179,6 +193,7 @@ Good default test mix for this repo:
 - at least one direct-script backtest smoke
 - at least one menu/default PMXT smoke when touching `main.py`, timing, or PMXT loader behavior
 - live relay verification when touching deployed relay code
+- full runnable `backtests/` sweep when the user explicitly asks for all backtests or when answering whether everything works end-to-end
 
 If the user asks whether “everything works,” the answer should be based on:
 
