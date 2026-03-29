@@ -239,8 +239,24 @@ class RelayWorker:
                 last_modified = response.headers.get("Last-Modified")
                 length_value = response.headers.get("Content-Length")
                 content_length = int(length_value) if length_value else None
-        except HTTPError as exc:
-            raise RuntimeError(f"HEAD {source_url} failed with {exc.code}") from exc
+        except Exception as exc:  # noqa: BLE001
+            head_error = (
+                f"HEAD {source_url} failed with {exc.code}"
+                if isinstance(exc, HTTPError)
+                else f"HEAD {source_url} failed: {exc}"
+            )
+            self._record_event(
+                level="WARNING",
+                event_type="mirror_head_error",
+                filename=filename,
+                message=f"HEAD metadata probe failed for {filename}; trying GET anyway",
+                payload={"error": head_error},
+            )
+            LOG.warning(
+                "HEAD metadata probe failed for %s; trying GET anyway: %s",
+                filename,
+                head_error,
+            )
 
         tmp_path = raw_path.with_name(f"{raw_path.name}.tmp")
         request = Request(source_url, headers={"User-Agent": "pmxt-relay/1.0"})
