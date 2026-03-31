@@ -15,6 +15,7 @@ from xml.sax.saxutils import escape
 from aiohttp import web
 
 from pmxt_relay.config import RelayConfig
+from pmxt_relay.index_db import PrebuildProgress
 from pmxt_relay.index_db import RelayIndex
 from pmxt_relay.storage import parse_archive_hour
 
@@ -184,6 +185,19 @@ def _badge_payload(*, label: str, message: str, color: str) -> dict[str, object]
     }
 
 
+def _progress_color(*, numerator: int, denominator: int) -> str:
+    if denominator <= 0:
+        return "lightgrey"
+    progress = numerator / denominator
+    if progress >= 1.0:
+        return "brightgreen"
+    if progress >= 0.5:
+        return "green"
+    if progress >= 0.1:
+        return "yellowgreen"
+    return "orange"
+
+
 def _short_hour_label(value: str | None) -> str:
     if value is None:
         return "none"
@@ -241,20 +255,10 @@ def _backfill_badge_payload(
             label="PMXT backfill", message="0/0 hrs", color="lightgrey"
         )
 
-    progress = processed_hours / archive_hours
-    if progress >= 1.0:
-        color = "brightgreen"
-    elif progress >= 0.5:
-        color = "green"
-    elif progress >= 0.1:
-        color = "yellowgreen"
-    else:
-        color = "orange"
-
     return _badge_payload(
         label="PMXT backfill",
         message=f"{processed_hours}/{archive_hours} hrs",
-        color=color,
+        color=_progress_color(numerator=processed_hours, denominator=archive_hours),
     )
 
 
@@ -267,20 +271,10 @@ def _ratio_badge_payload(
     if denominator <= 0:
         return _badge_payload(label=label, message="0/0 hrs", color="lightgrey")
 
-    progress = numerator / denominator
-    if progress >= 1.0:
-        color = "brightgreen"
-    elif progress >= 0.5:
-        color = "green"
-    elif progress >= 0.1:
-        color = "yellowgreen"
-    else:
-        color = "orange"
-
     return _badge_payload(
         label=label,
         message=f"{numerator}/{denominator} hrs",
-        color=color,
+        color=_progress_color(numerator=numerator, denominator=denominator),
     )
 
 
@@ -376,6 +370,43 @@ def _rate_badge_payload(
         label="PMXT rate",
         message=message,
         color=color,
+    )
+
+
+def _prebuild_file_badge_payload(
+    *,
+    stats: dict[str, int | str | None],
+    progress: PrebuildProgress | None,
+) -> dict[str, object]:
+    prebuilding_hours = int(stats.get("prebuilding_hours") or 0)
+    if prebuilding_hours <= 0:
+        return _badge_payload(label="PMXT file", message="idle", color="lightgrey")
+    if progress is None:
+        return _badge_payload(label="PMXT file", message="starting", color="yellow")
+    return _badge_payload(
+        label="PMXT file",
+        message=progress.filename,
+        color="blue",
+    )
+
+
+def _prebuild_progress_badge_payload(
+    *,
+    stats: dict[str, int | str | None],
+    progress: PrebuildProgress | None,
+) -> dict[str, object]:
+    prebuilding_hours = int(stats.get("prebuilding_hours") or 0)
+    if prebuilding_hours <= 0:
+        return _badge_payload(label="PMXT rows", message="idle", color="lightgrey")
+    if progress is None:
+        return _badge_payload(label="PMXT rows", message="starting", color="yellow")
+    return _badge_payload(
+        label="PMXT rows",
+        message=f"{progress.processed_rows:,} / {progress.total_rows:,}",
+        color=_progress_color(
+            numerator=progress.processed_rows,
+            denominator=progress.total_rows,
+        ),
     )
 
 
@@ -658,6 +689,28 @@ async def badge_rate(request: web.Request) -> web.Response:
     return web.json_response(_rate_badge_payload(stats=index.stats()))
 
 
+async def badge_prebuild_file(request: web.Request) -> web.Response:
+    index = request.app[INDEX_APP_KEY]
+    stats = index.stats()
+    return web.json_response(
+        _prebuild_file_badge_payload(
+            stats=stats,
+            progress=index.latest_prebuild_progress(),
+        )
+    )
+
+
+async def badge_prebuild_progress(request: web.Request) -> web.Response:
+    index = request.app[INDEX_APP_KEY]
+    stats = index.stats()
+    return web.json_response(
+        _prebuild_progress_badge_payload(
+            stats=stats,
+            progress=index.latest_prebuild_progress(),
+        )
+    )
+
+
 async def badge_cpu_svg(request: web.Request) -> web.Response:
     config = request.app[CONFIG_APP_KEY]
     metrics = await asyncio.to_thread(_system_metrics_snapshot, config)
@@ -720,6 +773,28 @@ async def badge_lag_svg(request: web.Request) -> web.Response:
 async def badge_rate_svg(request: web.Request) -> web.Response:
     index = request.app[INDEX_APP_KEY]
     return _badge_svg_response(_rate_badge_payload(stats=index.stats()))
+
+
+async def badge_prebuild_file_svg(request: web.Request) -> web.Response:
+    index = request.app[INDEX_APP_KEY]
+    stats = index.stats()
+    return _badge_svg_response(
+        _prebuild_file_badge_payload(
+            stats=stats,
+            progress=index.latest_prebuild_progress(),
+        )
+    )
+
+
+async def badge_prebuild_progress_svg(request: web.Request) -> web.Response:
+    index = request.app[INDEX_APP_KEY]
+    stats = index.stats()
+    return _badge_svg_response(
+        _prebuild_progress_badge_payload(
+            stats=stats,
+            progress=index.latest_prebuild_progress(),
+        )
+    )
 
 
 async def list_filtered_hours(request: web.Request) -> web.Response:
@@ -866,6 +941,8 @@ def create_app(config: RelayConfig) -> web.Application:
     app.router.add_get("/v1/badge/latest", badge_latest)
     app.router.add_get("/v1/badge/lag", badge_lag)
     app.router.add_get("/v1/badge/rate", badge_rate)
+    app.router.add_get("/v1/badge/prebuild-file", badge_prebuild_file)
+    app.router.add_get("/v1/badge/prebuild-progress", badge_prebuild_progress)
     app.router.add_get("/v1/badge/status.svg", badge_status_svg)
     app.router.add_get("/v1/badge/backfill.svg", badge_backfill_svg)
     app.router.add_get("/v1/badge/mirrored.svg", badge_mirrored_svg)
@@ -873,6 +950,8 @@ def create_app(config: RelayConfig) -> web.Application:
     app.router.add_get("/v1/badge/latest.svg", badge_latest_svg)
     app.router.add_get("/v1/badge/lag.svg", badge_lag_svg)
     app.router.add_get("/v1/badge/rate.svg", badge_rate_svg)
+    app.router.add_get("/v1/badge/prebuild-file.svg", badge_prebuild_file_svg)
+    app.router.add_get("/v1/badge/prebuild-progress.svg", badge_prebuild_progress_svg)
     app.router.add_get("/v1/badge/cpu.svg", badge_cpu_svg)
     app.router.add_get("/v1/badge/mem.svg", badge_mem_svg)
     app.router.add_get("/v1/badge/disk.svg", badge_disk_svg)

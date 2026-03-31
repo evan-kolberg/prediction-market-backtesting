@@ -233,7 +233,7 @@ def test_badge_endpoints_return_shields_payloads(tmp_path: Path):
         config = _make_config(tmp_path)
         config.ensure_directories()
         ready_filename = "polymarket_orderbook_2026-03-21T12.parquet"
-        processing_filename = "polymarket_orderbook_2026-03-21T13.parquet"
+        prebuilding_filename = "polymarket_orderbook_2026-03-21T13.parquet"
 
         app = create_app(config)
         index = app[INDEX_APP_KEY]
@@ -252,23 +252,28 @@ def test_badge_endpoints_return_shields_payloads(tmp_path: Path):
         index.replace_filtered_hours(ready_filename, [])
 
         index.upsert_discovered_hour(
-            processing_filename,
-            f"https://r2.pmxt.dev/{processing_filename}",
+            prebuilding_filename,
+            f"https://r2.pmxt.dev/{prebuilding_filename}",
             1,
         )
         index.mark_mirrored(
-            processing_filename,
+            prebuilding_filename,
             local_path="/tmp/raw.parquet",
             etag=None,
             content_length=None,
             last_modified=None,
         )
-        index.mark_processing(processing_filename)
+        index.mark_sharded(prebuilding_filename)
+        index.mark_prebuilding(prebuilding_filename)
         index.log_event(
             level="INFO",
-            event_type="process_start",
-            filename=processing_filename,
-            message="Started processing hour",
+            event_type="filtered_prebuild_progress",
+            filename=prebuilding_filename,
+            message="Prebuild progress for current hour",
+            payload={
+                "processed_rows": 10682368,
+                "total_rows": 21454016,
+            },
         )
 
         server = TestServer(app)
@@ -298,6 +303,14 @@ def test_badge_endpoints_return_shields_payloads(tmp_path: Path):
             lag_response = await client.get("/v1/badge/lag")
             assert lag_response.status == 200
             lag_payload = await lag_response.json()
+
+            prebuild_file_response = await client.get("/v1/badge/prebuild-file")
+            assert prebuild_file_response.status == 200
+            prebuild_file_payload = await prebuild_file_response.json()
+
+            prebuild_progress_response = await client.get("/v1/badge/prebuild-progress")
+            assert prebuild_progress_response.status == 200
+            prebuild_progress_payload = await prebuild_progress_response.json()
 
             with index._conn:  # noqa: SLF001
                 index._conn.execute(  # noqa: SLF001
@@ -361,6 +374,18 @@ def test_badge_endpoints_return_shields_payloads(tmp_path: Path):
             "message": "0.04 hr/hr",
             "color": "orange",
         }
+        assert prebuild_file_payload == {
+            "schemaVersion": 1,
+            "label": "PMXT file",
+            "message": prebuilding_filename,
+            "color": "blue",
+        }
+        assert prebuild_progress_payload == {
+            "schemaVersion": 1,
+            "label": "PMXT rows",
+            "message": "10,682,368 / 21,454,016",
+            "color": "yellowgreen",
+        }
 
     asyncio.run(scenario())
 
@@ -385,7 +410,18 @@ def test_badge_svg_endpoints_return_svg(tmp_path: Path):
             content_length=None,
             last_modified=None,
         )
-        index.replace_filtered_hours(filename, [])
+        index.mark_sharded(filename)
+        index.mark_prebuilding(filename)
+        index.log_event(
+            level="INFO",
+            event_type="filtered_prebuild_progress",
+            filename=filename,
+            message="Prebuild progress for current hour",
+            payload={
+                "processed_rows": 10682368,
+                "total_rows": 21454016,
+            },
+        )
 
         server = TestServer(app)
         client = TestClient(server)
@@ -397,6 +433,8 @@ def test_badge_svg_endpoints_return_svg(tmp_path: Path):
                 "/v1/badge/mirrored.svg",
                 "/v1/badge/processed.svg",
                 "/v1/badge/rate.svg",
+                "/v1/badge/prebuild-file.svg",
+                "/v1/badge/prebuild-progress.svg",
             ):
                 response = await client.get(path)
                 assert response.status == 200
@@ -406,11 +444,15 @@ def test_badge_svg_endpoints_return_svg(tmp_path: Path):
             await client.close()
 
         assert "PMXT relay" in svg_payloads["/v1/badge/status.svg"]
-        assert "starting" in svg_payloads["/v1/badge/status.svg"]
+        assert "processing" in svg_payloads["/v1/badge/status.svg"]
         assert "<svg" in svg_payloads["/v1/badge/status.svg"]
         assert "PMXT mirrored" in svg_payloads["/v1/badge/mirrored.svg"]
         assert "PMXT processed" in svg_payloads["/v1/badge/processed.svg"]
         assert "PMXT rate" in svg_payloads["/v1/badge/rate.svg"]
+        assert filename in svg_payloads["/v1/badge/prebuild-file.svg"]
+        assert (
+            "10,682,368 / 21,454,016" in svg_payloads["/v1/badge/prebuild-progress.svg"]
+        )
 
     asyncio.run(scenario())
 

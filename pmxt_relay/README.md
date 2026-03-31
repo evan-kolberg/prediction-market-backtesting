@@ -39,6 +39,10 @@ intermediate shard. The public badges and `/v1/stats` use this definition:
 - `mirrored` badge: `mirror_status=ready` / total discovered
 - `processed` badge: `prebuild_status=ready` / `mirror_status=ready`
 - `rate` badge: rolling 24-hour completed-hour rate based on `prebuilt_at`
+- `prebuild-file` badge: current parquet filename from the latest
+  `filtered_prebuild_progress` event while prebuild is active
+- `prebuild-progress` badge: full `processed_rows / total_rows` fraction from
+  the latest `filtered_prebuild_progress` event while prebuild is active
 
 The inflight reset on startup is split by stage so the worker and prebuild
 service don't clobber each other's state:
@@ -182,8 +186,8 @@ fail2ban-client status sshd
 - `GET /v1/queue`
 - `GET /v1/events?limit=100`
 - `GET /v1/inflight`
-- `GET /v1/badge/{status,backfill,mirrored,processed,rate,latest,lag}`
-- `GET /v1/badge/{status,backfill,mirrored,processed,rate,latest,lag}.svg`
+- `GET /v1/badge/{status,backfill,mirrored,processed,rate,latest,lag,prebuild-file,prebuild-progress}`
+- `GET /v1/badge/{status,backfill,mirrored,processed,rate,latest,lag,prebuild-file,prebuild-progress}.svg`
 - `GET /v1/badge/{cpu,mem,disk}.svg`
 - `GET /v1/markets/{condition_id}/tokens/{token_id}/hours?start=...&end=...`
 - `GET /v1/filtered/{condition_id}/{token_id}/{filename}`

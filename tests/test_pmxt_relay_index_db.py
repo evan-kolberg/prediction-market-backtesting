@@ -284,6 +284,40 @@ def test_stats_include_processed_hours_per_hour_24h(tmp_path: Path, monkeypatch)
     assert stats["processed_hours_per_hour_24h"] == 0.04
 
 
+def test_latest_prebuild_progress_returns_latest_progress_event(tmp_path: Path):
+    index = RelayIndex(tmp_path / "relay.sqlite3")
+    index.initialize()
+
+    index.log_event(
+        level="INFO",
+        event_type="filtered_prebuild_progress",
+        filename="polymarket_orderbook_2026-03-21T11.parquet",
+        message="first prebuild progress",
+        payload={"processed_rows": 128, "total_rows": 1024},
+    )
+    index.log_event(
+        level="INFO",
+        event_type="mirror_start",
+        filename="polymarket_orderbook_2026-03-21T12.parquet",
+        message="mirror is noisier than prebuild",
+    )
+    index.log_event(
+        level="INFO",
+        event_type="filtered_prebuild_progress",
+        filename="polymarket_orderbook_2026-03-21T12.parquet",
+        message="latest prebuild progress",
+        payload={"processed_rows": 512, "total_rows": 2048},
+    )
+
+    progress = index.latest_prebuild_progress()
+
+    assert progress is not None
+    assert progress.filename == "polymarket_orderbook_2026-03-21T12.parquet"
+    assert progress.processed_rows == 512
+    assert progress.total_rows == 2048
+    assert progress.created_at is not None
+
+
 def test_error_count_deprioritizes_but_never_abandons(tmp_path: Path):
     index = RelayIndex(tmp_path / "relay.sqlite3")
     index.initialize()

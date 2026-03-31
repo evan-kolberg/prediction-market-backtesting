@@ -17,18 +17,23 @@
 ![GitHub top language](https://img.shields.io/github/languages/top/evan-kolberg/prediction-market-backtesting)
 ![GitHub open issues](https://img.shields.io/github/issues/evan-kolberg/prediction-market-backtesting)
 
-Relay VPS:
+Relay VPS statistics:
+
 [![PMXT relay](https://209-209-10-83.sslip.io/v1/badge/status.svg)](https://209-209-10-83.sslip.io/v1/stats)
+[![Relay CPU](https://209-209-10-83.sslip.io/v1/badge/cpu.svg)](https://209-209-10-83.sslip.io/v1/system)
+[![Relay mem](https://209-209-10-83.sslip.io/v1/badge/mem.svg)](https://209-209-10-83.sslip.io/v1/system)
+[![Relay disk](https://209-209-10-83.sslip.io/v1/badge/disk.svg)](https://209-209-10-83.sslip.io/v1/system)
+
 [![PMXT mirrored](https://209-209-10-83.sslip.io/v1/badge/mirrored.svg)](https://209-209-10-83.sslip.io/v1/stats)
 [![PMXT processed](https://209-209-10-83.sslip.io/v1/badge/processed.svg)](https://209-209-10-83.sslip.io/v1/stats)
 [![PMXT latest](https://209-209-10-83.sslip.io/v1/badge/latest.svg?v=3)](https://209-209-10-83.sslip.io/v1/queue)
 [![PMXT lag](https://209-209-10-83.sslip.io/v1/badge/lag.svg?v=3)](https://209-209-10-83.sslip.io/v1/queue)
-[![Relay CPU](https://209-209-10-83.sslip.io/v1/badge/cpu.svg)](https://209-209-10-83.sslip.io/v1/system)
-[![Relay mem](https://209-209-10-83.sslip.io/v1/badge/mem.svg)](https://209-209-10-83.sslip.io/v1/system)
-[![Relay disk](https://209-209-10-83.sslip.io/v1/badge/disk.svg)](https://209-209-10-83.sslip.io/v1/system)
 [![PMXT rate](https://209-209-10-83.sslip.io/v1/badge/rate.svg?v=1)](https://209-209-10-83.sslip.io/v1/stats)
 
-If the rate fulls under 1 hr/hr, then that means the VPS will never catch up. Since this project became a lot more popular that I had expected, I may have to switch to somehting more sustainable like AWS. Still figuring this out.
+[![PMXT file](https://209-209-10-83.sslip.io/v1/badge/prebuild-file.svg?v=1)](https://209-209-10-83.sslip.io/v1/events?limit=50)
+[![PMXT rows](https://209-209-10-83.sslip.io/v1/badge/prebuild-progress.svg?v=1)](https://209-209-10-83.sslip.io/v1/events?limit=50)
+
+If the processing rate fulls under 1 hr/hr, then that means the VPS will never catch up. Since this project became a lot more popular that I had expected, I may have to switch to something more sustainable like AWS. Still figuring this out.
 
 
 ## Note: This is still in development
@@ -405,8 +410,8 @@ Relay progress can be checked over HTTP:
   being crunched
 - `/v1/badge/status`, `/v1/badge/backfill`, `/v1/badge/mirrored`,
   `/v1/badge/processed`, `/v1/badge/rate`, `/v1/badge/latest`, `/v1/badge/lag`,
-  `/v1/badge/cpu`, `/v1/badge/mem`, and
-  `/v1/badge/disk` for the live README status tags
+  `/v1/badge/prebuild-file`, `/v1/badge/prebuild-progress`, `/v1/badge/cpu`,
+  `/v1/badge/mem`, and `/v1/badge/disk` for the live README status tags
 
 The relay mirrors the full PMXT archive and stores a single processed shard per
 hour alongside a background-prebuilt filtered cache. Any single PMXT backtest only
@@ -481,7 +486,7 @@ Unlike git submodules, subtrees copy upstream code directly into this repo — t
 - [x] fee modeling [PR#4](https://github.com/ben-gramling/nautilus_pm/pull/4)
 - [ ] total slippage modeling *** PMXT L2 data is good for taker modeling, but we can't model maker w/o L3 [PR#6](https://github.com/ben-gramling/nautilus_pm/pull/6), [PR#9](https://github.com/evan-kolberg/prediction-market-backtesting/pull/9)
 - [x] polymarket L2 order book backtests [PR#10](https://github.com/evan-kolberg/prediction-market-backtesting/pull/10)
-- [x] public relay on a VPS for pre-crunching book data from PMXT -- massively speeds up backtests [PR#17](https://github.com/evan-kolberg/prediction-market-backtesting/pull/17), [PR#18](https://github.com/evan-kolberg/prediction-market-backtesting/pull/18), [PR#19](https://github.com/evan-kolberg/prediction-market-backtesting/pull/19), [PR#20](https://github.com/evan-kolberg/prediction-market-backtesting/pull/20), [PR#21](https://github.com/evan-kolberg/prediction-market-backtesting/pull/21), [PR#22](https://github.com/evan-kolberg/prediction-market-backtesting/pull/22), [PR#24](https://github.com/evan-kolberg/prediction-market-backtesting/pull/24), [PR#25](https://github.com/evan-kolberg/prediction-market-backtesting/pull/25)
+- [x] public relay on a VPS for pre-crunching book data from PMXT -- massively speeds up backtests [PR#17](https://github.com/evan-kolberg/prediction-market-backtesting/pull/17), [PR#18](https://github.com/evan-kolberg/prediction-market-backtesting/pull/18), [PR#19](https://github.com/evan-kolberg/prediction-market-backtesting/pull/19), [PR#20](https://github.com/evan-kolberg/prediction-market-backtesting/pull/20), [PR#21](https://github.com/evan-kolberg/prediction-market-backtesting/pull/21), [PR#22](https://github.com/evan-kolberg/prediction-market-backtesting/pull/22), [PR#24](https://github.com/evan-kolberg/prediction-market-backtesting/pull/24), [PR#25](https://github.com/evan-kolberg/prediction-market-backtesting/pull/25), [PR#34](https://github.com/evan-kolberg/prediction-market-backtesting/pull/34), [PR#35](https://github.com/evan-kolberg/prediction-market-backtesting/pull/35)
 - [ ] kalshi L2 order book backtests **** we don't have this data yet
 - [x] much better & informative charting [PR#5](https://github.com/ben-gramling/nautilus_pm/pull/5)
 
@@ -495,6 +500,7 @@ Recently fixed:
 - [x] PMXT relay misses or raw-fallback PMXT L2 loads can still take a long time -- relay now returns 404 for non-prebuilt hours (no more server-side scanning), client falls back to r2.pmxt.dev [PR#22](https://github.com/evan-kolberg/prediction-market-backtesting/pull/22)
 - [x] Public relay rate-limiting previously collapsed proxied clients into one shared bucket behind Caddy; relay now trusts forwarded client IPs only from configured local proxies [PR#25](https://github.com/evan-kolberg/prediction-market-backtesting/pull/25)
 - [x] Relay request-rate buckets could accumulate stale one-off clients forever; expired buckets are now pruned instead of lingering in memory [PR#25](https://github.com/evan-kolberg/prediction-market-backtesting/pull/25)
+- [x] Relay throughput was too opaque to judge from backlog counts alone; observability now includes a rolling completed-hours rate plus live prebuild file and row-progress badges [PR#34](https://github.com/evan-kolberg/prediction-market-backtesting/pull/34), [PR#35](https://github.com/evan-kolberg/prediction-market-backtesting/pull/35)
 - [x] PMXT L2 backtests could fail with `No order book data found` on longer windows because quote ticks could be replayed ahead of their first book snapshot; PMXT events are now ordered by event time with book updates before quotes [PR#26](https://github.com/evan-kolberg/prediction-market-backtesting/pull/26)
 - [x] `polymarket_simple_quoter.py` could fail when run directly because the repo-root bootstrap happened too late for `_defaults`; direct-script imports now initialize the repo root first [PR#26](https://github.com/evan-kolberg/prediction-market-backtesting/pull/26)
 

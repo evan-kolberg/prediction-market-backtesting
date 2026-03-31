@@ -30,6 +30,14 @@ class FilteredHourArtifact:
     byte_size: int
 
 
+@dataclass(frozen=True)
+class PrebuildProgress:
+    filename: str
+    created_at: str
+    processed_rows: int
+    total_rows: int
+
+
 class RelayIndex:
     def __init__(self, db_path: Path, *, event_retention: int = 50000) -> None:
         db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -104,6 +112,9 @@ class RelayIndex:
 
             CREATE INDEX IF NOT EXISTS idx_relay_events_created_at
             ON relay_events (created_at DESC, id DESC);
+
+            CREATE INDEX IF NOT EXISTS idx_relay_events_type_id
+            ON relay_events (event_type, id DESC);
             """
         )
         self._ensure_archive_hours_column(
@@ -727,3 +738,36 @@ class RelayIndex:
             (limit,),
         )
         return cursor.fetchall()
+
+    def latest_prebuild_progress(self) -> PrebuildProgress | None:
+        row = self._conn.execute(
+            """
+            SELECT created_at, filename, payload_json
+            FROM relay_events
+            WHERE event_type = 'filtered_prebuild_progress'
+            ORDER BY id DESC
+            LIMIT 1
+            """
+        ).fetchone()
+        if row is None or row["payload_json"] is None:
+            return None
+
+        try:
+            payload = json.loads(row["payload_json"])
+        except json.JSONDecodeError:
+            return None
+
+        filename = row["filename"]
+        processed_rows = payload.get("processed_rows")
+        total_rows = payload.get("total_rows")
+        if not isinstance(filename, str):
+            return None
+        if type(processed_rows) is not int or type(total_rows) is not int:
+            return None
+
+        return PrebuildProgress(
+            filename=filename,
+            created_at=row["created_at"],
+            processed_rows=processed_rows,
+            total_rows=total_rows,
+        )
