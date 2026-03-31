@@ -388,12 +388,8 @@ def test_prebuild_from_processed_matches_direct_filtered_outputs(
         }
     )
 
-    direct_raw_path = (
-        direct_config.raw_root / "2026" / "03" / "21" / filename
-    )
-    prebuild_raw_path = (
-        prebuild_config.raw_root / "2026" / "03" / "21" / filename
-    )
+    direct_raw_path = direct_config.raw_root / "2026" / "03" / "21" / filename
+    prebuild_raw_path = prebuild_config.raw_root / "2026" / "03" / "21" / filename
     direct_raw_path.parent.mkdir(parents=True, exist_ok=True)
     prebuild_raw_path.parent.mkdir(parents=True, exist_ok=True)
     pq.write_table(rows, direct_raw_path, row_group_size=2)
@@ -402,7 +398,9 @@ def test_prebuild_from_processed_matches_direct_filtered_outputs(
     monkeypatch.setattr(processor_module, "PARQUET_BATCH_SIZE", 2)
 
     direct_processor = RelayHourProcessor(direct_config)
-    direct_artifacts = direct_processor.process_hour(filename, direct_raw_path).artifacts
+    direct_artifacts = direct_processor.process_hour(
+        filename, direct_raw_path
+    ).artifacts
 
     prebuild_processor = RelayHourProcessor(prebuild_config)
     prebuild_processor.process_hour(filename, prebuild_raw_path, skip_filtered=True)
@@ -429,6 +427,7 @@ def test_prebuild_from_processed_matches_direct_filtered_outputs(
         prebuilt_filtered_path = (
             prebuild_config.filtered_root / condition_id / token_id / filename
         )
-        assert pq.read_table(prebuilt_filtered_path).to_pylist() == pq.read_table(
-            direct_filtered_path
-        ).to_pylist()
+        assert (
+            pq.read_table(prebuilt_filtered_path).to_pylist()
+            == pq.read_table(direct_filtered_path).to_pylist()
+        )
