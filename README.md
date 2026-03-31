@@ -150,8 +150,9 @@ MARKET_SLUG=<polymarket-market-slug> uv run python backtests/polymarket_trade_ti
 
 If you omit the market env vars, the public runners fall back to the defaults
 bundled in each module. The PMXT single-market relay runners are intentionally
-pinned to one relay-backed historical slice in code so they still replay cleanly
-without the latest upstream PMXT hours.
+pinned to one relay-backed historical slice in code, and the PMXT sports
+multi-market example is pinned to a small fixed sports sample set, so those
+examples still replay cleanly without the latest upstream PMXT hours.
 
 Most runners are configured through environment variables. Common ones:
 
