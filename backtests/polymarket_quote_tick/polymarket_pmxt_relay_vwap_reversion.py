@@ -1,6 +1,6 @@
 # Derived from NautilusTrader prediction-market example code.
 # Distributed under the GNU Lesser General Public License Version 3.0 or later.
-# Modified in this repository on 2026-03-11 and 2026-03-16.
+# Modified in this repository on 2026-03-11, 2026-03-16, and 2026-03-31.
 # See the repository NOTICE file for provenance and licensing scope.
 
 """
