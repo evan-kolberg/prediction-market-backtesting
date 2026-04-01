@@ -135,6 +135,22 @@ Mirror and preprocess work is interleaved, so the relay starts producing
 queryable filtered hours during the initial backfill instead of waiting for the
 entire raw mirror backlog to finish first.
 
+## Fresh Box Expectations
+
+On a fresh ClickHouse-backed VPS, the steady-state layout should look like this:
+
+- `raw/` grows with mirrored PMXT hourly parquet files
+- `state/relay.sqlite3` tracks archive, queue, and event metadata
+- ClickHouse stores the filtered relay rows and serves `/v1/filtered/...`
+- `processed/` stays empty
+- `filtered/` stays empty
+- `pmxt-relay-prebuild.service` stays disabled
+
+If you are migrating from the old filesystem backend, do not keep both systems
+alive. Stop the old fanout path, recreate clean empty `processed/`, `filtered/`,
+and `tmp/` directories for the new services, and remove any renamed legacy
+`*.purge-*` directories before calling the box fully clean.
+
 The design is restart-safe:
 
 - raw downloads go through a temp file and atomic rename
@@ -211,6 +227,26 @@ EOF
 systemctl enable --now fail2ban
 fail2ban-client status sshd
 ```
+
+After the initial deploy, verify the live box matches the intended ClickHouse
+layout:
+
+```bash
+systemctl is-active pmxt-disable-wbt.service pmxt-relay-api.service pmxt-relay-worker.service pmxt-relay-prebuild.service clickhouse-server.service
+curl -fsS http://127.0.0.1:8080/healthz
+curl -fsS http://127.0.0.1:8080/v1/stats
+find /srv/pmxt-relay/raw -type f | wc -l
+find /srv/pmxt-relay/processed -type f | wc -l
+find /srv/pmxt-relay/filtered -type f | wc -l
+```
+
+Expected shape in ClickHouse mode:
+
+- `pmxt-disable-wbt`, `pmxt-relay-api`, `pmxt-relay-worker`, and
+  `clickhouse-server` are `active`
+- `pmxt-relay-prebuild.service` is `inactive`
+- `raw/` contains mirrored parquet hours
+- `processed/` and `filtered/` both report `0`
 
 ## API
 

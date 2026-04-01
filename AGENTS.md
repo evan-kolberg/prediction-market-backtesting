@@ -122,6 +122,14 @@ curl -fsS https://209-209-10-83.sslip.io/v1/system
 If a PR changes live relay behavior in `pmxt_relay/`, do not stop at local
 tests if deploy access is available. Deploy and verify the real box.
 
+When touching the VPS over SSH:
+
+- prefer one persistent PTY SSH session for the whole deploy/observe cycle
+- avoid opening many short-lived SSH sessions in a row; fail2ban is enabled on
+  the box and repeated reconnect churn is avoidable
+- do long-running `systemctl`, `curl`, and observation loops inside that one
+  PTY unless there is a strong reason not to
+
 Typical deploy steps:
 
 ```bash
