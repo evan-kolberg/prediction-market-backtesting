@@ -2,6 +2,52 @@
 
 This page is intentionally strict about what is supported today.
 
+## Runner Source Modes
+
+The PMXT quote-tick example runners expose a runner-side source selector so
+users are not pinned to one relay or one directory layout.
+
+Set `PMXT_DATA_SOURCE` to one of:
+
+- `auto`
+- `relay`
+- `raw-remote`
+- `raw-local`
+- `filtered-local`
+
+Examples:
+
+```bash
+PMXT_DATA_SOURCE=raw-remote \
+uv run python backtests/polymarket_quote_tick/polymarket_pmxt_relay_ema_crossover.py
+```
+
+```bash
+PMXT_DATA_SOURCE=raw-local \
+PMXT_LOCAL_MIRROR_DIR=/data/pmxt/raw \
+uv run python backtests/polymarket_quote_tick/polymarket_pmxt_relay_ema_crossover.py
+```
+
+```bash
+PMXT_DATA_SOURCE=filtered-local \
+PMXT_LOCAL_FILTERED_DIR=/data/pmxt/filtered \
+uv run python backtests/polymarket_quote_tick/polymarket_pmxt_relay_ema_crossover.py
+```
+
+`raw-local` expects a local PMXT raw mirror. `filtered-local` is strict local
+mode and will not fall back to the public relay or remote archive if an hour is
+missing.
+
+## Lower-Level Loader Env Vars
+
+The runner source selector is the easiest public entrypoint, but the underlying
+loader env vars still work too:
+
+- `PMXT_LOCAL_ARCHIVE_DIR`
+- `PMXT_RELAY_BASE_URL`
+- `PMXT_CACHE_DIR`
+- `PMXT_DISABLE_CACHE`
+
 ## What Works Today
 
 The current PMXT loader can read one market/token/hour from three places, in
@@ -18,6 +64,7 @@ The current "bring your own data" story is therefore:
   parquet files
 - or point `PMXT_LOCAL_ARCHIVE_DIR` at a directory of raw PMXT hour files you
   already mirrored locally
+- or use `PMXT_DATA_SOURCE=raw-local` with `PMXT_LOCAL_MIRROR_DIR`
 - or run your own relay and point `PMXT_RELAY_BASE_URL` at it
 
 If you want local-only PMXT replays, set both:
@@ -68,6 +115,32 @@ Enable that source with:
 
 ```bash
 PMXT_LOCAL_ARCHIVE_DIR=/custom/raw-hours
+```
+
+The runner-level `raw-local` mode expects the archive-style layout:
+
+```text
+/data/pmxt/raw/YYYY/MM/DD/polymarket_orderbook_YYYY-MM-DDTHH.parquet
+```
+
+Enable that source with:
+
+```bash
+PMXT_DATA_SOURCE=raw-local
+PMXT_LOCAL_MIRROR_DIR=/data/pmxt/raw
+```
+
+The runner-level `filtered-local` mode expects:
+
+```text
+/data/pmxt/filtered/<condition_id>/<token_id>/polymarket_orderbook_YYYY-MM-DDTHH.parquet
+```
+
+Enable that source with:
+
+```bash
+PMXT_DATA_SOURCE=filtered-local
+PMXT_LOCAL_FILTERED_DIR=/data/pmxt/filtered
 ```
 
 ## Required Parquet Columns

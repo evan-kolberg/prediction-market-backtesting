@@ -18,7 +18,6 @@ from typing import Any
 import pandas as pd
 
 from nautilus_trader.adapters.polymarket import POLYMARKET_VENUE
-from nautilus_trader.adapters.polymarket import PolymarketPMXTDataLoader
 from nautilus_trader.adapters.polymarket.fee_model import PolymarketFeeModel
 from nautilus_trader.adapters.prediction_market.backtest_utils import (
     infer_realized_outcome,
@@ -30,6 +29,11 @@ from nautilus_trader.model.data import QuoteTick
 from nautilus_trader.model.enums import BookType
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.trading.strategy import Strategy
+
+from backtests._shared.data_sources.pmxt import configured_pmxt_data_source
+from backtests._shared.data_sources.pmxt import (
+    RunnerPolymarketPMXTDataLoader as PolymarketPMXTDataLoader,
+)
 
 
 type StrategyFactory = Callable[[InstrumentId], Strategy]
@@ -123,11 +127,13 @@ async def run_single_market_pmxt_backtest(
     )
 
     try:
-        loader = await PolymarketPMXTDataLoader.from_market_slug(
-            market_slug,
-            token_index=token_index,
-        )
-        data = loader.load_order_book_and_quotes(start, end)
+        with configured_pmxt_data_source() as data_source:
+            print(data_source.summary)
+            loader = await PolymarketPMXTDataLoader.from_market_slug(
+                market_slug,
+                token_index=token_index,
+            )
+            data = loader.load_order_book_and_quotes(start, end)
     except Exception as exc:
         print(f"Unable to load PMXT Polymarket market {market_slug}: {exc}")
         return

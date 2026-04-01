@@ -34,74 +34,103 @@ def install_timing() -> None:
     from tqdm import tqdm
     from nautilus_trader.adapters.polymarket.pmxt import PolymarketPMXTDataLoader
 
+    try:
+        from backtests._shared.data_sources.pmxt import (
+            RunnerPolymarketPMXTDataLoader,
+        )
+    except ImportError:
+        RunnerPolymarketPMXTDataLoader = None
+
     source_local = threading.local()
     pbar_state: dict = {"bar": None}
     pbar_lock = threading.Lock()
 
-    orig_load = PolymarketPMXTDataLoader._load_market_batches
-    orig_cached = PolymarketPMXTDataLoader._load_cached_market_batches
-    orig_relay = PolymarketPMXTDataLoader._load_relay_market_batches
-    orig_remote = PolymarketPMXTDataLoader._load_remote_market_batches
-    orig_iter = PolymarketPMXTDataLoader._iter_market_batches
+    def _install_full_timing(loader_cls) -> None:  # type: ignore[no-untyped-def]
+        orig_load = loader_cls._load_market_batches
+        orig_cached = loader_cls._load_cached_market_batches
+        orig_relay = loader_cls._load_relay_market_batches
+        orig_remote = loader_cls._load_remote_market_batches
+        orig_iter = loader_cls._iter_market_batches
 
-    def patched_cached(self, hour):
-        result = orig_cached(self, hour)
-        if result is not None:
-            cache_path = self._cache_path_for_hour(hour)
-            source_local.source = str(cache_path)
-        return result
+        def patched_cached(self, hour):
+            result = orig_cached(self, hour)
+            if result is not None:
+                cache_path = self._cache_path_for_hour(hour)
+                source_local.source = str(cache_path)
+            return result
 
-    def patched_relay(self, hour, *, batch_size):
-        result = orig_relay(self, hour, batch_size=batch_size)
-        if result is not None:
-            source_local.source = self._pmxt_relay_base_url or "relay"
-        return result
+        def patched_relay(self, hour, *, batch_size):
+            result = orig_relay(self, hour, batch_size=batch_size)
+            if result is not None:
+                source_local.source = self._pmxt_relay_base_url or "relay"
+            return result
 
-    def patched_remote(self, hour, *, batch_size):
-        result = orig_remote(self, hour, batch_size=batch_size)
-        if result is not None:
-            source_local.source = self._PMXT_BASE_URL
-        return result
-
-    def timed_load(self, hour, *, batch_size):
-        source_local.source = "none"
-        t0 = time.perf_counter()
-        result = orig_load(self, hour, batch_size=batch_size)
-        elapsed = time.perf_counter() - t0
-        rows = sum(b.num_rows for b in result) if result else 0
-        source = getattr(source_local, "source", "unknown")
-
-        with pbar_lock:
-            bar = pbar_state["bar"]
-            if bar is not None:
-                bar.write(
-                    f"  {hour.isoformat():>25s}  {elapsed:6.3f}s  {rows:>6} rows  {source}"
+        def patched_remote(self, hour, *, batch_size):
+            result = orig_remote(self, hour, batch_size=batch_size)
+            if result is not None:
+                raw_root = getattr(self, "_pmxt_raw_root", None)
+                source_local.source = (
+                    str(raw_root) if raw_root is not None else self._PMXT_BASE_URL
                 )
-                bar.update(1)
-        return result
+            return result
 
-    def patched_iter(self, hours, *, batch_size):
-        with pbar_lock:
-            pbar_state["bar"] = tqdm(
-                total=len(hours),
-                desc="Fetching hours",
-                unit="hr",
-                bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]",
-            )
-        try:
-            yield from orig_iter(self, hours, batch_size=batch_size)
-        finally:
+        def timed_load(self, hour, *, batch_size):
+            source_local.source = "none"
+            t0 = time.perf_counter()
+            result = orig_load(self, hour, batch_size=batch_size)
+            elapsed = time.perf_counter() - t0
+            rows = sum(b.num_rows for b in result) if result else 0
+            source = getattr(source_local, "source", "unknown")
+
             with pbar_lock:
                 bar = pbar_state["bar"]
                 if bar is not None:
-                    bar.close()
-                    pbar_state["bar"] = None
+                    bar.write(
+                        f"  {hour.isoformat():>25s}  {elapsed:6.3f}s  {rows:>6} rows  {source}"
+                    )
+                    bar.update(1)
+            return result
 
-    PolymarketPMXTDataLoader._load_cached_market_batches = patched_cached
-    PolymarketPMXTDataLoader._load_relay_market_batches = patched_relay
-    PolymarketPMXTDataLoader._load_remote_market_batches = patched_remote
-    PolymarketPMXTDataLoader._load_market_batches = timed_load
-    PolymarketPMXTDataLoader._iter_market_batches = patched_iter
+        def patched_iter(self, hours, *, batch_size):
+            with pbar_lock:
+                pbar_state["bar"] = tqdm(
+                    total=len(hours),
+                    desc="Fetching hours",
+                    unit="hr",
+                    bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]",
+                )
+            try:
+                yield from orig_iter(self, hours, batch_size=batch_size)
+            finally:
+                with pbar_lock:
+                    bar = pbar_state["bar"]
+                    if bar is not None:
+                        bar.close()
+                        pbar_state["bar"] = None
+
+        loader_cls._load_cached_market_batches = patched_cached
+        loader_cls._load_relay_market_batches = patched_relay
+        loader_cls._load_remote_market_batches = patched_remote
+        loader_cls._load_market_batches = timed_load
+        loader_cls._iter_market_batches = patched_iter
+
+    def _install_remote_source_only(loader_cls) -> None:  # type: ignore[no-untyped-def]
+        orig_remote = loader_cls._load_remote_market_batches
+
+        def patched_remote(self, hour, *, batch_size):
+            result = orig_remote(self, hour, batch_size=batch_size)
+            if result is not None:
+                raw_root = getattr(self, "_pmxt_raw_root", None)
+                source_local.source = (
+                    str(raw_root) if raw_root is not None else self._PMXT_BASE_URL
+                )
+            return result
+
+        loader_cls._load_remote_market_batches = patched_remote
+
+    _install_full_timing(PolymarketPMXTDataLoader)
+    if RunnerPolymarketPMXTDataLoader is not None:
+        _install_remote_source_only(RunnerPolymarketPMXTDataLoader)
 
 
 def _load_backtest_module(path_str: str):
