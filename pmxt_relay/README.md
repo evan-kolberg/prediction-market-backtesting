@@ -174,7 +174,9 @@ Install the systemd units:
 cp pmxt_relay/systemd/pmxt-relay-api.service /etc/systemd/system/
 cp pmxt_relay/systemd/pmxt-relay-worker.service /etc/systemd/system/
 cp pmxt_relay/systemd/pmxt-relay-prebuild.service /etc/systemd/system/
+cp pmxt_relay/systemd/pmxt-disable-wbt.service /etc/systemd/system/
 systemctl daemon-reload
+systemctl enable --now pmxt-disable-wbt.service
 systemctl enable --now pmxt-relay-api.service
 systemctl enable --now pmxt-relay-worker.service
 systemctl disable --now pmxt-relay-prebuild.service
@@ -279,12 +281,15 @@ Common env vars:
 
 ## Systemd
 
-Example unit files live in [`systemd/`](./systemd/). Enable all three:
+Example unit files live in [`systemd/`](./systemd/). For the ClickHouse-backed
+path, enable the worker, API, and `pmxt-disable-wbt.service`, and keep the old
+prebuild service disabled:
 
 ```bash
+systemctl enable --now pmxt-disable-wbt.service
 systemctl enable --now pmxt-relay-worker.service
 systemctl enable --now pmxt-relay-api.service
-systemctl enable --now pmxt-relay-prebuild.service
+systemctl disable --now pmxt-relay-prebuild.service
 ```
 
 The shipped units are hardened for public deployment:
@@ -295,6 +300,10 @@ The shipped units are hardened for public deployment:
 - write access limited to `/srv/pmxt-relay`
 - private `/tmp`
 - no device access or Linux capability set
+- worker runs at `Nice=5` with `IOSchedulingClass=best-effort` so raw-hour
+  ingest wins over best-effort cleanup work
+- `pmxt-disable-wbt.service` forces `wbt_lat_usec=0` on `xvda`, `xvdb`, and
+  `xvdc`, which avoids the raw-file read stalls that show up on some VPS disks
 
 ## Memory Tuning
 

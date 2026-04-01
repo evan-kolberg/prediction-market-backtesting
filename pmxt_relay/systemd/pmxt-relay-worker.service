@@ -34,6 +34,9 @@ AmbientCapabilities=
 SystemCallArchitectures=native
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 ReadWritePaths=/srv/pmxt-relay
+Nice=5
+IOSchedulingClass=best-effort
+IOSchedulingPriority=2
 MemoryMax=2500M
 MemorySwapMax=512M
 
