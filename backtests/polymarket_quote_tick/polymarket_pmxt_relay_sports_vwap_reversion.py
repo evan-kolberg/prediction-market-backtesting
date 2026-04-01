@@ -8,8 +8,8 @@ Public multi-market example: run a quote-tick VWAP-reversion strategy across a
 small fixed set of recent Polymarket sports futures using PMXT historical L2
 data.
 
-This runner is intentionally pinned to explicit historical windows so it does
-not depend on rolling upstream PMXT availability.
+This runner is intentionally pinned to a known-good public relay sample window
+so it stays runnable out of the box while the public ClickHouse backfill grows.
 """
 
 # ruff: noqa: E402
@@ -39,9 +39,17 @@ from strategies import QuoteTickVWAPReversionStrategy
 
 try:
     from ._defaults import DEFAULT_INITIAL_CASH
+    from ._defaults import DEFAULT_PMXT_RELAY_SAMPLE_END_TIME
+    from ._defaults import DEFAULT_PMXT_RELAY_SAMPLE_START_TIME
     from ._polymarket_single_market_pmxt_runner import run_single_market_pmxt_backtest
 except ImportError:
     from backtests.polymarket_quote_tick._defaults import DEFAULT_INITIAL_CASH
+    from backtests.polymarket_quote_tick._defaults import (
+        DEFAULT_PMXT_RELAY_SAMPLE_END_TIME,
+    )
+    from backtests.polymarket_quote_tick._defaults import (
+        DEFAULT_PMXT_RELAY_SAMPLE_START_TIME,
+    )
     from backtests.polymarket_quote_tick._polymarket_single_market_pmxt_runner import (
         run_single_market_pmxt_backtest,
     )
@@ -57,36 +65,36 @@ SPORT_MARKET_SAMPLES = (
         "market_slug": "will-ukraine-qualify-for-the-2026-fifa-world-cup",
         "token_index": 0,
         "outcome": "Yes",
-        "start_time": "2026-03-12T23:53:59Z",
-        "end_time": "2026-03-26T23:53:59Z",
+        "start_time": DEFAULT_PMXT_RELAY_SAMPLE_START_TIME,
+        "end_time": DEFAULT_PMXT_RELAY_SAMPLE_END_TIME,
     },
     {
         "market_slug": "will-man-city-win-the-202526-champions-league",
         "token_index": 0,
         "outcome": "Yes",
-        "start_time": "2026-03-04T01:28:17Z",
-        "end_time": "2026-03-18T01:28:17Z",
+        "start_time": DEFAULT_PMXT_RELAY_SAMPLE_START_TIME,
+        "end_time": DEFAULT_PMXT_RELAY_SAMPLE_END_TIME,
     },
     {
         "market_slug": "will-chelsea-win-the-202526-champions-league",
         "token_index": 0,
         "outcome": "Yes",
-        "start_time": "2026-03-04T01:22:09Z",
-        "end_time": "2026-03-18T01:22:09Z",
+        "start_time": DEFAULT_PMXT_RELAY_SAMPLE_START_TIME,
+        "end_time": DEFAULT_PMXT_RELAY_SAMPLE_END_TIME,
     },
     {
         "market_slug": "will-newcastle-win-the-202526-champions-league",
         "token_index": 0,
         "outcome": "Yes",
-        "start_time": "2026-03-04T22:56:01Z",
-        "end_time": "2026-03-18T22:56:01Z",
+        "start_time": DEFAULT_PMXT_RELAY_SAMPLE_START_TIME,
+        "end_time": DEFAULT_PMXT_RELAY_SAMPLE_END_TIME,
     },
     {
         "market_slug": "will-leverkusen-win-the-202526-champions-league",
         "token_index": 0,
         "outcome": "Yes",
-        "start_time": "2026-03-04T01:28:15Z",
-        "end_time": "2026-03-18T01:28:15Z",
+        "start_time": DEFAULT_PMXT_RELAY_SAMPLE_START_TIME,
+        "end_time": DEFAULT_PMXT_RELAY_SAMPLE_END_TIME,
     },
 )
 

@@ -92,6 +92,8 @@ bundled in the module so examples stay runnable.
 - `BACKTEST_ENABLE_TIMING=0` is the explicit quiet opt-out
 - PMXT filtered cache is enabled by default at `~/.cache/nautilus_trader/pmxt`
 - the public relay defaults to `https://209-209-10-83.sslip.io`
+- the public Polymarket quote-tick examples are pinned to a known-good public
+  relay sample window so direct script runs work out of the box
 - if you mirror PMXT raw hours locally, set `PMXT_LOCAL_ARCHIVE_DIR=/path/to/raw-hours`
   and optionally `PMXT_RELAY_BASE_URL=0` for a local-only run
 

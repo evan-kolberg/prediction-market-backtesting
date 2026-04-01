@@ -5,6 +5,10 @@ import importlib
 
 import pytest
 
+from backtests.polymarket_quote_tick._defaults import DEFAULT_PMXT_RELAY_SAMPLE_END_TIME
+from backtests.polymarket_quote_tick._defaults import (
+    DEFAULT_PMXT_RELAY_SAMPLE_START_TIME,
+)
 from strategies import QuoteTickBreakoutConfig
 from strategies import QuoteTickBreakoutStrategy
 from strategies import QuoteTickDeepValueHoldConfig
@@ -34,8 +38,8 @@ INSTRUMENT_ID = InstrumentId(Symbol("PM-TEST-YES"), Venue("POLYMARKET"))
 EXPECTED_MARKET_SLUG = (
     "will-openai-launch-a-new-consumer-hardware-product-by-march-31-2026"
 )
-EXPECTED_START_TIME = "2026-03-19T07:35:57.277659Z"
-EXPECTED_END_TIME = "2026-03-24T07:35:57.277659Z"
+EXPECTED_START_TIME = DEFAULT_PMXT_RELAY_SAMPLE_START_TIME
+EXPECTED_END_TIME = DEFAULT_PMXT_RELAY_SAMPLE_END_TIME
 
 
 @pytest.mark.parametrize(

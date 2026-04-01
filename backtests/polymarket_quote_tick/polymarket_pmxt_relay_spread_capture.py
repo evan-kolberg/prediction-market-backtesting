@@ -26,8 +26,16 @@ from strategies import QuoteTickMeanReversionStrategy
 
 
 try:
+    from ._defaults import DEFAULT_PMXT_RELAY_SAMPLE_END_TIME
+    from ._defaults import DEFAULT_PMXT_RELAY_SAMPLE_START_TIME
     from ._polymarket_single_market_pmxt_runner import run_single_market_pmxt_backtest
 except ImportError:
+    from backtests.polymarket_quote_tick._defaults import (
+        DEFAULT_PMXT_RELAY_SAMPLE_END_TIME,
+    )
+    from backtests.polymarket_quote_tick._defaults import (
+        DEFAULT_PMXT_RELAY_SAMPLE_START_TIME,
+    )
     from backtests.polymarket_quote_tick._polymarket_single_market_pmxt_runner import (
         run_single_market_pmxt_backtest,
     )
@@ -44,8 +52,8 @@ async def run() -> None:
         name=NAME,
         market_slug="will-openai-launch-a-new-consumer-hardware-product-by-march-31-2026",
         token_index=0,
-        start_time="2026-03-19T07:35:57.277659Z",
-        end_time="2026-03-24T07:35:57.277659Z",
+        start_time=DEFAULT_PMXT_RELAY_SAMPLE_START_TIME,
+        end_time=DEFAULT_PMXT_RELAY_SAMPLE_END_TIME,
         min_quotes=500,
         min_price_range=0.005,
         initial_cash=100.0,
