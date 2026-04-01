@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
+import pyarrow as pa
+
 from pmxt_relay.clickhouse import ClickHouseRelay
+from pmxt_relay.processor import PARTITION_SCHEMA
 from pmxt_relay.config import RelayConfig
 
 
@@ -83,3 +87,90 @@ def test_hour_exists_requires_completion_marker(tmp_path: Path, monkeypatch) -> 
 
     assert relay.hour_exists("polymarket_orderbook_2026-02-21T18.parquet") is False
     assert "FROM pmxt_relay.filtered_updates_hours" in queries[0]
+
+
+def test_list_hours_only_returns_completed_filenames(
+    tmp_path: Path, monkeypatch
+) -> None:
+    relay = ClickHouseRelay(_make_config(tmp_path))
+    queries: list[str] = []
+
+    def fake_execute_query(query: str, **kwargs) -> bytes:  # type: ignore[no-untyped-def]
+        del kwargs
+        queries.append(query)
+        return b""
+
+    monkeypatch.setattr(relay, "_execute_query", fake_execute_query)
+
+    assert relay.list_hours("condition-a", "token-yes") == []
+    assert "filtered_updates_hours" in queries[0]
+
+
+def test_serve_hour_requires_completion_marker_before_streaming(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    relay = ClickHouseRelay(_make_config(tmp_path))
+    queries: list[str] = []
+
+    def fake_execute_query(query: str, **kwargs) -> bytes:  # type: ignore[no-untyped-def]
+        del kwargs
+        queries.append(query)
+        return b"0\n"
+
+    monkeypatch.setattr(relay, "_execute_query", fake_execute_query)
+
+    result = asyncio.run(
+        relay.serve_hour(
+            None,  # type: ignore[arg-type]
+            condition_id="condition-a",
+            token_id="token-yes",
+            filename="polymarket_orderbook_2026-02-21T18.parquet",
+        )
+    )
+
+    assert result is None
+    assert "FROM pmxt_relay.filtered_updates_hours" in queries[0]
+
+
+def test_insert_batch_chunks_large_inserts(tmp_path: Path, monkeypatch) -> None:
+    config = _make_config(tmp_path)
+    relay = ClickHouseRelay(
+        RelayConfig(
+            **{
+                **config.__dict__,
+                "clickhouse_insert_batch_rows": 2,
+            }
+        )
+    )
+    queries: list[str] = []
+
+    def fake_execute_query(query: str, **kwargs) -> bytes:  # type: ignore[no-untyped-def]
+        del kwargs
+        queries.append(query)
+        return b""
+
+    monkeypatch.setattr(relay, "_execute_query", fake_execute_query)
+
+    batch = pa.record_batch(
+        [
+            pa.array(["condition-a"] * 5),
+            pa.array(["token-yes"] * 5),
+            pa.array([0, 1, 2, 3, 4], type=pa.int64()),
+            pa.array(["book_snapshot"] * 5),
+            pa.array(['{"token_id":"token-yes"}'] * 5),
+        ],
+        schema=PARTITION_SCHEMA,
+    )
+
+    relay.insert_batch(
+        filename="polymarket_orderbook_2026-02-21T18.parquet",
+        hour="2026-02-21T18:00:00+00:00",
+        batch=batch,
+    )
+
+    assert queries == [
+        "INSERT INTO pmxt_relay.filtered_updates FORMAT Parquet",
+        "INSERT INTO pmxt_relay.filtered_updates FORMAT Parquet",
+        "INSERT INTO pmxt_relay.filtered_updates FORMAT Parquet",
+    ]

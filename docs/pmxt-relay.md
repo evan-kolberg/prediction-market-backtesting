@@ -2,7 +2,7 @@
 
 The canonical PMXT relay deploy and operations guide lives at:
 
-- [../pmxt_relay/README.md](../pmxt_relay/README.md)
+- [pmxt_relay/README.md on GitHub](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/pmxt_relay/README.md)
 
 Use that page for:
 

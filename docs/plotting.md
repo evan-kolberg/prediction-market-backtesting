@@ -5,10 +5,10 @@ prediction-market backtests.
 
 Good examples:
 
-- [`../backtests/kalshi_trade_tick/kalshi_breakout.py`](../backtests/kalshi_trade_tick/kalshi_breakout.py)
-- [`../backtests/kalshi_trade_tick/kalshi_panic_fade.py`](../backtests/kalshi_trade_tick/kalshi_panic_fade.py)
-- [`../backtests/polymarket_quote_tick/polymarket_pmxt_relay_panic_fade.py`](../backtests/polymarket_quote_tick/polymarket_pmxt_relay_panic_fade.py)
-- [`../backtests/polymarket_quote_tick/polymarket_pmxt_relay_vwap_reversion.py`](../backtests/polymarket_quote_tick/polymarket_pmxt_relay_vwap_reversion.py)
+- [`backtests/kalshi_trade_tick/kalshi_breakout.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/kalshi_trade_tick/kalshi_breakout.py)
+- [`backtests/kalshi_trade_tick/kalshi_panic_fade.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/kalshi_trade_tick/kalshi_panic_fade.py)
+- [`backtests/polymarket_quote_tick/polymarket_pmxt_relay_panic_fade.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_quote_tick/polymarket_pmxt_relay_panic_fade.py)
+- [`backtests/polymarket_quote_tick/polymarket_pmxt_relay_vwap_reversion.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_quote_tick/polymarket_pmxt_relay_vwap_reversion.py)
 
 ## Output Paths
 
@@ -25,10 +25,10 @@ Charts are written to `output/`, typically with names like:
 ## Multi-Market References
 
 The clearest archived multi-market plotting references still live under
-[`../backtests/polymarket_trade_tick/`](../backtests/polymarket_trade_tick/):
+`backtests/polymarket_trade_tick/`:
 
-- [`../backtests/polymarket_trade_tick/polymarket_sports_final_period_momentum.py`](../backtests/polymarket_trade_tick/polymarket_sports_final_period_momentum.py)
-- [`../backtests/polymarket_trade_tick/polymarket_sports_vwap_reversion.py`](../backtests/polymarket_trade_tick/polymarket_sports_vwap_reversion.py)
+- [`backtests/polymarket_trade_tick/polymarket_sports_final_period_momentum.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_trade_tick/polymarket_sports_final_period_momentum.py)
+- [`backtests/polymarket_trade_tick/polymarket_sports_vwap_reversion.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_trade_tick/polymarket_sports_vwap_reversion.py)
 
 Those runners write one combined summary chart to `output/`, typically with
 names like:

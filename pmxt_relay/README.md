@@ -377,6 +377,9 @@ Key env vars that still matter:
 - `PMXT_RELAY_DUCKDB_MEMORY_LIMIT` - DuckDB query memory cap (set to ~25% of
   total RAM when two services run concurrently)
 - `PMXT_RELAY_DUCKDB_THREADS` - DuckDB parallelism (lower = less peak memory)
+- `PMXT_RELAY_CLICKHOUSE_INSERT_BATCH_ROWS` - max filtered rows per ClickHouse
+  insert batch (lower it if large hours trigger ClickHouse OOMs while parsing
+  Parquet inserts)
 - `PMXT_RELAY_FILTERED_WORKERS` - concurrent partition materializers in the
   legacy prebuild step (keep at 1 on low-RAM machines)
 

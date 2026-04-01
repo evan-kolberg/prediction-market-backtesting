@@ -9,12 +9,16 @@
 
 Good public examples:
 
-- reusable EMA logic: [`../strategies/ema_crossover.py`](../strategies/ema_crossover.py)
-- reusable final-period momentum logic: [`../strategies/final_period_momentum.py`](../strategies/final_period_momentum.py)
-- reusable late-favorite limit-hold logic: [`../strategies/late_favorite_limit_hold.py`](../strategies/late_favorite_limit_hold.py)
-- Kalshi trade-tick runner: [`../backtests/kalshi_trade_tick/kalshi_breakout.py`](../backtests/kalshi_trade_tick/kalshi_breakout.py)
-- PMXT Polymarket quote-tick runners: [`../backtests/polymarket_quote_tick/`](../backtests/polymarket_quote_tick/)
-- archived legacy Polymarket trade-tick runners: [`../backtests/polymarket_trade_tick/`](../backtests/polymarket_trade_tick/)
+- reusable EMA logic:
+  [`strategies/ema_crossover.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/strategies/ema_crossover.py)
+- reusable final-period momentum logic:
+  [`strategies/final_period_momentum.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/strategies/final_period_momentum.py)
+- reusable late-favorite limit-hold logic:
+  [`strategies/late_favorite_limit_hold.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/strategies/late_favorite_limit_hold.py)
+- Kalshi trade-tick runner:
+  [`backtests/kalshi_trade_tick/kalshi_breakout.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/kalshi_trade_tick/kalshi_breakout.py)
+- PMXT Polymarket quote-tick runners live under `backtests/polymarket_quote_tick/`
+- archived legacy Polymarket trade-tick runners live under `backtests/polymarket_trade_tick/`
 
 ## Runner Contract
 
@@ -30,16 +34,16 @@ async def run() -> None:
 
 Keep reusable signal logic in `strategies/`, then import it into a thin runner.
 If you add reusable strategy classes or configs, re-export them from
-[`../strategies/__init__.py`](../strategies/__init__.py).
+[`strategies/__init__.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/strategies/__init__.py).
 
 Common public runner patterns:
 
 - Kalshi trade-tick:
-  [`../backtests/kalshi_trade_tick/_kalshi_single_market_trade_runner.py`](../backtests/kalshi_trade_tick/_kalshi_single_market_trade_runner.py)
+  [`backtests/kalshi_trade_tick/_kalshi_single_market_trade_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/kalshi_trade_tick/_kalshi_single_market_trade_runner.py)
 - Polymarket trade-tick:
-  [`../backtests/polymarket_trade_tick/_polymarket_single_market_runner.py`](../backtests/polymarket_trade_tick/_polymarket_single_market_runner.py)
+  [`backtests/polymarket_trade_tick/_polymarket_single_market_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_trade_tick/_polymarket_single_market_runner.py)
 - Polymarket PMXT L2:
-  [`../backtests/polymarket_quote_tick/_polymarket_single_market_pmxt_runner.py`](../backtests/polymarket_quote_tick/_polymarket_single_market_pmxt_runner.py)
+  [`backtests/polymarket_quote_tick/_polymarket_single_market_pmxt_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_quote_tick/_polymarket_single_market_pmxt_runner.py)
 
 ## Running Backtests
 
@@ -89,4 +93,4 @@ For PMXT data-source behavior and timings, use:
 
 - [PMXT BYOD And Local Data](pmxt-byod.md)
 - [PMXT Fetch Sources And Timing](pmxt-fetch-sources.md)
-- [PMXT Relay Deploy And Ops](../pmxt_relay/README.md)
+- [PMXT Relay Deploy And Ops](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/pmxt_relay/README.md)

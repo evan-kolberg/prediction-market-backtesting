@@ -246,6 +246,24 @@ class ClickHouseRelay:
         if batch.num_rows == 0:
             return
 
+        max_rows = self._config.clickhouse_insert_batch_rows
+        for offset in range(0, batch.num_rows, max_rows):
+            self._insert_batch_chunk(
+                filename=filename,
+                hour=hour,
+                batch=batch.slice(offset, max_rows),
+            )
+
+    def _insert_batch_chunk(
+        self,
+        *,
+        filename: str,
+        hour: str,
+        batch: pa.RecordBatch,
+    ) -> None:
+        if batch.num_rows == 0:
+            return
+
         hour_value = pa.scalar(
             datetime.fromisoformat(hour),
             type=pa.timestamp("s", tz="UTC"),
@@ -287,6 +305,10 @@ class ClickHouseRelay:
         clauses = [
             f"condition_id = '{self._escape(condition_id)}'",
             f"token_id = '{self._escape(token_id)}'",
+            (
+                f"filename IN (SELECT filename FROM "
+                f"{self._database}.{self._hours_table})"
+            ),
         ]
         if start_hour is not None:
             clauses.append(
@@ -337,16 +359,16 @@ class ClickHouseRelay:
         escaped_token = self._escape(token_id)
         escaped_filename = self._escape(filename)
 
-        count_query = f"""
+        completion_query = f"""
             SELECT count()
-            FROM {self._database}.{self._table}
+            FROM {self._database}.{self._hours_table}
             WHERE filename = '{escaped_filename}'
-              AND condition_id = '{escaped_condition}'
-              AND token_id = '{escaped_token}'
             FORMAT TabSeparated
         """
-        count_bytes = await asyncio.to_thread(self._execute_query, count_query)
-        if int(count_bytes.decode().strip() or "0") <= 0:
+        completion_bytes = await asyncio.to_thread(
+            self._execute_query, completion_query
+        )
+        if int(completion_bytes.decode().strip() or "0") <= 0:
             return None
 
         parquet_query = f"""

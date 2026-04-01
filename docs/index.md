@@ -1,7 +1,8 @@
 # Docs Index
 
-Use the root [README](../README.md) for the short version. Use the pages below
-when you want the details.
+Use the
+[repository README on GitHub](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/README.md)
+for the short version. Use the pages below when you want the details.
 
 - [Setup](setup.md)
 - [Backtests And Runners](backtests.md)
@@ -12,4 +13,4 @@ when you want the details.
 - [Testing](testing.md)
 - [Project Status](project-status.md)
 - [License Notes](license.md)
-- [PMXT Relay Deploy And Ops](../pmxt_relay/README.md)
+- [PMXT Relay Deploy And Ops](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/pmxt_relay/README.md)

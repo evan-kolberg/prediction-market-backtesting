@@ -16,7 +16,16 @@ theme:
 
 nav:
   - Home: index.md
+  - Setup: setup.md
+  - Backtests And Runners: backtests.md
+  - Execution Modeling: execution-modeling.md
+  - PMXT BYOD And Local Data: pmxt-byod.md
   - PMXT Fetch Sources: pmxt-fetch-sources.md
+  - PMXT Relay: pmxt-relay.md
+  - Plotting: plotting.md
+  - Testing: testing.md
+  - Project Status: project-status.md
+  - License Notes: license.md
 
 markdown_extensions:
   - tables
