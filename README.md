@@ -45,11 +45,10 @@ README. PMXT timing output is enabled by default, `BACKTEST_ENABLE_TIMING=0` is
 the quiet opt-out, and local PMXT filtered cache is enabled by default at
 `~/.cache/nautilus_trader/pmxt`. The relay CPU badge is loadavg-based, so it
 can hit `100%` during ClickHouse merges or disk wait without meaning the API is
-down.
+down. Execution caveats and market-data modeling notes live in
+[`docs/execution-modeling.md`](docs/execution-modeling.md).
 
 ![Charting preview](https://raw.githubusercontent.com/evan-kolberg/prediction-market-backtesting/main/docs/assets/charting-preview.jpeg)
-
-> IMPORTANT: Kalshi public backtests here are trade-tick replay only. Polymarket public backtests default to the PMXT historical L2 path, which is much better for taker-style execution than the old one-tick proxy but still does not solve passive queue-position realism because public MBP data does not expose it.
 
 ## Table of Contents
 
@@ -64,3 +63,6 @@ down.
 - [Testing](docs/testing.md)
 - [Project Status](docs/project-status.md)
 - [License Notes](docs/license.md)
+
+---
+
