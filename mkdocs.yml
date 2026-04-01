@@ -4,28 +4,70 @@ repo_url: https://github.com/evan-kolberg/prediction-market-backtesting
 repo_name: evan-kolberg/prediction-market-backtesting
 
 theme:
-  name: material
-  palette:
-    scheme: slate
-    primary: black
-  features:
-    - navigation.instant
-    - navigation.sections
-    - search.highlight
-    - content.code.copy
+  name: shadcn
+  custom_dir: docs_overrides
+  show_title: true
+  show_stargazers: true
+  topbar_sections: false
+  pygments_style:
+    light: shadcn-light
+    dark: github-dark
+  icon: heroicons:chart-bar-square
 
 nav:
   - Home: index.md
-  - Setup: setup.md
-  - Backtests And Runners: backtests.md
-  - Execution Modeling: execution-modeling.md
-  - PMXT BYOD And Local Data: pmxt-byod.md
-  - PMXT Fetch Sources: pmxt-fetch-sources.md
+  - Setup:
+      - Setup: setup.md
+      - Prerequisites: /prediction-market-backtesting/setup/#prerequisites
+      - Install: /prediction-market-backtesting/setup/#install
+      - First Run: /prediction-market-backtesting/setup/#first-run
+      - PMXT Defaults: /prediction-market-backtesting/setup/#pmxt-defaults
+      - Updating The Vendored Subtree: /prediction-market-backtesting/setup/#updating-the-vendored-subtree
+  - Backtests And Runners:
+      - Backtests And Runners: backtests.md
+      - Repo Layout: /prediction-market-backtesting/backtests/#repo-layout
+      - Runner Contract: /prediction-market-backtesting/backtests/#runner-contract
+      - Running Backtests: /prediction-market-backtesting/backtests/#running-backtests
+      - Common Environment Variables: /prediction-market-backtesting/backtests/#common-environment-variables
+      - PMXT Notes: /prediction-market-backtesting/backtests/#pmxt-notes
+  - Execution Modeling:
+      - Execution Modeling: execution-modeling.md
+      - Fees: /prediction-market-backtesting/execution-modeling/#fees
+      - Slippage: /prediction-market-backtesting/execution-modeling/#slippage
+      - Limits: /prediction-market-backtesting/execution-modeling/#limits
+      - PMXT L2 Behavior: /prediction-market-backtesting/execution-modeling/#pmxt-l2-behavior
+  - PMXT BYOD And Local Data:
+      - PMXT BYOD And Local Data: pmxt-byod.md
+      - What Works Today: /prediction-market-backtesting/pmxt-byod/#what-works-today
+      - Supported Local File Layout: /prediction-market-backtesting/pmxt-byod/#supported-local-file-layout
+      - Required Parquet Columns: /prediction-market-backtesting/pmxt-byod/#required-parquet-columns
+      - Required JSON Payload Shape: /prediction-market-backtesting/pmxt-byod/#required-json-payload-shape
+      - Relay Mode: /prediction-market-backtesting/pmxt-byod/#relay-mode
+      - What Is Not Plug-And-Play Yet: /prediction-market-backtesting/pmxt-byod/#what-is-not-plug-and-play-yet
+  - PMXT Fetch Sources:
+      - PMXT Fetch Sources: pmxt-fetch-sources.md
+      - Example Output: /prediction-market-backtesting/pmxt-fetch-sources/#example-output
+      - Timing Expectations By Source: /prediction-market-backtesting/pmxt-fetch-sources/#timing-expectations-by-source
+      - How To See This Output: /prediction-market-backtesting/pmxt-fetch-sources/#how-to-see-this-output
   - PMXT Relay: pmxt-relay.md
-  - Plotting: plotting.md
-  - Testing: testing.md
-  - Project Status: project-status.md
-  - License Notes: license.md
+  - Plotting:
+      - Plotting: plotting.md
+      - Output Paths: /prediction-market-backtesting/plotting/#output-paths
+      - Multi-Market References: /prediction-market-backtesting/plotting/#multi-market-references
+  - Testing:
+      - Testing: testing.md
+      - Standard Repo Gate: /prediction-market-backtesting/testing/#standard-repo-gate
+      - Useful Smoke Checks: /prediction-market-backtesting/testing/#useful-smoke-checks
+  - Project Status:
+      - Project Status: project-status.md
+      - Roadmap: /prediction-market-backtesting/project-status/#roadmap
+      - Known Issues: /prediction-market-backtesting/project-status/#known-issues
+      - Recently Fixed: /prediction-market-backtesting/project-status/#recently-fixed
+  - License Notes:
+      - License Notes: license.md
+      - Scope: /prediction-market-backtesting/license/#scope
+      - NautilusTrader Attribution: /prediction-market-backtesting/license/#nautilustrader-attribution
+      - Practical Meaning: /prediction-market-backtesting/license/#practical-meaning
 
 markdown_extensions:
   - tables

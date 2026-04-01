@@ -1,0 +1,61 @@
+{% if nav|length > 1 %}
+
+{% if config.theme.topbar_sections %}
+{% set current = nav|active_section|attr('children') %}
+{% else %}
+{% set current = nav %}
+{% endif %}
+
+{% if not current %}
+{% set current = nav|selectattr("is_page") %}
+{% endif %}
+
+{% set pages = current|selectattr("is_page")|sort(attribute="meta.order") %}
+{% set sections = current|rejectattr("is_page")|list %}
+
+{% if pages|length > 0 %}
+<div data-slot="sidebar-group" data-sidebar="group" class="relative flex w-full min-w-0 flex-col p-2 pt-6">
+    <div data-slot="sidebar-group-content" data-sidebar="group-content" class="w-full text-sm">
+        <ul data-slot="sidebar-menu" data-sidebar="menu" class="flex w-full min-w-0 flex-col gap-0.5">
+            {% for page in pages %}
+            {% with sidebar_item = page %}
+            {% include "components/sidebar_item.html" %}
+            {% endwith %}
+            {% endfor %}
+        </ul>
+    </div>
+</div>
+{% endif %}
+
+{% for section in sections %}
+{% if section.children %}
+{% set section_pages = section.children|selectattr("is_page")|sort(attribute="meta.order")|list %}
+{% set section_has_links = section.children|selectattr("is_link")|list|length > 0 %}
+{% set landing_page = section_pages[0] if section_pages else none %}
+<div data-slot="sidebar-group" data-sidebar="group" class="relative flex w-full min-w-0 flex-col p-2">
+    {% if landing_page %}
+    <a href="{{ landing_page.abs_url }}" data-slot="sidebar-group-label" data-sidebar="group-label"
+        class="flex h-8 shrink-0 items-center rounded-md px-2 text-xs ring-sidebar-ring outline-hidden transition-[margin,opacity] duration-200 ease-linear focus-visible:ring-2 [&>svg]:size-4 [&>svg]:shrink-0 group-data-[collapsible=icon]:-mt-8 group-data-[collapsible=icon]:opacity-0 font-medium text-muted-foreground hover:text-foreground">
+        {{ section.title }}</a>
+    {% else %}
+    <div data-slot="sidebar-group-label" data-sidebar="group-label"
+        class="flex h-8 shrink-0 items-center rounded-md px-2 text-xs ring-sidebar-ring outline-hidden transition-[margin,opacity] duration-200 ease-linear focus-visible:ring-2 [&>svg]:size-4 [&>svg]:shrink-0 group-data-[collapsible=icon]:-mt-8 group-data-[collapsible=icon]:opacity-0 font-medium text-muted-foreground">
+        {{ section.title }}</div>
+    {% endif %}
+    <div data-slot="sidebar-group-content" data-sidebar="group-content" class="w-full text-sm">
+        <ul data-slot="sidebar-menu" data-sidebar="menu" class="flex w-full min-w-0 flex-col gap-0.5">
+            {% for child in section.children %}
+            {% if child.is_link or (child.is_page and not (section_has_links and landing_page and child == landing_page)) %}
+            {% with sidebar_item = child %}
+            {% include "components/sidebar_item.html" %}
+            {% endwith %}
+            {% endif %}
+            {% endfor %}
+        </ul>
+    </div>
+</div>
+{% endif %}
+{% endfor %}
+
+{% endif %}
+<div class="sticky -bottom-1 z-10 h-16 shrink-0 bg-gradient-to-t from-background via-background/80 to-background/50 blur-xs"></div>

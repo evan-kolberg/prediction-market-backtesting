@@ -1,9 +1,5 @@
 # Docs Index
 
-Use the
-[repository README on GitHub](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/README.md)
-for the short version. Use the pages below when you want the details.
-
 - [Setup](setup.md)
 - [Backtests And Runners](backtests.md)
 - [Execution Modeling](execution-modeling.md)

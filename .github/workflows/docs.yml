@@ -6,6 +6,7 @@ on:
     paths:
       - "README.md"
       - "docs/**"
+      - "docs_overrides/**"
       - "mkdocs.yml"
 
 permissions:
@@ -28,8 +29,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install mkdocs-material
-      - run: mkdocs build
+      - run: pip install mkdocs-shadcn
+      - run: mkdocs build --strict
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site
