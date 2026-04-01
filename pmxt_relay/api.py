@@ -837,14 +837,39 @@ async def healthz(_request: web.Request) -> web.Response:
     return web.json_response({"ok": True})
 
 
+async def _index_stats_async(index: object) -> dict[str, object]:
+    return await asyncio.to_thread(index.stats)
+
+
+async def _index_queue_summary_async(index: object) -> dict[str, object]:
+    return await asyncio.to_thread(index.queue_summary)
+
+
+async def _index_recent_events_async(index: object, limit: int):
+    return await asyncio.to_thread(index.recent_events, limit)
+
+
+async def _index_progress_snapshot_async(
+    index: object,
+) -> tuple[dict[str, object], dict[str, object] | None, str | None]:
+    def _snapshot():
+        return (
+            index.stats(),
+            index.latest_prebuild_progress(),
+            index.current_processing_filename(),
+        )
+
+    return await asyncio.to_thread(_snapshot)
+
+
 async def stats(request: web.Request) -> web.Response:
     index = request.app[INDEX_APP_KEY]
-    return web.json_response(index.stats())
+    return web.json_response(await _index_stats_async(index))
 
 
 async def queue(request: web.Request) -> web.Response:
     index = request.app[INDEX_APP_KEY]
-    return web.json_response(index.queue_summary())
+    return web.json_response(await _index_queue_summary_async(index))
 
 
 async def events(request: web.Request) -> web.Response:
@@ -854,7 +879,7 @@ async def events(request: web.Request) -> web.Response:
         limit = max(1, min(1000, int(limit_value)))
     except ValueError:
         limit = 100
-    rows = index.recent_events(limit=limit)
+    rows = await _index_recent_events_async(index, limit)
     payload = []
     for row in rows:
         payload.append(
@@ -888,61 +913,69 @@ async def system_metrics(request: web.Request) -> web.Response:
 async def badge_status(request: web.Request) -> web.Response:
     config = request.app[CONFIG_APP_KEY]
     index = request.app[INDEX_APP_KEY]
-    return web.json_response(_status_badge_payload(stats=index.stats(), config=config))
+    return web.json_response(
+        _status_badge_payload(stats=await _index_stats_async(index), config=config)
+    )
 
 
 async def badge_backfill(request: web.Request) -> web.Response:
     index = request.app[INDEX_APP_KEY]
-    return web.json_response(_backfill_badge_payload(stats=index.stats()))
+    return web.json_response(
+        _backfill_badge_payload(stats=await _index_stats_async(index))
+    )
 
 
 async def badge_mirrored(request: web.Request) -> web.Response:
     index = request.app[INDEX_APP_KEY]
-    return web.json_response(_mirrored_badge_payload(stats=index.stats()))
+    return web.json_response(
+        _mirrored_badge_payload(stats=await _index_stats_async(index))
+    )
 
 
 async def badge_processed(request: web.Request) -> web.Response:
     index = request.app[INDEX_APP_KEY]
-    return web.json_response(_processed_badge_payload(stats=index.stats()))
+    return web.json_response(
+        _processed_badge_payload(stats=await _index_stats_async(index))
+    )
 
 
 async def badge_latest(request: web.Request) -> web.Response:
     index = request.app[INDEX_APP_KEY]
     return web.json_response(
-        _latest_processed_badge_payload(queue=index.queue_summary())
+        _latest_processed_badge_payload(queue=await _index_queue_summary_async(index))
     )
 
 
 async def badge_lag(request: web.Request) -> web.Response:
     index = request.app[INDEX_APP_KEY]
-    return web.json_response(_lag_badge_payload(stats=index.stats()))
+    return web.json_response(_lag_badge_payload(stats=await _index_stats_async(index)))
 
 
 async def badge_rate(request: web.Request) -> web.Response:
     index = request.app[INDEX_APP_KEY]
-    return web.json_response(_rate_badge_payload(stats=index.stats()))
+    return web.json_response(_rate_badge_payload(stats=await _index_stats_async(index)))
 
 
 async def badge_file(request: web.Request) -> web.Response:
     index = request.app[INDEX_APP_KEY]
-    stats = index.stats()
+    stats, progress, current_filename = await _index_progress_snapshot_async(index)
     return web.json_response(
         _file_badge_payload(
             stats=stats,
-            progress=index.latest_prebuild_progress(),
-            current_filename=index.current_processing_filename(),
+            progress=progress,
+            current_filename=current_filename,
         )
     )
 
 
 async def badge_rows(request: web.Request) -> web.Response:
     index = request.app[INDEX_APP_KEY]
-    stats = index.stats()
+    stats, progress, current_filename = await _index_progress_snapshot_async(index)
     return web.json_response(
         _rows_badge_payload(
             stats=stats,
-            progress=index.latest_prebuild_progress(),
-            current_filename=index.current_processing_filename(),
+            progress=progress,
+            current_filename=current_filename,
         )
     )
 
@@ -1010,7 +1043,7 @@ async def badge_worker_svg(request: web.Request) -> web.Response:
 
 async def badge_mirroring_svg(request: web.Request) -> web.Response:
     index = request.app[INDEX_APP_KEY]
-    queue = index.queue_summary()
+    queue = await _index_queue_summary_async(index)
     return _badge_svg_response(
         _stage_badge_payload(
             label="Mirror service",
@@ -1023,7 +1056,7 @@ async def badge_mirroring_svg(request: web.Request) -> web.Response:
 
 async def badge_processing_svg(request: web.Request) -> web.Response:
     index = request.app[INDEX_APP_KEY]
-    queue = index.queue_summary()
+    queue = await _index_queue_summary_async(index)
     return _badge_svg_response(
         _stage_badge_payload(
             label="Processing",
@@ -1044,62 +1077,72 @@ async def badge_status_svg(request: web.Request) -> web.Response:
     config = request.app[CONFIG_APP_KEY]
     index = request.app[INDEX_APP_KEY]
     return _badge_svg_response(
-        _status_badge_payload(stats=index.stats(), config=config)
+        _status_badge_payload(stats=await _index_stats_async(index), config=config)
     )
 
 
 async def badge_backfill_svg(request: web.Request) -> web.Response:
     index = request.app[INDEX_APP_KEY]
-    return _badge_svg_response(_backfill_badge_payload(stats=index.stats()))
+    return _badge_svg_response(
+        _backfill_badge_payload(stats=await _index_stats_async(index))
+    )
 
 
 async def badge_mirrored_svg(request: web.Request) -> web.Response:
     index = request.app[INDEX_APP_KEY]
-    return _badge_svg_response(_mirrored_badge_payload(stats=index.stats()))
+    return _badge_svg_response(
+        _mirrored_badge_payload(stats=await _index_stats_async(index))
+    )
 
 
 async def badge_processed_svg(request: web.Request) -> web.Response:
     index = request.app[INDEX_APP_KEY]
-    return _badge_svg_response(_processed_badge_payload(stats=index.stats()))
+    return _badge_svg_response(
+        _processed_badge_payload(stats=await _index_stats_async(index))
+    )
 
 
 async def badge_latest_svg(request: web.Request) -> web.Response:
     index = request.app[INDEX_APP_KEY]
     return _badge_svg_response(
-        _latest_processed_badge_payload(queue=index.queue_summary())
+        _latest_processed_badge_payload(queue=await _index_queue_summary_async(index))
     )
 
 
 async def badge_lag_svg(request: web.Request) -> web.Response:
     index = request.app[INDEX_APP_KEY]
-    return _badge_svg_response(_lag_badge_payload(stats=index.stats()))
+    return _badge_svg_response(
+        _lag_badge_payload(stats=await _index_stats_async(index))
+    )
 
 
 async def badge_rate_svg(request: web.Request) -> web.Response:
     index = request.app[INDEX_APP_KEY]
-    return _badge_svg_response(_rate_badge_payload(stats=index.stats()))
+    return _badge_svg_response(
+        _rate_badge_payload(stats=await _index_stats_async(index))
+    )
 
 
 async def badge_file_svg(request: web.Request) -> web.Response:
     index = request.app[INDEX_APP_KEY]
-    stats = index.stats()
+    stats, progress, current_filename = await _index_progress_snapshot_async(index)
     return _badge_svg_response(
         _file_badge_payload(
             stats=stats,
-            progress=index.latest_prebuild_progress(),
-            current_filename=index.current_processing_filename(),
+            progress=progress,
+            current_filename=current_filename,
         )
     )
 
 
 async def badge_rows_svg(request: web.Request) -> web.Response:
     index = request.app[INDEX_APP_KEY]
-    stats = index.stats()
+    stats, progress, current_filename = await _index_progress_snapshot_async(index)
     return _badge_svg_response(
         _rows_badge_payload(
             stats=stats,
-            progress=index.latest_prebuild_progress(),
-            current_filename=index.current_processing_filename(),
+            progress=progress,
+            current_filename=current_filename,
         )
     )
 
