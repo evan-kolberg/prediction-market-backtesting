@@ -461,6 +461,75 @@ class RelayIndex:
             )
         )
 
+    def register_local_raw(
+        self,
+        filename: str,
+        *,
+        local_path: str,
+        content_length: int | None,
+        source_url: str,
+        archive_page: int = 0,
+    ) -> bool:
+        hour = parse_archive_hour(filename).isoformat()
+
+        def operation() -> bool:
+            with self._conn:
+                insert_cursor = self._conn.execute(
+                    """
+                    INSERT OR IGNORE INTO archive_hours (
+                        filename,
+                        hour,
+                        source_url,
+                        archive_page,
+                        discovered_at,
+                        local_path,
+                        content_length,
+                        mirror_status,
+                        mirrored_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, 'ready', ?)
+                    """,
+                    (
+                        filename,
+                        hour,
+                        source_url,
+                        archive_page,
+                        _utc_now(),
+                        local_path,
+                        content_length,
+                        _utc_now(),
+                    ),
+                )
+                update_cursor = self._conn.execute(
+                    """
+                    UPDATE archive_hours
+                    SET
+                        source_url = ?,
+                        local_path = ?,
+                        content_length = COALESCE(content_length, ?),
+                        mirror_status = 'ready',
+                        mirrored_at = COALESCE(mirrored_at, ?)
+                    WHERE filename = ?
+                      AND (
+                        local_path IS NULL
+                        OR local_path != ?
+                        OR mirror_status != 'ready'
+                        OR (content_length IS NULL AND ? IS NOT NULL)
+                      )
+                    """,
+                    (
+                        source_url,
+                        local_path,
+                        content_length,
+                        _utc_now(),
+                        filename,
+                        local_path,
+                        content_length,
+                    ),
+                )
+            return insert_cursor.rowcount > 0 or update_cursor.rowcount > 0
+
+        return self._run_with_lock_retry(operation)
+
     def list_hours_needing_process(
         self,
         *,

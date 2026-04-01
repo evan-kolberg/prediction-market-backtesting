@@ -40,6 +40,11 @@ runners support BYOD/local sources through the shared
 `backtests/_shared/data_sources/` package and the setup notes in
 [`docs/pmxt-byod.md`](docs/pmxt-byod.md).
 
+The relay CPU badge is loadavg-based, so it can hit `100%` during ClickHouse
+merges or disk wait without meaning the API is down. The mirrored badge reflects
+raw hours adopted into the current relay state, including raw parquet files
+already present on disk.
+
 
 ## Note: This is still in development
 

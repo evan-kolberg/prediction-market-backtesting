@@ -488,6 +488,48 @@ def test_error_count_deprioritizes_but_never_abandons(tmp_path: Path):
     assert hours[1]["filename"] == filename
 
 
+def test_register_local_raw_adopts_existing_raw_without_resetting_processed_state(
+    tmp_path: Path,
+) -> None:
+    index = RelayIndex(tmp_path / "relay.sqlite3")
+    index.initialize()
+    filename = "polymarket_orderbook_2026-03-21T12.parquet"
+    source_url = "https://r2.pmxt.dev/" + filename
+    local_path = "/srv/pmxt-relay/raw/2026/03/21/" + filename
+    index.upsert_discovered_hour(filename, source_url, 1)
+    index.mark_mirrored(
+        filename,
+        local_path=local_path,
+        etag=None,
+        content_length=100,
+        last_modified=None,
+    )
+    index.mark_sharded(filename)
+    index.mark_prebuilt(filename, filtered_artifact_count=7)
+
+    changed = index.register_local_raw(
+        filename,
+        local_path=local_path,
+        content_length=100,
+        source_url=source_url,
+    )
+
+    row = index._conn.execute(  # noqa: SLF001
+        """
+        SELECT mirror_status, process_status, prebuild_status, filtered_artifact_count
+        FROM archive_hours
+        WHERE filename = ?
+        """,
+        (filename,),
+    ).fetchone()
+
+    assert changed is False
+    assert row["mirror_status"] == "ready"
+    assert row["process_status"] == "ready"
+    assert row["prebuild_status"] == "ready"
+    assert row["filtered_artifact_count"] == 7
+
+
 def test_mark_prebuilt_registers_artifacts_in_filtered_hours(tmp_path: Path):
     index = RelayIndex(tmp_path / "relay.sqlite3")
     index.initialize()

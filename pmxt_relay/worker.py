@@ -113,6 +113,7 @@ class RelayWorker:
 
     def run_once(self) -> int:
         discovered = self._discover_archive_hours()
+        adopted = self._adopt_local_raw_hours()
         mirrored = self._mirror_pending_hours()
         processed = self._process_pending_hours()
         prebuilt = (
@@ -120,21 +121,23 @@ class RelayWorker:
             if self._skip_prebuild or self._clickhouse is not None
             else self._prebuild_filtered_hours(limit=1)
         )
-        total = discovered + mirrored + processed + prebuilt
+        total = discovered + adopted + mirrored + processed + prebuilt
         self._record_event(
             level="INFO",
             event_type="cycle_complete",
             message="Relay cycle complete",
             payload={
                 "discovered": discovered,
+                "adopted": adopted,
                 "mirrored": mirrored,
                 "processed": processed,
                 "prebuilt": prebuilt,
             },
         )
         LOG.info(
-            "Relay cycle complete: discovered=%s mirrored=%s processed=%s prebuilt=%s",
+            "Relay cycle complete: discovered=%s adopted=%s mirrored=%s processed=%s prebuilt=%s",
             discovered,
+            adopted,
             mirrored,
             processed,
             prebuilt,
@@ -196,6 +199,35 @@ class RelayWorker:
             page += 1
 
         return discovered
+
+    def _adopt_local_raw_hours(self) -> int:
+        adopted = 0
+        for raw_path in sorted(self._config.raw_root.rglob("polymarket_orderbook_*.parquet")):
+            if not raw_path.is_file():
+                continue
+            filename = raw_path.name
+            try:
+                byte_size = raw_path.stat().st_size
+            except FileNotFoundError:
+                continue
+            changed = self._index.register_local_raw(
+                filename,
+                local_path=str(raw_path),
+                content_length=byte_size,
+                source_url=f"{self._config.raw_base_url}/{filename}",
+            )
+            if not changed:
+                continue
+            adopted += 1
+        if adopted > 0:
+            self._record_event(
+                level="INFO",
+                event_type="adopt_local_raw",
+                message=f"Adopted {adopted} existing raw hours from local disk",
+                payload={"adopted_hours": adopted},
+            )
+            LOG.info("Adopted %s existing raw hours from local disk", adopted)
+        return adopted
 
     def _mirror_pending_hours(self) -> int:
         mirrored = 0

@@ -228,3 +228,34 @@ def test_clickhouse_backend_never_requests_processed_or_filtered_file_writes(
     assert worker._clickhouse.completed_calls == [  # type: ignore[union-attr]  # noqa: SLF001
         (filename, "2026-03-21T12:00:00+00:00", 1, 1)
     ]
+
+
+def test_worker_adopts_existing_raw_files_into_mirrored_state(tmp_path: Path) -> None:
+    config = _make_config(tmp_path)
+    filename = "polymarket_orderbook_2026-03-21T12.parquet"
+    raw_path = config.raw_root / raw_relative_path(filename)
+    raw_path.parent.mkdir(parents=True, exist_ok=True)
+    raw_path.write_bytes(b"raw-payload")
+
+    worker = RelayWorker(config, reset_inflight=False, skip_prebuild=True)
+    worker._index.upsert_discovered_hour(  # noqa: SLF001
+        filename,
+        f"https://r2.pmxt.dev/{filename}",
+        1,
+    )
+
+    adopted = worker._adopt_local_raw_hours()  # noqa: SLF001
+
+    row = worker._index._conn.execute(  # noqa: SLF001
+        """
+        SELECT mirror_status, local_path, content_length
+        FROM archive_hours
+        WHERE filename = ?
+        """,
+        (filename,),
+    ).fetchone()
+
+    assert adopted == 1
+    assert row["mirror_status"] == "ready"
+    assert row["local_path"] == str(raw_path)
+    assert row["content_length"] == len(b"raw-payload")

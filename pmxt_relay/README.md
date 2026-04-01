@@ -52,9 +52,14 @@ definition:
 - `processed` badge: `prebuild_status=ready` / `mirror_status=ready`
 - `rate` badge: rolling 24-hour completed-hour rate based on `prebuilt_at`
 - `prebuild-file` badge: current parquet filename from the latest
-  `filtered_prebuild_progress` event while prebuild is active
+  `process_progress` or `filtered_prebuild_progress` event while work is active
 - `prebuild-progress` badge: full `processed_rows / total_rows` fraction from
-  the latest `filtered_prebuild_progress` event while prebuild is active
+  the latest `process_progress` or `filtered_prebuild_progress` event
+
+The worker also adopts any raw parquet files that already exist under `raw/`
+into the current relay state. That keeps `mirrored_hours` aligned with the
+actual local raw inventory instead of only counting hours mirrored by the
+current worker process.
 
 The inflight reset on startup is split by stage so the worker and prebuild
 service don't clobber each other's state:
@@ -221,6 +226,10 @@ fail2ban-client status sshd
 - `GET /v1/filtered/{condition_id}/{token_id}/{filename}`
 
 Progress and observability:
+
+- `/v1/system` CPU is based on `1-minute loadavg / cpu_count`, capped at `100`.
+  A `100%` badge can reflect ClickHouse merges or I/O wait, not just pure API
+  or worker CPU burn.
 
 - `/v1/stats` includes both the total completed-hour count and a rolling
   `processed_hours_per_hour_24h` rate so stalled relay throughput is visible
