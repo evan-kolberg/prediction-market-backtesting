@@ -17,6 +17,7 @@ from pmxt_relay.config import RelayConfig
 from pmxt_relay.index_db import RelayIndex
 from pmxt_relay.processor import RelayHourProcessor
 from pmxt_relay.storage import filtered_relative_path
+from pmxt_relay.storage import parse_archive_hour
 from pmxt_relay.storage import processed_relative_path
 from pmxt_relay.storage import raw_relative_path
 
@@ -52,6 +53,12 @@ class RelayWorker:
         )
         if self._clickhouse is not None:
             self._clickhouse.ensure_schema()
+            for row in self._index.list_completed_hours():
+                self._clickhouse.backfill_completed_hour(
+                    filename=row["filename"],
+                    hour=row["hour"],
+                    filtered_group_count=int(row["filtered_artifact_count"]),
+                )
         if reset_mirror or reset_process or reset_prebuild:
             self._record_event(
                 level="WARNING",
@@ -431,6 +438,10 @@ class RelayWorker:
                 payload={"raw_path": str(raw_path)},
             )
             try:
+                if self._clickhouse is not None and self._clickhouse.hour_data_exists(
+                    filename
+                ):
+                    self._clickhouse.reset_hour(filename)
                 result = self._processor.process_hour(
                     filename,
                     raw_path,
@@ -449,6 +460,13 @@ class RelayWorker:
                         )
                     ),
                 )
+                if self._clickhouse is not None:
+                    self._clickhouse.mark_hour_complete(
+                        filename=filename,
+                        hour=parse_archive_hour(filename).isoformat(),
+                        filtered_group_count=result.filtered_group_count,
+                        filtered_row_count=result.total_filtered_rows,
+                    )
             except Exception as exc:  # noqa: BLE001
                 self._index.mark_process_error(filename, str(exc))
                 self._record_event(

@@ -682,6 +682,19 @@ class RelayIndex:
         )
         return cursor.fetchall()
 
+    def list_completed_hours(self) -> list[sqlite3.Row]:
+        cursor = self._conn.execute(
+            """
+            SELECT filename, hour, filtered_artifact_count
+            FROM archive_hours
+            WHERE mirror_status = 'ready'
+              AND process_status = 'ready'
+              AND prebuild_status = 'ready'
+            ORDER BY hour
+            """
+        )
+        return cursor.fetchall()
+
     def list_filtered_for_filename(self, filename: str) -> list[sqlite3.Row]:
         cursor = self._conn.execute(
             """

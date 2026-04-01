@@ -54,11 +54,32 @@ def test_ensure_schema_bootstraps_database_without_db_scoped_endpoint(
 
     relay.ensure_schema()
 
-    assert len(requests) == 2
+    assert len(requests) == 3
     assert requests[0][0] == "http://127.0.0.1:8123/?date_time_input_format=best_effort"
     assert requests[0][1] == b"CREATE DATABASE IF NOT EXISTS pmxt_relay"
     assert requests[1][0] == (
-        "http://127.0.0.1:8123/"
-        "?database=pmxt_relay&date_time_input_format=best_effort"
+        "http://127.0.0.1:8123/?database=pmxt_relay&date_time_input_format=best_effort"
     )
     assert b"CREATE TABLE IF NOT EXISTS pmxt_relay.filtered_updates" in requests[1][1]
+    assert requests[2][0] == (
+        "http://127.0.0.1:8123/?database=pmxt_relay&date_time_input_format=best_effort"
+    )
+    assert (
+        b"CREATE TABLE IF NOT EXISTS pmxt_relay.filtered_updates_hours"
+        in requests[2][1]
+    )
+
+
+def test_hour_exists_requires_completion_marker(tmp_path: Path, monkeypatch) -> None:
+    relay = ClickHouseRelay(_make_config(tmp_path))
+    queries: list[str] = []
+
+    def fake_execute_query(query: str, **kwargs) -> bytes:  # type: ignore[no-untyped-def]
+        del kwargs
+        queries.append(query)
+        return b"0\n"
+
+    monkeypatch.setattr(relay, "_execute_query", fake_execute_query)
+
+    assert relay.hour_exists("polymarket_orderbook_2026-02-21T18.parquet") is False
+    assert "FROM pmxt_relay.filtered_updates_hours" in queries[0]

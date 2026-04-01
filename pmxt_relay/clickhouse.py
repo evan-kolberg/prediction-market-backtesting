@@ -43,6 +43,10 @@ class ClickHouseRelay:
         return self._config.clickhouse_table
 
     @property
+    def _hours_table(self) -> str:
+        return f"{self._config.clickhouse_table}_hours"
+
+    @property
     def _http_url(self) -> str:
         return self._config.clickhouse_url
 
@@ -112,8 +116,33 @@ class ClickHouseRelay:
             ORDER BY (condition_id, token_id, hour, relay_row_index)
             """
         )
+        self._execute_query(
+            f"""
+            CREATE TABLE IF NOT EXISTS {self._database}.{self._hours_table} (
+                filename String,
+                hour DateTime('UTC'),
+                filtered_group_count UInt64,
+                filtered_row_count UInt64,
+                completed_at DateTime('UTC') DEFAULT now()
+            )
+            ENGINE = ReplacingMergeTree(completed_at)
+            ORDER BY filename
+            """
+        )
 
     def hour_exists(self, filename: str) -> bool:
+        escaped = self._escape(filename)
+        payload = self._execute_query(
+            f"""
+            SELECT count()
+            FROM {self._database}.{self._hours_table}
+            WHERE filename = '{escaped}'
+            FORMAT TabSeparated
+            """
+        )
+        return int(payload.decode().strip() or "0") > 0
+
+    def hour_data_exists(self, filename: str) -> bool:
         escaped = self._escape(filename)
         payload = self._execute_query(
             f"""
@@ -129,13 +158,83 @@ class ClickHouseRelay:
         escaped = self._escape(filename)
         payload = self._execute_query(
             f"""
-            SELECT uniqExact(tuple(condition_id, token_id))
-            FROM {self._database}.{self._table}
+            SELECT filtered_group_count
+            FROM {self._database}.{self._hours_table}
             WHERE filename = '{escaped}'
+            ORDER BY completed_at DESC
+            LIMIT 1
             FORMAT TabSeparated
             """
         )
         return int(payload.decode().strip() or "0")
+
+    def reset_hour(self, filename: str) -> None:
+        escaped = self._escape(filename)
+        self._execute_query(
+            f"""
+            ALTER TABLE {self._database}.{self._table}
+            DELETE WHERE filename = '{escaped}'
+            SETTINGS mutations_sync = 2
+            """
+        )
+        self._execute_query(
+            f"""
+            ALTER TABLE {self._database}.{self._hours_table}
+            DELETE WHERE filename = '{escaped}'
+            SETTINGS mutations_sync = 2
+            """
+        )
+
+    def mark_hour_complete(
+        self,
+        *,
+        filename: str,
+        hour: str,
+        filtered_group_count: int,
+        filtered_row_count: int,
+    ) -> None:
+        escaped_filename = self._escape(filename)
+        escaped_hour = self._escape(hour)
+        self._execute_query(
+            f"""
+            INSERT INTO {self._database}.{self._hours_table}
+                (filename, hour, filtered_group_count, filtered_row_count)
+            VALUES (
+                '{escaped_filename}',
+                parseDateTimeBestEffort('{escaped_hour}'),
+                {filtered_group_count},
+                {filtered_row_count}
+            )
+            """
+        )
+
+    def backfill_completed_hour(
+        self,
+        *,
+        filename: str,
+        hour: str,
+        filtered_group_count: int,
+    ) -> None:
+        if self.hour_exists(filename) or not self.hour_data_exists(filename):
+            return
+        escaped_filename = self._escape(filename)
+        payload = self._execute_query(
+            f"""
+            SELECT count()
+            FROM {self._database}.{self._table}
+            WHERE filename = '{escaped_filename}'
+            FORMAT TabSeparated
+            """
+        )
+        row_count = int(payload.decode().strip() or "0")
+        if row_count <= 0:
+            return
+        self.mark_hour_complete(
+            filename=filename,
+            hour=hour,
+            filtered_group_count=filtered_group_count,
+            filtered_row_count=row_count,
+        )
 
     def insert_batch(
         self,

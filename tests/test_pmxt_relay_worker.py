@@ -151,18 +151,47 @@ def test_clickhouse_backend_never_requests_processed_or_filtered_file_writes(
     class _FakeClickHouse:
         def __init__(self, config: RelayConfig) -> None:
             self.config = config
+            self.reset_calls: list[str] = []
+            self.completed_calls: list[tuple[str, str, int, int]] = []
 
         def ensure_schema(self) -> None:
+            return None
+
+        def backfill_completed_hour(
+            self,
+            *,
+            filename: str,
+            hour: str,
+            filtered_group_count: int,
+        ) -> None:
             return None
 
         def hour_exists(self, filename: str) -> bool:
             return False
 
+        def hour_data_exists(self, filename: str) -> bool:
+            return True
+
         def hour_group_count(self, filename: str) -> int:
             return 0
 
+        def reset_hour(self, filename: str) -> None:
+            self.reset_calls.append(filename)
+
         def insert_batch(self, *, filename: str, hour: str, batch) -> None:  # type: ignore[no-untyped-def]
             return None
+
+        def mark_hour_complete(
+            self,
+            *,
+            filename: str,
+            hour: str,
+            filtered_group_count: int,
+            filtered_row_count: int,
+        ) -> None:
+            self.completed_calls.append(
+                (filename, hour, filtered_group_count, filtered_row_count)
+            )
 
     monkeypatch.setattr("pmxt_relay.worker.ClickHouseRelay", _FakeClickHouse)
 
@@ -195,3 +224,7 @@ def test_clickhouse_backend_never_requests_processed_or_filtered_file_writes(
     assert worker._process_pending_hours(limit=1) == 1  # noqa: SLF001
     assert captured_kwargs["skip_filtered"] is True
     assert captured_kwargs["write_processed"] is False
+    assert worker._clickhouse.reset_calls == [filename]  # type: ignore[union-attr]  # noqa: SLF001
+    assert worker._clickhouse.completed_calls == [  # type: ignore[union-attr]  # noqa: SLF001
+        (filename, "2026-03-21T12:00:00+00:00", 1, 1)
+    ]
