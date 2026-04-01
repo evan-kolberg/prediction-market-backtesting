@@ -3,6 +3,11 @@
 `pmxt_relay/` is a self-hosted PMXT acceleration layer for the backtests in this
 repo.
 
+> UNDER CONSTRUCTION: the current public VPS relay is being reworked. The
+> existing processed parquet layer is temporary and a ClickHouse-backed
+> replacement is planned, so expect public coverage and stats to be unstable for
+> a while.
+
 What it does:
 
 - mirrors every hourly raw PMXT Polymarket archive parquet file

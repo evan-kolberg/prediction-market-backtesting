@@ -17,7 +17,13 @@
 ![GitHub top language](https://img.shields.io/github/languages/top/evan-kolberg/prediction-market-backtesting)
 ![GitHub open issues](https://img.shields.io/github/issues/evan-kolberg/prediction-market-backtesting)
 
-Relay VPS statistics:
+> UNDER CONSTRUCTION: the public PMXT relay/VPS is being reworked. Expect
+> processed/prebuilt coverage and VPS stats to be unstable while the old
+> processed layer is purged and a ClickHouse-backed replacement is planned. In
+> the meantime, the PMXT L2 runners support BYOD/local sources. See
+> [`docs/pmxt-byod.md`](docs/pmxt-byod.md).
+
+Relay VPS statistics (may be stale while the relay is under construction):
 
 [![PMXT relay](https://209-209-10-83.sslip.io/v1/badge/status.svg)](https://209-209-10-83.sslip.io/v1/stats)
 [![Relay CPU](https://209-209-10-83.sslip.io/v1/badge/cpu.svg)](https://209-209-10-83.sslip.io/v1/system)
@@ -158,8 +164,8 @@ MARKET_SLUG=<polymarket-market-slug> uv run python backtests/polymarket_trade_ti
 ```
 
 If you omit the market env vars, the public runners fall back to the defaults
-bundled in each module. The PMXT single-market relay runners are intentionally
-pinned to one relay-backed historical slice in code, and the PMXT sports
+bundled in each module. The PMXT single-market L2 runners are intentionally
+pinned to one known-good historical slice in code, and the PMXT sports
 multi-market example is pinned to a small fixed set of recent March 2026 sports
 futures with explicit multi-day windows, so those examples still replay cleanly
 without the latest upstream PMXT hours.
@@ -170,12 +176,19 @@ Most runners are configured through environment variables. Common ones:
 - `MARKET_SLUG` for Polymarket trade-tick single-market runners
 - `TOKEN_INDEX` to choose which Polymarket outcome token to backtest
 - `LOOKBACK_DAYS` for data window size
+- `PMXT_DATA_SOURCE` for PMXT L2 runner source selection:
+  `auto`, `relay`, `raw-remote`, `raw-local`, or `filtered-local`
+- `PMXT_LOCAL_MIRROR_DIR` for `PMXT_DATA_SOURCE=raw-local`
+- `PMXT_LOCAL_FILTERED_DIR` for `PMXT_DATA_SOURCE=filtered-local`
 - `PMXT_RELAY_BASE_URL` to override the default public relay or disable it
   with `PMXT_RELAY_BASE_URL=0`
 - `PMXT_CACHE_DIR` / `PMXT_DISABLE_CACHE` to control the local PMXT filtered
   parquet cache
 - `TRADE_SIZE` and `INITIAL_CASH` for sizing
 - `TARGET_RESULTS` for multi-market runners
+
+For exact PMXT BYOD layouts and the expected L2 payload shape, see
+[`docs/pmxt-byod.md`](docs/pmxt-byod.md).
 
 The interactive menu always prints total wall time. PMXT fetch timing
 instrumentation is enabled by default in `make backtest` / `uv run python
@@ -228,6 +241,17 @@ data are:
 
 ### PMXT Polymarket L2
 
+- The public relay is currently under construction. If it is slow, unavailable,
+  or still catching up, use BYOD/local PMXT sources instead of waiting on the
+  VPS.
+- PMXT quote-tick runners now support explicit source selection:
+  - `PMXT_DATA_SOURCE=auto` keeps the current cache -> relay -> raw remote chain
+  - `PMXT_DATA_SOURCE=relay` forces relay-first mode
+  - `PMXT_DATA_SOURCE=raw-remote` skips the relay
+  - `PMXT_DATA_SOURCE=raw-local PMXT_LOCAL_MIRROR_DIR=/path/to/raw` replays a local raw PMXT mirror
+  - `PMXT_DATA_SOURCE=filtered-local PMXT_LOCAL_FILTERED_DIR=/path/to/filtered` replays local prefiltered parquet only
+- The exact BYOD directory layout and required L2 payload shape are documented
+  in [`docs/pmxt-byod.md`](docs/pmxt-byod.md).
 - Public Polymarket PMXT runners now default to the public relay at
   `https://209-209-10-83.sslip.io`.
 - For each required hour, the loader tries the relay first:
@@ -323,6 +347,22 @@ make clear-pmxt-cache
   market/window and the default local cache:
 
 ```bash
+uv run python backtests/polymarket_quote_tick/polymarket_pmxt_relay_ema_crossover.py
+```
+
+- Example: run the same PMXT backtest against a local raw mirror:
+
+```bash
+PMXT_DATA_SOURCE=raw-local \
+PMXT_LOCAL_MIRROR_DIR=/data/pmxt/raw \
+uv run python backtests/polymarket_quote_tick/polymarket_pmxt_relay_ema_crossover.py
+```
+
+- Example: run it against local prefiltered parquet only:
+
+```bash
+PMXT_DATA_SOURCE=filtered-local \
+PMXT_LOCAL_FILTERED_DIR=/data/pmxt/filtered \
 uv run python backtests/polymarket_quote_tick/polymarket_pmxt_relay_ema_crossover.py
 ```
 
