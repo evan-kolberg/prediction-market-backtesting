@@ -31,6 +31,9 @@ def _make_loader(
     loader._pmxt_download_progress_callback = None
     loader._pmxt_scan_progress_callback = None
     loader._pmxt_progress_size_cache = {}
+    loader._pmxt_temp_download_root = (
+        cache_dir if cache_dir is not None else Path.cwd()
+    ) / ".pmxt-temp-downloads"
     loader._reset_http_filesystem()
     return loader
 
@@ -450,9 +453,7 @@ def test_load_market_batches_falls_back_to_direct_relay_download(tmp_path, monke
     )
 
 
-def test_load_relay_raw_market_batches_falls_back_to_direct_download(
-    tmp_path, monkeypatch
-):
+def test_load_relay_raw_market_batches_downloads_to_temp_file(tmp_path, monkeypatch):
     loader = _make_loader(tmp_path)
     loader._pmxt_relay_base_url = "http://relay.local:8080"
     hour = pd.Timestamp("2026-03-16T13:00:00Z")
@@ -500,10 +501,6 @@ def test_load_relay_raw_market_batches_falls_back_to_direct_download(
             self._offset += len(chunk)
             return chunk
 
-    def _raise_relay_dataset(*args, **kwargs):  # type: ignore[no-untyped-def]
-        raise RuntimeError("relay parquet is not random-access readable")
-
-    monkeypatch.setattr(pmxt_module.ds, "dataset", _raise_relay_dataset)
     monkeypatch.setattr(
         pmxt_module,
         "urlopen",
@@ -518,6 +515,112 @@ def test_load_relay_raw_market_batches_falls_back_to_direct_download(
         '{"token_id":"token-yes-123","payload":"snapshot"}',
         '{"token_id":"token-yes-123","payload":"delta"}',
     ]
+    assert loader._pmxt_temp_download_root.exists()
+    assert not any(loader._pmxt_temp_download_root.iterdir())
+
+
+def test_cleanup_stale_temp_downloads_reaps_dead_process_roots(tmp_path, monkeypatch):
+    loader = _make_loader(tmp_path)
+    dead_root = loader._pmxt_temp_download_root / "pid-999999"
+    dead_hour = dead_root / "hour-dead"
+    dead_hour.mkdir(parents=True, exist_ok=True)
+    (dead_hour / "payload.parquet").write_bytes(b"stale")
+
+    monkeypatch.setattr(loader, "_pid_is_active", lambda pid: False)
+
+    loader._cleanup_stale_temp_downloads()
+
+    assert not dead_root.exists()
+
+
+def test_load_remote_market_batches_downloads_to_temp_file_and_emits_progress(
+    tmp_path, monkeypatch
+):
+    loader = _make_loader(tmp_path)
+    hour = pd.Timestamp("2026-03-16T13:00:00Z")
+
+    remote_buffer = BytesIO()
+    pq.write_table(
+        pa.table(
+            {
+                "market_id": [
+                    "condition-123",
+                    "condition-123",
+                    "other-condition",
+                ],
+                "update_type": [
+                    "book_snapshot",
+                    "price_change",
+                    "book_snapshot",
+                ],
+                "data": [
+                    '{"token_id":"token-yes-123","payload":"snapshot"}',
+                    '{"token_id":"token-yes-123","payload":"delta"}',
+                    '{"token_id":"token-yes-123","payload":"drop-market"}',
+                ],
+            }
+        ),
+        remote_buffer,
+    )
+
+    class _Response:
+        def __init__(self, payload: bytes) -> None:
+            self._payload = payload
+            self._offset = 0
+
+        def __enter__(self) -> "_Response":
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> bool:
+            del exc_type, exc, tb
+            return False
+
+        @property
+        def headers(self) -> dict[str, str]:
+            return {"Content-Length": str(len(self._payload))}
+
+        def read(self, size: int = -1) -> bytes:
+            if size < 0:
+                size = len(self._payload) - self._offset
+            chunk = self._payload[self._offset : self._offset + size]
+            self._offset += len(chunk)
+            return chunk
+
+    download_events: list[tuple[int, int | None, bool]] = []
+    scan_events: list[tuple[int, int, int, int | None, bool]] = []
+    loader._pmxt_download_progress_callback = (
+        lambda _source, downloaded_bytes, total_bytes, finished: download_events.append(
+            (downloaded_bytes, total_bytes, finished)
+        )
+    )
+    loader._pmxt_scan_progress_callback = (
+        lambda _source, scanned_batches, scanned_rows, matched_rows, total_bytes, finished: (
+            scan_events.append(
+                (scanned_batches, scanned_rows, matched_rows, total_bytes, finished)
+            )
+        )
+    )
+
+    monkeypatch.setattr(
+        pmxt_module,
+        "urlopen",
+        lambda url: _Response(remote_buffer.getvalue()),  # type: ignore[arg-type]
+    )
+
+    batches = loader._load_remote_market_batches(hour, batch_size=1_000)
+
+    assert batches is not None
+    assert sum(batch.num_rows for batch in batches) == 2
+    assert download_events
+    assert download_events[0][0] == 0
+    assert download_events[-1][0] == len(remote_buffer.getvalue())
+    assert download_events[-1][2] is True
+    assert scan_events
+    assert scan_events[-1][:3] == (1, 2, 2)
+    assert scan_events[-1][3] == len(remote_buffer.getvalue())
+    assert scan_events[-1][4] is True
+    assert loader._pmxt_temp_download_root.exists()
+    assert not any(loader._pmxt_temp_download_root.iterdir())
 
 
 def test_load_market_batches_prefers_local_archive_before_remote(tmp_path):

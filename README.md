@@ -54,6 +54,11 @@ Fantastic single & multi-market charting. Featuring: equity (total & individual 
 
 Detailed guides have been filed away in the [docs index](https://evan-kolberg.github.io/prediction-market-backtesting/) for better organization and long-term sustainability.
 
+PMXT defaults:
+- timing output is on by default in `make backtest` and `uv run python main.py`
+- `BACKTEST_ENABLE_TIMING=0` is the explicit quiet opt-out
+- local PMXT filtered cache is enabled by default at `~/.cache/nautilus_trader/pmxt`
+
 ## Table of Contents
 
 - [Docs Index](https://evan-kolberg.github.io/prediction-market-backtesting/)

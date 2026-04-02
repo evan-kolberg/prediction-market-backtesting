@@ -68,6 +68,11 @@ The current "bring your own data" story is therefore:
 - or use `PMXT_DATA_SOURCE=raw-local` with `PMXT_LOCAL_MIRROR_DIR`
 - or run your own relay and point `PMXT_RELAY_BASE_URL` at it
 
+When the loader falls back to remote raw hours (`r2.pmxt.dev` or relay
+`/v1/raw/...`), it downloads each hour to a temporary local parquet file,
+filters it locally, and deletes the temp artifact afterward. Persistent raw
+disk growth only happens when you intentionally configure a local raw mirror.
+
 If you want local-only PMXT replays, set both:
 
 ```bash
