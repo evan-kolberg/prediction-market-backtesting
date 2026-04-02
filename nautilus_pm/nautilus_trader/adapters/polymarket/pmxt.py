@@ -7,11 +7,14 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
+import tempfile
 import time
 from collections.abc import Callable
 from collections.abc import Iterator
 from concurrent.futures import Future
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from contextlib import suppress
 from datetime import UTC
 from io import BytesIO
@@ -103,6 +106,8 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
     _PMXT_DEFAULT_HTTP_BLOCK_SIZE = 32 * 1024 * 1024
     _PMXT_DEFAULT_HTTP_CACHE_TYPE = "readahead"
     _PMXT_DOWNLOAD_CHUNK_SIZE = 4 * 1024 * 1024
+    _PMXT_TEMP_DOWNLOAD_ROOT = Path(tempfile.gettempdir()) / "nautilus_trader" / "pmxt-downloads"
+    _PMXT_TEMP_DOWNLOAD_STALE_SECONDS = 24 * 60 * 60
 
     def __init__(self, *args, **kwargs) -> None:  # type: ignore[no-untyped-def]
         super().__init__(*args, **kwargs)
@@ -127,6 +132,8 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
             | None
         ) = None
         self._pmxt_progress_size_cache: dict[str, int | None] = {}
+        self._pmxt_temp_download_root = self._PMXT_TEMP_DOWNLOAD_ROOT
+        self._cleanup_stale_temp_downloads()
         self._reset_http_filesystem()
 
     @staticmethod
@@ -499,24 +506,9 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
         batch_size: int,
     ) -> list[pa.RecordBatch] | None:
         archive_url = self._archive_url_for_hour(hour)
-        try:
-            dataset = ds.dataset(
-                archive_url,
-                filesystem=self._pmxt_fs,
-                format="parquet",
-            )
-        except FileNotFoundError:
-            return None
-        except OSError as exc:
-            if "404" in str(exc):
-                return None
-            raise
-
-        return self._scan_raw_market_batches(
-            dataset,
+        return self._load_raw_market_batches_via_download(
+            archive_url,
             batch_size=batch_size,
-            source=archive_url,
-            total_bytes=self._progress_total_bytes(archive_url),
         )
 
     def _load_raw_market_batches_via_download(
@@ -526,7 +518,19 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
         batch_size: int,
     ) -> list[pa.RecordBatch] | None:
         try:
-            payload = self._download_payload_with_progress(archive_url)
+            with self._temporary_download_path(archive_url) as download_path:
+                total_bytes = self._download_to_file_with_progress(
+                    archive_url,
+                    download_path,
+                )
+                if total_bytes is None and not download_path.exists():
+                    return None
+                return self._load_raw_market_batches_from_local_file(
+                    download_path,
+                    batch_size=batch_size,
+                    progress_source=archive_url,
+                    total_bytes=total_bytes,
+                )
         except FileNotFoundError:
             return None
         except OSError as exc:
@@ -534,23 +538,6 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
                 return None
             return None
         except Exception:
-            return None
-
-        if payload is None:
-            return None
-
-        try:
-            parquet_file = pq.ParquetFile(BytesIO(payload))
-            batches: list[pa.RecordBatch] = []
-            for batch in parquet_file.iter_batches(
-                batch_size=batch_size,
-                columns=self._PMXT_REMOTE_COLUMNS,
-            ):
-                filtered_batch = self._filter_raw_batch(batch)
-                if filtered_batch.num_rows:
-                    batches.append(filtered_batch)
-            return batches
-        except (OSError, ValueError, pa.ArrowException):
             return None
 
     def _load_local_archive_market_batches(
@@ -590,52 +577,10 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
         if relay_url is None:
             return None
 
-        try:
-            dataset = ds.dataset(
-                relay_url,
-                filesystem=self._pmxt_fs,
-                format="parquet",
-            )
-        except FileNotFoundError:
-            return None
-        except OSError as exc:
-            if "404" in str(exc):
-                return None
-            self._reset_http_filesystem()
-            return self._load_raw_market_batches_via_download(
-                relay_url,
-                batch_size=batch_size,
-            )
-        except Exception:
-            self._reset_http_filesystem()
-            return self._load_raw_market_batches_via_download(
-                relay_url,
-                batch_size=batch_size,
-            )
-
-        try:
-            return self._scan_raw_market_batches(
-                dataset,
-                batch_size=batch_size,
-                source=relay_url,
-                total_bytes=self._progress_total_bytes(relay_url),
-            )
-        except FileNotFoundError:
-            return None
-        except OSError as exc:
-            if "404" in str(exc):
-                return None
-            self._reset_http_filesystem()
-            return self._load_raw_market_batches_via_download(
-                relay_url,
-                batch_size=batch_size,
-            )
-        except Exception:
-            self._reset_http_filesystem()
-            return self._load_raw_market_batches_via_download(
-                relay_url,
-                batch_size=batch_size,
-            )
+        return self._load_raw_market_batches_via_download(
+            relay_url,
+            batch_size=batch_size,
+        )
 
     def _load_relay_market_batches(
         self,
@@ -898,6 +843,65 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
         cache[source] = total_bytes
         return total_bytes
 
+    def _download_to_file_with_progress(
+        self,
+        url: str,
+        destination: Path,
+    ) -> int | None:
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        with urlopen(url) as response, destination.open("wb") as handle:  # noqa: S310
+            total_bytes = self._content_length_from_response(response)
+            downloaded_bytes = 0
+            last_emit = 0.0
+            supports_chunked_read = True
+            self._emit_download_progress(
+                url,
+                downloaded_bytes=0,
+                total_bytes=total_bytes,
+                finished=False,
+            )
+            while True:
+                if supports_chunked_read:
+                    try:
+                        chunk = response.read(self._PMXT_DOWNLOAD_CHUNK_SIZE)
+                    except TypeError:
+                        supports_chunked_read = False
+                        chunk = response.read()
+                else:
+                    break
+                if not chunk:
+                    break
+                handle.write(chunk)
+                downloaded_bytes += len(chunk)
+                now = time.monotonic()
+                if downloaded_bytes == total_bytes or (now - last_emit) >= 0.2:
+                    self._emit_download_progress(
+                        url,
+                        downloaded_bytes=downloaded_bytes,
+                        total_bytes=total_bytes,
+                        finished=False,
+                    )
+                    last_emit = now
+                if not supports_chunked_read:
+                    break
+            self._emit_download_progress(
+                url,
+                downloaded_bytes=downloaded_bytes,
+                total_bytes=total_bytes,
+                finished=True,
+            )
+
+        if total_bytes is None:
+            with suppress(OSError):
+                total_bytes = destination.stat().st_size
+
+        cache = getattr(self, "_pmxt_progress_size_cache", None)
+        if cache is None:
+            cache = {}
+            self._pmxt_progress_size_cache = cache
+        cache[url] = total_bytes
+        return total_bytes
+
     def _download_payload_with_progress(self, url: str) -> bytes | None:
         with urlopen(url) as response:  # noqa: S310
             total_bytes = self._content_length_from_response(response)
@@ -942,6 +946,95 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
                 finished=True,
             )
             return b"".join(chunks)
+
+    def _load_raw_market_batches_from_local_file(
+        self,
+        parquet_path: Path,
+        *,
+        batch_size: int,
+        progress_source: str,
+        total_bytes: int | None,
+    ) -> list[pa.RecordBatch] | None:
+        try:
+            dataset = ds.dataset(str(parquet_path), format="parquet")
+            return self._scan_raw_market_batches(
+                dataset,
+                batch_size=batch_size,
+                source=progress_source,
+                total_bytes=total_bytes,
+            )
+        except (OSError, ValueError, pa.ArrowException):
+            return None
+
+    @staticmethod
+    def _temporary_download_filename(url: str) -> str:
+        filename = Path(url.split("?", maxsplit=1)[0]).name
+        return filename or "pmxt-hour.parquet"
+
+    @staticmethod
+    def _pid_is_active(pid: int) -> bool:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+        except OSError:
+            return False
+        return True
+
+    @contextmanager
+    def _temporary_download_path(self, url: str) -> Iterator[Path]:
+        temp_root = Path(
+            getattr(
+                self,
+                "_pmxt_temp_download_root",
+                self._PMXT_TEMP_DOWNLOAD_ROOT,
+            )
+        ).expanduser()
+        temp_root.mkdir(parents=True, exist_ok=True)
+        process_root = temp_root / f"pid-{os.getpid()}"
+        process_root.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(
+            dir=process_root,
+            prefix="hour-",
+        ) as temp_dir:
+            yield Path(temp_dir) / self._temporary_download_filename(url)
+        with suppress(OSError):
+            process_root.rmdir()
+
+    def _cleanup_stale_temp_downloads(self) -> None:
+        temp_root = Path(
+            getattr(
+                self,
+                "_pmxt_temp_download_root",
+                self._PMXT_TEMP_DOWNLOAD_ROOT,
+            )
+        ).expanduser()
+        if not temp_root.exists():
+            return
+
+        cutoff = time.time() - self._PMXT_TEMP_DOWNLOAD_STALE_SECONDS
+        with suppress(OSError):
+            for child in temp_root.iterdir():
+                with suppress(OSError):
+                    stat = child.stat()
+                    is_process_root = child.is_dir() and child.name.startswith("pid-")
+                    if is_process_root:
+                        pid_text = child.name.removeprefix("pid-")
+                        try:
+                            pid = int(pid_text)
+                        except ValueError:
+                            pid = None
+                        if pid is not None and not self._pid_is_active(pid):
+                            shutil.rmtree(child, ignore_errors=True)
+                            continue
+                    if stat.st_mtime >= cutoff:
+                        continue
+                    if child.is_dir():
+                        shutil.rmtree(child, ignore_errors=True)
+                    else:
+                        child.unlink(missing_ok=True)
 
     def _iter_market_tables(
         self,

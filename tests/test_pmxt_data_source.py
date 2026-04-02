@@ -37,6 +37,9 @@ def _make_loader(
     loader._pmxt_download_progress_callback = None
     loader._pmxt_scan_progress_callback = None
     loader._pmxt_progress_size_cache = {}
+    loader._pmxt_temp_download_root = (
+        cache_dir if cache_dir is not None else Path.cwd()
+    ) / ".pmxt-temp-downloads"
     loader._pmxt_raw_root = raw_root
     loader._pmxt_disable_remote_archive = disable_remote_archive
     loader._reset_http_filesystem()
