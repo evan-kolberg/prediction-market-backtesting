@@ -46,11 +46,9 @@ def install_timing() -> None:
     pbar_state: dict = {"bar": None}
     pbar_lock = threading.Lock()
     transfer_state: dict[str, object] = {
-        "bars": {},
-        "free_positions": [],
-        "next_position": 1,
+        "downloads": {},
         "stop": threading.Event(),
-        "thread": None,
+        "spinner_index": 0,
     }
 
     def _transfer_label(url: str) -> str:
@@ -62,85 +60,65 @@ def install_timing() -> None:
             return f"relay raw {hour_label}"
         return f"r2 raw {hour_label}"
 
-    def _acquire_transfer_position() -> int:
-        free_positions = transfer_state["free_positions"]
-        if free_positions:
-            return free_positions.pop(0)
-        next_position = int(transfer_state["next_position"])
-        transfer_state["next_position"] = next_position + 1
-        return next_position
-
-    def _release_transfer_position(position: int) -> None:
-        free_positions = transfer_state["free_positions"]
-        free_positions.append(position)
-        free_positions.sort()
-
-    def _ensure_transfer_bar(
+    def _ensure_transfer_state(
         *,
         url: str,
         total_bytes: int | None,
     ) -> dict[str, object]:
-        bars: dict[str, dict[str, object]] = transfer_state["bars"]  # type: ignore[assignment]
-        state = bars.get(url)
+        downloads: dict[str, dict[str, object]] = transfer_state["downloads"]  # type: ignore[assignment]
+        state = downloads.get(url)
         if state is None:
-            position = _acquire_transfer_position()
             state = {
-                "bar": tqdm(
-                    total=total_bytes,
-                    desc=f"| {_transfer_label(url)}",
-                    unit="B",
-                    unit_scale=True,
-                    unit_divisor=1024,
-                    leave=False,
-                    position=position,
-                    dynamic_ncols=True,
-                ),
-                "position": position,
+                "url": url,
                 "started_at": time.monotonic(),
                 "downloaded_bytes": 0,
                 "total_bytes": total_bytes,
-                "spinner_index": 0,
             }
-            bars[url] = state
+            downloads[url] = state
         elif total_bytes is not None:
-            bar = state["bar"]
-            if bar.total != total_bytes:
-                bar.total = total_bytes
             state["total_bytes"] = total_bytes
         return state
 
-    def _close_transfer_bar(url: str) -> None:
-        bars: dict[str, dict[str, object]] = transfer_state["bars"]  # type: ignore[assignment]
-        state = bars.pop(url, None)
-        if state is None:
-            return
-        state["bar"].close()
-        _release_transfer_position(int(state["position"]))
+    def _close_transfer_state(url: str) -> None:
+        downloads: dict[str, dict[str, object]] = transfer_state["downloads"]  # type: ignore[assignment]
+        downloads.pop(url, None)
 
-    def _refresh_transfer_bars() -> None:
-        bars: dict[str, dict[str, object]] = transfer_state["bars"]  # type: ignore[assignment]
+    def _transfer_status_text() -> str:
+        downloads: dict[str, dict[str, object]] = transfer_state["downloads"]  # type: ignore[assignment]
+        if not downloads:
+            return ""
         spinner_frames = "|/-\\"
         now = time.monotonic()
-        for url, state in bars.items():
-            state["spinner_index"] = (int(state["spinner_index"]) + 1) % len(
-                spinner_frames
-            )
-            spinner = spinner_frames[int(state["spinner_index"])]
+        spinner_index = (int(transfer_state["spinner_index"]) + 1) % len(spinner_frames)
+        transfer_state["spinner_index"] = spinner_index
+        spinner = spinner_frames[spinner_index]
+        labels: list[str] = []
+        active_downloads = list(downloads.values())
+        for state in active_downloads[:2]:
             elapsed = now - float(state["started_at"])
-            bar = state["bar"]
-            bar.set_description_str(f"{spinner} {_transfer_label(url)}")
             downloaded_bytes = int(state["downloaded_bytes"])
             total_bytes = state["total_bytes"]
             if total_bytes:
                 mib_total = total_bytes / (1024 * 1024)
                 mib_downloaded = downloaded_bytes / (1024 * 1024)
-                bar.set_postfix_str(
-                    f"{mib_downloaded:,.1f}/{mib_total:,.1f} MiB {elapsed:5.1f}s"
+                labels.append(
+                    f"{_transfer_label(str(state['url']))} {mib_downloaded:,.1f}/{mib_total:,.1f} MiB {elapsed:4.1f}s"
                 )
             else:
                 mib_downloaded = downloaded_bytes / (1024 * 1024)
-                bar.set_postfix_str(f"{mib_downloaded:,.1f} MiB {elapsed:5.1f}s")
-            bar.refresh()
+                labels.append(
+                    f"{_transfer_label(str(state['url']))} {mib_downloaded:,.1f} MiB {elapsed:4.1f}s"
+                )
+        if len(active_downloads) > len(labels):
+            labels.append(f"+{len(active_downloads) - len(labels)} more")
+        return f"{spinner} " + " | ".join(labels)
+
+    def _refresh_transfer_status() -> None:
+        bar = pbar_state["bar"]
+        if bar is None:
+            return
+        status_text = _transfer_status_text()
+        bar.set_postfix_str(status_text, refresh=True)
 
     def _download_progress(
         url: str,
@@ -149,34 +127,35 @@ def install_timing() -> None:
         finished: bool,
     ) -> None:
         with pbar_lock:
-            state = _ensure_transfer_bar(url=url, total_bytes=total_bytes)
-            delta = max(0, downloaded_bytes - int(state["downloaded_bytes"]))
-            if delta:
-                state["bar"].update(delta)
+            state = _ensure_transfer_state(url=url, total_bytes=total_bytes)
             state["downloaded_bytes"] = downloaded_bytes
             state["total_bytes"] = total_bytes
-            _refresh_transfer_bars()
+            _refresh_transfer_status()
             if finished:
-                _close_transfer_bar(url)
+                _close_transfer_state(url)
+                _refresh_transfer_status()
 
     def _transfer_heartbeat() -> None:
         stop_event: threading.Event = transfer_state["stop"]  # type: ignore[assignment]
         while not stop_event.wait(0.2):
             with pbar_lock:
-                _refresh_transfer_bars()
+                downloads: dict[str, dict[str, object]] = transfer_state["downloads"]  # type: ignore[assignment]
+                if downloads:
+                    _refresh_transfer_status()
 
     def _start_transfer(url: str | None) -> None:
         if url is None:
             return
         with pbar_lock:
-            _ensure_transfer_bar(url=url, total_bytes=None)
-            _refresh_transfer_bars()
+            _ensure_transfer_state(url=url, total_bytes=None)
+            _refresh_transfer_status()
 
     def _finish_transfer(url: str | None) -> None:
         if url is None:
             return
         with pbar_lock:
-            _close_transfer_bar(url)
+            _close_transfer_state(url)
+            _refresh_transfer_status()
 
     def _install_full_timing(loader_cls) -> None:  # type: ignore[no-untyped-def]
         orig_load = loader_cls._load_market_batches
@@ -261,12 +240,14 @@ def install_timing() -> None:
                     name="pmxt-timing-heartbeat",
                     daemon=True,
                 )
-                transfer_state["thread"] = heartbeat_thread
                 pbar_state["bar"] = tqdm(
                     total=len(hours),
                     desc="Fetching hours",
                     unit="hr",
-                    bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]",
+                    bar_format=(
+                        "{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]"
+                        "{postfix}"
+                    ),
                 )
                 previous_callback = getattr(
                     self,
@@ -281,11 +262,13 @@ def install_timing() -> None:
                 with pbar_lock:
                     self._pmxt_download_progress_callback = previous_callback
                     stop_event.set()
-                    bars: dict[str, dict[str, object]] = transfer_state["bars"]  # type: ignore[assignment]
-                    for url in list(bars):
-                        _close_transfer_bar(url)
+                    downloads: dict[str, dict[str, object]] = transfer_state[
+                        "downloads"
+                    ]  # type: ignore[assignment]
+                    downloads.clear()
                     bar = pbar_state["bar"]
                     if bar is not None:
+                        bar.set_postfix_str("", refresh=False)
                         bar.close()
                         pbar_state["bar"] = None
                 heartbeat_thread.join(timeout=1.0)
