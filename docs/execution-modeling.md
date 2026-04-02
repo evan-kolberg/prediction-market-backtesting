@@ -12,8 +12,10 @@ the raw venue data are:
 ## Fees
 
 - Kalshi uses a nonlinear expected-earnings fee model
-- Polymarket uses the venue fee model plus CLOB `fee-rate` enrichment when the
-  market payload itself reports zero fees
+- Polymarket uses the current taker fee curve from venue metadata, plus CLOB
+  `fee-rate` enrichment when the market payload itself still reports zero fees
+- Polymarket maker fees are treated as zero; taker fees vary by market category
+  and are not hardcoded to the older sports-vs-crypto heuristic
 - if a venue reports zero fees for a market, the backtest also applies zero
   fees
 
@@ -41,7 +43,8 @@ the raw venue data are:
 ## PMXT L2 Behavior
 
 - the loader prefers local filtered cache first, then relay-hosted filtered
-  hours, then any local raw PMXT mirror, then `r2.pmxt.dev`
+  hours, then relay-hosted raw hours, then any local raw PMXT mirror, then
+  `r2.pmxt.dev`
 - the relay serves the same two-column parquet shape the loader already reads:
   `update_type` and `data`
 - local PMXT filtered cache is enabled by default and grows with the number of

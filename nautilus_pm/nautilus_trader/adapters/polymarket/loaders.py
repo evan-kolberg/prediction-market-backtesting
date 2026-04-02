@@ -193,7 +193,7 @@ class PolymarketDataLoader:
             return market_details
 
         enriched = dict(market_details)
-        enriched["maker_base_fee"] = str(fee_rate_bps)
+        enriched["maker_base_fee"] = "0"
         enriched["taker_base_fee"] = str(fee_rate_bps)
         return enriched
 
@@ -282,12 +282,14 @@ class PolymarketDataLoader:
         market_details["tokens"] = tokens
         market_details["market_slug"] = market.get("slug") or market_details.get("market_slug")
         market_details["question"] = market.get("question") or market_details.get("question")
-        market_details["description"] = market.get("description") or market_details.get("description")
+        market_details["description"] = market.get("description") or market_details.get(
+            "description"
+        )
         market_details["closed"] = market.get("closed", market_details.get("closed"))
         market_details["closedTime"] = market.get("closedTime") or market_details.get("closedTime")
-        market_details["uma_resolution_status"] = (
-            market.get("umaResolutionStatus") or market_details.get("uma_resolution_status")
-        )
+        market_details["uma_resolution_status"] = market.get(
+            "umaResolutionStatus"
+        ) or market_details.get("uma_resolution_status")
         if is_50_50_outcome:
             market_details["is_50_50_outcome"] = True
         market_details = await cls._enrich_market_details_with_fee_rate(

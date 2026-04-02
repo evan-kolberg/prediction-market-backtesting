@@ -50,13 +50,14 @@ loader env vars still work too:
 
 ## What Works Today
 
-The current PMXT loader can read one market/token/hour from three places, in
+The current PMXT loader can read one market/token/hour from five places, in
 this order:
 
 1. local filtered cache
 2. relay-hosted filtered parquet
-3. local raw PMXT archive hour
-4. raw PMXT archive hour on `r2.pmxt.dev`
+3. relay-hosted raw PMXT archive hour
+4. local raw PMXT archive hour
+5. raw PMXT archive hour on `r2.pmxt.dev`
 
 The current "bring your own data" story is therefore:
 

@@ -81,7 +81,7 @@ bundled in the module so examples stay runnable.
 - `PMXT_RELAY_BASE_URL` to override the default public relay or disable it with
   `PMXT_RELAY_BASE_URL=0`
 - `PMXT_LOCAL_ARCHIVE_DIR` to use your own local PMXT raw hour mirror before
-  falling back to `r2.pmxt.dev`
+  falling back to `r2.pmxt.dev` after the public relay's raw-hour passthrough
 - `PMXT_CACHE_DIR` or `PMXT_DISABLE_CACHE` for the local PMXT cache
 - `TRADE_SIZE` and `INITIAL_CASH` for sizing
 - `TARGET_RESULTS` for multi-market runners

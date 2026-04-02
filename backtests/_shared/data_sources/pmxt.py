@@ -222,7 +222,7 @@ def resolve_pmxt_data_source_selection() -> tuple[
         return (
             PMXTDataSourceSelection(
                 mode="auto",
-                summary="PMXT source: auto (cache -> relay -> raw remote)",
+                summary="PMXT source: auto (cache -> relay filtered/raw -> local raw -> raw remote)",
             ),
             {},
         )
@@ -231,7 +231,7 @@ def resolve_pmxt_data_source_selection() -> tuple[
         return (
             PMXTDataSourceSelection(
                 mode=mode,
-                summary="PMXT source: auto (cache -> relay -> raw remote)",
+                summary="PMXT source: auto (cache -> relay filtered/raw -> local raw -> raw remote)",
             ),
             {
                 PMXT_RELAY_BASE_URL_ENV: _resolve_existing_relay_url(),

@@ -17,6 +17,7 @@
 #
 
 import time
+from decimal import ROUND_HALF_UP
 from decimal import Decimal
 from typing import Any
 
@@ -29,7 +30,6 @@ from nautilus_trader.adapters.polymarket.common.enums import PolymarketOrderType
 from nautilus_trader.adapters.polymarket.common.symbol import get_polymarket_instrument_id
 from nautilus_trader.adapters.polymarket.common.symbol import get_polymarket_token_id
 from nautilus_trader.adapters.polymarket.schemas.book import PolymarketTickSizeChange
-from nautilus_trader.core.stats import basis_points_as_percentage
 from nautilus_trader.model.currencies import USDC_POS
 from nautilus_trader.model.enums import AssetClass
 from nautilus_trader.model.enums import LiquiditySide
@@ -252,30 +252,24 @@ def basis_points_as_decimal(basis_points: Decimal) -> Decimal:
 
 def infer_fee_exponent(fee_rate_bps: Decimal) -> int:
     """
-    Infer the Polymarket fee exponent from the fee rate.
+    Return the legacy Polymarket fee exponent compatibility value.
 
-    Polymarket uses different fee curve exponents by market type:
-    - Crypto markets: feeRate ~175 bps (0.0175), exponent = 1
-    - Sports markets (NCAAB, Serie A): feeRate ~2500 bps (0.25), exponent = 2
-    - Fee-free markets: feeRate = 0, exponent is irrelevant
+    Older code paths inferred different exponents by market type. Polymarket's
+    current fee documentation uses one shared fee curve for all fee-enabled
+    categories, so callers should treat the exponent as ``1``.
 
     Parameters
     ----------
     fee_rate_bps : Decimal
-        The fee rate in basis points.
+        The fee rate in basis points. Retained for API compatibility.
 
     Returns
     -------
     int
-        The fee curve exponent (1 for crypto, 2 for sports).
+        Always ``1``.
 
     """
-    if fee_rate_bps <= 0:
-        return 1  # Irrelevant for zero-fee markets
-    # Sports markets use a much higher base rate (2500 bps) with exponent 2
-    # Crypto markets use a lower rate (175 bps) with exponent 1
-    if fee_rate_bps > Decimal(1000):
-        return 2
+    del fee_rate_bps
     return 1
 
 
@@ -288,20 +282,19 @@ def calculate_commission(
     """
     Calculate commission from trade parameters and fee rate.
 
-    Polymarket's fee formula is::
+    Polymarket's current fee formula is::
 
-        fee = C × p × feeRate × (p × (1 - p)) ^ exponent
+        fee = C x feeRate x p x (1 - p)
 
     Where:
     - C = number of shares (quantity)
     - p = share price
     - feeRate = fee_rate_bps / 10_000
-    - exponent = 1 for crypto markets, 2 for sports markets
 
     The fee peaks at p = 0.50 and decreases symmetrically toward the
-    extremes (p → 0 or p → 1).  Maximum effective rate is ~1.56%.
+    extremes (p -> 0 or p -> 1).
 
-    Polymarket rounds fees to 4 decimal places (0.0001 USDC minimum).
+    Polymarket rounds fees to 5 decimal places (0.00001 USDC minimum).
 
     References
     ----------
@@ -316,18 +309,18 @@ def calculate_commission(
     fee_rate_bps : Decimal
         The fee rate in basis points.
     fee_exponent : int, default 1
-        The exponent applied to the ``p × (1 - p)`` term.
-        Use 1 for crypto markets, 2 for sports (NCAAB / Serie A).
+        Retained for backward compatibility and ignored.
 
     Returns
     -------
     float
-        The commission amount rounded to 4 decimal places.
+        The commission amount rounded to 5 decimal places.
 
     """
     if fee_rate_bps <= 0:
         return 0.0
-    p = float(price)
-    fee_rate = basis_points_as_percentage(fee_rate_bps)
-    commission = float(quantity) * p * fee_rate * (p * (1 - p)) ** fee_exponent
-    return round(commission, 4)
+
+    del fee_exponent
+    fee_rate = basis_points_as_decimal(fee_rate_bps)
+    commission = quantity * fee_rate * price * (Decimal(1) - price)
+    return float(commission.quantize(Decimal("0.00001"), rounding=ROUND_HALF_UP))

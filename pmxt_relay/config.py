@@ -6,13 +6,6 @@ from pathlib import Path
 import uuid
 
 
-def _env_flag(name: str, default: bool = False) -> bool:
-    value = os.getenv(name)
-    if value is None:
-        return default
-    return value.strip().casefold() in {"1", "true", "yes", "on"}
-
-
 def _env_int(name: str, default: int) -> int:
     value = os.getenv(name)
     if value is None or not value.strip():
@@ -45,7 +38,6 @@ class RelayConfig:
     archive_max_pages: int | None
     duckdb_threads: int
     duckdb_memory_limit: str
-    expose_raw: bool
     event_retention: int
     api_rate_limit_per_minute: int
     api_list_max_hours: int
@@ -89,7 +81,6 @@ class RelayConfig:
             archive_max_pages=archive_max_pages or None,
             duckdb_threads=max(1, _env_int("PMXT_RELAY_DUCKDB_THREADS", 4)),
             duckdb_memory_limit=os.getenv("PMXT_RELAY_DUCKDB_MEMORY_LIMIT", "4GB"),
-            expose_raw=_env_flag("PMXT_RELAY_EXPOSE_RAW"),
             event_retention=max(100, _env_int("PMXT_RELAY_EVENT_RETENTION", 50000)),
             api_rate_limit_per_minute=max(
                 0,

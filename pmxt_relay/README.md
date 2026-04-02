@@ -290,7 +290,6 @@ Common env vars:
 - `PMXT_RELAY_DUCKDB_THREADS=2`
 - `PMXT_RELAY_DUCKDB_MEMORY_LIMIT=1500MB`
 - `PMXT_RELAY_FILTERED_WORKERS=1`
-- `PMXT_RELAY_EXPOSE_RAW=0`
 - `PMXT_RELAY_API_RATE_LIMIT_PER_MINUTE=2400`
 - `PMXT_RELAY_API_LIST_MAX_HOURS=2000`
 - `PMXT_RELAY_TRUSTED_PROXY_IPS=127.0.0.1,::1`
@@ -360,11 +359,11 @@ that service and `Restart=always` brings it back.
 
 ## Public Relay Hardening
 
-The relay is designed to be public-facing without exposing the raw mirror:
+The relay is designed to be public-facing while exposing both filtered and raw parquet hours:
 
-- raw hour passthrough stays off by default with `PMXT_RELAY_EXPOSE_RAW=0`
 - `/v1/filtered/...` validates market, token, and filename patterns before
   touching disk
+- `/v1/raw/...` validates the requested hour path before touching disk
 - API responses carry `nosniff`, `no-referrer`, and deny-frame headers
 - immutable parquet hours are cacheable, while JSON status endpoints are `no-store`
 - an in-memory per-IP request limiter protects the API from obvious hammering

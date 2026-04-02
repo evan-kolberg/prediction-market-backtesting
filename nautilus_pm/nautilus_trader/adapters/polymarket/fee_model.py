@@ -20,7 +20,6 @@ from __future__ import annotations
 from decimal import Decimal
 
 from nautilus_trader.adapters.polymarket.common.parsing import calculate_commission
-from nautilus_trader.adapters.polymarket.common.parsing import infer_fee_exponent
 from nautilus_trader.backtest.models import FeeModel
 from nautilus_trader.model.objects import Money
 
@@ -29,18 +28,17 @@ class PolymarketFeeModel(FeeModel):
     """
     Polymarket fee model for backtesting.
 
-    Applies Polymarket's non-linear taker fee formula per fill::
+    Applies Polymarket's taker fee formula per fill::
 
-        fee = qty × p × feeRate × (p × (1 − p)) ^ exponent
+        fee = qty x feeRate x p x (1 - p)
 
     Where:
     - ``feeRate = taker_base_fee_bps / 10_000``
-    - ``exponent = 1`` for crypto markets (~175 bps), ``2`` for sports markets (~2500 bps)
     - ``p`` is the fill price in [0, 1]
 
-    Fee rates and exponents are inferred from the instrument's ``taker_fee``
-    attribute, which is populated by ``parse_polymarket_instrument`` from the
-    market API response.
+    Maker fees remain zero. Taker fee rates come from the market payload when
+    available, or from the CLOB fee-rate endpoint when the market payload still
+    reports zeros.
 
     References
     ----------
@@ -65,7 +63,7 @@ class PolymarketFeeModel(FeeModel):
         Returns
         -------
         Money
-            Commission in the instrument's quote currency, rounded to 4 decimal places.
+            Commission in the instrument's quote currency, rounded to 5 decimal places.
 
         """
         # instrument.taker_fee is stored as bps/10_000 (decimal fraction)
@@ -75,11 +73,9 @@ class PolymarketFeeModel(FeeModel):
         if fee_rate_bps <= 0:
             return Money(Decimal(0), instrument.quote_currency)
 
-        fee_exponent = infer_fee_exponent(fee_rate_bps)
         commission = calculate_commission(
             quantity=Decimal(str(fill_qty)),
             price=Decimal(str(fill_px)),
             fee_rate_bps=fee_rate_bps,
-            fee_exponent=fee_exponent,
         )
         return Money(Decimal(str(commission)), instrument.quote_currency)

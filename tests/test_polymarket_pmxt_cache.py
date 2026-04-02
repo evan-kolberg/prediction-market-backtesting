@@ -244,6 +244,75 @@ def test_load_market_batches_falls_back_to_remote_when_relay_errors(
     )
 
 
+def test_load_market_batches_prefers_relay_raw_before_remote(tmp_path):
+    loader = _make_loader(tmp_path)
+    loader._pmxt_relay_base_url = "http://relay.local:8080"
+    hour = pd.Timestamp("2026-03-16T13:00:00Z")
+    relay_raw_batch = pa.record_batch(
+        [
+            pa.array(["book_snapshot"]),
+            pa.array(['{"token_id":"token-yes-123","payload":"relay-raw"}']),
+        ],
+        names=["update_type", "data"],
+    )
+
+    loader._load_relay_market_batches = lambda _hour, *, batch_size: None  # type: ignore[method-assign]
+    loader._load_relay_raw_market_batches = (  # type: ignore[method-assign]
+        lambda _hour, *, batch_size: [relay_raw_batch]
+    )
+
+    def _fail_remote(*args, **kwargs):  # type: ignore[no-untyped-def]
+        raise AssertionError("remote load should not run when relay raw responds")
+
+    loader._load_remote_market_batches = _fail_remote  # type: ignore[method-assign]
+
+    batches = loader._load_market_batches(hour, batch_size=1_000)
+
+    assert batches is not None
+    assert (
+        batches[0].column("data")[0].as_py()
+        == '{"token_id":"token-yes-123","payload":"relay-raw"}'
+    )
+
+
+def test_load_market_batches_prefers_relay_raw_before_local_archive(tmp_path):
+    raw_root = tmp_path / "raw-hours"
+    loader = _make_loader(tmp_path / "cache", local_archive_dir=raw_root)
+    loader._pmxt_relay_base_url = "http://relay.local:8080"
+    hour = pd.Timestamp("2026-03-16T13:00:00Z")
+    raw_path = raw_root / "polymarket_orderbook_2026-03-16T13.parquet"
+    raw_path.parent.mkdir(parents=True, exist_ok=True)
+    pq.write_table(
+        pa.table(
+            {
+                "market_id": ["condition-123"],
+                "update_type": ["book_snapshot"],
+                "data": ['{"token_id":"token-yes-123","payload":"local-raw"}'],
+            }
+        ),
+        raw_path,
+    )
+
+    relay_raw_batch = pa.record_batch(
+        [
+            pa.array(["book_snapshot"]),
+            pa.array(['{"token_id":"token-yes-123","payload":"relay-raw"}']),
+        ],
+        names=["update_type", "data"],
+    )
+    loader._load_relay_market_batches = lambda _hour, *, batch_size: None  # type: ignore[method-assign]
+    loader._load_relay_raw_market_batches = (  # type: ignore[method-assign]
+        lambda _hour, *, batch_size: [relay_raw_batch]
+    )
+
+    batches = loader._load_market_batches(hour, batch_size=1_000)
+
+    assert batches is not None
+    assert batches[0].column("data")[0].as_py() == (
+        '{"token_id":"token-yes-123","payload":"relay-raw"}'
+    )
+
+
 def test_load_market_batches_falls_back_to_direct_relay_download(tmp_path, monkeypatch):
     loader = _make_loader(tmp_path)
     loader._pmxt_relay_base_url = "http://relay.local:8080"
@@ -294,6 +363,71 @@ def test_load_market_batches_falls_back_to_direct_relay_download(tmp_path, monke
     assert batches[0].column("data")[0].as_py() == (
         '{"token_id":"token-yes-123","payload":"snapshot"}'
     )
+
+
+def test_load_relay_raw_market_batches_falls_back_to_direct_download(
+    tmp_path, monkeypatch
+):
+    loader = _make_loader(tmp_path)
+    loader._pmxt_relay_base_url = "http://relay.local:8080"
+    hour = pd.Timestamp("2026-03-16T13:00:00Z")
+
+    relay_buffer = BytesIO()
+    pq.write_table(
+        pa.table(
+            {
+                "market_id": [
+                    "condition-123",
+                    "condition-123",
+                    "other-condition",
+                ],
+                "update_type": [
+                    "book_snapshot",
+                    "price_change",
+                    "book_snapshot",
+                ],
+                "data": [
+                    '{"token_id":"token-yes-123","payload":"snapshot"}',
+                    '{"token_id":"token-yes-123","payload":"delta"}',
+                    '{"token_id":"token-yes-123","payload":"drop-market"}',
+                ],
+            }
+        ),
+        relay_buffer,
+    )
+
+    class _Response:
+        def __init__(self, payload: bytes) -> None:
+            self._payload = payload
+
+        def __enter__(self) -> "_Response":
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> bool:
+            del exc_type, exc, tb
+            return False
+
+        def read(self) -> bytes:
+            return self._payload
+
+    def _raise_relay_dataset(*args, **kwargs):  # type: ignore[no-untyped-def]
+        raise RuntimeError("relay parquet is not random-access readable")
+
+    monkeypatch.setattr(pmxt_module.ds, "dataset", _raise_relay_dataset)
+    monkeypatch.setattr(
+        pmxt_module,
+        "urlopen",
+        lambda url: _Response(relay_buffer.getvalue()),  # type: ignore[arg-type]
+    )
+
+    batches = loader._load_relay_raw_market_batches(hour, batch_size=1_000)
+
+    assert batches is not None
+    assert sum(batch.num_rows for batch in batches) == 2
+    assert [row["data"] for batch in batches for row in batch.to_pylist()] == [
+        '{"token_id":"token-yes-123","payload":"snapshot"}',
+        '{"token_id":"token-yes-123","payload":"delta"}',
+    ]
 
 
 def test_load_market_batches_prefers_local_archive_before_remote(tmp_path):
@@ -369,6 +503,17 @@ def test_load_market_batches_reads_nested_local_archive_layout(tmp_path):
     assert batches is not None
     assert batches[0].column("data")[0].as_py() == (
         '{"token_id":"token-yes-123","payload":"nested-local"}'
+    )
+
+
+def test_relay_raw_url_uses_nested_archive_path(tmp_path):
+    loader = _make_loader(tmp_path)
+    loader._pmxt_relay_base_url = "http://relay.local:8080"
+    hour = pd.Timestamp("2026-03-17T05:00:00Z")
+
+    assert loader._relay_raw_url_for_hour(hour) == (
+        "http://relay.local:8080/v1/raw/2026/03/17/"
+        "polymarket_orderbook_2026-03-17T05.parquet"
     )
 
 

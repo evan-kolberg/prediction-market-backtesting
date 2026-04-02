@@ -1303,6 +1303,5 @@ def create_app(config: RelayConfig) -> web.Application:
         "/v1/filtered/{condition_id}/{token_id}/{filename}",
         serve_filtered,
     )
-    if config.expose_raw:
-        app.router.add_get("/v1/raw/{filename:.*}", serve_raw)
+    app.router.add_get("/v1/raw/{filename:.*}", serve_raw)
     return app

@@ -8,6 +8,7 @@ from datetime import datetime
 from datetime import timedelta
 import json
 from pathlib import Path
+import threading
 import time
 
 from pmxt_relay.storage import parse_archive_hour
@@ -63,6 +64,7 @@ class RelayIndex:
         db_path.parent.mkdir(parents=True, exist_ok=True)
         self._conn = sqlite3.connect(db_path, timeout=60, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
+        self._conn_lock = threading.RLock()
         self._event_retention = event_retention
         self._lock_retry_delay_secs = max(0.01, lock_retry_delay_secs)
         self._conn.execute("PRAGMA busy_timeout=60000")
@@ -195,14 +197,14 @@ class RelayIndex:
     def _schema_needs_bootstrap(self) -> bool:
         tables = {
             row[0]
-            for row in self._conn.execute(
+            for row in self._fetchall(
                 "SELECT name FROM sqlite_master WHERE type='table'"
             )
         }
         if not self._REQUIRED_TABLES.issubset(tables):
             return True
         archive_columns = {
-            row[1] for row in self._conn.execute("PRAGMA table_info(archive_hours)")
+            row[1] for row in self._fetchall("PRAGMA table_info(archive_hours)")
         }
         return not self._REQUIRED_ARCHIVE_COLUMNS.issubset(archive_columns)
 
@@ -223,7 +225,8 @@ class RelayIndex:
         started = time.monotonic()
         while True:
             try:
-                return operation()
+                with self._conn_lock:
+                    return operation()
             except sqlite3.OperationalError as exc:
                 message = str(exc).lower()
                 if not any(snippet in message for snippet in _LOCKED_ERROR_SNIPPETS):
@@ -242,9 +245,7 @@ class RelayIndex:
                 delay = min(delay * 2, 5.0)
 
     def _ensure_archive_hours_column(self, name: str, definition: str) -> None:
-        columns = {
-            row[1] for row in self._conn.execute("PRAGMA table_info(archive_hours)")
-        }
+        columns = {row[1] for row in self._fetchall("PRAGMA table_info(archive_hours)")}
         if name in columns:
             return
         try:
@@ -254,6 +255,37 @@ class RelayIndex:
         except sqlite3.OperationalError as exc:
             if "duplicate column name" not in str(exc).lower():
                 raise
+
+    def _fetchall(
+        self,
+        sql: str,
+        params: tuple[object, ...] = (),
+    ) -> list[sqlite3.Row]:
+        return self._run_with_lock_retry(
+            lambda: self._conn.execute(sql, params).fetchall()
+        )
+
+    def _fetchone(
+        self,
+        sql: str,
+        params: tuple[object, ...] = (),
+    ) -> sqlite3.Row | None:
+        return self._run_with_lock_retry(
+            lambda: self._conn.execute(sql, params).fetchone()
+        )
+
+    def _fetchscalar(
+        self,
+        sql: str,
+        params: tuple[object, ...] = (),
+        *,
+        default: object = None,
+    ) -> object:
+        row = self._fetchone(sql, params)
+        if row is None:
+            return default
+        value = row[0]
+        return default if value is None else value
 
     def prune_events(self, *, best_effort: bool = False) -> None:
         def operation() -> None:
@@ -367,7 +399,7 @@ class RelayIndex:
         return self._run_with_lock_retry(operation)
 
     def list_hours_needing_mirror(self) -> list[sqlite3.Row]:
-        cursor = self._conn.execute(
+        return self._fetchall(
             """
             SELECT *
             FROM archive_hours
@@ -375,7 +407,6 @@ class RelayIndex:
             ORDER BY error_count ASC, hour
             """
         )
-        return cursor.fetchall()
 
     def mark_mirrored(
         self,
@@ -537,19 +568,18 @@ class RelayIndex:
     ) -> list[sqlite3.Row]:
         statuses = ("pending", "error") if include_errors else ("pending",)
         placeholders = ", ".join("?" for _ in statuses)
-        cursor = self._conn.execute(
+        return self._fetchall(
             f"""
             SELECT *
             FROM archive_hours
             WHERE mirror_status = 'ready' AND process_status IN ({placeholders})
             ORDER BY error_count ASC, hour
             """,
-            statuses,
+            tuple(statuses),
         )
-        return cursor.fetchall()
 
     def list_processing_filenames(self) -> list[str]:
-        cursor = self._conn.execute(
+        rows = self._fetchall(
             """
             SELECT filename
             FROM archive_hours
@@ -558,9 +588,7 @@ class RelayIndex:
             """
         )
         return [
-            str(row["filename"])
-            for row in cursor.fetchall()
-            if isinstance(row["filename"], str)
+            str(row["filename"]) for row in rows if isinstance(row["filename"], str)
         ]
 
     def mark_processing(self, filename: str) -> None:
@@ -753,7 +781,7 @@ class RelayIndex:
             )
 
     def list_hours_needing_filtered_prebuild(self) -> list[sqlite3.Row]:
-        cursor = self._conn.execute(
+        return self._fetchall(
             """
             SELECT *
             FROM archive_hours
@@ -764,10 +792,9 @@ class RelayIndex:
             ORDER BY error_count ASC, hour DESC
             """
         )
-        return cursor.fetchall()
 
     def list_completed_hours(self) -> list[sqlite3.Row]:
-        cursor = self._conn.execute(
+        return self._fetchall(
             """
             SELECT filename, hour, filtered_artifact_count
             FROM archive_hours
@@ -777,10 +804,9 @@ class RelayIndex:
             ORDER BY hour
             """
         )
-        return cursor.fetchall()
 
     def list_filtered_for_filename(self, filename: str) -> list[sqlite3.Row]:
-        cursor = self._conn.execute(
+        return self._fetchall(
             """
             SELECT *
             FROM filtered_hours
@@ -789,7 +815,6 @@ class RelayIndex:
             """,
             (filename,),
         )
-        return cursor.fetchall()
 
     def get_filtered_hour(
         self,
@@ -797,7 +822,7 @@ class RelayIndex:
         token_id: str,
         filename: str,
     ) -> sqlite3.Row | None:
-        cursor = self._conn.execute(
+        return self._fetchone(
             """
             SELECT *
             FROM filtered_hours
@@ -805,7 +830,6 @@ class RelayIndex:
             """,
             (condition_id, token_id, filename),
         )
-        return cursor.fetchone()
 
     def list_filtered_hours(
         self,
@@ -828,21 +852,23 @@ class RelayIndex:
             query += " AND hour <= ?"
             params.append(end_hour)
         query += " ORDER BY hour"
-        cursor = self._conn.execute(query, params)
-        return cursor.fetchall()
+        return self._fetchall(query, tuple(params))
 
     def _processed_rate_summary(self, *, window_hours: int) -> dict[str, int | float]:
         cutoff = (_utc_now_datetime() - timedelta(hours=window_hours)).isoformat()
-        processed_hours_last_window = self._conn.execute(
-            """
-            SELECT COUNT(*)
-            FROM archive_hours
-            WHERE prebuild_status = 'ready'
-              AND prebuilt_at IS NOT NULL
-              AND prebuilt_at >= ?
-            """,
-            (cutoff,),
-        ).fetchone()[0]
+        processed_hours_last_window = int(
+            self._fetchscalar(
+                """
+                SELECT COUNT(*)
+                FROM archive_hours
+                WHERE prebuild_status = 'ready'
+                  AND prebuilt_at IS NOT NULL
+                  AND prebuilt_at >= ?
+                """,
+                (cutoff,),
+                default=0,
+            )
+        )
         return {
             f"processed_hours_last_{window_hours}h": processed_hours_last_window,
             f"processed_hours_per_hour_{window_hours}h": round(
@@ -852,7 +878,7 @@ class RelayIndex:
         }
 
     def stats(self) -> dict[str, int | float | str | None]:
-        row = self._conn.execute(
+        row = self._fetchone(
             """
             SELECT
                 COUNT(*) AS archive_hours,
@@ -869,21 +895,24 @@ class RelayIndex:
                 SUM(CASE WHEN prebuild_status = 'error' THEN 1 ELSE 0 END) AS prebuild_errors
             FROM archive_hours
             """
-        ).fetchone()
-        last_event_at = self._conn.execute(
-            "SELECT MAX(created_at) FROM relay_events"
-        ).fetchone()[0]
-        last_error_at = self._conn.execute(
-            "SELECT MAX(created_at) FROM relay_events WHERE level = 'ERROR'"
-        ).fetchone()[0]
+        )
+        stats_row = dict(row) if row is not None else {}
+        last_event_at = self._fetchscalar(
+            "SELECT MAX(created_at) FROM relay_events",
+            default=None,
+        )
+        last_error_at = self._fetchscalar(
+            "SELECT MAX(created_at) FROM relay_events WHERE level = 'ERROR'",
+            default=None,
+        )
         payload = {
-            "archive_hours": row["archive_hours"],
-            "mirrored_hours": row["mirrored_hours"],
-            "processed_hours": row["processed_hours"],
-            "ready_to_process_hours": row["ready_to_process_hours"],
-            "processing_hours": row["processing_hours"],
-            "mirror_errors": row["mirror_errors"],
-            "process_errors": row["shard_errors"],
+            "archive_hours": int(stats_row.get("archive_hours") or 0),
+            "mirrored_hours": int(stats_row.get("mirrored_hours") or 0),
+            "processed_hours": int(stats_row.get("processed_hours") or 0),
+            "ready_to_process_hours": int(stats_row.get("ready_to_process_hours") or 0),
+            "processing_hours": int(stats_row.get("processing_hours") or 0),
+            "mirror_errors": int(stats_row.get("mirror_errors") or 0),
+            "process_errors": int(stats_row.get("shard_errors") or 0),
             "last_event_at": last_event_at,
             "last_error_at": last_error_at,
         }
@@ -891,7 +920,7 @@ class RelayIndex:
         return payload
 
     def queue_summary(self) -> dict[str, int | str | None]:
-        row = self._conn.execute(
+        row = self._fetchone(
             """
             SELECT
                 SUM(CASE WHEN mirror_status = 'pending' THEN 1 ELSE 0 END) AS mirror_pending,
@@ -909,8 +938,8 @@ class RelayIndex:
                 MAX(CASE WHEN prebuild_status = 'ready' THEN hour END) AS latest_processed_hour
             FROM archive_hours
             """
-        ).fetchone()
-        payload = dict(row)
+        )
+        payload = dict(row) if row is not None else {}
         for key in (
             "prebuild_ready",
             "prebuild_pending",
@@ -921,7 +950,7 @@ class RelayIndex:
         return payload
 
     def current_processing_filename(self) -> str | None:
-        row = self._conn.execute(
+        row = self._fetchone(
             """
             SELECT filename
             FROM archive_hours
@@ -929,7 +958,7 @@ class RelayIndex:
             ORDER BY hour
             LIMIT 1
             """
-        ).fetchone()
+        )
         if row is None:
             return None
         filename = row["filename"]
@@ -981,7 +1010,7 @@ class RelayIndex:
         return True
 
     def recent_events(self, *, limit: int = 100) -> list[sqlite3.Row]:
-        cursor = self._conn.execute(
+        return self._fetchall(
             """
             SELECT *
             FROM relay_events
@@ -990,10 +1019,9 @@ class RelayIndex:
             """,
             (limit,),
         )
-        return cursor.fetchall()
 
     def latest_prebuild_progress(self) -> PrebuildProgress | None:
-        row = self._conn.execute(
+        row = self._fetchone(
             """
             SELECT created_at, filename, payload_json
             FROM relay_events
@@ -1001,7 +1029,7 @@ class RelayIndex:
             ORDER BY id DESC
             LIMIT 1
             """
-        ).fetchone()
+        )
         if row is None or row["payload_json"] is None:
             return None
 

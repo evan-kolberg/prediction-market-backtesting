@@ -141,6 +141,14 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
     def _archive_url_for_hour(cls, hour: pd.Timestamp) -> str:
         return f"{cls._PMXT_BASE_URL}/{cls._archive_filename_for_hour(hour)}"
 
+    @classmethod
+    def _archive_relative_path_for_hour(cls, hour: pd.Timestamp) -> str:
+        ts = hour.tz_convert(UTC)
+        filename = cls._archive_filename_for_hour(ts)
+        return (
+            Path(ts.strftime("%Y")) / ts.strftime("%m") / ts.strftime("%d") / filename
+        ).as_posix()
+
     @staticmethod
     def _env_flag_enabled(value: str | None) -> bool:
         if value is None:
@@ -293,6 +301,12 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
             f"{self._archive_filename_for_hour(hour)}"
         )
 
+    def _relay_raw_url_for_hour(self, hour: pd.Timestamp) -> str | None:
+        if self._pmxt_relay_base_url is None:
+            return None
+
+        return f"{self._pmxt_relay_base_url}/v1/raw/{self._archive_relative_path_for_hour(hour)}"
+
     def _market_filter(self):
         return (ds.field("market_id") == self.condition_id) & (
             (ds.field("update_type") == "book_snapshot")
@@ -330,6 +344,23 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
         )
         token_mask = pc.fill_null(token_mask, False)
         return self._to_market_batch(batch.filter(token_mask))
+
+    def _filter_raw_batch(self, batch: pa.RecordBatch) -> pa.RecordBatch:
+        if batch.num_rows == 0:
+            return self._to_market_batch(batch)
+
+        filtered_batch = batch
+        if self.condition_id is not None:
+            market_mask = pc.equal(filtered_batch.column("market_id"), self.condition_id)
+            market_mask = pc.fill_null(market_mask, False)
+            update_type_mask = pc.is_in(
+                filtered_batch.column("update_type"),
+                value_set=pa.array(["book_snapshot", "price_change"]),
+            )
+            update_type_mask = pc.fill_null(update_type_mask, False)
+            filtered_batch = filtered_batch.filter(pc.and_(market_mask, update_type_mask))
+
+        return self._filter_batch_to_token(filtered_batch)
 
     def _load_cached_market_table(self, hour: pd.Timestamp) -> pa.Table | None:
         cache_path = self._cache_path_for_hour(hour)
@@ -425,6 +456,38 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
 
         return self._scan_raw_market_batches(dataset, batch_size=batch_size)
 
+    def _load_raw_market_batches_via_download(
+        self,
+        archive_url: str,
+        *,
+        batch_size: int,
+    ) -> list[pa.RecordBatch] | None:
+        try:
+            with urlopen(archive_url) as response:  # noqa: S310
+                payload = response.read()
+        except FileNotFoundError:
+            return None
+        except OSError as exc:
+            if "404" in str(exc):
+                return None
+            return None
+        except Exception:
+            return None
+
+        try:
+            parquet_file = pq.ParquetFile(BytesIO(payload))
+            batches: list[pa.RecordBatch] = []
+            for batch in parquet_file.iter_batches(
+                batch_size=batch_size,
+                columns=self._PMXT_REMOTE_COLUMNS,
+            ):
+                filtered_batch = self._filter_raw_batch(batch)
+                if filtered_batch.num_rows:
+                    batches.append(filtered_batch)
+            return batches
+        except (OSError, ValueError, pa.ArrowException):
+            return None
+
     def _load_local_archive_market_batches(
         self,
         hour: pd.Timestamp,
@@ -446,6 +509,58 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
                 continue
 
         return None
+
+    def _load_relay_raw_market_batches(
+        self,
+        hour: pd.Timestamp,
+        *,
+        batch_size: int,
+    ) -> list[pa.RecordBatch] | None:
+        relay_url = self._relay_raw_url_for_hour(hour)
+        if relay_url is None:
+            return None
+
+        try:
+            dataset = ds.dataset(
+                relay_url,
+                filesystem=self._pmxt_fs,
+                format="parquet",
+            )
+        except FileNotFoundError:
+            return None
+        except OSError as exc:
+            if "404" in str(exc):
+                return None
+            self._reset_http_filesystem()
+            return self._load_raw_market_batches_via_download(
+                relay_url,
+                batch_size=batch_size,
+            )
+        except Exception:
+            self._reset_http_filesystem()
+            return self._load_raw_market_batches_via_download(
+                relay_url,
+                batch_size=batch_size,
+            )
+
+        try:
+            return self._scan_raw_market_batches(dataset, batch_size=batch_size)
+        except FileNotFoundError:
+            return None
+        except OSError as exc:
+            if "404" in str(exc):
+                return None
+            self._reset_http_filesystem()
+            return self._load_raw_market_batches_via_download(
+                relay_url,
+                batch_size=batch_size,
+            )
+        except Exception:
+            self._reset_http_filesystem()
+            return self._load_raw_market_batches_via_download(
+                relay_url,
+                batch_size=batch_size,
+            )
 
     def _load_relay_market_batches(
         self,
@@ -547,6 +662,18 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
                     self._write_market_cache(hour, table)
             return table
 
+        relay_raw_batches = self._load_relay_raw_market_batches(hour, batch_size=batch_size)
+        if relay_raw_batches is not None:
+            table = (
+                pa.Table.from_batches(relay_raw_batches)
+                if relay_raw_batches
+                else self._empty_market_table()
+            )
+            if self._pmxt_cache_dir is not None:
+                with suppress(OSError, pa.ArrowException):
+                    self._write_market_cache(hour, table)
+            return table
+
         local_archive_batches = self._load_local_archive_market_batches(
             hour,
             batch_size=batch_size,
@@ -586,6 +713,14 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
             return batches
 
         batches = self._load_relay_market_batches(hour, batch_size=batch_size)
+        if batches is not None:
+            if self._pmxt_cache_dir is not None:
+                table = pa.Table.from_batches(batches) if batches else self._empty_market_table()
+                with suppress(OSError, pa.ArrowException):
+                    self._write_market_cache(hour, table)
+            return batches
+
+        batches = self._load_relay_raw_market_batches(hour, batch_size=batch_size)
         if batches is not None:
             if self._pmxt_cache_dir is not None:
                 table = pa.Table.from_batches(batches) if batches else self._empty_market_table()

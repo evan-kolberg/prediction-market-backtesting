@@ -42,7 +42,6 @@ def _make_config(tmp_path: Path) -> RelayConfig:
         archive_max_pages=None,
         duckdb_threads=1,
         duckdb_memory_limit="1GB",
-        expose_raw=False,
         event_retention=1000,
         api_rate_limit_per_minute=2400,
         api_list_max_hours=2000,
@@ -171,6 +170,38 @@ def test_raw_path_resolution_requires_known_archive_layout(tmp_path: Path):
         / "polymarket_orderbook_2026-03-21T12.parquet"
     )
     assert blocked_path is None
+
+
+def test_raw_route_serves_mirrored_hour(tmp_path: Path):
+    async def scenario() -> None:
+        config = _make_config(tmp_path)
+        config.ensure_directories()
+        raw_path = (
+            config.raw_root
+            / "2026"
+            / "03"
+            / "21"
+            / "polymarket_orderbook_2026-03-21T12.parquet"
+        )
+        raw_path.parent.mkdir(parents=True, exist_ok=True)
+        raw_path.write_bytes(b"raw-payload")
+
+        app = create_app(config)
+        server = TestServer(app)
+        client = TestClient(server)
+        await client.start_server()
+        try:
+            response = await client.get(
+                "/v1/raw/2026/03/21/polymarket_orderbook_2026-03-21T12.parquet"
+            )
+            payload = await response.read()
+        finally:
+            await client.close()
+
+        assert response.status == 200
+        assert payload == b"raw-payload"
+
+    asyncio.run(scenario())
 
 
 def test_collect_inflight_processes_reports_tmp_tree(tmp_path: Path):
@@ -453,6 +484,87 @@ def test_badge_svg_endpoints_return_svg(tmp_path: Path):
         assert "Completion rate" in svg_payloads["/v1/badge/rate.svg"]
         assert filename in svg_payloads["/v1/badge/file.svg"]
         assert "10,682,368 / 21,454,016" in svg_payloads["/v1/badge/rows.svg"]
+
+    asyncio.run(scenario())
+
+
+def test_stats_backed_badge_svg_endpoints_survive_concurrent_requests(tmp_path: Path):
+    async def scenario() -> None:
+        config = _make_config(tmp_path)
+        config.ensure_directories()
+        ready_filename = "polymarket_orderbook_2026-03-21T12.parquet"
+        processing_filename = "polymarket_orderbook_2026-03-21T13.parquet"
+
+        app = create_app(config)
+        index = app[INDEX_APP_KEY]
+        index.upsert_discovered_hour(
+            ready_filename,
+            f"https://r2.pmxt.dev/{ready_filename}",
+            1,
+        )
+        index.mark_mirrored(
+            ready_filename,
+            local_path="/tmp/raw-ready.parquet",
+            etag=None,
+            content_length=None,
+            last_modified=None,
+        )
+        index.replace_filtered_hours(ready_filename, [])
+
+        index.upsert_discovered_hour(
+            processing_filename,
+            f"https://r2.pmxt.dev/{processing_filename}",
+            1,
+        )
+        index.mark_mirrored(
+            processing_filename,
+            local_path="/tmp/raw.parquet",
+            etag=None,
+            content_length=None,
+            last_modified=None,
+        )
+        index.mark_sharded(processing_filename)
+        index.mark_prebuilding(processing_filename)
+        index.log_event(
+            level="INFO",
+            event_type="filtered_prebuild_progress",
+            filename=processing_filename,
+            message="Process progress for current hour",
+            payload={
+                "processed_rows": 10682368,
+                "total_rows": 21454016,
+            },
+        )
+
+        server = TestServer(app)
+        client = TestClient(server)
+        await client.start_server()
+        paths = (
+            "/v1/badge/status.svg",
+            "/v1/badge/processing.svg",
+            "/v1/badge/mirroring.svg",
+            "/v1/badge/mirrored.svg",
+            "/v1/badge/processed.svg",
+            "/v1/badge/lag.svg",
+            "/v1/badge/rate.svg",
+            "/v1/badge/latest.svg",
+            "/v1/badge/file.svg",
+            "/v1/badge/rows.svg",
+        )
+
+        try:
+            for _ in range(10):
+                responses = await asyncio.gather(
+                    *(client.get(path) for path in paths),
+                )
+                payloads = [await response.text() for response in responses]
+                statuses = [response.status for response in responses]
+                for response in responses:
+                    response.close()
+                assert statuses == [200] * len(paths)
+                assert all("<svg" in payload for payload in payloads)
+        finally:
+            await client.close()
 
     asyncio.run(scenario())
 
