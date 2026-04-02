@@ -1,5 +1,5 @@
 # Added by Evan Kolberg to the NautilusTrader-derived subtree on 2026-03-15.
-# Modified in this repository on 2026-03-19.
+# Modified in this repository on 2026-03-19 and 2026-04-02.
 # Distributed under the GNU Lesser General Public License Version 3.0 or later.
 # See the repository NOTICE file for provenance and licensing scope.
 
@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import os
 import re
+import time
+from collections.abc import Callable
 from collections.abc import Iterator
 from concurrent.futures import Future
 from concurrent.futures import ThreadPoolExecutor
@@ -99,6 +101,7 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
     _PMXT_DEFAULT_PREFETCH_WORKERS = 16
     _PMXT_DEFAULT_HTTP_BLOCK_SIZE = 32 * 1024 * 1024
     _PMXT_DEFAULT_HTTP_CACHE_TYPE = "readahead"
+    _PMXT_DOWNLOAD_CHUNK_SIZE = 4 * 1024 * 1024
 
     def __init__(self, *args, **kwargs) -> None:  # type: ignore[no-untyped-def]
         super().__init__(*args, **kwargs)
@@ -108,6 +111,10 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
         self._pmxt_prefetch_workers = self._resolve_prefetch_workers()
         self._pmxt_http_block_size = self._resolve_http_block_size()
         self._pmxt_http_cache_type = self._resolve_http_cache_type()
+        self._pmxt_download_progress_callback: Callable[
+            [str, int, int | None, bool],
+            None,
+        ] | None = None
         self._reset_http_filesystem()
 
     @staticmethod
@@ -463,8 +470,7 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
         batch_size: int,
     ) -> list[pa.RecordBatch] | None:
         try:
-            with urlopen(archive_url) as response:  # noqa: S310
-                payload = response.read()
+            payload = self._download_payload_with_progress(archive_url)
         except FileNotFoundError:
             return None
         except OSError as exc:
@@ -472,6 +478,9 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
                 return None
             return None
         except Exception:
+            return None
+
+        if payload is None:
             return None
 
         try:
@@ -607,8 +616,7 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
         batch_size: int,
     ) -> list[pa.RecordBatch] | None:
         try:
-            with urlopen(relay_url) as response:  # noqa: S310
-                payload = response.read()
+            payload = self._download_payload_with_progress(relay_url)
         except FileNotFoundError:
             return None
         except OSError as exc:
@@ -616,6 +624,9 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
                 return None
             return None
         except Exception:
+            return None
+
+        if payload is None:
             return None
 
         try:
@@ -650,30 +661,6 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
         if table is not None:
             return table
 
-        relay_batches = self._load_relay_market_batches(hour, batch_size=batch_size)
-        if relay_batches is not None:
-            table = (
-                pa.Table.from_batches(relay_batches)
-                if relay_batches
-                else self._empty_market_table()
-            )
-            if self._pmxt_cache_dir is not None:
-                with suppress(OSError, pa.ArrowException):
-                    self._write_market_cache(hour, table)
-            return table
-
-        relay_raw_batches = self._load_relay_raw_market_batches(hour, batch_size=batch_size)
-        if relay_raw_batches is not None:
-            table = (
-                pa.Table.from_batches(relay_raw_batches)
-                if relay_raw_batches
-                else self._empty_market_table()
-            )
-            if self._pmxt_cache_dir is not None:
-                with suppress(OSError, pa.ArrowException):
-                    self._write_market_cache(hour, table)
-            return table
-
         local_archive_batches = self._load_local_archive_market_batches(
             hour,
             batch_size=batch_size,
@@ -689,18 +676,42 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
                     self._write_market_cache(hour, table)
             return table
 
-        table = self._load_remote_market_table(hour, batch_size=batch_size)
-        if table is None:
+        relay_batches = self._load_relay_market_batches(hour, batch_size=batch_size)
+        if relay_batches is not None:
+            table = (
+                pa.Table.from_batches(relay_batches)
+                if relay_batches
+                else self._empty_market_table()
+            )
+            if self._pmxt_cache_dir is not None:
+                with suppress(OSError, pa.ArrowException):
+                    self._write_market_cache(hour, table)
             return table
 
-        table = self._filter_table_to_token(table)
-        if self._pmxt_cache_dir is None:
+        remote_table = self._load_remote_market_table(hour, batch_size=batch_size)
+        if remote_table is not None:
+            remote_table = self._filter_table_to_token(remote_table)
+            if self._pmxt_cache_dir is not None:
+                with suppress(OSError, pa.ArrowException):
+                    self._write_market_cache(hour, remote_table)
+            return remote_table
+
+        relay_raw_batches = self._load_relay_raw_market_batches(
+            hour,
+            batch_size=batch_size,
+        )
+        if relay_raw_batches is not None:
+            table = (
+                pa.Table.from_batches(relay_raw_batches)
+                if relay_raw_batches
+                else self._empty_market_table()
+            )
+            if self._pmxt_cache_dir is not None:
+                with suppress(OSError, pa.ArrowException):
+                    self._write_market_cache(hour, table)
             return table
 
-        with suppress(OSError, pa.ArrowException):
-            self._write_market_cache(hour, table)
-
-        return table
+        return None
 
     def _load_market_batches(
         self,
@@ -712,7 +723,23 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
         if batches is not None:
             return batches
 
+        batches = self._load_local_archive_market_batches(hour, batch_size=batch_size)
+        if batches is not None:
+            if self._pmxt_cache_dir is not None:
+                table = pa.Table.from_batches(batches) if batches else self._empty_market_table()
+                with suppress(OSError, pa.ArrowException):
+                    self._write_market_cache(hour, table)
+            return batches
+
         batches = self._load_relay_market_batches(hour, batch_size=batch_size)
+        if batches is not None:
+            if self._pmxt_cache_dir is not None:
+                table = pa.Table.from_batches(batches) if batches else self._empty_market_table()
+                with suppress(OSError, pa.ArrowException):
+                    self._write_market_cache(hour, table)
+            return batches
+
+        batches = self._load_remote_market_batches(hour, batch_size=batch_size)
         if batches is not None:
             if self._pmxt_cache_dir is not None:
                 table = pa.Table.from_batches(batches) if batches else self._empty_market_table()
@@ -728,26 +755,78 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
                     self._write_market_cache(hour, table)
             return batches
 
-        batches = self._load_local_archive_market_batches(hour, batch_size=batch_size)
-        if batches is not None:
-            if self._pmxt_cache_dir is not None:
-                table = pa.Table.from_batches(batches) if batches else self._empty_market_table()
-                with suppress(OSError, pa.ArrowException):
-                    self._write_market_cache(hour, table)
-            return batches
+        return None
 
-        batches = self._load_remote_market_batches(hour, batch_size=batch_size)
-        if batches is None:
+    def _emit_download_progress(
+        self,
+        url: str,
+        *,
+        downloaded_bytes: int,
+        total_bytes: int | None,
+        finished: bool,
+    ) -> None:
+        callback = getattr(self, "_pmxt_download_progress_callback", None)
+        if callback is None:
+            return
+        callback(url, downloaded_bytes, total_bytes, finished)
+
+    @staticmethod
+    def _content_length_from_response(response: object) -> int | None:
+        headers = getattr(response, "headers", None)
+        if headers is None:
+            return None
+        raw_value = headers.get("Content-Length")
+        if raw_value is None:
+            return None
+        try:
+            return max(0, int(raw_value))
+        except (TypeError, ValueError):
             return None
 
-        if self._pmxt_cache_dir is None:
-            return batches
-
-        table = pa.Table.from_batches(batches) if batches else self._empty_market_table()
-        with suppress(OSError, pa.ArrowException):
-            self._write_market_cache(hour, table)
-
-        return batches
+    def _download_payload_with_progress(self, url: str) -> bytes | None:
+        with urlopen(url) as response:  # noqa: S310
+            total_bytes = self._content_length_from_response(response)
+            downloaded_bytes = 0
+            last_emit = 0.0
+            chunks: list[bytes] = []
+            supports_chunked_read = True
+            self._emit_download_progress(
+                url,
+                downloaded_bytes=0,
+                total_bytes=total_bytes,
+                finished=False,
+            )
+            while True:
+                if supports_chunked_read:
+                    try:
+                        chunk = response.read(self._PMXT_DOWNLOAD_CHUNK_SIZE)
+                    except TypeError:
+                        supports_chunked_read = False
+                        chunk = response.read()
+                else:
+                    break
+                if not chunk:
+                    break
+                chunks.append(chunk)
+                downloaded_bytes += len(chunk)
+                now = time.monotonic()
+                if downloaded_bytes == total_bytes or (now - last_emit) >= 0.2:
+                    self._emit_download_progress(
+                        url,
+                        downloaded_bytes=downloaded_bytes,
+                        total_bytes=total_bytes,
+                        finished=False,
+                    )
+                    last_emit = now
+                if not supports_chunked_read:
+                    break
+            self._emit_download_progress(
+                url,
+                downloaded_bytes=downloaded_bytes,
+                total_bytes=total_bytes,
+                finished=True,
+            )
+            return b"".join(chunks)
 
     def _iter_market_tables(
         self,

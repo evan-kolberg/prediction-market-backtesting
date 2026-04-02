@@ -3,15 +3,15 @@
 When running a backtest, the PMXT loader fetches historical L2 order book data one hour at a time. Each hour can come from one of six sources, tried in order:
 
 1. **Local cache** (`~/.cache/nautilus_trader/pmxt/...`) — cached from a previous run. Sub-millisecond reads. The source column shows the full local file path.
-2. **Relay prebuilt** (`https://209-209-10-83.sslip.io`) — pre-partitioned per market/token file served directly from the relay. Under 2 seconds typically.
-3. **Relay raw passthrough** (`https://209-209-10-83.sslip.io/v1/raw/...`) — the hour is mirrored on the relay but not yet prebuilt for your market/token. The client downloads the raw relay parquet and filters it locally.
-4. **Local raw PMXT archive** (`PMXT_LOCAL_ARCHIVE_DIR`) — a locally mirrored raw PMXT hour file. The loader filters it client-side without touching the network.
-5. **Raw PMXT archive** (`https://r2.pmxt.dev`) — the hour isn't available from the relay and isn't available in your local mirror, so the loader falls back to the raw PMXT archive at `r2.pmxt.dev`. Downloads the full hour file and filters client-side.
+2. **Local raw PMXT archive** (`PMXT_LOCAL_ARCHIVE_DIR`) — a locally mirrored raw PMXT hour file. The loader filters it client-side without touching the network.
+3. **Relay prebuilt** (`https://209-209-10-83.sslip.io`) — pre-partitioned per market/token file served directly from the relay. Under 2 seconds typically.
+4. **Raw PMXT archive** (`https://r2.pmxt.dev`) — the hour isn't available from cache, local raws, or relay prebuilt files, so the loader falls back to the upstream PMXT archive. Downloads the full hour file and filters client-side.
+5. **Relay raw passthrough** (`https://209-209-10-83.sslip.io/v1/raw/...`) — the hour is mirrored on the relay but not yet prebuilt for your market/token, and upstream PMXT wasn't the winning source. The client downloads the raw relay parquet and filters it locally.
 6. **None** — the hour doesn't exist on any source (future hour, no data yet). Returns 0 rows.
 
 If a source fails or returns nothing, the loader falls through to the next one. After a successful fetch from sources 2-5, the result is written to the local cache so subsequent runs are instant.
 
-Caching is enabled by default at `~/.cache/nautilus_trader/pmxt/`. To disable it, set `PMXT_DISABLE_CACHE=true`. If you already have a local raw mirror, set `PMXT_LOCAL_ARCHIVE_DIR=/path/to/raw-hours` to keep that disk-local tier in the fallback chain before `r2.pmxt.dev`.
+Caching is enabled by default at `~/.cache/nautilus_trader/pmxt/`. To disable it, set `PMXT_DISABLE_CACHE=true`. If you already have a local raw mirror, set `PMXT_LOCAL_ARCHIVE_DIR=/path/to/raw-hours` to keep that disk-local tier ahead of every remote source.
 
 Hours print in completion order (not chronological) because they're fetched concurrently with 16 workers.
 
@@ -157,10 +157,10 @@ Total wall time: 54.36s
 | Source | Typical time | When it happens |
 |---|---|---|
 | Local cache | <0.05s | Second run onward (same market/token/hour) |
-| Relay prebuilt | 0.4-1.6s | Hour has been fully prebuilt on the relay |
-| Relay raw passthrough | network bound | Hour is mirrored on the relay but not yet prebuilt for your market/token |
 | Local raw PMXT archive | local disk bound | You mirrored raw PMXT hours locally and set `PMXT_LOCAL_ARCHIVE_DIR` |
+| Relay prebuilt | 0.4-1.6s | Hour has been fully prebuilt on the relay |
 | Raw PMXT archive (r2.pmxt.dev) | 30-50s | Hour missing from relay sources, so the client falls back to the upstream raw archive |
+| Relay raw passthrough | network bound | Hour is mirrored on the relay but not yet prebuilt for your market/token |
 | None | <1s | Hour doesn't exist yet |
 
 ## How to see this output

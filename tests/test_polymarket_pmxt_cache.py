@@ -215,6 +215,37 @@ def test_load_market_batches_prefers_relay_before_remote(tmp_path):
     )
 
 
+def test_load_market_batches_prefers_local_archive_before_relay(tmp_path):
+    raw_root = tmp_path / "raw-hours"
+    loader = _make_loader(tmp_path / "cache", local_archive_dir=raw_root)
+    loader._pmxt_relay_base_url = "http://relay.local:8080"
+    hour = pd.Timestamp("2026-03-16T13:00:00Z")
+    raw_path = raw_root / "polymarket_orderbook_2026-03-16T13.parquet"
+    raw_path.parent.mkdir(parents=True, exist_ok=True)
+    pq.write_table(
+        pa.table(
+            {
+                "market_id": ["condition-123"],
+                "update_type": ["book_snapshot"],
+                "data": ['{"token_id":"token-yes-123","payload":"local-raw"}'],
+            }
+        ),
+        raw_path,
+    )
+
+    def _fail_relay(*args, **kwargs):  # type: ignore[no-untyped-def]
+        raise AssertionError("relay load should not run when local raw exists")
+
+    loader._load_relay_market_batches = _fail_relay  # type: ignore[method-assign]
+
+    batches = loader._load_market_batches(hour, batch_size=1_000)
+
+    assert batches is not None
+    assert batches[0].column("data")[0].as_py() == (
+        '{"token_id":"token-yes-123","payload":"local-raw"}'
+    )
+
+
 def test_load_market_batches_falls_back_to_remote_when_relay_errors(
     tmp_path, monkeypatch
 ):
@@ -244,10 +275,17 @@ def test_load_market_batches_falls_back_to_remote_when_relay_errors(
     )
 
 
-def test_load_market_batches_prefers_relay_raw_before_remote(tmp_path):
+def test_load_market_batches_prefers_remote_before_relay_raw(tmp_path):
     loader = _make_loader(tmp_path)
     loader._pmxt_relay_base_url = "http://relay.local:8080"
     hour = pd.Timestamp("2026-03-16T13:00:00Z")
+    remote_batch = pa.record_batch(
+        [
+            pa.array(["book_snapshot"]),
+            pa.array(['{"token_id":"token-yes-123","payload":"remote"}']),
+        ],
+        names=["update_type", "data"],
+    )
     relay_raw_batch = pa.record_batch(
         [
             pa.array(["book_snapshot"]),
@@ -257,25 +295,23 @@ def test_load_market_batches_prefers_relay_raw_before_remote(tmp_path):
     )
 
     loader._load_relay_market_batches = lambda _hour, *, batch_size: None  # type: ignore[method-assign]
+    loader._load_remote_market_batches = (  # type: ignore[method-assign]
+        lambda _hour, *, batch_size: [remote_batch]
+    )
     loader._load_relay_raw_market_batches = (  # type: ignore[method-assign]
         lambda _hour, *, batch_size: [relay_raw_batch]
     )
-
-    def _fail_remote(*args, **kwargs):  # type: ignore[no-untyped-def]
-        raise AssertionError("remote load should not run when relay raw responds")
-
-    loader._load_remote_market_batches = _fail_remote  # type: ignore[method-assign]
 
     batches = loader._load_market_batches(hour, batch_size=1_000)
 
     assert batches is not None
     assert (
         batches[0].column("data")[0].as_py()
-        == '{"token_id":"token-yes-123","payload":"relay-raw"}'
+        == '{"token_id":"token-yes-123","payload":"remote"}'
     )
 
 
-def test_load_market_batches_prefers_relay_raw_before_local_archive(tmp_path):
+def test_load_market_batches_prefers_local_archive_before_relay_raw(tmp_path):
     raw_root = tmp_path / "raw-hours"
     loader = _make_loader(tmp_path / "cache", local_archive_dir=raw_root)
     loader._pmxt_relay_base_url = "http://relay.local:8080"
@@ -309,7 +345,7 @@ def test_load_market_batches_prefers_relay_raw_before_local_archive(tmp_path):
 
     assert batches is not None
     assert batches[0].column("data")[0].as_py() == (
-        '{"token_id":"token-yes-123","payload":"relay-raw"}'
+        '{"token_id":"token-yes-123","payload":"local-raw"}'
     )
 
 
@@ -335,6 +371,7 @@ def test_load_market_batches_falls_back_to_direct_relay_download(tmp_path, monke
     class _Response:
         def __init__(self, payload: bytes) -> None:
             self._payload = payload
+            self._offset = 0
 
         def __enter__(self) -> "_Response":
             return self
@@ -343,8 +380,12 @@ def test_load_market_batches_falls_back_to_direct_relay_download(tmp_path, monke
             del exc_type, exc, tb
             return False
 
-        def read(self) -> bytes:
-            return self._payload
+        def read(self, size: int = -1) -> bytes:
+            if size < 0:
+                size = len(self._payload) - self._offset
+            chunk = self._payload[self._offset : self._offset + size]
+            self._offset += len(chunk)
+            return chunk
 
     def _raise_relay_dataset(*args, **kwargs):  # type: ignore[no-untyped-def]
         raise RuntimeError("relay parquet is not random-access readable")
@@ -399,6 +440,7 @@ def test_load_relay_raw_market_batches_falls_back_to_direct_download(
     class _Response:
         def __init__(self, payload: bytes) -> None:
             self._payload = payload
+            self._offset = 0
 
         def __enter__(self) -> "_Response":
             return self
@@ -407,8 +449,12 @@ def test_load_relay_raw_market_batches_falls_back_to_direct_download(
             del exc_type, exc, tb
             return False
 
-        def read(self) -> bytes:
-            return self._payload
+        def read(self, size: int = -1) -> bytes:
+            if size < 0:
+                size = len(self._payload) - self._offset
+            chunk = self._payload[self._offset : self._offset + size]
+            self._offset += len(chunk)
+            return chunk
 
     def _raise_relay_dataset(*args, **kwargs):  # type: ignore[no-untyped-def]
         raise RuntimeError("relay parquet is not random-access readable")

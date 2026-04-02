@@ -27,6 +27,7 @@ def _make_loader(
 ) -> RunnerPolymarketPMXTDataLoader:
     loader = object.__new__(RunnerPolymarketPMXTDataLoader)
     loader._pmxt_cache_dir = cache_dir
+    loader._pmxt_local_archive_dir = None
     loader._pmxt_relay_base_url = None
     loader._condition_id = "condition-123"
     loader._token_id = "token-yes-123"
@@ -126,7 +127,7 @@ def test_runner_loader_reads_market_rows_from_local_raw_mirror(tmp_path):
         raw_path,
     )
 
-    batches = loader._load_remote_market_batches(hour, batch_size=1_000)
+    batches = loader._load_local_archive_market_batches(hour, batch_size=1_000)
 
     assert batches is not None
     assert pa.Table.from_batches(batches).to_pylist() == [
