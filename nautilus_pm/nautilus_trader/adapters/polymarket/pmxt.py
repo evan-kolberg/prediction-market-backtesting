@@ -17,6 +17,7 @@ from datetime import UTC
 from io import BytesIO
 from pathlib import Path
 from urllib.parse import quote
+from urllib.request import Request
 from urllib.request import urlopen
 
 import fsspec
@@ -111,10 +112,21 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
         self._pmxt_prefetch_workers = self._resolve_prefetch_workers()
         self._pmxt_http_block_size = self._resolve_http_block_size()
         self._pmxt_http_cache_type = self._resolve_http_cache_type()
-        self._pmxt_download_progress_callback: Callable[
-            [str, int, int | None, bool],
-            None,
-        ] | None = None
+        self._pmxt_download_progress_callback: (
+            Callable[
+                [str, int, int | None, bool],
+                None,
+            ]
+            | None
+        ) = None
+        self._pmxt_scan_progress_callback: (
+            Callable[
+                [str, int, int, int, int | None, bool],
+                None,
+            ]
+            | None
+        ) = None
+        self._pmxt_progress_size_cache: dict[str, int | None] = {}
         self._reset_http_filesystem()
 
     @staticmethod
@@ -415,6 +427,8 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
         dataset: ds.Dataset,
         *,
         batch_size: int,
+        source: str | None = None,
+        total_bytes: int | None = None,
     ) -> list[pa.RecordBatch]:
         scanner = dataset.scanner(
             columns=self._PMXT_REMOTE_COLUMNS,
@@ -422,10 +436,47 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
             batch_size=batch_size,
         )
         batches: list[pa.RecordBatch] = []
+        scanned_batches = 0
+        scanned_rows = 0
+        matched_rows = 0
+        last_emit = 0.0
+        if source is not None:
+            self._emit_scan_progress(
+                source,
+                scanned_batches=scanned_batches,
+                scanned_rows=scanned_rows,
+                matched_rows=matched_rows,
+                total_bytes=total_bytes,
+                finished=False,
+            )
         for batch in scanner.to_batches():
+            scanned_batches += 1
+            scanned_rows += batch.num_rows
             filtered_batch = self._filter_batch_to_token(batch)
+            matched_rows += filtered_batch.num_rows
             if filtered_batch.num_rows:
                 batches.append(filtered_batch)
+            if source is not None:
+                now = time.monotonic()
+                if scanned_batches == 1 or (now - last_emit) >= 0.2:
+                    self._emit_scan_progress(
+                        source,
+                        scanned_batches=scanned_batches,
+                        scanned_rows=scanned_rows,
+                        matched_rows=matched_rows,
+                        total_bytes=total_bytes,
+                        finished=False,
+                    )
+                    last_emit = now
+        if source is not None:
+            self._emit_scan_progress(
+                source,
+                scanned_batches=scanned_batches,
+                scanned_rows=scanned_rows,
+                matched_rows=matched_rows,
+                total_bytes=total_bytes,
+                finished=True,
+            )
         return batches
 
     def _load_remote_market_table(
@@ -461,7 +512,12 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
                 return None
             raise
 
-        return self._scan_raw_market_batches(dataset, batch_size=batch_size)
+        return self._scan_raw_market_batches(
+            dataset,
+            batch_size=batch_size,
+            source=archive_url,
+            total_bytes=self._progress_total_bytes(archive_url),
+        )
 
     def _load_raw_market_batches_via_download(
         self,
@@ -513,7 +569,12 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
                 continue
 
             try:
-                return self._scan_raw_market_batches(dataset, batch_size=batch_size)
+                return self._scan_raw_market_batches(
+                    dataset,
+                    batch_size=batch_size,
+                    source=str(archive_path),
+                    total_bytes=self._progress_total_bytes(str(archive_path)),
+                )
             except (OSError, ValueError, pa.ArrowException):
                 continue
 
@@ -553,7 +614,12 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
             )
 
         try:
-            return self._scan_raw_market_batches(dataset, batch_size=batch_size)
+            return self._scan_raw_market_batches(
+                dataset,
+                batch_size=batch_size,
+                source=relay_url,
+                total_bytes=self._progress_total_bytes(relay_url),
+            )
         except FileNotFoundError:
             return None
         except OSError as exc:
@@ -770,6 +836,28 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
             return
         callback(url, downloaded_bytes, total_bytes, finished)
 
+    def _emit_scan_progress(
+        self,
+        source: str,
+        *,
+        scanned_batches: int,
+        scanned_rows: int,
+        matched_rows: int,
+        total_bytes: int | None,
+        finished: bool,
+    ) -> None:
+        callback = getattr(self, "_pmxt_scan_progress_callback", None)
+        if callback is None:
+            return
+        callback(
+            source,
+            scanned_batches,
+            scanned_rows,
+            matched_rows,
+            total_bytes,
+            finished,
+        )
+
     @staticmethod
     def _content_length_from_response(response: object) -> int | None:
         headers = getattr(response, "headers", None)
@@ -782,6 +870,33 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
             return max(0, int(raw_value))
         except (TypeError, ValueError):
             return None
+
+    def _progress_total_bytes(self, source: str) -> int | None:
+        if getattr(self, "_pmxt_scan_progress_callback", None) is None:
+            return None
+
+        cache = getattr(self, "_pmxt_progress_size_cache", None)
+        if cache is None:
+            cache = {}
+            self._pmxt_progress_size_cache = cache
+        if source in cache:
+            return cache[source]
+
+        total_bytes: int | None = None
+        if "://" in source:
+            try:
+                with urlopen(Request(source, method="HEAD")) as response:  # noqa: S310
+                    total_bytes = self._content_length_from_response(response)
+            except Exception:
+                total_bytes = None
+        else:
+            try:
+                total_bytes = Path(source).expanduser().stat().st_size
+            except OSError:
+                total_bytes = None
+
+        cache[source] = total_bytes
+        return total_bytes
 
     def _download_payload_with_progress(self, url: str) -> bytes | None:
         with urlopen(url) as response:  # noqa: S310

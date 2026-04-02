@@ -34,6 +34,9 @@ def _make_loader(
     loader._pmxt_prefetch_workers = 2
     loader._pmxt_http_block_size = 32 * 1024 * 1024
     loader._pmxt_http_cache_type = "readahead"
+    loader._pmxt_download_progress_callback = None
+    loader._pmxt_scan_progress_callback = None
+    loader._pmxt_progress_size_cache = {}
     loader._pmxt_raw_root = raw_root
     loader._pmxt_disable_remote_archive = disable_remote_archive
     loader._reset_http_filesystem()

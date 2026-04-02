@@ -7,6 +7,7 @@ from types import SimpleNamespace
 
 import pandas as pd
 import pyarrow as pa
+import pyarrow.dataset as ds
 import pyarrow.parquet as pq
 
 from nautilus_trader.adapters.polymarket import pmxt as pmxt_module
@@ -27,6 +28,9 @@ def _make_loader(
     loader._pmxt_prefetch_workers = 2
     loader._pmxt_http_block_size = 32 * 1024 * 1024
     loader._pmxt_http_cache_type = "readahead"
+    loader._pmxt_download_progress_callback = None
+    loader._pmxt_scan_progress_callback = None
+    loader._pmxt_progress_size_cache = {}
     loader._reset_http_filesystem()
     return loader
 
@@ -244,6 +248,46 @@ def test_load_market_batches_prefers_local_archive_before_relay(tmp_path):
     assert batches[0].column("data")[0].as_py() == (
         '{"token_id":"token-yes-123","payload":"local-raw"}'
     )
+
+
+def test_scan_raw_market_batches_emits_scan_progress(tmp_path):
+    loader = _make_loader(tmp_path / "cache")
+    raw_path = tmp_path / "polymarket_orderbook_2026-03-16T13.parquet"
+    pq.write_table(
+        pa.table(
+            {
+                "market_id": ["condition-123", "condition-123"],
+                "update_type": ["book_snapshot", "price_change"],
+                "data": [
+                    '{"token_id":"token-yes-123","payload":"keep"}',
+                    '{"token_id":"token-no-456","payload":"drop"}',
+                ],
+            }
+        ),
+        raw_path,
+    )
+
+    events: list[tuple[int, int, int, int | None, bool]] = []
+    loader._pmxt_scan_progress_callback = (
+        lambda _source, scanned_batches, scanned_rows, matched_rows, total_bytes, finished: (
+            events.append(  # type: ignore[assignment]
+                (scanned_batches, scanned_rows, matched_rows, total_bytes, finished)
+            )
+        )
+    )
+
+    dataset = ds.dataset(str(raw_path), format="parquet")
+    batches = loader._scan_raw_market_batches(
+        dataset,
+        batch_size=1_000,
+        source=str(raw_path),
+        total_bytes=raw_path.stat().st_size,
+    )
+
+    assert batches
+    assert events
+    assert events[0] == (0, 0, 0, raw_path.stat().st_size, False)
+    assert events[-1] == (1, 2, 1, raw_path.stat().st_size, True)
 
 
 def test_load_market_batches_falls_back_to_remote_when_relay_errors(

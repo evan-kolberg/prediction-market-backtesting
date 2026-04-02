@@ -64,6 +64,7 @@ def install_timing() -> None:
         *,
         url: str,
         total_bytes: int | None,
+        mode: str | None = None,
     ) -> dict[str, object]:
         downloads: dict[str, dict[str, object]] = transfer_state["downloads"]  # type: ignore[assignment]
         state = downloads.get(url)
@@ -73,10 +74,17 @@ def install_timing() -> None:
                 "started_at": time.monotonic(),
                 "downloaded_bytes": 0,
                 "total_bytes": total_bytes,
+                "mode": mode,
+                "scanned_batches": 0,
+                "scanned_rows": 0,
+                "matched_rows": 0,
             }
             downloads[url] = state
-        elif total_bytes is not None:
-            state["total_bytes"] = total_bytes
+        else:
+            if total_bytes is not None:
+                state["total_bytes"] = total_bytes
+            if mode is not None:
+                state["mode"] = mode
         return state
 
     def _close_transfer_state(url: str) -> None:
@@ -96,9 +104,31 @@ def install_timing() -> None:
         active_downloads = list(downloads.values())
         for state in active_downloads[:2]:
             elapsed = now - float(state["started_at"])
+            mode = state.get("mode")
             downloaded_bytes = int(state["downloaded_bytes"])
             total_bytes = state["total_bytes"]
-            if total_bytes:
+            if mode == "scan":
+                size_text = (
+                    f"{(total_bytes / (1024 * 1024)):,.1f}MiB"
+                    if total_bytes
+                    else "scan"
+                )
+                scanned_batches = int(state["scanned_batches"])
+                scanned_rows = int(state["scanned_rows"])
+                matched_rows = int(state["matched_rows"])
+                detail_parts: list[str] = []
+                if scanned_batches:
+                    detail_parts.append(f"{scanned_batches}b")
+                if matched_rows:
+                    detail_parts.append(f"{matched_rows:,}r")
+                elif scanned_rows:
+                    detail_parts.append(f"{scanned_rows:,}r")
+                detail = " ".join(detail_parts)
+                labels.append(
+                    f"{_transfer_label(str(state['url']))} scan {size_text}"
+                    f"{(' ' + detail) if detail else ''} {elapsed:4.1f}s"
+                )
+            elif total_bytes:
                 mib_total = total_bytes / (1024 * 1024)
                 mib_downloaded = downloaded_bytes / (1024 * 1024)
                 labels.append(
@@ -127,12 +157,39 @@ def install_timing() -> None:
         finished: bool,
     ) -> None:
         with pbar_lock:
-            state = _ensure_transfer_state(url=url, total_bytes=total_bytes)
+            state = _ensure_transfer_state(
+                url=url,
+                total_bytes=total_bytes,
+                mode="download",
+            )
             state["downloaded_bytes"] = downloaded_bytes
             state["total_bytes"] = total_bytes
             _refresh_transfer_status()
             if finished:
                 _close_transfer_state(url)
+                _refresh_transfer_status()
+
+    def _scan_progress(
+        source: str,
+        scanned_batches: int,
+        scanned_rows: int,
+        matched_rows: int,
+        total_bytes: int | None,
+        finished: bool,
+    ) -> None:
+        with pbar_lock:
+            state = _ensure_transfer_state(
+                url=source,
+                total_bytes=total_bytes,
+                mode="scan",
+            )
+            state["scanned_batches"] = scanned_batches
+            state["scanned_rows"] = scanned_rows
+            state["matched_rows"] = matched_rows
+            state["total_bytes"] = total_bytes
+            _refresh_transfer_status()
+            if finished:
+                _close_transfer_state(source)
                 _refresh_transfer_status()
 
     def _transfer_heartbeat() -> None:
@@ -254,13 +311,20 @@ def install_timing() -> None:
                     "_pmxt_download_progress_callback",
                     None,
                 )
+                previous_scan_callback = getattr(
+                    self,
+                    "_pmxt_scan_progress_callback",
+                    None,
+                )
                 self._pmxt_download_progress_callback = _download_progress
+                self._pmxt_scan_progress_callback = _scan_progress
                 heartbeat_thread.start()
             try:
                 yield from orig_iter(self, hours, batch_size=batch_size)
             finally:
                 with pbar_lock:
                     self._pmxt_download_progress_callback = previous_callback
+                    self._pmxt_scan_progress_callback = previous_scan_callback
                     stop_event.set()
                     downloads: dict[str, dict[str, object]] = transfer_state[
                         "downloads"
