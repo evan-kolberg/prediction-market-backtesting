@@ -102,15 +102,25 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
                 batches.append(filtered_batch)
         return batches
 
-    def _load_remote_market_batches(
+    def _load_local_archive_market_batches(
         self,
         hour,
         *,
         batch_size: int,
     ):  # type: ignore[no-untyped-def]
         if self._pmxt_raw_root is not None:
-            return self._load_local_raw_market_batches(hour, batch_size=batch_size)
+            batches = self._load_local_raw_market_batches(hour, batch_size=batch_size)
+            if batches is not None:
+                return batches
 
+        return super()._load_local_archive_market_batches(hour, batch_size=batch_size)
+
+    def _load_remote_market_batches(
+        self,
+        hour,
+        *,
+        batch_size: int,
+    ):  # type: ignore[no-untyped-def]
         if self._pmxt_disable_remote_archive:
             return None
 
@@ -222,7 +232,7 @@ def resolve_pmxt_data_source_selection() -> tuple[
         return (
             PMXTDataSourceSelection(
                 mode="auto",
-                summary="PMXT source: auto (cache -> relay filtered/raw -> local raw -> raw remote)",
+                summary="PMXT source: auto (cache -> local raw -> relay filtered -> raw remote -> relay raw)",
             ),
             {},
         )
@@ -231,7 +241,7 @@ def resolve_pmxt_data_source_selection() -> tuple[
         return (
             PMXTDataSourceSelection(
                 mode=mode,
-                summary="PMXT source: auto (cache -> relay filtered/raw -> local raw -> raw remote)",
+                summary="PMXT source: auto (cache -> local raw -> relay filtered -> raw remote -> relay raw)",
             ),
             {
                 PMXT_RELAY_BASE_URL_ENV: _resolve_existing_relay_url(),

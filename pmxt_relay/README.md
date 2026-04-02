@@ -280,9 +280,9 @@ Or disable relay usage entirely with:
 PMXT_RELAY_BASE_URL=0
 ```
 
-The loader prefers relay-hosted filtered hours before falling back to any local
-relay raw hour mirror, then any local raw PMXT mirror configured via
-`PMXT_LOCAL_ARCHIVE_DIR`, then finally `r2.pmxt.dev`.
+The loader prefers any local raw PMXT mirror configured via
+`PMXT_LOCAL_ARCHIVE_DIR`, then relay-hosted filtered hours, then
+`r2.pmxt.dev`, then the relay's raw hour mirror.
 
 ## Environment
 
