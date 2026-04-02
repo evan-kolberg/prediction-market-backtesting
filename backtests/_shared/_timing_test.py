@@ -49,6 +49,8 @@ def install_timing() -> None:
         orig_load = loader_cls._load_market_batches
         orig_cached = loader_cls._load_cached_market_batches
         orig_relay = loader_cls._load_relay_market_batches
+        orig_relay_raw = loader_cls._load_relay_raw_market_batches
+        orig_local_archive = loader_cls._load_local_archive_market_batches
         orig_remote = loader_cls._load_remote_market_batches
         orig_iter = loader_cls._iter_market_batches
 
@@ -63,6 +65,23 @@ def install_timing() -> None:
             result = orig_relay(self, hour, batch_size=batch_size)
             if result is not None:
                 source_local.source = self._pmxt_relay_base_url or "relay"
+            return result
+
+        def patched_relay_raw(self, hour, *, batch_size):
+            result = orig_relay_raw(self, hour, batch_size=batch_size)
+            if result is not None:
+                source_local.source = self._relay_raw_url_for_hour(hour) or "relay-raw"
+            return result
+
+        def patched_local_archive(self, hour, *, batch_size):
+            result = orig_local_archive(self, hour, batch_size=batch_size)
+            if result is not None:
+                archive_paths = self._local_archive_paths_for_hour(hour)
+                existing_path = next(
+                    (path for path in archive_paths if path.exists()),
+                    None,
+                )
+                source_local.source = str(existing_path) if existing_path else "local-raw"
             return result
 
         def patched_remote(self, hour, *, batch_size):
@@ -110,6 +129,8 @@ def install_timing() -> None:
 
         loader_cls._load_cached_market_batches = patched_cached
         loader_cls._load_relay_market_batches = patched_relay
+        loader_cls._load_relay_raw_market_batches = patched_relay_raw
+        loader_cls._load_local_archive_market_batches = patched_local_archive
         loader_cls._load_remote_market_batches = patched_remote
         loader_cls._load_market_batches = timed_load
         loader_cls._iter_market_batches = patched_iter
