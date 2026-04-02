@@ -81,7 +81,9 @@ def install_timing() -> None:
                     (path for path in archive_paths if path.exists()),
                     None,
                 )
-                source_local.source = str(existing_path) if existing_path else "local-raw"
+                source_local.source = (
+                    str(existing_path) if existing_path else "local-raw"
+                )
             return result
 
         def patched_remote(self, hour, *, batch_size):
