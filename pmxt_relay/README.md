@@ -164,6 +164,12 @@ proxy. For the database-backed path, keep
 `PMXT_RELAY_FILTERED_STORE_BACKEND=clickhouse` and point the ClickHouse vars at
 your local HTTP endpoint.
 
+If you front the relay with Caddy, nginx, or another reverse proxy, serve
+`/v1/raw/*` straight from `/srv/pmxt-relay/raw` instead of proxying those large
+parquet downloads back through the Python API. Keeping raw-hour file serving in
+the web server avoids badge/API stalls when a backtest is pulling many missing
+hours at once.
+
 Install the systemd units:
 
 ```bash
@@ -275,8 +281,8 @@ PMXT_RELAY_BASE_URL=0
 ```
 
 The loader prefers relay-hosted filtered hours before falling back to any local
-raw PMXT mirror configured via `PMXT_LOCAL_ARCHIVE_DIR`, then finally
-`r2.pmxt.dev`.
+relay raw hour mirror, then any local raw PMXT mirror configured via
+`PMXT_LOCAL_ARCHIVE_DIR`, then finally `r2.pmxt.dev`.
 
 ## Environment
 
@@ -375,3 +381,25 @@ Operationally, keep:
 - `fail2ban` enabled for `sshd`
 - the relay on a non-root service account
 - request logs and `/v1/events` enabled so abuse patterns are visible
+- `/v1/raw/*` offloaded to the reverse proxy's static file server so large raw
+  parquet downloads do not monopolize the Python API workers
+
+If you are using Caddy in front of the relay, a simple shape is:
+
+```caddyfile
+209-209-10-83.sslip.io {
+    encode gzip
+
+    handle_path /v1/raw/* {
+        root * /srv/pmxt-relay/raw
+        header Cache-Control "public, max-age=31536000, immutable"
+        file_server
+    }
+
+    reverse_proxy 127.0.0.1:8080
+}
+```
+
+Make sure the proxy user can actually read `/srv/pmxt-relay/raw`. For example,
+on Ubuntu with the packaged `caddy` user, adding `caddy` to the `pmxtrelay`
+group is usually enough when the raw tree is group-readable.
