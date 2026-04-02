@@ -16,9 +16,10 @@ from typing import Any
 
 import pandas as pd
 
+from backtests._shared.trade_tick_ui import build_single_market_trade_summary_row
+from backtests._shared.trade_tick_ui import print_single_market_trade_summary
 from nautilus_trader.adapters.kalshi.fee_model import KalshiProportionalFeeModel
 from nautilus_trader.adapters.kalshi.loaders import KalshiDataLoader
-from nautilus_trader.adapters.prediction_market.research import print_backtest_summary
 from nautilus_trader.adapters.prediction_market.research import run_market_backtest
 from nautilus_trader.model.currencies import USD
 from nautilus_trader.model.identifiers import InstrumentId
@@ -80,6 +81,7 @@ async def run_single_market_trade_backtest(
         print(f"No trades returned for {market_ticker}")
         return
 
+    print(f"  running backtest for {market_ticker}...")
     result = run_market_backtest(
         market_id=market_ticker,
         instrument=loader.instrument,
@@ -102,10 +104,15 @@ async def run_single_market_trade_backtest(
     )
 
     if emit_summary:
-        print_backtest_summary(
-            results=[result],
-            market_key="ticker",
-            count_key="trades",
+        summary_row = build_single_market_trade_summary_row(
+            market_label=market_ticker,
+            count=int(result.get("trades", len(trades))),
+            fills=int(result["fills"]),
+            pnl=float(result["pnl"]),
+            prices=prices,
+        )
+        print_single_market_trade_summary(
+            rows=[summary_row],
             count_label="Trades",
             pnl_label="PnL (USD)",
         )

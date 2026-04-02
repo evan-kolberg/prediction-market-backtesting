@@ -16,13 +16,14 @@ from typing import Any
 
 import pandas as pd
 
+from backtests._shared.trade_tick_ui import build_single_market_trade_summary_row
+from backtests._shared.trade_tick_ui import print_single_market_trade_summary
 from nautilus_trader.adapters.polymarket import POLYMARKET_VENUE
 from nautilus_trader.adapters.polymarket import PolymarketDataLoader
 from nautilus_trader.adapters.polymarket.fee_model import PolymarketFeeModel
 from nautilus_trader.adapters.prediction_market.backtest_utils import (
     infer_realized_outcome,
 )
-from nautilus_trader.adapters.prediction_market.research import print_backtest_summary
 from nautilus_trader.adapters.prediction_market.research import run_market_backtest
 from nautilus_trader.model.currencies import USDC_POS
 from nautilus_trader.model.identifiers import InstrumentId
@@ -88,6 +89,9 @@ async def run_single_market_trade_backtest(
         print(f"No trades returned for {market_slug}")
         return
 
+    outcome = str(loader.instrument.outcome or "").strip()
+    market_label = f"{market_slug}:{outcome}" if outcome else market_slug
+    print(f"  running backtest for {market_label}...")
     result = run_market_backtest(
         market_id=market_slug,
         instrument=loader.instrument,
@@ -111,10 +115,15 @@ async def run_single_market_trade_backtest(
     )
 
     if emit_summary:
-        print_backtest_summary(
-            results=[result],
-            market_key="slug",
-            count_key="trades",
+        summary_row = build_single_market_trade_summary_row(
+            market_label=market_label,
+            count=int(result.get("trades", len(trades))),
+            fills=int(result["fills"]),
+            pnl=float(result["pnl"]),
+            prices=prices,
+        )
+        print_single_market_trade_summary(
+            rows=[summary_row],
             count_label="Trades",
             pnl_label="PnL (USDC)",
         )
@@ -122,6 +131,7 @@ async def run_single_market_trade_backtest(
             print(f"\nLegacy chart saved to {result['chart_path']}")
 
     result["token_index"] = token_index
-    result["outcome"] = str(loader.instrument.outcome or "")
+    result["outcome"] = outcome
+    result["market_label"] = market_label
     result["realized_outcome"] = infer_realized_outcome(loader.instrument)
     return result
