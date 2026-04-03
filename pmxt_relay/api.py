@@ -846,7 +846,7 @@ async def _index_queue_summary_async(index: object) -> dict[str, object]:
 
 
 async def _index_recent_events_async(index: object, limit: int):
-    return await asyncio.to_thread(index.recent_events, limit)
+    return await asyncio.to_thread(index.recent_events, limit=limit)
 
 
 async def _index_progress_snapshot_async(
@@ -897,9 +897,16 @@ async def events(request: web.Request) -> web.Response:
     except ValueError:
         limit = 100
     rows = await _index_recent_events_async(index, limit)
-    payload = []
+    events_payload = []
     for row in rows:
-        payload.append(
+        event_payload = None
+        raw_payload = row["payload_json"]
+        if raw_payload is not None:
+            try:
+                event_payload = json.loads(raw_payload)
+            except json.JSONDecodeError:
+                event_payload = {"raw_payload": raw_payload}
+        events_payload.append(
             {
                 "id": row["id"],
                 "created_at": row["created_at"],
@@ -907,12 +914,10 @@ async def events(request: web.Request) -> web.Response:
                 "event_type": row["event_type"],
                 "filename": row["filename"],
                 "message": row["message"],
-                "payload": json.loads(row["payload_json"])
-                if row["payload_json"] is not None
-                else None,
+                "payload": event_payload,
             }
         )
-    return web.json_response({"events": payload})
+    return web.json_response({"events": events_payload})
 
 
 async def inflight(request: web.Request) -> web.Response:
@@ -1257,7 +1262,8 @@ def create_app(config: RelayConfig) -> web.Application:
     app[CONFIG_APP_KEY] = config
     index = RelayIndex(config.db_path, event_retention=config.event_retention)
     app[INDEX_APP_KEY] = index
-    app[FILTERED_STORE_APP_KEY] = create_filtered_hour_store(config, index)
+    if config.filtered_api_enabled:
+        app[FILTERED_STORE_APP_KEY] = create_filtered_hour_store(config, index)
     app[RATE_LIMITER_APP_KEY] = RequestRateLimiter(config.api_rate_limit_per_minute)
     index.initialize(apply_maintenance=False)
     app.on_response_prepare.append(on_prepare_response)
@@ -1295,13 +1301,14 @@ def create_app(config: RelayConfig) -> web.Application:
     app.router.add_get("/v1/badge/mirroring.svg", badge_mirroring_svg)
     app.router.add_get("/v1/badge/processing.svg", badge_processing_svg)
     app.router.add_get("/v1/badge/clickhouse.svg", badge_clickhouse_svg)
-    app.router.add_get(
-        "/v1/markets/{condition_id}/tokens/{token_id}/hours",
-        list_filtered_hours,
-    )
-    app.router.add_get(
-        "/v1/filtered/{condition_id}/{token_id}/{filename}",
-        serve_filtered,
-    )
+    if config.filtered_api_enabled:
+        app.router.add_get(
+            "/v1/markets/{condition_id}/tokens/{token_id}/hours",
+            list_filtered_hours,
+        )
+        app.router.add_get(
+            "/v1/filtered/{condition_id}/{token_id}/{filename}",
+            serve_filtered,
+        )
     app.router.add_get("/v1/raw/{filename:.*}", serve_raw)
     return app

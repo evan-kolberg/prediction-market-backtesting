@@ -128,6 +128,41 @@ def test_progress_reporting_requires_large_row_delta_or_completion(
     )
 
 
+def test_mirror_only_mode_does_not_leave_processing_backlog(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    config = replace(_make_config(tmp_path), mirror_only=True)
+    worker = RelayWorker(config, reset_inflight=False)
+    filename = "polymarket_orderbook_2026-03-21T12.parquet"
+    source_url = f"https://r2.pmxt.dev/{filename}"
+    worker._index.upsert_discovered_hour(filename, source_url, 1)  # noqa: SLF001
+    row = worker._index.list_hours_needing_mirror()[0]  # noqa: SLF001
+
+    def fake_urlopen(request, timeout):  # type: ignore[no-untyped-def]
+        assert timeout == config.http_timeout_secs
+        return _FakeResponse(
+            b"raw-payload",
+            headers={
+                "ETag": '"abc123"',
+                "Last-Modified": "Sun, 21 Mar 2026 12:59:59 GMT",
+                "Content-Length": "11",
+            },
+        )
+
+    monkeypatch.setattr("pmxt_relay.worker.urlopen", fake_urlopen)
+
+    worker._mirror_hour(row)  # noqa: SLF001
+
+    stats = worker._index.stats()  # noqa: SLF001
+    queue = worker._index.queue_summary()  # noqa: SLF001
+    assert stats["mirrored_hours"] == 1
+    assert stats["ready_to_process_hours"] == 0
+    assert stats["processing_disabled_hours"] == 1
+    assert queue["process_pending"] == 0
+    assert queue["process_disabled"] == 1
+
+
 def test_clickhouse_backend_never_requests_processed_or_filtered_file_writes(
     tmp_path: Path,
     monkeypatch,

@@ -204,6 +204,48 @@ def test_raw_route_serves_mirrored_hour(tmp_path: Path):
     asyncio.run(scenario())
 
 
+def test_mirror_only_api_disables_filtered_routes_but_keeps_raw(tmp_path: Path):
+    async def scenario() -> None:
+        config = replace(_make_config(tmp_path), mirror_only=True)
+        config.ensure_directories()
+        raw_path = (
+            config.raw_root
+            / "2026"
+            / "03"
+            / "21"
+            / "polymarket_orderbook_2026-03-21T12.parquet"
+        )
+        raw_path.parent.mkdir(parents=True, exist_ok=True)
+        raw_path.write_bytes(b"raw-payload")
+
+        app = create_app(config)
+        server = TestServer(app)
+        client = TestClient(server)
+        await client.start_server()
+        try:
+            raw_response = await client.get(
+                "/v1/raw/2026/03/21/polymarket_orderbook_2026-03-21T12.parquet"
+            )
+            filtered_response = await client.get(
+                "/v1/filtered/"
+                + ("0x" + ("ab" * 32))
+                + "/123456789/polymarket_orderbook_2026-03-21T12.parquet"
+            )
+            list_response = await client.get(
+                "/v1/markets/" + ("0x" + ("ab" * 32)) + "/tokens/123456789/hours"
+            )
+            raw_payload = await raw_response.read()
+        finally:
+            await client.close()
+
+        assert raw_response.status == 200
+        assert raw_payload == b"raw-payload"
+        assert filtered_response.status == 404
+        assert list_response.status == 404
+
+    asyncio.run(scenario())
+
+
 def test_collect_inflight_processes_reports_tmp_tree(tmp_path: Path):
     config = _make_config(tmp_path)
     inflight_root = (
@@ -257,6 +299,49 @@ def test_proxy_forwarded_clients_do_not_share_rate_limit_bucket(tmp_path: Path):
         assert first.status == 200
         assert second.status == 429
         assert third.status == 200
+
+    asyncio.run(scenario())
+
+
+def test_events_route_tolerates_invalid_payload_json(tmp_path: Path):
+    async def scenario() -> None:
+        config = _make_config(tmp_path)
+        config.ensure_directories()
+        app = create_app(config)
+        index = app[INDEX_APP_KEY]
+        with index._conn:  # noqa: SLF001
+            index._conn.execute(  # noqa: SLF001
+                """
+                INSERT INTO relay_events (
+                    created_at,
+                    level,
+                    event_type,
+                    filename,
+                    message,
+                    payload_json
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    "2026-03-21T12:00:00+00:00",
+                    "INFO",
+                    "mirror_complete",
+                    "polymarket_orderbook_2026-03-21T12.parquet",
+                    "Mirrored hour",
+                    "{not-json",
+                ),
+            )
+
+        server = TestServer(app)
+        client = TestClient(server)
+        await client.start_server()
+        try:
+            response = await client.get("/v1/events?limit=1")
+            payload = await response.json()
+        finally:
+            await client.close()
+
+        assert response.status == 200
+        assert payload["events"][0]["payload"] == {"raw_payload": "{not-json"}
 
     asyncio.run(scenario())
 

@@ -56,7 +56,13 @@ class RelayWorker:
         )
         self._processor = RelayHourProcessor(config)
         self._clickhouse = (
-            ClickHouseRelay(config) if config.uses_clickhouse_filtered_store else None
+            None
+            if not config.processing_enabled
+            else (
+                ClickHouseRelay(config)
+                if config.uses_clickhouse_filtered_store
+                else None
+            )
         )
         if self._clickhouse is not None:
             self._clickhouse.ensure_schema()
@@ -65,6 +71,15 @@ class RelayWorker:
                     filename=row["filename"],
                     hour=row["hour"],
                     filtered_group_count=int(row["filtered_artifact_count"]),
+                )
+        if not config.processing_enabled:
+            retired = self._index.disable_processing_backlog()
+            if retired > 0:
+                self._record_event(
+                    level="INFO",
+                    event_type="processing_disabled",
+                    message="Disabled server-side processing backlog for mirror-only mode",
+                    payload={"retired_hours": retired},
                 )
         if reset_mirror or reset_process or reset_prebuild:
             self._record_event(
@@ -122,12 +137,16 @@ class RelayWorker:
         discovered = self._discover_archive_hours()
         adopted = self._adopt_local_raw_hours()
         mirrored = self._mirror_pending_hours()
-        processed = self._process_pending_hours()
-        prebuilt = (
-            0
-            if self._skip_prebuild or self._clickhouse is not None
-            else self._prebuild_filtered_hours(limit=1)
-        )
+        if not self._config.processing_enabled:
+            processed = 0
+            prebuilt = 0
+        else:
+            processed = self._process_pending_hours()
+            prebuilt = (
+                0
+                if self._skip_prebuild or self._clickhouse is not None
+                else self._prebuild_filtered_hours(limit=1)
+            )
         total = discovered + adopted + mirrored + processed + prebuilt
         self._record_event(
             level="INFO",
@@ -228,6 +247,8 @@ class RelayWorker:
             if not changed:
                 continue
             adopted += 1
+        if adopted > 0 and not self._config.processing_enabled:
+            self._index.disable_processing_backlog()
         if adopted > 0:
             self._record_event(
                 level="INFO",
@@ -257,7 +278,8 @@ class RelayWorker:
             mirrored += 1
             # Start emitting filtered hours as soon as raw files land instead of
             # waiting for the full raw backlog to finish mirroring.
-            self._process_pending_hours(limit=1, include_errors=False)
+            if self._config.processing_enabled:
+                self._process_pending_hours(limit=1, include_errors=False)
         return mirrored
 
     def _mirror_hour(self, row) -> None:  # type: ignore[no-untyped-def]
@@ -273,6 +295,7 @@ class RelayWorker:
                 etag=None,
                 content_length=raw_path.stat().st_size,
                 last_modified=None,
+                processing_enabled=self._config.processing_enabled,
             )
             self._record_event(
                 level="INFO",
@@ -344,6 +367,7 @@ class RelayWorker:
             etag=etag,
             content_length=content_length,
             last_modified=last_modified,
+            processing_enabled=self._config.processing_enabled,
         )
         self._record_event(
             level="INFO",

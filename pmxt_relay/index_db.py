@@ -416,6 +416,7 @@ class RelayIndex:
         etag: str | None,
         content_length: int | None,
         last_modified: str | None,
+        processing_enabled: bool = True,
     ) -> None:
         self._run_with_lock_retry(
             lambda: self._write_mark_mirrored(
@@ -424,6 +425,7 @@ class RelayIndex:
                 etag=etag,
                 content_length=content_length,
                 last_modified=last_modified,
+                processing_enabled=processing_enabled,
             )
         )
 
@@ -435,7 +437,10 @@ class RelayIndex:
         etag: str | None,
         content_length: int | None,
         last_modified: str | None,
+        processing_enabled: bool,
     ) -> None:
+        process_status = "pending" if processing_enabled else "disabled"
+        prebuild_status = "pending" if processing_enabled else "disabled"
         with self._conn:
             self._conn.execute(
                 """
@@ -446,8 +451,8 @@ class RelayIndex:
                     content_length = ?,
                     last_modified = ?,
                     mirror_status = 'ready',
-                    process_status = 'pending',
-                    prebuild_status = 'pending',
+                    process_status = ?,
+                    prebuild_status = ?,
                     filtered_artifact_count = 0,
                     mirrored_at = ?,
                     processed_at = NULL,
@@ -461,6 +466,8 @@ class RelayIndex:
                     etag,
                     content_length,
                     last_modified,
+                    process_status,
+                    prebuild_status,
                     _utc_now(),
                     filename,
                 ),
@@ -558,6 +565,29 @@ class RelayIndex:
                     ),
                 )
             return insert_cursor.rowcount > 0 or update_cursor.rowcount > 0
+
+        return self._run_with_lock_retry(operation)
+
+    def disable_processing_backlog(self) -> int:
+        def operation() -> int:
+            with self._conn:
+                cursor = self._conn.execute(
+                    """
+                    UPDATE archive_hours
+                    SET process_status = 'disabled',
+                        prebuild_status = 'disabled',
+                        processed_at = NULL,
+                        prebuilt_at = NULL,
+                        filtered_artifact_count = 0,
+                        last_error = NULL
+                    WHERE mirror_status = 'ready'
+                      AND (
+                        process_status IN ('pending', 'processing', 'error')
+                        OR prebuild_status IN ('pending', 'processing', 'error')
+                      )
+                    """
+                )
+            return cursor.rowcount
 
         return self._run_with_lock_retry(operation)
 
@@ -885,11 +915,12 @@ class RelayIndex:
                 SUM(CASE WHEN mirror_status = 'ready' THEN 1 ELSE 0 END) AS mirrored_hours,
                 SUM(CASE WHEN process_status = 'ready' THEN 1 ELSE 0 END) AS sharded_hours,
                 SUM(CASE WHEN prebuild_status = 'ready' THEN 1 ELSE 0 END) AS processed_hours,
-                SUM(CASE WHEN mirror_status = 'ready' AND process_status != 'ready' THEN 1 ELSE 0 END) AS ready_to_process_hours,
+                SUM(CASE WHEN mirror_status = 'ready' AND process_status IN ('pending', 'error') THEN 1 ELSE 0 END) AS ready_to_process_hours,
                 SUM(CASE WHEN process_status = 'ready' AND prebuild_status != 'ready' THEN 1 ELSE 0 END) AS ready_to_prebuild_hours,
                 SUM(CASE WHEN process_status = 'processing' OR prebuild_status = 'processing' THEN 1 ELSE 0 END) AS processing_hours,
                 SUM(CASE WHEN process_status = 'processing' THEN 1 ELSE 0 END) AS sharding_hours,
                 SUM(CASE WHEN prebuild_status = 'processing' THEN 1 ELSE 0 END) AS prebuilding_hours,
+                SUM(CASE WHEN process_status = 'disabled' THEN 1 ELSE 0 END) AS processing_disabled_hours,
                 SUM(CASE WHEN mirror_status = 'error' THEN 1 ELSE 0 END) AS mirror_errors,
                 SUM(CASE WHEN process_status = 'error' THEN 1 ELSE 0 END) AS shard_errors,
                 SUM(CASE WHEN prebuild_status = 'error' THEN 1 ELSE 0 END) AS prebuild_errors
@@ -911,6 +942,9 @@ class RelayIndex:
             "processed_hours": int(stats_row.get("processed_hours") or 0),
             "ready_to_process_hours": int(stats_row.get("ready_to_process_hours") or 0),
             "processing_hours": int(stats_row.get("processing_hours") or 0),
+            "processing_disabled_hours": int(
+                stats_row.get("processing_disabled_hours") or 0
+            ),
             "mirror_errors": int(stats_row.get("mirror_errors") or 0),
             "process_errors": int(stats_row.get("shard_errors") or 0),
             "last_event_at": last_event_at,
@@ -926,10 +960,11 @@ class RelayIndex:
                 SUM(CASE WHEN mirror_status = 'pending' THEN 1 ELSE 0 END) AS mirror_pending,
                 SUM(CASE WHEN mirror_status = 'processing' THEN 1 ELSE 0 END) AS mirror_processing,
                 SUM(CASE WHEN mirror_status = 'error' THEN 1 ELSE 0 END) AS mirror_error,
-                SUM(CASE WHEN mirror_status = 'ready' AND process_status != 'ready' THEN 1 ELSE 0 END) AS process_ready,
+                SUM(CASE WHEN mirror_status = 'ready' AND process_status = 'pending' THEN 1 ELSE 0 END) AS process_ready,
                 SUM(CASE WHEN process_status = 'pending' THEN 1 ELSE 0 END) AS process_pending,
                 SUM(CASE WHEN process_status = 'processing' THEN 1 ELSE 0 END) AS process_processing,
                 SUM(CASE WHEN process_status = 'error' THEN 1 ELSE 0 END) AS process_error,
+                SUM(CASE WHEN process_status = 'disabled' THEN 1 ELSE 0 END) AS process_disabled,
                 SUM(CASE WHEN process_status = 'ready' AND prebuild_status != 'ready' THEN 1 ELSE 0 END) AS prebuild_ready,
                 SUM(CASE WHEN prebuild_status = 'pending' THEN 1 ELSE 0 END) AS prebuild_pending,
                 SUM(CASE WHEN prebuild_status = 'processing' THEN 1 ELSE 0 END) AS prebuild_processing,
