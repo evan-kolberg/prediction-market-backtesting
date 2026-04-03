@@ -98,9 +98,11 @@ Active mirror-focused endpoints:
 - `GET /v1/inflight`
 - `GET /v1/system`
 - `GET /v1/raw/{yyyy/mm/dd/filename}`
-- badge endpoints under `/v1/badge/*`
+- mirror/system badge endpoints under `/v1/badge/*`
 
-Filtered-hour HTTP endpoints are intentionally not part of the active relay path.
+`/v1/stats`, `/v1/queue`, and the active badge routes only expose raw-mirror
+state. Filtered-hour and processing-oriented HTTP endpoints are intentionally
+not part of the active relay path.
 
 ## Legacy Archive
 

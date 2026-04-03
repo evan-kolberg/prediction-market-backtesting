@@ -14,9 +14,8 @@ import pyarrow.dataset as ds
 import pyarrow.parquet as pq
 
 from pmxt_local.config import LocalProcessingConfig
-from pmxt_relay.index_db import FilteredHourArtifact
-from pmxt_relay.storage import parse_archive_hour
 from pmxt_local.paths import filtered_relative_path
+from pmxt_relay.storage import parse_archive_hour
 
 
 TOKEN_ID_REGEX = r'"token_id"\s*:\s*"(?P<token>[^"]+)"'
@@ -45,6 +44,17 @@ PROCESSED_SCHEMA = pa.schema(
 )
 RELEVANT_UPDATE_TYPES = pa.array(["book_snapshot", "price_change"])
 PARQUET_BATCH_SIZE = 65536
+
+
+@dataclass(frozen=True)
+class FilteredHourArtifact:
+    filename: str
+    hour: str
+    condition_id: str
+    token_id: str
+    local_path: str
+    row_count: int
+    byte_size: int
 
 
 @dataclass(frozen=True)

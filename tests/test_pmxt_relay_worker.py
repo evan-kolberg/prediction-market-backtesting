@@ -89,7 +89,6 @@ def test_mirror_hour_falls_back_to_get_when_head_is_rejected(
     stats = worker._index.stats()  # noqa: SLF001
     assert stats["archive_hours"] == 1
     assert stats["mirrored_hours"] == 1
-    assert stats["processing_disabled_hours"] == 1
 
 
 def test_run_once_only_discovers_adopts_and_mirrors(
@@ -104,7 +103,7 @@ def test_run_once_only_discovers_adopts_and_mirrors(
     assert worker.run_once() == 10
 
 
-def test_adopt_local_raw_marks_hours_as_disabled_for_processing(tmp_path: Path) -> None:
+def test_adopt_local_raw_marks_hours_as_mirrored(tmp_path: Path) -> None:
     config = _make_config(tmp_path)
     worker = RelayWorker(config, reset_inflight=False)
     raw_path = (
@@ -122,4 +121,3 @@ def test_adopt_local_raw_marks_hours_as_disabled_for_processing(tmp_path: Path) 
     assert adopted == 1
     stats = worker._index.stats()  # noqa: SLF001
     assert stats["mirrored_hours"] == 1
-    assert stats["processing_disabled_hours"] == 1

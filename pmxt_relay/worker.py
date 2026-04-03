@@ -29,18 +29,10 @@ class RelayWorker:
         self._config = config
         self._config.ensure_directories()
         self._index = RelayIndex(config.db_path, event_retention=config.event_retention)
-        reset_mirror, _, _ = self._index.initialize(
+        reset_mirror = self._index.initialize(
             reset_inflight=reset_inflight,
             reset_mirror_inflight=reset_mirror_inflight,
         )
-        retired = self._index.disable_processing_backlog()
-        if retired > 0:
-            self._record_event(
-                level="INFO",
-                event_type="processing_disabled",
-                message="Disabled legacy processing backlog for mirror-only relay mode",
-                payload={"retired_hours": retired},
-            )
         if reset_mirror:
             self._record_event(
                 level="WARNING",
@@ -169,7 +161,6 @@ class RelayWorker:
                 continue
             adopted += 1
         if adopted > 0:
-            self._index.disable_processing_backlog()
             self._record_event(
                 level="INFO",
                 event_type="adopt_local_raw",
@@ -211,7 +202,6 @@ class RelayWorker:
                 etag=None,
                 content_length=raw_path.stat().st_size,
                 last_modified=None,
-                processing_enabled=False,
             )
             self._record_event(
                 level="INFO",
@@ -283,7 +273,6 @@ class RelayWorker:
             etag=etag,
             content_length=content_length,
             last_modified=last_modified,
-            processing_enabled=False,
         )
         self._record_event(
             level="INFO",

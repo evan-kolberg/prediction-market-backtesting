@@ -37,7 +37,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--vendor",
         choices=("pmxt",),
         default="pmxt",
-        help="Local processing vendor adapter to use",
+        help="Vendor adapter to use for raw mirror verification",
     )
     parser.add_argument(
         "--raw-root",
