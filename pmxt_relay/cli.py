@@ -10,15 +10,12 @@ from aiohttp import web
 from pmxt_relay.api import create_app
 from pmxt_relay.config import RelayConfig
 from pmxt_relay.index_db import RelayIndex
-from pmxt_relay.local_processing import process_local_raw_mirror
 from pmxt_relay.raw_mirror_verifier import verify_local_raw_mirror
 from pmxt_relay.worker import RelayWorker
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        description="PMXT raw mirror and local processing utilities"
-    )
+    parser = argparse.ArgumentParser(description="PMXT raw mirror utilities")
     parser.add_argument(
         "command",
         choices=(
@@ -26,7 +23,6 @@ def _build_parser() -> argparse.ArgumentParser:
             "worker",
             "sync-once",
             "stats",
-            "process-local",
             "verify-raw-mirror",
         ),
         help="Relay command to run",
@@ -35,7 +31,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--limit",
         type=int,
         default=None,
-        help="Limit the number of hours processed by the selected command",
+        help="Limit the number of hours mirrored by the selected command",
     )
     parser.add_argument(
         "--vendor",
@@ -47,35 +43,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--raw-root",
         type=Path,
         default=None,
-        help="Local raw mirror root for process-local",
-    )
-    parser.add_argument(
-        "--filtered-root",
-        type=Path,
-        default=None,
-        help="Local filtered output root for process-local",
-    )
-    parser.add_argument(
-        "--tmp-root",
-        type=Path,
-        default=None,
-        help="Temporary work directory for process-local",
-    )
-    parser.add_argument(
-        "--workers",
-        type=int,
-        default=4,
-        help="Parallel local filtered materialization workers for process-local",
-    )
-    parser.add_argument(
-        "--start-hour",
-        default=None,
-        help="Inclusive UTC hour lower bound for process-local",
-    )
-    parser.add_argument(
-        "--end-hour",
-        default=None,
-        help="Inclusive UTC hour upper bound for process-local",
+        help="Local raw mirror root for verify-raw-mirror",
     )
     parser.add_argument(
         "--skip-upstream-head",
@@ -133,17 +101,11 @@ def main(argv: list[str] | None = None) -> int:
             )
             discovered = worker._discover_archive_hours()  # noqa: SLF001
             mirrored = worker._mirror_pending_hours()  # noqa: SLF001
-            processed = (
-                0
-                if not config.processing_enabled
-                else worker._process_pending_hours(limit=args.limit)  # noqa: SLF001
-            )
             print(
                 json.dumps(
                     {
                         "discovered": discovered,
                         "mirrored": mirrored,
-                        "processed": processed,
                     },
                     indent=2,
                     sort_keys=True,
@@ -155,24 +117,6 @@ def main(argv: list[str] | None = None) -> int:
         index = RelayIndex(config.db_path)
         index.initialize(apply_maintenance=False)
         print(json.dumps(index.stats(), indent=2, sort_keys=True))
-        return 0
-
-    if args.command == "process-local":
-        if args.raw_root is None or args.filtered_root is None:
-            parser.error(
-                "--raw-root and --filtered-root are required for process-local"
-            )
-        summary = process_local_raw_mirror(
-            vendor=args.vendor,
-            raw_root=args.raw_root,
-            filtered_root=args.filtered_root,
-            tmp_root=args.tmp_root,
-            workers=args.workers,
-            limit=args.limit,
-            start_hour=args.start_hour,
-            end_hour=args.end_hour,
-        )
-        print(json.dumps(summary.as_dict(), indent=2, sort_keys=True))
         return 0
 
     if args.command == "verify-raw-mirror":

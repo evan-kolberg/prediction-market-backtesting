@@ -17,17 +17,9 @@ from xml.sax.saxutils import escape
 from aiohttp import web
 
 from pmxt_relay.config import RelayConfig
-from pmxt_relay.filtered_store import FilteredHourStore
-from pmxt_relay.filtered_store import create_filtered_hour_store
 from pmxt_relay.index_db import PrebuildProgress
 from pmxt_relay.index_db import RelayIndex
-from pmxt_relay.storage import processed_relative_path
 
-_CONDITION_ID_RE = re.compile(r"^0x[a-f0-9]{64}$", re.IGNORECASE)
-_TOKEN_ID_RE = re.compile(r"^\d+$")
-_FILTERED_FILENAME_RE = re.compile(
-    r"^polymarket_orderbook_\d{4}-\d{2}-\d{2}T\d{2}\.parquet$"
-)
 _RAW_FILENAME_RE = re.compile(
     r"^\d{4}/\d{2}/\d{2}/polymarket_orderbook_\d{4}-\d{2}-\d{2}T\d{2}\.parquet$"
 )
@@ -56,7 +48,6 @@ _SYSTEM_METRICS_SAMPLE_SECS = 0.2
 _SYSTEM_SERVICE_SPECS = {
     "api": ("pmxt-relay-api.service", "API service"),
     "worker": ("pmxt-relay-worker.service", "Worker service"),
-    "clickhouse": ("clickhouse-server.service", "ClickHouse"),
 }
 _SYSTEM_METRICS_CACHE_LOCK = threading.Lock()
 _SYSTEM_METRICS_CACHE: dict[str, object] | None = None
@@ -695,7 +686,6 @@ class RequestRateLimiter:
 CONFIG_APP_KEY = web.AppKey("config", RelayConfig)
 INDEX_APP_KEY = web.AppKey("index", RelayIndex)
 RATE_LIMITER_APP_KEY = web.AppKey("rate_limiter", RequestRateLimiter)
-FILTERED_STORE_APP_KEY = web.AppKey("filtered_store", FilteredHourStore)
 
 
 def _client_id(
@@ -733,26 +723,6 @@ def _resolve_path_under_root(root: Path, *parts: str) -> Path | None:
     return candidate
 
 
-def _resolve_filtered_path(
-    config: RelayConfig,
-    condition_id: str,
-    token_id: str,
-    filename: str,
-) -> Path | None:
-    if not _CONDITION_ID_RE.fullmatch(condition_id):
-        return None
-    if not _TOKEN_ID_RE.fullmatch(token_id):
-        return None
-    if not _FILTERED_FILENAME_RE.fullmatch(filename):
-        return None
-    return _resolve_path_under_root(
-        config.filtered_root,
-        condition_id,
-        token_id,
-        filename,
-    )
-
-
 def _resolve_raw_path(config: RelayConfig, filename: str) -> Path | None:
     if not _RAW_FILENAME_RE.fullmatch(filename):
         return None
@@ -761,34 +731,21 @@ def _resolve_raw_path(config: RelayConfig, filename: str) -> Path | None:
 
 def _collect_inflight_processes(config: RelayConfig) -> list[dict[str, object]]:
     inflight: list[dict[str, object]] = []
-    for tmp_dir in sorted(config.tmp_root.glob("*.filtered")):
-        if not tmp_dir.is_dir():
+    for tmp_path in sorted(config.raw_root.rglob("*.tmp")):
+        if not tmp_path.is_file():
             continue
-        dir_count = 0
-        file_count = 0
-        byte_size = 0
-        latest_mtime = 0.0
-        for root, dirs, files in os.walk(tmp_dir):
-            dir_count += len(dirs)
-            file_count += len(files)
-            for filename in files:
-                path = Path(root) / filename
-                try:
-                    stat = path.stat()
-                except FileNotFoundError:
-                    continue
-                byte_size += stat.st_size
-                latest_mtime = max(latest_mtime, stat.st_mtime)
-        if file_count == 0:
-            latest_mtime = tmp_dir.stat().st_mtime
+        try:
+            stat = tmp_path.stat()
+        except FileNotFoundError:
+            continue
         inflight.append(
             {
-                "filename": tmp_dir.name.removesuffix(".filtered"),
-                "path": str(tmp_dir),
-                "dir_count": dir_count + 1,
-                "file_count": file_count,
-                "byte_size": byte_size,
-                "latest_mtime": latest_mtime,
+                "filename": tmp_path.name.removesuffix(".tmp"),
+                "path": str(tmp_path),
+                "dir_count": 0,
+                "file_count": 1,
+                "byte_size": stat.st_size,
+                "latest_mtime": stat.st_mtime,
             }
         )
     return inflight
@@ -860,23 +817,6 @@ async def _index_progress_snapshot_async(
         )
 
     return await asyncio.to_thread(_snapshot)
-
-
-async def _filtered_store_list_hours_async(
-    filtered_store: FilteredHourStore,
-    condition_id: str,
-    token_id: str,
-    *,
-    start_hour: str | None = None,
-    end_hour: str | None = None,
-):
-    return await asyncio.to_thread(
-        filtered_store.list_hours,
-        condition_id,
-        token_id,
-        start_hour=start_hour,
-        end_hour=end_hour,
-    )
 
 
 async def stats(request: web.Request) -> web.Response:
@@ -1091,10 +1031,6 @@ async def badge_processing_svg(request: web.Request) -> web.Response:
     )
 
 
-async def badge_clickhouse_svg(request: web.Request) -> web.Response:
-    return _badge_svg_response(_service_running_badge_payload("ClickHouse"))
-
-
 async def badge_status_svg(request: web.Request) -> web.Response:
     config = request.app[CONFIG_APP_KEY]
     index = request.app[INDEX_APP_KEY]
@@ -1169,80 +1105,6 @@ async def badge_rows_svg(request: web.Request) -> web.Response:
     )
 
 
-async def list_filtered_hours(request: web.Request) -> web.Response:
-    config = request.app[CONFIG_APP_KEY]
-    filtered_store = request.app[FILTERED_STORE_APP_KEY]
-    condition_id = request.match_info["condition_id"]
-    token_id = request.match_info["token_id"]
-    if not _CONDITION_ID_RE.fullmatch(condition_id) or not _TOKEN_ID_RE.fullmatch(
-        token_id
-    ):
-        raise web.HTTPNotFound(text="filtered hours not found")
-    start_hour = _iso_hour_query(request.query.get("start"))
-    end_hour = _iso_hour_query(request.query.get("end"))
-    rows = await _filtered_store_list_hours_async(
-        filtered_store,
-        condition_id,
-        token_id,
-        start_hour=start_hour,
-        end_hour=end_hour,
-    )
-    truncated = len(rows) > config.api_list_max_hours
-    if truncated:
-        rows = rows[: config.api_list_max_hours]
-    entries = []
-    for row in rows:
-        relative_url = f"/v1/filtered/{condition_id}/{token_id}/{row.filename}"
-        url = (
-            f"{config.public_base_url}{relative_url}"
-            if config.public_base_url is not None
-            else relative_url
-        )
-        entries.append(
-            {
-                "hour": row.hour,
-                "filename": row.filename,
-                "row_count": row.row_count,
-                "byte_size": row.byte_size,
-                "url": url,
-            }
-        )
-    return web.json_response(
-        {
-            "condition_id": condition_id,
-            "token_id": token_id,
-            "hours": entries,
-            "truncated": truncated,
-        }
-    )
-
-
-async def serve_filtered(request: web.Request) -> web.StreamResponse:
-    config = request.app[CONFIG_APP_KEY]
-    filtered_store = request.app[FILTERED_STORE_APP_KEY]
-    condition_id = request.match_info["condition_id"]
-    token_id = request.match_info["token_id"]
-    filename = request.match_info["filename"]
-    if not _CONDITION_ID_RE.fullmatch(condition_id):
-        raise web.HTTPNotFound(text="filtered hour not found")
-    if not _TOKEN_ID_RE.fullmatch(token_id):
-        raise web.HTTPNotFound(text="filtered hour not found")
-    if not _FILTERED_FILENAME_RE.fullmatch(filename):
-        raise web.HTTPNotFound(text="filtered hour not found")
-    response = await filtered_store.serve_hour(
-        request,
-        condition_id=condition_id,
-        token_id=token_id,
-        filename=filename,
-    )
-    if response is None:
-        processed_path = config.processed_root / processed_relative_path(filename)
-        if processed_path.exists():
-            raise web.HTTPNotFound(text="filtered hour not yet prebuilt")
-        raise web.HTTPNotFound(text="filtered hour not found")
-    return response
-
-
 async def serve_raw(request: web.Request) -> web.StreamResponse:
     config = request.app[CONFIG_APP_KEY]
     filename = request.match_info["filename"]
@@ -1262,8 +1124,6 @@ def create_app(config: RelayConfig) -> web.Application:
     app[CONFIG_APP_KEY] = config
     index = RelayIndex(config.db_path, event_retention=config.event_retention)
     app[INDEX_APP_KEY] = index
-    if config.filtered_api_enabled:
-        app[FILTERED_STORE_APP_KEY] = create_filtered_hour_store(config, index)
     app[RATE_LIMITER_APP_KEY] = RequestRateLimiter(config.api_rate_limit_per_minute)
     index.initialize(apply_maintenance=False)
     app.on_response_prepare.append(on_prepare_response)
@@ -1300,15 +1160,5 @@ def create_app(config: RelayConfig) -> web.Application:
     app.router.add_get("/v1/badge/worker.svg", badge_worker_svg)
     app.router.add_get("/v1/badge/mirroring.svg", badge_mirroring_svg)
     app.router.add_get("/v1/badge/processing.svg", badge_processing_svg)
-    app.router.add_get("/v1/badge/clickhouse.svg", badge_clickhouse_svg)
-    if config.filtered_api_enabled:
-        app.router.add_get(
-            "/v1/markets/{condition_id}/tokens/{token_id}/hours",
-            list_filtered_hours,
-        )
-        app.router.add_get(
-            "/v1/filtered/{condition_id}/{token_id}/{filename}",
-            serve_filtered,
-        )
     app.router.add_get("/v1/raw/{filename:.*}", serve_raw)
     return app

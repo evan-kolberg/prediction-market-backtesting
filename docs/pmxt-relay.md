@@ -7,7 +7,7 @@ The canonical PMXT relay deploy and operations guide lives at:
 Use that page for:
 
 - raw mirror mode and local-first workflow
-- local processing command examples
+- local processing examples that stay outside the relay CLI
 - fresh-box deployment steps for raw mirroring
 - systemd units
 - firewall and fail2ban setup
@@ -17,6 +17,6 @@ Use that page for:
 Preferred direction:
 
 - store raw PMXT hours locally
-- process them locally with `uv run python -m pmxt_relay process-local`
+- process them locally with `uv run python scripts/pmxt_process_local.py`
 - keep shared servers in mirror-only mode when you need a public raw mirror
 - treat the old server-side processing relay as archived under `archive/pmxt_relay_legacy/`

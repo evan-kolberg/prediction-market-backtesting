@@ -98,8 +98,7 @@ To turn a local PMXT raw mirror into the same filtered market-hour parquet
 layout used by the cache, run:
 
 ```bash
-uv run python -m pmxt_relay process-local \
-  --vendor pmxt \
+uv run python scripts/pmxt_process_local.py \
   --raw-root /data/pmxt/raw \
   --filtered-root ~/.cache/nautilus_trader/pmxt
 ```
@@ -107,8 +106,7 @@ uv run python -m pmxt_relay process-local \
 Useful variant:
 
 ```bash
-uv run python -m pmxt_relay process-local \
-  --vendor pmxt \
+uv run python scripts/pmxt_process_local.py \
   --raw-root /data/pmxt/raw \
   --filtered-root /data/pmxt/filtered \
   --tmp-root /data/pmxt/tmp \
@@ -280,6 +278,6 @@ If you have your own global raw dumps today, the safe path is:
    at them directly
 2. otherwise convert them into the filtered market-hour parquet layout above
 3. stage them into `PMXT_CACHE_DIR`
-4. or add a new vendor adapter behind `uv run python -m pmxt_relay process-local`
+4. or add a new vendor adapter behind `uv run python scripts/pmxt_process_local.py`
 
 That keeps the strategy and runner layer unchanged.

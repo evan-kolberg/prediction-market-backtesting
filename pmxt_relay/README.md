@@ -6,7 +6,7 @@ Current direction:
 
 - mirror raw PMXT archive hours onto disk
 - optionally expose those mirrored raw files over `/v1/raw/*`
-- process mirrored data locally with `uv run python -m pmxt_relay process-local`
+- process mirrored data locally with a separate script, not through the relay CLI
 - keep server-side filtered processing retired from the active relay path
 
 The old full-stack relay, including ClickHouse-backed processing and filtered
@@ -26,25 +26,23 @@ Mirror API:
 uv run python -m pmxt_relay api
 ```
 
-Local processing:
+Local processing stays separate from the relay:
 
 ```bash
-uv run python -m pmxt_relay process-local \
-  --vendor pmxt \
+uv run python scripts/pmxt_process_local.py \
   --raw-root /data/pmxt/raw \
   --filtered-root ~/.cache/nautilus_trader/pmxt
 ```
 
 ## Default Mode
 
-Fresh installs default to mirror-only mode:
+Fresh installs default to mirror-only behavior:
 
 ```bash
 PMXT_RELAY_MIRROR_ONLY=1
 ```
 
-That keeps discovery, mirroring, `/v1/raw/*`, and the operational endpoints
-online while leaving server-side processing disabled.
+That keeps discovery, mirroring, `/v1/raw/*`, and the operational endpoints online.
 
 ## Directory Layout
 
@@ -108,8 +106,7 @@ Active mirror-focused endpoints:
 - `GET /v1/raw/{yyyy/mm/dd/filename}`
 - badge endpoints under `/v1/badge/*`
 
-Filtered-hour HTTP endpoints are intentionally not part of the active relay
-path anymore.
+Filtered-hour HTTP endpoints are intentionally not part of the active relay path.
 
 ## Legacy Archive
 
