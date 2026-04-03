@@ -17,35 +17,14 @@
 ![GitHub top language](https://img.shields.io/github/languages/top/evan-kolberg/prediction-market-backtesting)
 ![GitHub open issues](https://img.shields.io/github/issues/evan-kolberg/prediction-market-backtesting)
 
-Relay VPS statistics:
-
-[![PMXT relay](https://209-209-10-83.sslip.io/v1/badge/status.svg?v=4)](https://209-209-10-83.sslip.io/v1/stats)
-[![Processing](https://209-209-10-83.sslip.io/v1/badge/processing.svg?v=4)](https://209-209-10-83.sslip.io/v1/queue)
-[![CPU load](https://209-209-10-83.sslip.io/v1/badge/load.svg?v=4)](https://209-209-10-83.sslip.io/v1/system)
-[![I/O wait](https://209-209-10-83.sslip.io/v1/badge/iowait.svg?v=4)](https://209-209-10-83.sslip.io/v1/system)
-[![RAM](https://209-209-10-83.sslip.io/v1/badge/mem.svg?v=4)](https://209-209-10-83.sslip.io/v1/system)
-[![Disk](https://209-209-10-83.sslip.io/v1/badge/disk.svg?v=4)](https://209-209-10-83.sslip.io/v1/system)
-
-[![ClickHouse](https://209-209-10-83.sslip.io/v1/badge/clickhouse.svg?v=8)](https://209-209-10-83.sslip.io/v1/system)
-[![Worker service](https://209-209-10-83.sslip.io/v1/badge/worker.svg?v=8)](https://209-209-10-83.sslip.io/v1/system)
-[![Mirror service](https://209-209-10-83.sslip.io/v1/badge/mirroring.svg?v=4)](https://209-209-10-83.sslip.io/v1/queue)
-[![API service](https://209-209-10-83.sslip.io/v1/badge/api.svg?v=8)](https://209-209-10-83.sslip.io/v1/system)
-
-
-[![Hours mirrored](https://209-209-10-83.sslip.io/v1/badge/mirrored.svg?v=4)](https://209-209-10-83.sslip.io/v1/stats)
-[![Hours processed](https://209-209-10-83.sslip.io/v1/badge/processed.svg?v=4)](https://209-209-10-83.sslip.io/v1/stats)
-[![Queue lag](https://209-209-10-83.sslip.io/v1/badge/lag.svg?v=4)](https://209-209-10-83.sslip.io/v1/queue)
-[![Completion rate](https://209-209-10-83.sslip.io/v1/badge/rate.svg?v=4)](https://209-209-10-83.sslip.io/v1/stats)
-[![Latest hour](https://209-209-10-83.sslip.io/v1/badge/latest.svg?v=4)](https://209-209-10-83.sslip.io/v1/queue)
-
-
-[![Current file](https://209-209-10-83.sslip.io/v1/badge/file.svg?v=4)](https://209-209-10-83.sslip.io/v1/events?limit=50)
-[![Rows processed](https://209-209-10-83.sslip.io/v1/badge/rows.svg?v=4)](https://209-209-10-83.sslip.io/v1/events?limit=50)
-
 Backtesting framework for prediction market strategies on
 [Kalshi](https://kalshi.com) and [Polymarket](https://polymarket.com), built on
 top of [NautilusTrader](https://github.com/nautechsystems/nautilus_trader) with
 custom exchange adapters. Plotting inspired by [minitrade](https://github.com/dodid/minitrade). This repo is still in active development, and **a full release should happen within the next one to two months.**
+
+PMXT is now documented as a local-first workflow: mirror raw archive hours onto
+local disk, process them locally, and keep any shared server focused on raw
+mirroring only. The archived full-stack relay lives under `archive/pmxt_relay_legacy/`.
 
 Fantastic single & multi-market charting. Featuring: equity (total & individual markets), profit / loss ticks, P&L periodic bars, market allocation, YES price (with green buy and red sell fills), drawdown, sharpe (with above/below shading), cash / equity, monthly returns, and cumulative brier advantage.
 ![Charting preview](https://raw.githubusercontent.com/evan-kolberg/prediction-market-backtesting/main/docs/assets/charting-preview.jpeg)
@@ -53,11 +32,6 @@ Fantastic single & multi-market charting. Featuring: equity (total & individual 
 
 
 Detailed guides have been filed away in the [docs index](https://evan-kolberg.github.io/prediction-market-backtesting/) for better organization and long-term sustainability.
-
-PMXT defaults:
-- timing output is on by default in `make backtest` and `uv run python main.py`
-- `BACKTEST_ENABLE_TIMING=0` is the explicit quiet opt-out
-- local PMXT filtered cache is enabled by default at `~/.cache/nautilus_trader/pmxt`
 
 ## Table of Contents
 

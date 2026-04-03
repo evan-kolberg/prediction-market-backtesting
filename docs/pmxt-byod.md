@@ -2,6 +2,15 @@
 
 This page is intentionally strict about what is supported today.
 
+The repository direction is local-first:
+
+- mirror raw hours onto local disk
+- process those raw hours locally into the existing filtered cache layout
+- treat server-side filtered relay processing as legacy
+
+If you only need a shared mirror, keep the relay in raw mirror mode and serve
+`/v1/raw/...` without server-side filtering.
+
 ## Runner Source Modes
 
 The PMXT quote-tick example runners expose a runner-side source selector so
@@ -66,7 +75,7 @@ The current "bring your own data" story is therefore:
 - or point `PMXT_LOCAL_ARCHIVE_DIR` at a directory of raw PMXT hour files you
   already mirrored locally
 - or use `PMXT_DATA_SOURCE=raw-local` with `PMXT_LOCAL_MIRROR_DIR`
-- or run your own relay and point `PMXT_RELAY_BASE_URL` at it
+- or run your own raw mirror and point `PMXT_RELAY_BASE_URL` at it
 
 When the loader falls back to remote raw hours (`r2.pmxt.dev` or relay
 `/v1/raw/...`), it downloads each hour to a temporary local parquet file,
@@ -82,6 +91,34 @@ PMXT_LOCAL_ARCHIVE_DIR=/path/to/pmxt-hours
 
 The loader still does not expose a first-class runner flag for arbitrary vendor
 raw dumps or automatic normalization from other vendors.
+
+## Local Processing Command
+
+To turn a local PMXT raw mirror into the same filtered market-hour parquet
+layout used by the cache, run:
+
+```bash
+uv run python -m pmxt_relay process-local \
+  --vendor pmxt \
+  --raw-root /data/pmxt/raw \
+  --filtered-root ~/.cache/nautilus_trader/pmxt
+```
+
+Useful variant:
+
+```bash
+uv run python -m pmxt_relay process-local \
+  --vendor pmxt \
+  --raw-root /data/pmxt/raw \
+  --filtered-root /data/pmxt/filtered \
+  --tmp-root /data/pmxt/tmp \
+  --workers 4 \
+  --start-hour 2026-03-01T00 \
+  --end-hour 2026-03-07T23
+```
+
+The explicit `--vendor` flag is there so future local vendor adapters can plug
+into the same entrypoint instead of adding more one-off PMXT-only scripts.
 
 ## Supported Local File Layout
 
@@ -228,6 +265,10 @@ Disable relay usage entirely with:
 PMXT_RELAY_BASE_URL=0
 ```
 
+Mirror-only deployments are the preferred server shape now. In that mode the
+server keeps mirroring raw hours and may serve `/v1/raw/...`, but `/v1/filtered`
+and filtered-hour listing endpoints are disabled.
+
 ## What Is Not Plug-And-Play Yet
 
 - arbitrary third-party vendor raw formats
@@ -239,7 +280,6 @@ If you have your own global raw dumps today, the safe path is:
    at them directly
 2. otherwise convert them into the filtered market-hour parquet layout above
 3. stage them into `PMXT_CACHE_DIR`
-4. or ingest them into your own relay that serves the same `/v1/filtered/...`
-   API shape
+4. or add a new vendor adapter behind `uv run python -m pmxt_relay process-local`
 
 That keeps the strategy and runner layer unchanged.

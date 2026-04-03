@@ -15,9 +15,7 @@ from pmxt_relay.worker import RelayWorker
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        description="PMXT raw mirror and local processing utilities"
-    )
+    parser = argparse.ArgumentParser(description="PMXT relay server")
     parser.add_argument(
         "command",
         choices=("api", "worker", "sync-once", "stats", "process-local"),

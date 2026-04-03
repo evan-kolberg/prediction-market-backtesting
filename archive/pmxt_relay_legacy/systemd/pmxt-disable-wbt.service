@@ -1,7 +1,7 @@
 [Unit]
 Description=Disable block writeback throttling for relay disks
 After=local-fs.target
-Before=pmxt-relay-api.service pmxt-relay-worker.service
+Before=clickhouse-server.service pmxt-relay-api.service pmxt-relay-worker.service
 
 [Service]
 Type=oneshot

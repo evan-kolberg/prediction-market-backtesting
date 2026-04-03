@@ -1,7 +1,7 @@
 [Unit]
-Description=PMXT relay raw mirror worker
+Description=PMXT relay HTTP API
 After=network-online.target
-Wants=network-online.target
+Wants=network-online.target clickhouse-server.service
 
 [Service]
 Type=simple
@@ -10,7 +10,8 @@ Group=pmxtrelay
 WorkingDirectory=/opt/prediction-market-backtesting
 EnvironmentFile=/etc/pmxt-relay.env
 Environment=PYTHONDONTWRITEBYTECODE=1
-ExecStart=/opt/prediction-market-backtesting/.venv/bin/python -m pmxt_relay worker
+ExecStartPre=/bin/sh -c 'until curl -fsS http://127.0.0.1:8123/ping >/dev/null; do sleep 1; done'
+ExecStart=/opt/prediction-market-backtesting/.venv/bin/python -m pmxt_relay api
 Restart=always
 RestartSec=5
 TimeoutStartSec=0
@@ -29,17 +30,11 @@ RestrictRealtime=true
 RestrictSUIDSGID=true
 LockPersonality=true
 RemoveIPC=true
-LimitNOFILE=65535
 CapabilityBoundingSet=
 AmbientCapabilities=
 SystemCallArchitectures=native
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 ReadWritePaths=/srv/pmxt-relay
-Nice=5
-IOSchedulingClass=best-effort
-IOSchedulingPriority=2
-MemoryMax=2500M
-MemorySwapMax=512M
 
 [Install]
 WantedBy=multi-user.target

@@ -143,7 +143,7 @@ class RelayConfig:
                     max(1, _env_int("PMXT_RELAY_DUCKDB_THREADS", 4)),
                 ),
             ),
-            mirror_only=_env_bool("PMXT_RELAY_MIRROR_ONLY", True),
+            mirror_only=_env_bool("PMXT_RELAY_MIRROR_ONLY", False),
         )
 
     @property

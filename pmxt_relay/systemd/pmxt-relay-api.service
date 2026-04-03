@@ -1,7 +1,7 @@
 [Unit]
-Description=PMXT relay HTTP API
+Description=PMXT relay raw mirror HTTP API
 After=network-online.target
-Wants=network-online.target clickhouse-server.service
+Wants=network-online.target
 
 [Service]
 Type=simple
@@ -10,7 +10,6 @@ Group=pmxtrelay
 WorkingDirectory=/opt/prediction-market-backtesting
 EnvironmentFile=/etc/pmxt-relay.env
 Environment=PYTHONDONTWRITEBYTECODE=1
-ExecStartPre=/bin/sh -c 'until curl -fsS http://127.0.0.1:8123/ping >/dev/null; do sleep 1; done'
 ExecStart=/opt/prediction-market-backtesting/.venv/bin/python -m pmxt_relay api
 Restart=always
 RestartSec=5
