@@ -6,6 +6,13 @@ Can be used standalone:
 Or imported and activated before running any backtest:
     from backtests._shared._timing_test import install_timing
     install_timing()
+
+Or wrapped explicitly on a runner:
+    from backtests._shared._timing_harness import timing_harness
+
+    @timing_harness
+    async def run() -> None:
+        ...
 """
 
 from __future__ import annotations

@@ -19,10 +19,13 @@ make test
 ## Useful Smoke Checks
 
 ```bash
-uv run python backtests/kalshi_trade_tick/kalshi_breakout.py
-uv run python backtests/polymarket_trade_tick/polymarket_vwap_reversion.py
-uv run python backtests/polymarket_quote_tick/polymarket_pmxt_relay_ema_crossover.py
+uv run python backtests/kalshi_trade_tick_breakout.py
+uv run python backtests/polymarket_trade_tick_vwap_reversion.py
+uv run python backtests/polymarket_quote_tick_pmxt_ema_crossover.py
 ```
+
+Quote-tick PMXT runners use the source path pinned in `DATA.sources` inside the
+file. Update that literal if your local mirror lives somewhere else.
 
 Coverage is mixed by design:
 

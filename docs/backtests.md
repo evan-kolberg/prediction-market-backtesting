@@ -4,46 +4,162 @@
 
 - `strategies/` contains reusable strategy classes and configs
 - `strategies/private/` is for git-ignored local strategy modules
-- `backtests/` contains runnable public backtest entrypoints and helpers
+- `backtests/` contains flat public runner entrypoints
+- `backtests/_shared/` contains shared runner plumbing, data-source adapters,
+  strategy-config binding, timing, and UI helpers
 - `backtests/private/` is for git-ignored local runners
+
+Only `backtests/*.py` and `backtests/private/*.py` are discoverable runner
+entrypoints. Any other subdirectory under `backtests/` should be support code
+only.
 
 Good public examples:
 
 - reusable EMA logic:
   [`strategies/ema_crossover.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/strategies/ema_crossover.py)
-- reusable final-period momentum logic:
-  [`strategies/final_period_momentum.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/strategies/final_period_momentum.py)
 - reusable late-favorite limit-hold logic:
   [`strategies/late_favorite_limit_hold.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/strategies/late_favorite_limit_hold.py)
-- Kalshi trade-tick runner:
-  [`backtests/kalshi_trade_tick/kalshi_breakout.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/kalshi_trade_tick/kalshi_breakout.py)
-- PMXT Polymarket quote-tick runners live under `backtests/polymarket_quote_tick/`
-- archived legacy Polymarket trade-tick runners live under `backtests/polymarket_trade_tick/`
+- Kalshi native trade-tick runner:
+  [`backtests/kalshi_trade_tick_breakout.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/kalshi_trade_tick_breakout.py)
+- Polymarket native trade-tick runner:
+  [`backtests/polymarket_trade_tick_vwap_reversion.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_trade_tick_vwap_reversion.py)
+- Polymarket quote-tick runner with PMXT vendor data:
+  [`backtests/polymarket_quote_tick_pmxt_ema_crossover.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_quote_tick_pmxt_ema_crossover.py)
+- fixed-basket multi-market runner:
+  [`backtests/polymarket_trade_tick_sports_vwap_reversion.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_trade_tick_sports_vwap_reversion.py)
 
 ## Runner Contract
 
-Any module shown in the menu should expose:
+Public runners should read like flat experiment specs. The canonical shape is:
 
 ```python
-NAME = "my_strategy"
-DESCRIPTION = "one-liner"
+from decimal import Decimal
 
-async def run() -> None:
-    ...
+from _script_helpers import ensure_repo_root
+
+ensure_repo_root(__file__)
+
+from backtests._shared._prediction_market_backtest import MarketReportConfig
+from backtests._shared._prediction_market_backtest import MarketSimConfig
+from backtests._shared._prediction_market_backtest import PredictionMarketBacktest
+from backtests._shared._prediction_market_backtest import run_reported_backtest
+from backtests._shared._prediction_market_runner import MarketDataConfig
+from backtests._shared._timing_harness import timing_harness
+from backtests._shared.data_sources import PMXT_VENDOR
+
+NAME = "polymarket_quote_tick_pmxt_ema_crossover"
+DESCRIPTION = "EMA crossover momentum on one Polymarket market"
+PLATFORM = "polymarket"
+DATA_TYPE = "quote_tick"
+VENDOR = PMXT_VENDOR.name
+
+DATA = MarketDataConfig(
+    platform=PLATFORM,
+    data_type=DATA_TYPE,
+    vendor=PMXT_VENDOR,
+    sources=("/path/to/local/pmxt_raws",),
+)
+
+SIMS = (
+    MarketSimConfig(
+        market_slug="market-slug",
+        token_index=0,
+        start_time="2026-03-19T07:35:57.277659Z",
+        end_time="2026-03-24T07:35:57.277659Z",
+    ),
+)
+
+STRATEGY_CONFIGS = [
+    {
+        "strategy_path": "strategies:QuoteTickEMACrossoverStrategy",
+        "config_path": "strategies:QuoteTickEMACrossoverConfig",
+        "config": {
+            "trade_size": Decimal("100"),
+            "fast_period": 64,
+            "slow_period": 256,
+            "entry_buffer": 0.0005,
+            "take_profit": 0.010,
+            "stop_loss": 0.010,
+        },
+    },
+]
+
+REPORT = MarketReportConfig(
+    count_key="quotes",
+    count_label="Quotes",
+    pnl_label="PnL (USDC)",
+)
+
+BACKTEST = PredictionMarketBacktest(
+    name=NAME,
+    data=DATA,
+    sims=SIMS,
+    strategy_configs=STRATEGY_CONFIGS,
+    initial_cash=100.0,
+    probability_window=256,
+    min_quotes=500,
+    min_price_range=0.005,
+)
+
+@timing_harness
+def run() -> None:
+    run_reported_backtest(
+        backtest=BACKTEST,
+        report=REPORT,
+        empty_message="No sims met the quote-tick requirements.",
+    )
 ```
 
-Keep reusable signal logic in `strategies/`, then import it into a thin runner.
-If you add reusable strategy classes or configs, re-export them from
-[`strategies/__init__.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/strategies/__init__.py).
+Every public runner should expose:
 
-Common public runner patterns:
+- `NAME`
+- `DESCRIPTION`
+- `PLATFORM`
+- `DATA_TYPE`
+- `VENDOR`
+- `DATA`
+- `SIMS`
+- `STRATEGY_CONFIGS`
+- `BACKTEST`
+- `run()`
 
-- Kalshi trade-tick:
-  [`backtests/kalshi_trade_tick/_kalshi_single_market_trade_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/kalshi_trade_tick/_kalshi_single_market_trade_runner.py)
-- Polymarket trade-tick:
-  [`backtests/polymarket_trade_tick/_polymarket_single_market_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_trade_tick/_polymarket_single_market_runner.py)
-- Polymarket PMXT L2:
-  [`backtests/polymarket_quote_tick/_polymarket_single_market_pmxt_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_quote_tick/_polymarket_single_market_pmxt_runner.py)
+Use `REPORT` when the runner should print a summary table or write combined
+multi-market reports.
+
+## Designing Good Runner Files
+
+A runner file should answer the experiment questions directly:
+
+- which venue or platform is being replayed
+- which data modality is being used
+- which vendor supplies that modality
+- which source priority should be used
+- which market or basket of markets is being replayed
+- what the capital and execution assumptions are
+- which strategy config or configs should be bound into the run
+
+Keep the top-level file declarative. Keep shared mechanics in `backtests/_shared/`.
+
+That division is deliberate:
+
+- `DATA` selects the platform, modality, vendor, and source priority
+- `SIMS` is the instrument basket, whether that basket contains one market or many
+- `STRATEGY_CONFIGS` is the stable strategy payload passed into the backtest object
+- `BACKTEST` owns loading, engine construction, and execution
+
+## Multi-Market Strategy Configs
+
+`PredictionMarketBacktest` supports either one strategy instance per sim or one
+batch-level strategy config that references the full basket.
+
+Useful config sentinels:
+
+- `__SIM_INSTRUMENT_ID__` binds to the current sim instrument
+- `__ALL_SIM_INSTRUMENT_IDS__` binds to every loaded sim instrument in the basket
+- `__SIM_METADATA__:<key>` binds metadata from `MarketSimConfig.metadata`
+
+That lets a runner expose `SIMS` explicitly and still pass one clean
+`STRATEGY_CONFIGS` payload into the runner object.
 
 ## Running Backtests
 
@@ -62,44 +178,63 @@ uv run python main.py
 Direct script execution is usually better once you know the runner you want:
 
 ```bash
-MARKET_TICKER=<kalshi-market-ticker> uv run python backtests/kalshi_trade_tick/kalshi_breakout.py
-uv run python backtests/polymarket_quote_tick/polymarket_pmxt_relay_ema_crossover.py
-MARKET_SLUG=<polymarket-market-slug> uv run python backtests/polymarket_trade_tick/polymarket_vwap_reversion.py
+uv run python backtests/kalshi_trade_tick_breakout.py
+uv run python backtests/polymarket_trade_tick_vwap_reversion.py
+uv run python backtests/polymarket_quote_tick_pmxt_ema_crossover.py
 ```
 
-If you omit the market env vars, most public runners fall back to defaults
-bundled in the module so examples stay runnable.
+Public runners are now pinned directly in code. If you want a different market,
+window, cash value, or vendor source priority, edit `DATA`, `SIMS`, or
+`STRATEGY_CONFIGS` in the runner file, or copy the file into
+`backtests/private/` and customize it there.
 
-## Common Environment Variables
+## Editing Runner Inputs
 
-- `MARKET_TICKER` for Kalshi single-market runners
-- `MARKET_SLUG` for Polymarket trade-tick single-market runners
-- `TOKEN_INDEX` to choose which Polymarket outcome token to backtest
-- `LOOKBACK_DAYS` for rolling trade-tick windows
-- `START_TIME`, `END_TIME`, or `LOOKBACK_HOURS` to override the PMXT quote-tick
-  runner window from the shell without editing the script
-- `PMXT_RELAY_BASE_URL` to override the default public relay or disable it with
-  `PMXT_RELAY_BASE_URL=0`
-- `PMXT_LOCAL_ARCHIVE_DIR` to use your own local PMXT raw hour mirror ahead of
-  every remote PMXT source
-- `PMXT_CACHE_DIR` or `PMXT_DISABLE_CACHE` for the local PMXT cache
-- `TRADE_SIZE` and `INITIAL_CASH` for sizing
-- `TARGET_RESULTS` for multi-market runners
+The public runner layer no longer depends on shell env vars for experiment
+definition. The file itself should carry the actual values.
 
-## PMXT Notes
+Use these top-level objects as the edit surface:
 
-- PMXT timing output is enabled by default in the menu and direct `main.py` path
-- `BACKTEST_ENABLE_TIMING=0` is the explicit quiet opt-out
-- PMXT filtered cache is enabled by default at `~/.cache/nautilus_trader/pmxt`
-- the public relay defaults to `https://209-209-10-83.sslip.io`
-- local raw mirrors are the preferred PMXT source for sustained use
-- the public Polymarket quote-tick examples are pinned to a known-good public
-  relay sample window so direct script runs work out of the box
-- if you mirror PMXT raw hours locally, set `PMXT_LOCAL_ARCHIVE_DIR=/path/to/raw-hours`
-  and optionally `PMXT_RELAY_BASE_URL=0` for a local-only run
+- `DATA` for platform, modality, vendor, and source priority
+- `SIMS` for one market or a basket of markets
+- `STRATEGY_CONFIGS` for strategy paths and parameter payloads
+- `BACKTEST` for shared execution requirements like cash, quote/trade minimums,
+  probability window, and Nautilus log level
 
-For PMXT data-source behavior and timings, use:
+Low-level loader env vars still exist for custom integrations and private
+workflows:
 
-- [PMXT BYOD And Local Data](pmxt-byod.md)
-- [PMXT Fetch Sources And Timing](pmxt-fetch-sources.md)
+- `KALSHI_REST_BASE_URL`
+- `POLYMARKET_GAMMA_BASE_URL`, `POLYMARKET_TRADE_API_BASE_URL`,
+  `POLYMARKET_CLOB_BASE_URL`
+- `PMXT_RAW_ROOT`, `PMXT_REMOTE_BASE_URL`, `PMXT_RELAY_BASE_URL`,
+  `PMXT_CACHE_DIR`, `PMXT_DISABLE_CACHE`
+- `BACKTEST_ENABLE_TIMING=0`
+
+## Data Vendor Notes
+
+### Native Vendors
+
+- `native` means the loader is using venue-native APIs or venue-native historical
+  adapters
+- public runners pin native source selection in `DATA.sources`
+- low-level native loader URLs can still be overridden outside the public runner
+  layer if you are building a custom workflow
+
+### PMXT
+
+- PMXT is the first documented quote-tick vendor adapter in this repo
+- the preferred sustained workflow is local-first: mirror raw archive hours onto
+  local disk, then point `DATA.sources` at that mirror
+- the local PMXT filtered cache is enabled by default at
+  `~/.cache/nautilus_trader/pmxt`
+- the shared public relay is now treated as a raw mirror service; filtered relay
+  behavior is legacy or self-hosted
+- direct script execution keeps normal Nautilus output visible, and runners that
+  opt into `@timing_harness` keep timing output too
+
+For vendor-specific data-source behavior and timings, use:
+
+- [Data Vendors, Local Mirrors, And Local Processing](pmxt-byod.md)
+- [Vendor Fetch Sources And Timing](pmxt-fetch-sources.md)
 - [PMXT Relay Deploy And Ops](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/pmxt_relay/README.md)

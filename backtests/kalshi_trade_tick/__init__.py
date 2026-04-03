@@ -1,1 +1,0 @@
-"""Kalshi trade-tick backtests."""

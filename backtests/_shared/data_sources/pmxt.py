@@ -4,11 +4,17 @@ import os
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterator
+from typing import Iterator, Sequence
 
 import pyarrow.dataset as ds
 
 from nautilus_trader.adapters.polymarket import PolymarketPMXTDataLoader
+
+from backtests._shared.data_sources._common import DISABLED_ENV_VALUES
+from backtests._shared.data_sources._common import env_value
+from backtests._shared.data_sources._common import looks_like_local_path
+from backtests._shared.data_sources._common import normalize_local_path
+from backtests._shared.data_sources._common import normalize_urlish
 
 
 PMXT_DATA_SOURCE_ENV = "PMXT_DATA_SOURCE"
@@ -17,10 +23,9 @@ PMXT_LOCAL_FILTERED_DIR_ENV = "PMXT_LOCAL_FILTERED_DIR"
 PMXT_RAW_ROOT_ENV = "PMXT_RAW_ROOT"
 PMXT_DISABLE_REMOTE_ARCHIVE_ENV = "PMXT_DISABLE_REMOTE_ARCHIVE"
 PMXT_RELAY_BASE_URL_ENV = "PMXT_RELAY_BASE_URL"
+PMXT_REMOTE_BASE_URL_ENV = "PMXT_REMOTE_BASE_URL"
 PMXT_CACHE_DIR_ENV = "PMXT_CACHE_DIR"
-PMXT_DEFAULT_RELAY_BASE_URL = "https://209-209-10-83.sslip.io"
 
-_DISABLED_ENV_VALUES = {"", "0", "false", "no", "off", "none", "disabled"}
 _MODE_ALIASES = {
     "": "auto",
     "auto": "auto",
@@ -49,6 +54,7 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
 
     def __init__(self, *args, **kwargs) -> None:  # type: ignore[no-untyped-def]
         super().__init__(*args, **kwargs)
+        self._pmxt_remote_base_url = self._resolve_remote_base_url()
         self._pmxt_raw_root = self._resolve_raw_root()
         self._pmxt_disable_remote_archive = self._env_flag_enabled(
             os.getenv(PMXT_DISABLE_REMOTE_ARCHIVE_ENV)
@@ -61,10 +67,37 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
             return None
 
         value = configured.strip()
-        if value.casefold() in _DISABLED_ENV_VALUES:
+        if value.casefold() in DISABLED_ENV_VALUES:
             return None
 
         return Path(value).expanduser()
+
+    @classmethod
+    def _resolve_remote_base_url(cls) -> str | None:
+        configured = env_value(os.getenv(PMXT_REMOTE_BASE_URL_ENV))
+        if configured is None:
+            return None
+        if configured.casefold() in DISABLED_ENV_VALUES:
+            return None
+        return normalize_urlish(configured)
+
+    @classmethod
+    def _resolve_relay_base_url(cls) -> str | None:
+        configured = env_value(os.getenv(PMXT_RELAY_BASE_URL_ENV))
+        if configured is None:
+            return None
+        if configured.casefold() in DISABLED_ENV_VALUES:
+            return None
+        return normalize_urlish(configured)
+
+    @classmethod
+    def _archive_url_for_hour(cls, hour):
+        remote_base_url = cls._resolve_remote_base_url()
+        if remote_base_url is None:
+            raise RuntimeError(
+                f"{PMXT_REMOTE_BASE_URL_ENV} is required for remote PMXT archive access."
+            )
+        return f"{remote_base_url}/{cls._archive_filename_for_hour(hour)}"
 
     def _raw_path_for_hour(self, hour) -> Path | None:  # type: ignore[no-untyped-def]
         if self._pmxt_raw_root is None:
@@ -121,7 +154,7 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
         *,
         batch_size: int,
     ):  # type: ignore[no-untyped-def]
-        if self._pmxt_disable_remote_archive:
+        if self._pmxt_disable_remote_archive or self._pmxt_remote_base_url is None:
             return None
 
         return super()._load_remote_market_batches(hour, batch_size=batch_size)
@@ -159,23 +192,34 @@ def _env_enabled(name: str) -> bool:
     value = _env_value(name)
     if value is None:
         return False
-    return value.casefold() not in _DISABLED_ENV_VALUES
+    return value.casefold() not in DISABLED_ENV_VALUES
 
 
-def _resolve_existing_relay_url() -> str:
+def _resolve_existing_relay_url() -> str | None:
     configured = os.getenv(PMXT_RELAY_BASE_URL_ENV)
     if configured is None:
-        return PMXT_DEFAULT_RELAY_BASE_URL
+        return None
 
     value = configured.strip().rstrip("/")
-    if value.casefold() in _DISABLED_ENV_VALUES:
-        return PMXT_DEFAULT_RELAY_BASE_URL
-    return value or PMXT_DEFAULT_RELAY_BASE_URL
+    if value.casefold() in DISABLED_ENV_VALUES:
+        return None
+    return normalize_urlish(value) if value else None
+
+
+def _resolve_existing_remote_url() -> str | None:
+    configured = os.getenv(PMXT_REMOTE_BASE_URL_ENV)
+    if configured is None:
+        return None
+
+    value = configured.strip().rstrip("/")
+    if value.casefold() in DISABLED_ENV_VALUES:
+        return None
+    return normalize_urlish(value) if value else None
 
 
 def _resolve_required_directory(env_name: str, *, label: str) -> Path:
     configured = os.getenv(env_name)
-    if configured is None or configured.strip().casefold() in _DISABLED_ENV_VALUES:
+    if configured is None or configured.strip().casefold() in DISABLED_ENV_VALUES:
         raise ValueError(f"{env_name} is required when using {label}.")
 
     path = Path(configured).expanduser()
@@ -186,20 +230,95 @@ def _resolve_required_directory(env_name: str, *, label: str) -> Path:
     return path
 
 
-def resolve_pmxt_data_source_selection() -> tuple[
+def _classify_explicit_pmxt_sources(
+    sources: Sequence[str],
+) -> tuple[str | None, str | None, str | None]:
+    raw_root: str | None = None
+    remote_sources: list[str] = []
+
+    for source in sources:
+        stripped = source.strip()
+        if not stripped:
+            continue
+        if stripped.casefold() == "cache":
+            continue
+        if looks_like_local_path(stripped):
+            normalized_local = normalize_local_path(stripped)
+            if raw_root is not None and normalized_local != raw_root:
+                raise ValueError(
+                    "PMXT explicit sources supports at most one local raw mirror path."
+                )
+            raw_root = normalized_local
+            continue
+
+        remote_sources.append(normalize_urlish(stripped))
+
+    if len(remote_sources) > 2:
+        raise ValueError(
+            "PMXT explicit sources supports at most two remote sources: "
+            "remote archive first, relay second."
+        )
+
+    remote_base_url = remote_sources[0] if remote_sources else None
+    relay_base_url = remote_sources[1] if len(remote_sources) > 1 else None
+    return raw_root, remote_base_url, relay_base_url
+
+
+def _explicit_source_summary(
+    *,
+    raw_root: str | None,
+    remote_base_url: str | None,
+    relay_base_url: str | None,
+) -> str:
+    parts: list[str] = ["cache"]
+    if raw_root is not None:
+        parts.append(raw_root)
+    if remote_base_url is not None:
+        parts.append(remote_base_url)
+    if relay_base_url is not None:
+        parts.append(relay_base_url)
+    return "PMXT source: explicit priority (" + " -> ".join(parts) + ")"
+
+
+def resolve_pmxt_data_source_selection(
+    *,
+    sources: Sequence[str] | None = None,
+) -> tuple[
     PMXTDataSourceSelection,
     dict[str, str | None],
 ]:
+    if sources:
+        raw_root, remote_base_url, relay_base_url = _classify_explicit_pmxt_sources(
+            sources
+        )
+        return (
+            PMXTDataSourceSelection(
+                mode="auto",
+                summary=_explicit_source_summary(
+                    raw_root=raw_root,
+                    remote_base_url=remote_base_url,
+                    relay_base_url=relay_base_url,
+                ),
+            ),
+            {
+                PMXT_RAW_ROOT_ENV: raw_root,
+                PMXT_REMOTE_BASE_URL_ENV: remote_base_url or "0",
+                PMXT_RELAY_BASE_URL_ENV: relay_base_url or "0",
+                PMXT_DISABLE_REMOTE_ARCHIVE_ENV: None if remote_base_url else "1",
+            },
+        )
+
     configured_mode = os.getenv(PMXT_DATA_SOURCE_ENV)
     mode = _normalize_mode(configured_mode)
 
     if configured_mode is None:
         raw_root = _env_value(PMXT_RAW_ROOT_ENV)
         relay_base_url = _env_value(PMXT_RELAY_BASE_URL_ENV)
+        remote_base_url = _env_value(PMXT_REMOTE_BASE_URL_ENV)
         cache_dir = _env_value(PMXT_CACHE_DIR_ENV)
         disable_remote_archive = _env_enabled(PMXT_DISABLE_REMOTE_ARCHIVE_ENV)
 
-        if raw_root is not None and raw_root.casefold() not in _DISABLED_ENV_VALUES:
+        if raw_root is not None and raw_root.casefold() not in DISABLED_ENV_VALUES:
             return (
                 PMXTDataSourceSelection(
                     mode="raw-local",
@@ -219,7 +338,7 @@ def resolve_pmxt_data_source_selection() -> tuple[
 
         if (
             relay_base_url is not None
-            and relay_base_url.casefold() in _DISABLED_ENV_VALUES
+            and relay_base_url.casefold() in DISABLED_ENV_VALUES
         ):
             return (
                 PMXTDataSourceSelection(
@@ -229,10 +348,25 @@ def resolve_pmxt_data_source_selection() -> tuple[
                 {},
             )
 
+        if (
+            remote_base_url is not None
+            and remote_base_url.casefold() in DISABLED_ENV_VALUES
+        ):
+            return (
+                PMXTDataSourceSelection(
+                    mode="relay",
+                    summary="PMXT source: relay-first (remote raw disabled)",
+                ),
+                {},
+            )
+
         return (
             PMXTDataSourceSelection(
                 mode="auto",
-                summary="PMXT source: auto (cache -> local raw -> relay filtered -> raw remote -> relay raw)",
+                summary=(
+                    "PMXT source: auto "
+                    "(cache -> local raw -> explicit remote raw -> explicit relay)"
+                ),
             ),
             {},
         )
@@ -241,10 +375,14 @@ def resolve_pmxt_data_source_selection() -> tuple[
         return (
             PMXTDataSourceSelection(
                 mode=mode,
-                summary="PMXT source: auto (cache -> local raw -> relay filtered -> raw remote -> relay raw)",
+                summary=(
+                    "PMXT source: auto "
+                    "(cache -> local raw -> explicit remote raw -> explicit relay)"
+                ),
             ),
             {
                 PMXT_RELAY_BASE_URL_ENV: _resolve_existing_relay_url(),
+                PMXT_REMOTE_BASE_URL_ENV: _resolve_existing_remote_url(),
                 PMXT_RAW_ROOT_ENV: None,
                 PMXT_DISABLE_REMOTE_ARCHIVE_ENV: None,
             },
@@ -252,6 +390,10 @@ def resolve_pmxt_data_source_selection() -> tuple[
 
     if mode == "relay":
         relay_url = _resolve_existing_relay_url()
+        if relay_url is None:
+            raise ValueError(
+                f"{PMXT_RELAY_BASE_URL_ENV} is required when using relay mode."
+            )
         return (
             PMXTDataSourceSelection(
                 mode=mode,
@@ -259,6 +401,7 @@ def resolve_pmxt_data_source_selection() -> tuple[
             ),
             {
                 PMXT_RELAY_BASE_URL_ENV: relay_url,
+                PMXT_REMOTE_BASE_URL_ENV: None,
                 PMXT_RAW_ROOT_ENV: None,
                 PMXT_DISABLE_REMOTE_ARCHIVE_ENV: None,
             },
@@ -272,6 +415,7 @@ def resolve_pmxt_data_source_selection() -> tuple[
             ),
             {
                 PMXT_RELAY_BASE_URL_ENV: "0",
+                PMXT_REMOTE_BASE_URL_ENV: None,
                 PMXT_RAW_ROOT_ENV: None,
                 PMXT_DISABLE_REMOTE_ARCHIVE_ENV: None,
             },
@@ -289,8 +433,9 @@ def resolve_pmxt_data_source_selection() -> tuple[
             ),
             {
                 PMXT_RELAY_BASE_URL_ENV: "0",
+                PMXT_REMOTE_BASE_URL_ENV: "0",
                 PMXT_RAW_ROOT_ENV: str(raw_root),
-                PMXT_DISABLE_REMOTE_ARCHIVE_ENV: None,
+                PMXT_DISABLE_REMOTE_ARCHIVE_ENV: "1",
             },
         )
 
@@ -305,6 +450,7 @@ def resolve_pmxt_data_source_selection() -> tuple[
         ),
         {
             PMXT_RELAY_BASE_URL_ENV: "0",
+            PMXT_REMOTE_BASE_URL_ENV: "0",
             PMXT_CACHE_DIR_ENV: str(filtered_root),
             PMXT_RAW_ROOT_ENV: None,
             PMXT_DISABLE_REMOTE_ARCHIVE_ENV: "1",
@@ -313,8 +459,11 @@ def resolve_pmxt_data_source_selection() -> tuple[
 
 
 @contextmanager
-def configured_pmxt_data_source() -> Iterator[PMXTDataSourceSelection]:
-    selection, updates = resolve_pmxt_data_source_selection()
+def configured_pmxt_data_source(
+    *,
+    sources: Sequence[str] | None = None,
+) -> Iterator[PMXTDataSourceSelection]:
+    selection, updates = resolve_pmxt_data_source_selection(sources=sources)
     originals = {name: os.environ.get(name) for name in updates}
 
     try:

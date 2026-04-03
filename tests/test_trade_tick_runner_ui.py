@@ -3,12 +3,8 @@ from __future__ import annotations
 import asyncio
 from types import SimpleNamespace
 
-from backtests.kalshi_trade_tick import (
-    _kalshi_single_market_trade_runner as kalshi_runner,
-)
-from backtests.polymarket_trade_tick import (
-    _polymarket_single_market_runner as polymarket_runner,
-)
+from backtests._shared import _kalshi_trade_tick_runner as kalshi_runner
+from backtests._shared import _polymarket_trade_tick_runner as polymarket_runner
 
 
 class _TradeStub:

@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-import asyncio
 import importlib
 
 import pytest
 
+from backtests._shared._strategy_configs import build_strategies_from_configs
 from strategies import TradeTickBreakoutConfig
 from strategies import TradeTickBreakoutStrategy
 from strategies import TradeTickEMACrossoverConfig
@@ -27,27 +27,27 @@ INSTRUMENT_ID = InstrumentId(Symbol("KALSHI-TEST"), Venue("KALSHI"))
     ("module_name", "strategy_cls", "config_cls"),
     [
         (
-            "backtests.kalshi_trade_tick.kalshi_breakout",
+            "backtests.kalshi_trade_tick_breakout",
             TradeTickBreakoutStrategy,
             TradeTickBreakoutConfig,
         ),
         (
-            "backtests.kalshi_trade_tick.kalshi_ema_crossover",
+            "backtests.kalshi_trade_tick_ema_crossover",
             TradeTickEMACrossoverStrategy,
             TradeTickEMACrossoverConfig,
         ),
         (
-            "backtests.kalshi_trade_tick.kalshi_panic_fade",
+            "backtests.kalshi_trade_tick_panic_fade",
             TradeTickPanicFadeStrategy,
             TradeTickPanicFadeConfig,
         ),
         (
-            "backtests.kalshi_trade_tick.kalshi_rsi_reversion",
+            "backtests.kalshi_trade_tick_rsi_reversion",
             TradeTickRSIReversionStrategy,
             TradeTickRSIReversionConfig,
         ),
         (
-            "backtests.kalshi_trade_tick.kalshi_spread_capture",
+            "backtests.kalshi_trade_tick_spread_capture",
             TradeTickMeanReversionStrategy,
             TradeTickMeanReversionConfig,
         ),
@@ -62,21 +62,34 @@ def test_kalshi_backtests_build_expected_trade_tick_strategy(
     module = importlib.import_module(module_name)
     captured: dict[str, object] = {}
 
-    async def _fake_run_single_market_trade_backtest(**kwargs):  # type: ignore[no-untyped-def]
+    def _fake_run_reported_backtest(**kwargs):  # type: ignore[no-untyped-def]
         captured.update(kwargs)
-        return None
+        return []
 
-    monkeypatch.setattr(
-        module,
-        "run_single_market_trade_backtest",
-        _fake_run_single_market_trade_backtest,
+    monkeypatch.setattr(module, "run_reported_backtest", _fake_run_reported_backtest)
+
+    module.run()
+
+    strategies = build_strategies_from_configs(
+        strategy_configs=module.STRATEGY_CONFIGS,
+        instrument_id=INSTRUMENT_ID,
     )
+    assert len(strategies) == 1
+    strategy = strategies[0]
 
-    asyncio.run(module.run())
-
-    strategy = captured["strategy_factory"](INSTRUMENT_ID)
     assert isinstance(strategy, strategy_cls)
     assert isinstance(strategy.config, config_cls)
-    assert captured["name"] == module.NAME
-    assert captured["market_ticker"] == module.MARKET_TICKER
-    assert captured["lookback_days"] == module.LOOKBACK_DAYS
+    assert module.SIMS == (
+        module.MarketSimConfig(
+            market_ticker=module.MARKET_TICKER,
+            lookback_days=module.LOOKBACK_DAYS,
+        ),
+    )
+    assert module.BACKTEST.name == module.NAME
+    assert module.BACKTEST.data == module.DATA
+    assert module.BACKTEST.sims == module.SIMS
+    assert module.BACKTEST.initial_cash == module.INITIAL_CASH
+    assert module.BACKTEST.min_trades == module.MIN_TRADES
+    assert module.BACKTEST.min_price_range == module.MIN_PRICE_RANGE
+    assert captured["backtest"] is module.BACKTEST
+    assert captured["report"] == module.REPORT

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import sys
+from pathlib import Path
 from types import SimpleNamespace
 
 import main as main_module
@@ -67,24 +68,21 @@ def test_show_menu_renders_folder_tree(capsys, monkeypatch):
     choice = main_module.show_menu(
         [
             {
-                "name": "kalshi_breakout",
+                "name": "kalshi_trade_tick_breakout",
                 "description": "Kalshi breakout",
-                "relative_parts": ("kalshi_trade_tick", "kalshi_breakout.py"),
+                "relative_parts": ("kalshi_trade_tick_breakout.py",),
                 "run": object(),
             },
             {
-                "name": "kalshi_ema_crossover",
+                "name": "kalshi_trade_tick_ema_crossover",
                 "description": "Kalshi EMA",
-                "relative_parts": ("kalshi_trade_tick", "kalshi_ema_crossover.py"),
+                "relative_parts": ("kalshi_trade_tick_ema_crossover.py",),
                 "run": object(),
             },
             {
-                "name": "polymarket_pmxt_relay_breakout",
+                "name": "polymarket_quote_tick_pmxt_breakout",
                 "description": "PMXT breakout",
-                "relative_parts": (
-                    "polymarket_quote_tick",
-                    "polymarket_pmxt_relay_breakout.py",
-                ),
+                "relative_parts": ("polymarket_quote_tick_pmxt_breakout.py",),
                 "run": object(),
             },
         ],
@@ -94,8 +92,31 @@ def test_show_menu_renders_folder_tree(capsys, monkeypatch):
 
     assert choice == 1
     assert "backtests/" in rendered
-    assert "├── kalshi_trade_tick/" in rendered
-    assert "│   ├── 1. kalshi_breakout.py — Kalshi breakout" in rendered
-    assert "│   └── 2. kalshi_ema_crossover.py — Kalshi EMA" in rendered
-    assert "└── polymarket_quote_tick/" in rendered
-    assert "    └── 3. polymarket_pmxt_relay_breakout.py — PMXT breakout" in rendered
+    assert "├── 1. kalshi_trade_tick_breakout.py — Kalshi breakout" in rendered
+    assert "├── 2. kalshi_trade_tick_ema_crossover.py — Kalshi EMA" in rendered
+    assert "└── 3. polymarket_quote_tick_pmxt_breakout.py — PMXT breakout" in rendered
+
+
+def test_discoverable_backtest_paths_stay_flat(tmp_path: Path) -> None:
+    backtests_root = tmp_path / "backtests"
+    (backtests_root / "_shared").mkdir(parents=True)
+    (backtests_root / "private").mkdir()
+    (backtests_root / "nested").mkdir()
+
+    (backtests_root / "__init__.py").write_text("")
+    (backtests_root / "_script_helpers.py").write_text("")
+    (backtests_root / "kalshi_trade_tick_breakout.py").write_text("")
+    (backtests_root / "private" / "local_runner.py").write_text("")
+    (backtests_root / "private" / "_helper.py").write_text("")
+    (backtests_root / "nested" / "should_not_show.py").write_text("")
+    (backtests_root / "_shared" / "_trade_tick_ui.py").write_text("")
+
+    discovered = [
+        path.relative_to(backtests_root)
+        for path in main_module._discoverable_backtest_paths(backtests_root)
+    ]
+
+    assert discovered == [
+        Path("kalshi_trade_tick_breakout.py"),
+        Path("private/local_runner.py"),
+    ]

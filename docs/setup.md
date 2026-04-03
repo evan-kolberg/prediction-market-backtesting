@@ -42,13 +42,25 @@ Direct entrypoint:
 uv run python main.py
 ```
 
-## PMXT Defaults
+Direct runner files also work:
 
-- PMXT fetch timing output is on by default in `make backtest` and
-  `uv run python main.py`
+```bash
+uv run python backtests/kalshi_trade_tick_breakout.py
+uv run python backtests/polymarket_quote_tick_pmxt_ema_crossover.py
+```
+
+Public runner files now carry their own pinned market, window, and source
+values. To use a different local PMXT mirror path or a different market, edit
+the runner file directly or copy it into `backtests/private/`.
+
+## Timing And Cache Defaults
+
+- timing output is on by default in `make backtest`, `uv run python main.py`,
+  and direct script runners that opt into `@timing_harness`
 - `BACKTEST_ENABLE_TIMING=0` is the explicit quiet opt-out
-- local PMXT filtered cache is enabled by default at
+- PMXT filtered cache is enabled by default at
   `~/.cache/nautilus_trader/pmxt`
+- normal Nautilus logs are still printed; the timing harness is additive
 
 ## Updating The Vendored Subtree
 

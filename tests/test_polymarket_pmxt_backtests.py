@@ -1,14 +1,16 @@
 from __future__ import annotations
 
-import asyncio
 import importlib
 
 import pytest
 
-from backtests.polymarket_quote_tick._defaults import DEFAULT_PMXT_RELAY_SAMPLE_END_TIME
-from backtests.polymarket_quote_tick._defaults import (
+from backtests._shared._polymarket_quote_tick_defaults import (
+    DEFAULT_PMXT_RELAY_SAMPLE_END_TIME,
+)
+from backtests._shared._polymarket_quote_tick_defaults import (
     DEFAULT_PMXT_RELAY_SAMPLE_START_TIME,
 )
+from backtests._shared._strategy_configs import build_strategies_from_configs
 from strategies import QuoteTickBreakoutConfig
 from strategies import QuoteTickBreakoutStrategy
 from strategies import QuoteTickDeepValueHoldConfig
@@ -46,52 +48,52 @@ EXPECTED_END_TIME = DEFAULT_PMXT_RELAY_SAMPLE_END_TIME
     ("module_name", "strategy_cls", "config_cls"),
     [
         (
-            "backtests.polymarket_quote_tick.polymarket_pmxt_relay_breakout",
+            "backtests.polymarket_quote_tick_pmxt_breakout",
             QuoteTickBreakoutStrategy,
             QuoteTickBreakoutConfig,
         ),
         (
-            "backtests.polymarket_quote_tick.polymarket_pmxt_relay_deep_value_hold",
+            "backtests.polymarket_quote_tick_pmxt_deep_value_hold",
             QuoteTickDeepValueHoldStrategy,
             QuoteTickDeepValueHoldConfig,
         ),
         (
-            "backtests.polymarket_quote_tick.polymarket_pmxt_relay_ema_crossover",
+            "backtests.polymarket_quote_tick_pmxt_ema_crossover",
             QuoteTickEMACrossoverStrategy,
             QuoteTickEMACrossoverConfig,
         ),
         (
-            "backtests.polymarket_quote_tick.polymarket_pmxt_relay_final_period_momentum",
+            "backtests.polymarket_quote_tick_pmxt_final_period_momentum",
             QuoteTickFinalPeriodMomentumStrategy,
             QuoteTickFinalPeriodMomentumConfig,
         ),
         (
-            "backtests.polymarket_quote_tick.polymarket_pmxt_relay_late_favorite_limit_hold",
+            "backtests.polymarket_quote_tick_pmxt_late_favorite_limit_hold",
             QuoteTickLateFavoriteLimitHoldStrategy,
             QuoteTickLateFavoriteLimitHoldConfig,
         ),
         (
-            "backtests.polymarket_quote_tick.polymarket_pmxt_relay_panic_fade",
+            "backtests.polymarket_quote_tick_pmxt_panic_fade",
             QuoteTickPanicFadeStrategy,
             QuoteTickPanicFadeConfig,
         ),
         (
-            "backtests.polymarket_quote_tick.polymarket_pmxt_relay_rsi_reversion",
+            "backtests.polymarket_quote_tick_pmxt_rsi_reversion",
             QuoteTickRSIReversionStrategy,
             QuoteTickRSIReversionConfig,
         ),
         (
-            "backtests.polymarket_quote_tick.polymarket_pmxt_relay_spread_capture",
+            "backtests.polymarket_quote_tick_pmxt_spread_capture",
             QuoteTickMeanReversionStrategy,
             QuoteTickMeanReversionConfig,
         ),
         (
-            "backtests.polymarket_quote_tick.polymarket_pmxt_relay_threshold_momentum",
+            "backtests.polymarket_quote_tick_pmxt_threshold_momentum",
             QuoteTickThresholdMomentumStrategy,
             QuoteTickThresholdMomentumConfig,
         ),
         (
-            "backtests.polymarket_quote_tick.polymarket_pmxt_relay_vwap_reversion",
+            "backtests.polymarket_quote_tick_pmxt_vwap_reversion",
             QuoteTickVWAPReversionStrategy,
             QuoteTickVWAPReversionConfig,
         ),
@@ -106,105 +108,98 @@ def test_pmxt_backtests_build_expected_quote_tick_strategy(
     module = importlib.import_module(module_name)
     captured: dict[str, object] = {}
 
-    async def _fake_run_single_market_pmxt_backtest(**kwargs):  # type: ignore[no-untyped-def]
+    def _fake_run_reported_backtest(**kwargs):  # type: ignore[no-untyped-def]
         captured.update(kwargs)
-        return None
+        return []
 
-    monkeypatch.setattr(
-        module,
-        "run_single_market_pmxt_backtest",
-        _fake_run_single_market_pmxt_backtest,
+    monkeypatch.setattr(module, "run_reported_backtest", _fake_run_reported_backtest)
+
+    module.run()
+
+    strategies = build_strategies_from_configs(
+        strategy_configs=module.STRATEGY_CONFIGS,
+        instrument_id=INSTRUMENT_ID,
     )
+    assert len(strategies) == 1
+    strategy = strategies[0]
 
-    asyncio.run(module.run())
-
-    strategy = captured["strategy_factory"](INSTRUMENT_ID)
     assert isinstance(strategy, strategy_cls)
     assert isinstance(strategy.config, config_cls)
-    assert captured["name"] == module.NAME
-    assert captured["market_slug"] == EXPECTED_MARKET_SLUG
-    assert captured["token_index"] == 0
-    assert captured["start_time"] == EXPECTED_START_TIME
-    assert captured["end_time"] == EXPECTED_END_TIME
-    assert captured["min_quotes"] == 500
-    assert captured["min_price_range"] == 0.005
-    assert captured["initial_cash"] == 100.0
-    assert "lookback_hours" not in captured
+    assert module.BACKTEST.name == module.NAME
+    assert module.BACKTEST.data == module.DATA
+    assert module.BACKTEST.sims == module.SIMS
+    assert module.BACKTEST.initial_cash == module.INITIAL_CASH
+    assert module.BACKTEST.min_quotes == module.MIN_QUOTES
+    assert module.BACKTEST.min_price_range == module.MIN_PRICE_RANGE
+    assert module.BACKTEST.probability_window == module.PROBABILITY_WINDOW
+    assert len(module.SIMS) == 1
+    sim = module.SIMS[0]
+    assert sim.market_slug == EXPECTED_MARKET_SLUG
+    assert sim.token_index == 0
+    assert sim.start_time == EXPECTED_START_TIME
+    assert sim.end_time == EXPECTED_END_TIME
+    assert captured["backtest"] is module.BACKTEST
+    assert captured["report"] == module.REPORT
 
 
 def test_pmxt_sports_backtest_uses_fixed_samples(
     monkeypatch: pytest.MonkeyPatch,
 ):
     module = importlib.import_module(
-        "backtests.polymarket_quote_tick.polymarket_pmxt_relay_sports_vwap_reversion"
+        "backtests.polymarket_quote_tick_pmxt_sports_vwap_reversion"
     )
-    captured_calls: list[dict[str, object]] = []
-
-    async def _fake_run_single_market_pmxt_backtest(**kwargs):  # type: ignore[no-untyped-def]
-        captured_calls.append(kwargs)
-        return {
-            "slug": kwargs["market_slug"],
+    finalized_calls: list[dict[str, object]] = []
+    fake_results = [
+        {
+            "slug": spec.market_slug,
             "quotes": 1000,
             "fills": 2,
             "pnl": 1.25,
-            "chart_path": None,
+            "outcome": spec.outcome,
         }
-
+        for spec in module.SIMS
+    ]
+    monkeypatch.setattr(module.BACKTEST, "run", lambda: fake_results)
     monkeypatch.setattr(
         module,
-        "run_single_market_pmxt_backtest",
-        _fake_run_single_market_pmxt_backtest,
-    )
-    combined_report_calls: list[dict[str, object]] = []
-    summary_report_calls: list[dict[str, object]] = []
-
-    monkeypatch.setattr(module, "print_backtest_summary", lambda **kwargs: None)
-    monkeypatch.setattr(
-        module,
-        "save_aggregate_backtest_report",
-        lambda **kwargs: summary_report_calls.append(kwargs),
-    )
-    monkeypatch.setattr(
-        module,
-        "save_combined_backtest_report",
-        lambda **kwargs: combined_report_calls.append(kwargs),
+        "finalize_market_results",
+        lambda **kwargs: finalized_calls.append(kwargs),
     )
 
-    asyncio.run(module.run())
+    module.run()
 
-    assert len(captured_calls) == len(module.SPORT_MARKET_SAMPLES)
-    for captured, sample in zip(
-        captured_calls,
-        module.SPORT_MARKET_SAMPLES,
-        strict=True,
-    ):
-        assert captured["name"] == module.NAME
-        assert captured["market_slug"] == sample["market_slug"]
-        assert captured["token_index"] == sample["token_index"]
-        assert captured["start_time"] == sample["start_time"]
-        assert captured["end_time"] == sample["end_time"]
-        assert captured["min_quotes"] == module.MIN_QUOTES
-        assert captured["min_price_range"] == module.MIN_PRICE_RANGE
-        assert captured["initial_cash"] == module.INITIAL_CASH
-        assert captured["probability_window"] == module.VWAP_WINDOW
-        assert "lookback_hours" not in captured
+    assert module.BACKTEST.name == module.NAME
+    assert module.BACKTEST.data == module.DATA
+    assert module.BACKTEST.sims == module.SIMS
+    assert module.BACKTEST.initial_cash == module.INITIAL_CASH
+    assert module.BACKTEST.min_quotes == module.MIN_QUOTES
+    assert module.BACKTEST.min_price_range == module.MIN_PRICE_RANGE
+    assert module.BACKTEST.probability_window == module.VWAP_WINDOW
+    assert len(module.SIMS) == 5
+    for sim in module.SIMS:
+        assert sim.market_slug
+        assert sim.start_time == EXPECTED_START_TIME
+        assert sim.end_time == EXPECTED_END_TIME
+        assert sim.outcome == "Yes"
 
-        strategy = captured["strategy_factory"](INSTRUMENT_ID)
-        assert isinstance(strategy, QuoteTickVWAPReversionStrategy)
-        assert isinstance(strategy.config, QuoteTickVWAPReversionConfig)
+    strategies = build_strategies_from_configs(
+        strategy_configs=module.STRATEGY_CONFIGS,
+        instrument_id=INSTRUMENT_ID,
+    )
+    assert len(strategies) == 1
+    strategy = strategies[0]
+    assert isinstance(strategy, QuoteTickVWAPReversionStrategy)
+    assert isinstance(strategy.config, QuoteTickVWAPReversionConfig)
 
-    assert len(combined_report_calls) == 1
-    assert combined_report_calls[0]["output_path"] == module.COMBINED_REPORT_PATH
-    assert len(combined_report_calls[0]["results"]) == len(module.SPORT_MARKET_SAMPLES)
-
-    assert len(summary_report_calls) == 1
-    assert summary_report_calls[0]["output_path"] == module.SUMMARY_REPORT_PATH
-    assert len(summary_report_calls[0]["results"]) == len(module.SPORT_MARKET_SAMPLES)
+    assert len(finalized_calls) == 1
+    assert finalized_calls[0]["name"] == module.NAME
+    assert finalized_calls[0]["report"] == module.REPORT
+    assert finalized_calls[0]["results"] == fake_results
 
 
 def test_pmxt_runner_window_env_overrides(monkeypatch: pytest.MonkeyPatch):
     runner = importlib.import_module(
-        "backtests.polymarket_quote_tick._polymarket_single_market_pmxt_runner"
+        "backtests._shared._polymarket_quote_tick_pmxt_runner"
     )
     monkeypatch.setenv("START_TIME", "2026-02-21T16:00:00Z")
     monkeypatch.setenv("END_TIME", "2026-02-23T06:00:00Z")
