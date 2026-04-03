@@ -31,8 +31,10 @@ PMXT_RELAY_BASE_URL_ENV = "PMXT_RELAY_BASE_URL"
 PMXT_REMOTE_BASE_URL_ENV = "PMXT_REMOTE_BASE_URL"
 PMXT_CACHE_DIR_ENV = "PMXT_CACHE_DIR"
 PMXT_SOURCE_PRIORITY_ENV = "PMXT_SOURCE_PRIORITY"
+PMXT_PREFETCH_WORKERS_ENV = "PMXT_PREFETCH_WORKERS"
 _PMXT_RUNNER_HTTP_USER_AGENT = "prediction-market-backtesting/1.0"
 _PMXT_RUNNER_HTTP_TIMEOUT_SECS = 30
+_PMXT_LOCAL_RAW_PREFETCH_WORKERS = "4"
 
 _PMXT_SOURCE_STAGE_RAW_LOCAL = "raw-local"
 _PMXT_SOURCE_STAGE_RAW_REMOTE = "raw-remote"
@@ -778,6 +780,12 @@ def configured_pmxt_data_source(
     sources: Sequence[str] | None = None,
 ) -> Iterator[PMXTDataSourceSelection]:
     selection, updates = resolve_pmxt_data_source_selection(sources=sources)
+    updates = dict(updates)
+    if (
+        updates.get(PMXT_RAW_ROOT_ENV) is not None
+        and os.environ.get(PMXT_PREFETCH_WORKERS_ENV) is None
+    ):
+        updates[PMXT_PREFETCH_WORKERS_ENV] = _PMXT_LOCAL_RAW_PREFETCH_WORKERS
     originals = {name: os.environ.get(name) for name in updates}
 
     try:
