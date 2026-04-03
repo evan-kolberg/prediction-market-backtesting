@@ -24,6 +24,16 @@ def _env_csv(name: str, default: tuple[str, ...] = ()) -> tuple[str, ...]:
     return parts or default
 
 
+def _env_bool(name: str, default: bool) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    normalized = value.strip().lower()
+    if not normalized:
+        return default
+    return normalized not in {"0", "false", "no", "off"}
+
+
 @dataclass(frozen=True)
 class RelayConfig:
     data_dir: Path
@@ -51,6 +61,7 @@ class RelayConfig:
     clickhouse_insert_batch_rows: int = 2048
     trusted_proxy_ips: tuple[str, ...] = ("127.0.0.1", "::1")
     filtered_materialization_workers: int = 4
+    mirror_only: bool = False
 
     @classmethod
     def from_env(cls) -> RelayConfig:
@@ -132,6 +143,7 @@ class RelayConfig:
                     max(1, _env_int("PMXT_RELAY_DUCKDB_THREADS", 4)),
                 ),
             ),
+            mirror_only=_env_bool("PMXT_RELAY_MIRROR_ONLY", True),
         )
 
     @property
@@ -162,6 +174,14 @@ class RelayConfig:
     def uses_clickhouse_filtered_store(self) -> bool:
         return self.filtered_store_backend.strip().casefold() == "clickhouse"
 
+    @property
+    def processing_enabled(self) -> bool:
+        return not self.mirror_only
+
+    @property
+    def filtered_api_enabled(self) -> bool:
+        return not self.mirror_only
+
     def ensure_directories(self) -> None:
         paths = [
             self.data_dir,
@@ -169,7 +189,7 @@ class RelayConfig:
             self.state_root,
             self.tmp_root,
         ]
-        if not self.uses_clickhouse_filtered_store:
+        if self.processing_enabled and not self.uses_clickhouse_filtered_store:
             paths.extend((self.filtered_root, self.processed_root))
         for path in paths:
             path.mkdir(parents=True, exist_ok=True)

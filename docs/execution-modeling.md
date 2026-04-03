@@ -40,16 +40,19 @@ the raw venue data are:
   once fees and one-tick slippage are turned on
 - PMXT L2 helps with taker modeling, but maker realism still needs L3 data
 
-## PMXT L2 Behavior
+## Vendor L2 Behavior
+
+### PMXT
 
 - the loader prefers local filtered cache first, then any local raw PMXT
-  mirror, then relay-hosted filtered hours, then `r2.pmxt.dev`, then
-  relay-hosted raw hours
-- the relay serves the same two-column parquet shape the loader already reads:
-  `update_type` and `data`
+  mirror, then relay-hosted filtered hours if the configured relay still serves
+  them, then the configured remote raw archive, then relay-hosted raw hours
+- the current shared relay direction is mirror-only, so the durable shared
+  server path is raw parquet serving rather than server-side filtered-hour
+  processing
 - local PMXT filtered cache is enabled by default and grows with the number of
   unique `(condition_id, token_id, hour)` tuples you replay
 - `BACKTEST_ENABLE_TIMING=0` is the opt-out if you want a quieter PMXT run
 
-For concrete timings and source tiers, see [PMXT Fetch Sources And
+For concrete timings and source tiers, see [Vendor Fetch Sources And
 Timing](pmxt-fetch-sources.md).

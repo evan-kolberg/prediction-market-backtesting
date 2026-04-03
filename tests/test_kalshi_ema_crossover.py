@@ -1,10 +1,8 @@
 """End-to-end test for the Kalshi EMA-crossover backtest."""
 
-import asyncio
-
 import pytest
 
-import backtests.kalshi_trade_tick.kalshi_ema_crossover as strat
+import backtests.kalshi_trade_tick_ema_crossover as strat
 
 
 @pytest.fixture(autouse=True)
@@ -15,7 +13,7 @@ def _isolate_output(tmp_path, monkeypatch):
 
 def test_full_run_produces_legacy_chart(tmp_path):
     """Full pipeline runs without error and writes a legacy HTML chart."""
-    asyncio.run(strat.run())
+    strat.run()
 
     chart = tmp_path / "output" / f"{strat.NAME}_{strat.MARKET_TICKER}_legacy.html"
     assert chart.exists(), "Legacy chart not created"

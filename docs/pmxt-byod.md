@@ -1,11 +1,47 @@
-# PMXT BYOD And Local Data
+# Data Vendors, Local Mirrors, And Local Processing
 
 This page is intentionally strict about what is supported today.
 
-## Runner Source Modes
+## PMXT
 
-The PMXT quote-tick example runners expose a runner-side source selector so
-users are not pinned to one relay or one directory layout.
+The repository direction is local-first:
+
+- mirror raw hours onto local disk
+- process those raw hours locally into the existing filtered cache layout
+- treat server-side filtered relay processing as legacy
+
+If you only need a shared mirror, keep the relay in raw mirror mode and serve
+`/v1/raw/...` without server-side filtering.
+
+### Runner Source Modes
+
+The preferred PMXT quote-tick path is runner-side source selection through
+`MarketDataConfig(..., sources=...)`. Public runners now pin those source values
+directly in code so the file is self-contained and directly runnable.
+
+Example:
+
+```python
+DATA = MarketDataConfig(
+    platform="polymarket",
+    data_type="quote_tick",
+    vendor=PMXT_VENDOR,
+    sources=("/data/pmxt/raw", "https://mirror.example.com"),
+)
+```
+
+With PMXT, the active public contract is:
+
+1. local cache
+2. local raw mirror
+3. explicit remote PMXT archive
+4. explicit raw mirror or relay fallback
+
+The underlying Nautilus PMXT loader still has a filtered-relay tier for people
+running a legacy or self-hosted full-stack relay. In this repository's current
+mirror-first setup, that filtered tier is not the shared-server path to rely on.
+
+Legacy `PMXT_DATA_SOURCE` mode flags still work too:
 
 Set `PMXT_DATA_SOURCE` to one of:
 
@@ -19,59 +55,68 @@ Examples:
 
 ```bash
 PMXT_DATA_SOURCE=raw-remote \
-uv run python backtests/polymarket_quote_tick/polymarket_pmxt_relay_ema_crossover.py
+uv run python backtests/polymarket_quote_tick_pmxt_ema_crossover.py
 ```
 
 ```bash
 PMXT_DATA_SOURCE=raw-local \
 PMXT_LOCAL_MIRROR_DIR=/data/pmxt/raw \
-uv run python backtests/polymarket_quote_tick/polymarket_pmxt_relay_ema_crossover.py
+uv run python backtests/polymarket_quote_tick_pmxt_ema_crossover.py
 ```
 
 ```bash
 PMXT_DATA_SOURCE=filtered-local \
 PMXT_LOCAL_FILTERED_DIR=/data/pmxt/filtered \
-uv run python backtests/polymarket_quote_tick/polymarket_pmxt_relay_ema_crossover.py
+uv run python backtests/polymarket_quote_tick_pmxt_ema_crossover.py
 ```
 
 `raw-local` expects a local PMXT raw mirror. `filtered-local` is strict local
 mode and will not fall back to the public relay or remote archive if an hour is
 missing.
 
-## Lower-Level Loader Env Vars
+### Lower-Level Loader Env Vars
 
-The runner source selector is the easiest public entrypoint, but the underlying
-loader env vars still work too:
+The public runner layer is pinned in code, but the underlying loader env vars
+still work for custom integrations:
 
 - `PMXT_LOCAL_ARCHIVE_DIR`
+- `PMXT_RAW_ROOT`
+- `PMXT_REMOTE_BASE_URL`
 - `PMXT_RELAY_BASE_URL`
 - `PMXT_CACHE_DIR`
 - `PMXT_DISABLE_CACHE`
 
-## What Works Today
+### What Works Today
 
-The current PMXT loader can read one market/token/hour from five places, in
-this order:
+The current PMXT loader can read one market/token/hour from these places:
 
 1. local filtered cache
 2. local raw PMXT archive hour
-3. relay-hosted filtered parquet
-4. raw PMXT archive hour on `r2.pmxt.dev`
+3. relay-hosted filtered parquet, if you point the loader at a relay that still
+   serves filtered hours
+4. raw PMXT archive hour on the configured remote archive
 5. relay-hosted raw PMXT archive hour
 
 The current "bring your own data" story is therefore:
 
 - pre-populate the local PMXT filtered cache with PMXT-compatible market-hour
   parquet files
+- or set `DATA.sources` in your runner to `("/path/to/raw-hours", "https://archive.example.com", "https://relay.example.com")`
 - or point `PMXT_LOCAL_ARCHIVE_DIR` at a directory of raw PMXT hour files you
   already mirrored locally
 - or use `PMXT_DATA_SOURCE=raw-local` with `PMXT_LOCAL_MIRROR_DIR`
-- or run your own relay and point `PMXT_RELAY_BASE_URL` at it
+- or run your own raw mirror and point `PMXT_RELAY_BASE_URL` at it
 
 When the loader falls back to remote raw hours (`r2.pmxt.dev` or relay
 `/v1/raw/...`), it downloads each hour to a temporary local parquet file,
 filters it locally, and deletes the temp artifact afterward. Persistent raw
 disk growth only happens when you intentionally configure a local raw mirror.
+
+The important distinction is:
+
+- local raw mirrors and remote raw mirrors are current first-class paths
+- filtered relay processing is legacy compatibility, not the preferred shared
+  deployment model
 
 If you want local-only PMXT replays, set both:
 
@@ -83,7 +128,33 @@ PMXT_LOCAL_ARCHIVE_DIR=/path/to/pmxt-hours
 The loader still does not expose a first-class runner flag for arbitrary vendor
 raw dumps or automatic normalization from other vendors.
 
-## Supported Local File Layout
+## Local Processing Command
+
+To turn a local PMXT raw mirror into the same filtered market-hour parquet
+layout used by the cache, run:
+
+```bash
+uv run python scripts/pmxt_process_local.py \
+  --raw-root /data/pmxt/raw \
+  --filtered-root ~/.cache/nautilus_trader/pmxt
+```
+
+Useful variant:
+
+```bash
+uv run python scripts/pmxt_process_local.py \
+  --raw-root /data/pmxt/raw \
+  --filtered-root /data/pmxt/filtered \
+  --tmp-root /data/pmxt/tmp \
+  --workers 4 \
+  --start-hour 2026-03-01T00 \
+  --end-hour 2026-03-07T23
+```
+
+The explicit `--vendor` flag is there so future local vendor adapters can plug
+into the same entrypoint instead of adding more one-off PMXT-only scripts.
+
+### Supported Local File Layout
 
 When the loader reads from local filtered cache, it expects:
 
@@ -149,7 +220,7 @@ PMXT_DATA_SOURCE=filtered-local
 PMXT_LOCAL_FILTERED_DIR=/data/pmxt/filtered
 ```
 
-## Required Parquet Columns
+### Required Parquet Columns
 
 Filtered cache parquet must contain exactly the columns the loader already
 consumes:
@@ -170,7 +241,7 @@ Local raw PMXT archive parquet must contain:
 The loader filters raw hours to `market_id` at parquet scan time, then filters
 the remaining rows to `token_id` inside the JSON payload.
 
-## Required JSON Payload Shape
+### Required JSON Payload Shape
 
 For `book_snapshot`, the loader decodes `data` with these fields:
 
@@ -228,6 +299,10 @@ Disable relay usage entirely with:
 PMXT_RELAY_BASE_URL=0
 ```
 
+Mirror-only deployments are the preferred server shape now. In that mode the
+server keeps mirroring raw hours and may serve `/v1/raw/...`, but `/v1/filtered`
+and filtered-hour listing endpoints are disabled or expected to miss.
+
 ## What Is Not Plug-And-Play Yet
 
 - arbitrary third-party vendor raw formats
@@ -239,7 +314,6 @@ If you have your own global raw dumps today, the safe path is:
    at them directly
 2. otherwise convert them into the filtered market-hour parquet layout above
 3. stage them into `PMXT_CACHE_DIR`
-4. or ingest them into your own relay that serves the same `/v1/filtered/...`
-   API shape
+4. or add a new vendor adapter behind `uv run python scripts/pmxt_process_local.py`
 
 That keeps the strategy and runner layer unchanged.

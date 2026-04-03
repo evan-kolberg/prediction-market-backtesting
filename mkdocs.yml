@@ -21,7 +21,7 @@ nav:
       - Prerequisites: /prediction-market-backtesting/setup/#prerequisites
       - Install: /prediction-market-backtesting/setup/#install
       - First Run: /prediction-market-backtesting/setup/#first-run
-      - PMXT Defaults: /prediction-market-backtesting/setup/#pmxt-defaults
+      - Timing And Cache Defaults: /prediction-market-backtesting/setup/#timing-and-cache-defaults
       - Updating The Vendored Subtree: /prediction-market-backtesting/setup/#updating-the-vendored-subtree
   - Backtests And Runners:
       - Backtests And Runners: backtests.md
@@ -29,23 +29,23 @@ nav:
       - Runner Contract: /prediction-market-backtesting/backtests/#runner-contract
       - Running Backtests: /prediction-market-backtesting/backtests/#running-backtests
       - Common Environment Variables: /prediction-market-backtesting/backtests/#common-environment-variables
-      - PMXT Notes: /prediction-market-backtesting/backtests/#pmxt-notes
+      - Data Vendor Notes: /prediction-market-backtesting/backtests/#data-vendor-notes
   - Execution Modeling:
       - Execution Modeling: execution-modeling.md
       - Fees: /prediction-market-backtesting/execution-modeling/#fees
       - Slippage: /prediction-market-backtesting/execution-modeling/#slippage
       - Limits: /prediction-market-backtesting/execution-modeling/#limits
-      - PMXT L2 Behavior: /prediction-market-backtesting/execution-modeling/#pmxt-l2-behavior
-  - PMXT BYOD And Local Data:
-      - PMXT BYOD And Local Data: pmxt-byod.md
+      - Vendor L2 Behavior: /prediction-market-backtesting/execution-modeling/#vendor-l2-behavior
+  - Data Vendors, Local Mirrors, And Local Processing:
+      - Data Vendors, Local Mirrors, And Local Processing: pmxt-byod.md
       - What Works Today: /prediction-market-backtesting/pmxt-byod/#what-works-today
       - Supported Local File Layout: /prediction-market-backtesting/pmxt-byod/#supported-local-file-layout
       - Required Parquet Columns: /prediction-market-backtesting/pmxt-byod/#required-parquet-columns
       - Required JSON Payload Shape: /prediction-market-backtesting/pmxt-byod/#required-json-payload-shape
       - Relay Mode: /prediction-market-backtesting/pmxt-byod/#relay-mode
       - What Is Not Plug-And-Play Yet: /prediction-market-backtesting/pmxt-byod/#what-is-not-plug-and-play-yet
-  - PMXT Fetch Sources:
-      - PMXT Fetch Sources: pmxt-fetch-sources.md
+  - Vendor Fetch Sources And Timing:
+      - Vendor Fetch Sources And Timing: pmxt-fetch-sources.md
       - Example Output: /prediction-market-backtesting/pmxt-fetch-sources/#example-output
       - Timing Expectations By Source: /prediction-market-backtesting/pmxt-fetch-sources/#timing-expectations-by-source
       - How To See This Output: /prediction-market-backtesting/pmxt-fetch-sources/#how-to-see-this-output

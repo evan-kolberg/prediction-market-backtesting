@@ -13,6 +13,7 @@ from backtests._shared.data_sources.pmxt import PMXT_DATA_SOURCE_ENV
 from backtests._shared.data_sources.pmxt import PMXT_DISABLE_REMOTE_ARCHIVE_ENV
 from backtests._shared.data_sources.pmxt import PMXT_LOCAL_FILTERED_DIR_ENV
 from backtests._shared.data_sources.pmxt import PMXT_LOCAL_MIRROR_DIR_ENV
+from backtests._shared.data_sources.pmxt import PMXT_REMOTE_BASE_URL_ENV
 from backtests._shared.data_sources.pmxt import PMXT_RAW_ROOT_ENV
 from backtests._shared.data_sources.pmxt import PMXT_RELAY_BASE_URL_ENV
 from backtests._shared.data_sources.pmxt import RunnerPolymarketPMXTDataLoader
@@ -56,8 +57,9 @@ def test_configured_pmxt_data_source_sets_raw_local_overrides(monkeypatch, tmp_p
         assert selection.mode == "raw-local"
         assert str(mirror_root) in selection.summary
         assert os.environ[PMXT_RELAY_BASE_URL_ENV] == "0"
+        assert os.environ[PMXT_REMOTE_BASE_URL_ENV] == "0"
         assert os.environ[PMXT_RAW_ROOT_ENV] == str(mirror_root)
-        assert PMXT_DISABLE_REMOTE_ARCHIVE_ENV not in os.environ
+        assert os.environ[PMXT_DISABLE_REMOTE_ARCHIVE_ENV] == "1"
 
     assert os.getenv(PMXT_RAW_ROOT_ENV) is None
     assert os.getenv(PMXT_RELAY_BASE_URL_ENV) is None
@@ -101,6 +103,34 @@ def test_configured_pmxt_data_source_requires_local_mirror(monkeypatch):
     with pytest.raises(ValueError, match=PMXT_LOCAL_MIRROR_DIR_ENV):
         with configured_pmxt_data_source():
             pass
+
+
+def test_configured_pmxt_data_source_preserves_explicit_source_order(
+    monkeypatch,
+    tmp_path,
+):
+    mirror_root = tmp_path / "mirror"
+    mirror_root.mkdir()
+    monkeypatch.delenv(PMXT_DATA_SOURCE_ENV, raising=False)
+
+    with configured_pmxt_data_source(
+        sources=[
+            "cache",
+            str(mirror_root),
+            "archive.vendor.test",
+            "relay.vendor.test",
+        ]
+    ) as selection:
+        assert selection.mode == "auto"
+        assert str(mirror_root) in selection.summary
+        assert os.environ[PMXT_RAW_ROOT_ENV] == str(mirror_root)
+        assert os.environ[PMXT_REMOTE_BASE_URL_ENV] == "https://archive.vendor.test"
+        assert os.environ[PMXT_RELAY_BASE_URL_ENV] == "https://relay.vendor.test"
+        assert PMXT_DISABLE_REMOTE_ARCHIVE_ENV not in os.environ
+
+    assert os.getenv(PMXT_RAW_ROOT_ENV) is None
+    assert os.getenv(PMXT_REMOTE_BASE_URL_ENV) is None
+    assert os.getenv(PMXT_RELAY_BASE_URL_ENV) is None
 
 
 def test_runner_loader_reads_market_rows_from_local_raw_mirror(tmp_path):

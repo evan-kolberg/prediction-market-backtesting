@@ -17,31 +17,6 @@
 ![GitHub top language](https://img.shields.io/github/languages/top/evan-kolberg/prediction-market-backtesting)
 ![GitHub open issues](https://img.shields.io/github/issues/evan-kolberg/prediction-market-backtesting)
 
-Relay VPS statistics:
-
-[![PMXT relay](https://209-209-10-83.sslip.io/v1/badge/status.svg?v=4)](https://209-209-10-83.sslip.io/v1/stats)
-[![Processing](https://209-209-10-83.sslip.io/v1/badge/processing.svg?v=4)](https://209-209-10-83.sslip.io/v1/queue)
-[![CPU load](https://209-209-10-83.sslip.io/v1/badge/load.svg?v=4)](https://209-209-10-83.sslip.io/v1/system)
-[![I/O wait](https://209-209-10-83.sslip.io/v1/badge/iowait.svg?v=4)](https://209-209-10-83.sslip.io/v1/system)
-[![RAM](https://209-209-10-83.sslip.io/v1/badge/mem.svg?v=4)](https://209-209-10-83.sslip.io/v1/system)
-[![Disk](https://209-209-10-83.sslip.io/v1/badge/disk.svg?v=4)](https://209-209-10-83.sslip.io/v1/system)
-
-[![ClickHouse](https://209-209-10-83.sslip.io/v1/badge/clickhouse.svg?v=8)](https://209-209-10-83.sslip.io/v1/system)
-[![Worker service](https://209-209-10-83.sslip.io/v1/badge/worker.svg?v=8)](https://209-209-10-83.sslip.io/v1/system)
-[![Mirror service](https://209-209-10-83.sslip.io/v1/badge/mirroring.svg?v=4)](https://209-209-10-83.sslip.io/v1/queue)
-[![API service](https://209-209-10-83.sslip.io/v1/badge/api.svg?v=8)](https://209-209-10-83.sslip.io/v1/system)
-
-
-[![Hours mirrored](https://209-209-10-83.sslip.io/v1/badge/mirrored.svg?v=4)](https://209-209-10-83.sslip.io/v1/stats)
-[![Hours processed](https://209-209-10-83.sslip.io/v1/badge/processed.svg?v=4)](https://209-209-10-83.sslip.io/v1/stats)
-[![Queue lag](https://209-209-10-83.sslip.io/v1/badge/lag.svg?v=4)](https://209-209-10-83.sslip.io/v1/queue)
-[![Completion rate](https://209-209-10-83.sslip.io/v1/badge/rate.svg?v=4)](https://209-209-10-83.sslip.io/v1/stats)
-[![Latest hour](https://209-209-10-83.sslip.io/v1/badge/latest.svg?v=4)](https://209-209-10-83.sslip.io/v1/queue)
-
-
-[![Current file](https://209-209-10-83.sslip.io/v1/badge/file.svg?v=4)](https://209-209-10-83.sslip.io/v1/events?limit=50)
-[![Rows processed](https://209-209-10-83.sslip.io/v1/badge/rows.svg?v=4)](https://209-209-10-83.sslip.io/v1/events?limit=50)
-
 Backtesting framework for prediction market strategies on
 [Kalshi](https://kalshi.com) and [Polymarket](https://polymarket.com), built on
 top of [NautilusTrader](https://github.com/nautechsystems/nautilus_trader) with
@@ -54,11 +29,6 @@ Fantastic single & multi-market charting. Featuring: equity (total & individual 
 
 Detailed guides have been filed away in the [docs index](https://evan-kolberg.github.io/prediction-market-backtesting/) for better organization and long-term sustainability.
 
-PMXT defaults:
-- timing output is on by default in `make backtest` and `uv run python main.py`
-- `BACKTEST_ENABLE_TIMING=0` is the explicit quiet opt-out
-- local PMXT filtered cache is enabled by default at `~/.cache/nautilus_trader/pmxt`
-
 ## Table of Contents
 
 - [Docs Index](https://evan-kolberg.github.io/prediction-market-backtesting/)
@@ -66,27 +36,27 @@ PMXT defaults:
   - [Prerequisites](https://evan-kolberg.github.io/prediction-market-backtesting/setup/#prerequisites)
   - [Install](https://evan-kolberg.github.io/prediction-market-backtesting/setup/#install)
   - [First Run](https://evan-kolberg.github.io/prediction-market-backtesting/setup/#first-run)
-  - [PMXT Defaults](https://evan-kolberg.github.io/prediction-market-backtesting/setup/#pmxt-defaults)
+  - [Timing And Cache Defaults](https://evan-kolberg.github.io/prediction-market-backtesting/setup/#timing-and-cache-defaults)
   - [Updating The Vendored Subtree](https://evan-kolberg.github.io/prediction-market-backtesting/setup/#updating-the-vendored-subtree)
-- [Backtests And Runners](https://evan-kolberg.github.io/prediction-market-backtesting/backtests/)
+  - [Backtests And Runners](https://evan-kolberg.github.io/prediction-market-backtesting/backtests/)
   - [Repo Layout](https://evan-kolberg.github.io/prediction-market-backtesting/backtests/#repo-layout)
   - [Runner Contract](https://evan-kolberg.github.io/prediction-market-backtesting/backtests/#runner-contract)
   - [Running Backtests](https://evan-kolberg.github.io/prediction-market-backtesting/backtests/#running-backtests)
-  - [Common Environment Variables](https://evan-kolberg.github.io/prediction-market-backtesting/backtests/#common-environment-variables)
-  - [PMXT Notes](https://evan-kolberg.github.io/prediction-market-backtesting/backtests/#pmxt-notes)
+  - [Editing Runner Inputs](https://evan-kolberg.github.io/prediction-market-backtesting/backtests/#editing-runner-inputs)
+  - [Data Vendor Notes](https://evan-kolberg.github.io/prediction-market-backtesting/backtests/#data-vendor-notes)
 - [Execution Modeling](https://evan-kolberg.github.io/prediction-market-backtesting/execution-modeling/)
   - [Fees](https://evan-kolberg.github.io/prediction-market-backtesting/execution-modeling/#fees)
   - [Slippage](https://evan-kolberg.github.io/prediction-market-backtesting/execution-modeling/#slippage)
   - [Limits](https://evan-kolberg.github.io/prediction-market-backtesting/execution-modeling/#limits)
-  - [PMXT L2 Behavior](https://evan-kolberg.github.io/prediction-market-backtesting/execution-modeling/#pmxt-l2-behavior)
-- [PMXT BYOD And Local Data](https://evan-kolberg.github.io/prediction-market-backtesting/pmxt-byod/)
+  - [Vendor L2 Behavior](https://evan-kolberg.github.io/prediction-market-backtesting/execution-modeling/#vendor-l2-behavior)
+- [Data Vendors, Local Mirrors, And Local Processing](https://evan-kolberg.github.io/prediction-market-backtesting/pmxt-byod/)
   - [What Works Today](https://evan-kolberg.github.io/prediction-market-backtesting/pmxt-byod/#what-works-today)
   - [Supported Local File Layout](https://evan-kolberg.github.io/prediction-market-backtesting/pmxt-byod/#supported-local-file-layout)
   - [Required Parquet Columns](https://evan-kolberg.github.io/prediction-market-backtesting/pmxt-byod/#required-parquet-columns)
   - [Required JSON Payload Shape](https://evan-kolberg.github.io/prediction-market-backtesting/pmxt-byod/#required-json-payload-shape)
   - [Relay Mode](https://evan-kolberg.github.io/prediction-market-backtesting/pmxt-byod/#relay-mode)
   - [What Is Not Plug-And-Play Yet](https://evan-kolberg.github.io/prediction-market-backtesting/pmxt-byod/#what-is-not-plug-and-play-yet)
-- [PMXT Fetch Sources And Timing](https://evan-kolberg.github.io/prediction-market-backtesting/pmxt-fetch-sources/)
+- [Vendor Fetch Sources And Timing](https://evan-kolberg.github.io/prediction-market-backtesting/pmxt-fetch-sources/)
   - [Example Output](https://evan-kolberg.github.io/prediction-market-backtesting/pmxt-fetch-sources/#example-output)
   - [Timing Expectations By Source](https://evan-kolberg.github.io/prediction-market-backtesting/pmxt-fetch-sources/#timing-expectations-by-source)
   - [How To See This Output](https://evan-kolberg.github.io/prediction-market-backtesting/pmxt-fetch-sources/#how-to-see-this-output)

@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """Prediction market backtest runner.
 
-Discovers runnable modules in the backtests/ directory tree and presents an
-interactive menu. Each backtest file must expose:
+Discovers runnable modules in flat runner entrypoints under `backtests/` and
+`backtests/private/` and presents an interactive menu. Each backtest file must expose:
 
     NAME        str   — display name shown in the menu
     DESCRIPTION str   — one-line description shown in the menu
-    run()       async — entry point called when the backtest is selected
+    run()       sync or async — entry point called when the backtest is selected
 
 Run via:
     uv run python main.py
@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import importlib
+import inspect
 import os
 import sys
 import time
@@ -28,7 +29,6 @@ BACKTESTS_ROOT = PROJECT_ROOT / "backtests"
 
 DIM = "\033[2m"
 BOLD = "\033[1m"
-CYAN = "\033[36m"
 RESET = "\033[0m"
 ENABLE_TIMING_ENV = "BACKTEST_ENABLE_TIMING"
 
@@ -40,18 +40,32 @@ def _env_flag_enabled(name: str) -> bool:
     return value.strip().casefold() not in {"0", "false", "no", "off"}
 
 
+def _discoverable_backtest_paths(backtests_root: Path) -> list[Path]:
+    """Return flat public runner files plus flat private runner files."""
+    if not backtests_root.exists():
+        return []
+
+    candidates = [
+        *backtests_root.glob("*.py"),
+        *backtests_root.glob("private/*.py"),
+    ]
+    return sorted(
+        path
+        for path in candidates
+        if path.is_file()
+        and path.name != "__init__.py"
+        and not path.name.startswith("_")
+    )
+
+
 def discover() -> list[dict]:
-    """Scan backtests/ recursively for modules that expose NAME, DESCRIPTION, and run()."""
+    """Scan flat runner entrypoints for modules that expose NAME, DESCRIPTION, and run()."""
     found = []
     if not BACKTESTS_ROOT.exists():
         return found
 
-    for path in sorted(BACKTESTS_ROOT.rglob("*.py")):
+    for path in _discoverable_backtest_paths(BACKTESTS_ROOT):
         relative_parts = path.relative_to(BACKTESTS_ROOT).parts
-        if path.name == "__init__.py":
-            continue
-        if any(part.startswith("_") for part in relative_parts):
-            continue
 
         mod_name = ".".join(path.relative_to(PROJECT_ROOT).with_suffix("").parts)
         try:
@@ -120,7 +134,7 @@ def _render_menu_tree(
         index, filename = payload
         description = child["description"]
         desc = f" {DIM}— {description}{RESET}" if description else ""
-        lines.append(f"{prefix}{connector}{CYAN}{index}{RESET}. {filename}{desc}")
+        lines.append(f"{prefix}{connector}{index}. {filename}{desc}")
 
     return lines
 
@@ -160,7 +174,7 @@ def main() -> None:
         print(
             f"No backtests found in {BACKTESTS_ROOT}\n"
             "Create a .py file in backtests/ or backtests/private/ that exposes "
-            "NAME, DESCRIPTION, and an async run()."
+            "NAME, DESCRIPTION, and a run() entrypoint."
         )
         sys.exit(1)
 
@@ -181,7 +195,9 @@ def main() -> None:
             pass
 
     wall_start = time.perf_counter()
-    asyncio.run(chosen["run"]())
+    result = chosen["run"]()
+    if inspect.isawaitable(result):
+        asyncio.run(result)
     wall_total = time.perf_counter() - wall_start
     print(f"\nTotal wall time: {wall_total:.2f}s")
 
