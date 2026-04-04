@@ -32,13 +32,35 @@ if str(_REPO_ROOT) not in sys.path:
 _installed = False
 
 
-def _transfer_label(source: str) -> str:
+def _hour_label(source: str) -> str:
     parsed = urlparse(source)
     path = parsed.path or source
     filename = Path(path).name
-    hour_label = filename.removeprefix("polymarket_orderbook_").removesuffix(".parquet")
+    if filename.startswith("polymarket_orderbook_") and filename.endswith(".parquet"):
+        return filename.removeprefix("polymarket_orderbook_").removesuffix(".parquet")
+    return filename or path
+
+
+def _transfer_label(source: str) -> str:
+    for prefix, label in (
+        ("cache::", "cache"),
+        ("local-raw::", "local raw"),
+        ("relay-filtered::", "relay filtered"),
+        ("relay-raw::", "relay raw"),
+        ("remote-raw::", "r2 raw"),
+    ):
+        if source.startswith(prefix):
+            return f"{label} {_hour_label(source.removeprefix(prefix))}"
+
+    if source in {"none", "unknown", "local raw", "relay filtered", "relay raw"}:
+        return source
+
+    parsed = urlparse(source)
+    hour_label = _hour_label(source)
     if parsed.scheme == "file" or source.startswith("/"):
         return f"local raw {hour_label}"
+    if "/v1/filtered/" in source:
+        return f"relay filtered {hour_label}"
     if "/v1/raw/" in source:
         return f"relay raw {hour_label}"
     return f"r2 raw {hour_label}"
@@ -68,6 +90,7 @@ def install_timing() -> None:
         "downloads": {},
         "stop": threading.Event(),
         "spinner_index": 0,
+        "parallel": False,
     }
 
     def _ensure_transfer_state(
@@ -151,7 +174,8 @@ def install_timing() -> None:
                 )
         if len(active_downloads) > len(labels):
             labels.append(f"+{len(active_downloads) - len(labels)} more")
-        return f"{spinner} " + " | ".join(labels)
+        prefix = "prefetch:" if bool(transfer_state["parallel"]) else "active:"
+        return f"{prefix} {spinner} " + " | ".join(labels)
 
     def _refresh_transfer_status() -> None:
         bar = pbar_state["bar"]
@@ -237,13 +261,18 @@ def install_timing() -> None:
             result = orig_cached(self, hour)
             if result is not None:
                 cache_path = self._cache_path_for_hour(hour)
-                source_local.source = str(cache_path)
+                source_local.source = f"cache::{cache_path}"
             return result
 
         def patched_relay(self, hour, *, batch_size):
             result = orig_relay(self, hour, batch_size=batch_size)
             if result is not None:
-                source_local.source = self._pmxt_relay_base_url or "relay"
+                relay_url = self._relay_url_for_hour(hour)
+                source_local.source = (
+                    f"relay-filtered::{relay_url}"
+                    if relay_url is not None
+                    else "relay filtered"
+                )
             return result
 
         def patched_relay_raw(self, hour, *, batch_size):
@@ -254,7 +283,11 @@ def install_timing() -> None:
             finally:
                 _finish_transfer(relay_raw_url)
             if result is not None:
-                source_local.source = relay_raw_url or "relay-raw"
+                source_local.source = (
+                    f"relay-raw::{relay_raw_url}"
+                    if relay_raw_url is not None
+                    else "relay raw"
+                )
             return result
 
         def patched_local_archive(self, hour, *, batch_size):
@@ -266,7 +299,9 @@ def install_timing() -> None:
                     None,
                 )
                 source_local.source = (
-                    str(existing_path) if existing_path else "local-raw"
+                    f"local-raw::{existing_path}"
+                    if existing_path is not None
+                    else "local raw"
                 )
             return result
 
@@ -278,7 +313,7 @@ def install_timing() -> None:
             finally:
                 _finish_transfer(remote_url)
             if result is not None:
-                source_local.source = self._PMXT_BASE_URL
+                source_local.source = f"remote-raw::{remote_url}"
             return result
 
         def timed_load(self, hour, *, batch_size):
@@ -293,7 +328,7 @@ def install_timing() -> None:
                 bar = pbar_state["bar"]
                 if bar is not None:
                     bar.write(
-                        f"  {hour.isoformat():>25s}  {elapsed:6.3f}s  {rows:>6} rows  {source}"
+                        f"  {hour.isoformat():>25s}  {elapsed:6.3f}s  {rows:>6} rows  {_transfer_label(source)}"
                     )
                     bar.update(1)
             return result
@@ -329,6 +364,9 @@ def install_timing() -> None:
                 )
                 self._pmxt_download_progress_callback = _download_progress
                 self._pmxt_scan_progress_callback = _scan_progress
+                transfer_state["parallel"] = (
+                    min(getattr(self, "_pmxt_prefetch_workers", 1), len(hours)) > 1
+                )
                 heartbeat_thread.start()
             try:
                 yield from orig_iter(self, hours, batch_size=batch_size)
@@ -341,6 +379,7 @@ def install_timing() -> None:
                         "downloads"
                     ]  # type: ignore[assignment]
                     downloads.clear()
+                    transfer_state["parallel"] = False
                     bar = pbar_state["bar"]
                     if bar is not None:
                         bar.clear(nolock=True)
@@ -367,7 +406,7 @@ def install_timing() -> None:
             if result is not None:
                 raw_path = self._raw_path_for_hour(hour)
                 if raw_path is not None and raw_path.exists():
-                    source_local.source = str(raw_path)
+                    source_local.source = f"local-raw::{raw_path}"
                 else:
                     archive_paths = self._local_archive_paths_for_hour(hour)
                     existing_path = next(
@@ -375,7 +414,9 @@ def install_timing() -> None:
                         None,
                     )
                     source_local.source = (
-                        str(existing_path) if existing_path is not None else "local-raw"
+                        f"local-raw::{existing_path}"
+                        if existing_path is not None
+                        else "local raw"
                     )
             return result
 
