@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import importlib
-import pandas as pd
 import pytest
 
 from backtests._shared._polymarket_quote_tick_defaults import (
@@ -252,90 +251,22 @@ def test_time_based_pmxt_single_market_samples_overlap_strategy_window(
     assert market_close_time_ns <= end_ns
 
 
-def test_pmxt_sports_backtest_discovers_live_samples(
+def test_pmxt_multi_sim_example_runner_uses_fixed_windows(
     monkeypatch: pytest.MonkeyPatch,
 ):
     module = importlib.import_module(
         "backtests.polymarket_quote_tick_pmxt_sports_vwap_reversion"
     )
-    now = pd.Timestamp("2026-04-04T20:00:00Z")
-    html = """
-    <a href="/event/cs2-prv-lgc-2026-04-04">cs2</a>
-    <a href="/event/fl1-lil-rcl-2026-04-04">soccer</a>
-    """
+    captured: dict[str, object] = {}
 
-    market_payloads = {
-        "cs2-prv-lgc-2026-04-04": {
-            "slug": "cs2-prv-lgc-2026-04-04",
-            "sportsMarketType": "moneyline",
-            "gameStartTime": "2026-04-04 14:10:00+00",
-            "bestBid": 0.45,
-            "bestAsk": 0.46,
-            "volume24hrClob": 900000.0,
-            "liquidityClob": 150000.0,
-        },
-        "fl1-lil-rcl-2026-04-04-draw": {
-            "slug": "fl1-lil-rcl-2026-04-04-draw",
-            "sportsMarketType": "moneyline",
-            "gameStartTime": "2026-04-04 19:05:00+00",
-            "bestBid": 0.24,
-            "bestAsk": 0.25,
-            "volume24hrClob": 128000.0,
-            "liquidityClob": 42000.0,
-        },
-        "fl1-lil-rcl-2026-04-04-rcl": {
-            "slug": "fl1-lil-rcl-2026-04-04-rcl",
-            "sportsMarketType": "moneyline",
-            "gameStartTime": "2026-04-04 19:05:00+00",
-            "bestBid": 0.10,
-            "bestAsk": 0.11,
-            "volume24hrClob": 131000.0,
-            "liquidityClob": 37700.0,
-        },
-    }
-    event_payloads = {
-        "fl1-lil-rcl-2026-04-04": {
-            "markets": [
-                {"slug": "fl1-lil-rcl-2026-04-04-draw"},
-                {"slug": "fl1-lil-rcl-2026-04-04-rcl"},
-            ]
-        }
-    }
+    def _fake_run_reported_multi_sim_pmxt_backtest(**kwargs):  # type: ignore[no-untyped-def]
+        captured.update(kwargs)
+        return []
 
-    monkeypatch.setattr(module, "_fetch_text", lambda _url: html)
-    monkeypatch.setattr(module, "_fetch_market", lambda slug: market_payloads.get(slug))
-    monkeypatch.setattr(module, "_fetch_event", lambda slug: event_payloads.get(slug))
-
-    sims = module.discover_recent_market_sims(now=now, limit=3)
-
-    finalized_calls: list[dict[str, object]] = []
-    runner_calls: list[tuple[str, str, str]] = []
-
-    async def _fake_run_single_market_pmxt_backtest(**kwargs):  # type: ignore[no-untyped-def]
-        runner_calls.append(
-            (
-                kwargs["market_slug"],
-                kwargs["start_time"],
-                kwargs["end_time"],
-            )
-        )
-        return {
-            "slug": kwargs["market_slug"],
-            "quotes": 1000,
-            "fills": 2,
-            "pnl": 1.25,
-        }
-
-    monkeypatch.setattr(module, "discover_recent_market_sims", lambda: sims)
     monkeypatch.setattr(
         module,
-        "run_single_market_pmxt_backtest",
-        _fake_run_single_market_pmxt_backtest,
-    )
-    monkeypatch.setattr(
-        module,
-        "finalize_market_results",
-        lambda **kwargs: finalized_calls.append(kwargs),
+        "run_reported_multi_sim_pmxt_backtest",
+        _fake_run_reported_multi_sim_pmxt_backtest,
     )
 
     module.run()
@@ -348,18 +279,33 @@ def test_pmxt_sports_backtest_discovers_live_samples(
     assert module.BACKTEST.min_price_range == 0.005
     assert module.BACKTEST.probability_window == 30
     assert module.DATA.sources == EXPECTED_PMXT_SOURCES
-    assert module.SIMS == ()
-    assert [sim.market_slug for sim in sims] == [
-        "cs2-prv-lgc-2026-04-04",
-        "fl1-lil-rcl-2026-04-04-draw",
-        "fl1-lil-rcl-2026-04-04-rcl",
+    assert module.REPORT.market_key == "sim_label"
+    assert [sim.market_slug for sim in module.SIMS] == [
+        EXPECTED_MARKET_SLUG,
+        EXPECTED_MARKET_SLUG,
+        EXPECTED_MARKET_SLUG,
+        EXPECTED_MARKET_SLUG,
     ]
-    assert sims[0].start_time == "2026-04-04T18:00:00Z"
-    assert sims[0].end_time == "2026-04-04T20:00:00Z"
-    assert sims[1].start_time == "2026-04-04T18:00:00Z"
-    assert sims[1].end_time == "2026-04-04T20:00:00Z"
+    assert [sim.start_time for sim in module.SIMS] == [
+        "2026-02-21T16:00:00Z",
+        "2026-02-22T10:00:00Z",
+        "2026-02-22T22:00:00Z",
+        "2026-03-24T03:00:00Z",
+    ]
+    assert [sim.end_time for sim in module.SIMS] == [
+        "2026-02-23T10:00:00Z",
+        "2026-02-22T22:00:00Z",
+        "2026-02-23T10:00:00Z",
+        "2026-03-24T08:00:00Z",
+    ]
+    assert [sim.metadata for sim in module.SIMS] == [
+        {"sim_label": "sample-a-full-window"},
+        {"sim_label": "sample-b-2026-02-22-day"},
+        {"sim_label": "sample-c-2026-02-22-late"},
+        {"sim_label": "sample-d-close-window"},
+    ]
 
-    for sim in sims:
+    for sim in module.SIMS:
         assert sim.market_slug
         assert sim.token_index == 0
         assert isinstance(sim.start_time, str) and sim.start_time
@@ -375,16 +321,16 @@ def test_pmxt_sports_backtest_discovers_live_samples(
     assert isinstance(strategy, QuoteTickVWAPReversionStrategy)
     assert isinstance(strategy.config, QuoteTickVWAPReversionConfig)
 
-    assert runner_calls == [
-        (sim.market_slug, sim.start_time, sim.end_time) for sim in sims
-    ]
-    assert len(finalized_calls) == 1
-    assert finalized_calls[0]["name"] == module.NAME
-    assert finalized_calls[0]["report"] == module.REPORT
-    assert finalized_calls[0]["results"] == [
-        {"slug": sim.market_slug, "quotes": 1000, "fills": 2, "pnl": 1.25}
-        for sim in sims[: module._TARGET_SIM_COUNT]
-    ]
+    assert captured["backtest"] is module.BACKTEST
+    assert captured["report"] == module.REPORT
+    assert (
+        captured["empty_message"]
+        == "No PMXT multi-sim example windows met the quote-tick requirements."
+    )
+    assert (
+        captured["partial_message"]
+        == "Completed {completed} of {total} fixed example sims."
+    )
 
 
 def test_pmxt_runner_window_env_overrides(monkeypatch: pytest.MonkeyPatch):

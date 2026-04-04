@@ -32,9 +32,21 @@ from string import ascii_uppercase
 from typing import Any
 
 try:
-    from simple_term_menu import TerminalMenu
+    from textual.app import App, ComposeResult
+    from textual.binding import Binding
+    from textual.containers import Horizontal, Vertical
+    from textual.events import Key
+    from textual.widgets import Footer, Input, ListItem, ListView, Static
+
+    TEXTUAL_AVAILABLE = True
 except ImportError:  # pragma: no cover - fallback is covered through non-TTY tests
-    TerminalMenu = None
+    App = None  # type: ignore[assignment]
+    ComposeResult = Any  # type: ignore[misc,assignment]
+    Binding = None  # type: ignore[assignment]
+    Horizontal = Vertical = None  # type: ignore[assignment]
+    Footer = Input = ListItem = ListView = Static = None  # type: ignore[assignment]
+    Key = None  # type: ignore[assignment]
+    TEXTUAL_AVAILABLE = False
 
 PROJECT_ROOT = Path(__file__).parent
 BACKTESTS_ROOT = PROJECT_ROOT / "backtests"
@@ -45,8 +57,6 @@ RESET = "\033[0m"
 ENABLE_TIMING_ENV = "BACKTEST_ENABLE_TIMING"
 SHORTCUT_LETTERS = ascii_lowercase.replace("q", "") + ascii_uppercase.replace("Q", "")
 MENU_TITLE = "Prediction Market Backtests"
-MENU_PREVIEW_SIZE = 0.30
-RUNNER_PREVIEW_MAX_LINES = 10
 
 
 def _env_flag_enabled(name: str) -> bool:
@@ -188,6 +198,53 @@ def _menu_label(backtest: dict[str, Any]) -> str:
     return _relative_runner_path(backtest).as_posix()
 
 
+def _textual_menu_label(backtest: dict[str, Any], shortcut: str | None) -> str:
+    label = _menu_label(backtest)
+    if shortcut is None:
+        return label
+    return f"[{shortcut}] {label}"
+
+
+def _runner_search_text(backtest: dict[str, Any]) -> str:
+    return " ".join(
+        part
+        for part in (
+            backtest.get("name", ""),
+            backtest.get("description", ""),
+            _menu_label(backtest),
+        )
+        if part
+    ).casefold()
+
+
+def _filter_backtests(
+    backtests: list[dict[str, Any]],
+    query: str,
+) -> list[int]:
+    normalized = query.strip().casefold()
+    if not normalized:
+        return list(range(len(backtests)))
+    return [
+        index
+        for index, backtest in enumerate(backtests)
+        if normalized in _runner_search_text(backtest)
+    ]
+
+
+def _runner_details(backtest: dict[str, Any], shortcut: str | None) -> str:
+    details: list[str] = [_menu_label(backtest)]
+    description = str(backtest.get("description") or "").strip()
+    name = str(backtest.get("name") or _runner_stem(backtest))
+    meta = [f"runner: {name}"]
+    if shortcut is not None:
+        meta.append(f"shortcut: {shortcut}")
+    if description:
+        meta.append(f"description: {description}")
+    details.extend(meta)
+    details.extend(("", "Preview", _runner_preview(backtest)))
+    return "\n".join(details)
+
+
 def _shortcut_candidates(backtest: dict[str, Any]) -> list[str]:
     words = re.findall(
         r"[A-Za-z]+",
@@ -240,42 +297,261 @@ def _assign_shortcuts(
 
 
 @lru_cache(maxsize=None)
-def _runner_file_preview(
-    path: Path,
-    *,
-    max_lines: int = RUNNER_PREVIEW_MAX_LINES,
-) -> str:
+def _runner_file_preview(path: Path) -> str:
     try:
-        lines = path.read_text(encoding="utf-8").splitlines()
+        return path.read_text(encoding="utf-8")
     except OSError as exc:
         return f"(unable to read runner file: {exc})"
 
-    start = 0
-    for marker in (
-        "DATA =",
-        "SIMS =",
-        "STRATEGY_CONFIGS =",
-        "BACKTEST =",
-        "NAME =",
-    ):
-        for index, line in enumerate(lines):
-            if line.startswith(marker):
-                start = index
-                break
-        else:
-            continue
-        break
-
-    snippet_lines = lines[start : start + max_lines]
-    return "\n".join(snippet_lines).strip() or "(runner file is empty)"
-
 
 def _runner_preview(backtest: dict[str, Any]) -> str:
-    name = str(backtest.get("name") or _runner_stem(backtest))
-    snippet = _runner_file_preview(PROJECT_ROOT / _relative_runner_path(backtest))
-    if snippet.startswith("NAME ="):
-        return snippet
-    return f"{name}\n\n{snippet}"
+    return _runner_file_preview(PROJECT_ROOT / _relative_runner_path(backtest))
+
+
+if TEXTUAL_AVAILABLE:
+
+    class _BacktestListItem(ListItem):
+        def __init__(self, backtest_index: int, label: str) -> None:
+            super().__init__(Static(label, classes="runner-label", markup=False))
+            self.backtest_index = backtest_index
+
+    class _BacktestMenuApp(App[int]):
+        CSS = """
+        Screen {
+            background: $surface;
+            color: $text;
+        }
+
+        #banner {
+            dock: top;
+            height: 1;
+            padding: 0 1;
+            background: $panel;
+            color: $text;
+            text-style: bold;
+        }
+
+        #body {
+            height: 1fr;
+            padding: 0 1;
+        }
+
+        #sidebar {
+            width: 80;
+            min-width: 60;
+            border: round $primary;
+            padding: 0 1;
+            margin: 1 1 1 0;
+        }
+
+        #filter {
+            margin: 1 0;
+        }
+
+        #runner_list {
+            height: 1fr;
+            border: none;
+        }
+
+        _BacktestListItem {
+            padding: 0 1;
+        }
+
+        .runner-label {
+            width: 1fr;
+            text-wrap: nowrap;
+        }
+
+        #details {
+            width: 1fr;
+            border: round $secondary;
+            padding: 0 1;
+            margin: 1 0 1 0;
+        }
+
+        #details_title {
+            margin-top: 1;
+            text-style: bold;
+            color: $primary;
+        }
+
+        #details_meta {
+            margin: 1 0;
+        }
+
+        #preview_heading {
+            text-style: bold;
+            color: $text;
+        }
+
+        #details_preview {
+            height: 1fr;
+            margin: 1 0 0 0;
+            padding: 0 1 1 1;
+            border: tall $secondary;
+            overflow: auto auto;
+            text-wrap: nowrap;
+        }
+        """
+
+        BINDINGS = [
+            Binding("q", "quit", "Quit"),
+            Binding("slash", "focus_filter", "Filter", key_display="/"),
+            Binding("escape", "dismiss_filter", "Back"),
+            Binding("enter", "run_selected", "Run"),
+        ]
+
+        def __init__(self, backtests: list[dict[str, Any]]) -> None:
+            super().__init__()
+            self.backtests = backtests
+            self.shortcuts = _assign_shortcuts(backtests)
+            self.shortcut_to_index = {
+                shortcut: index
+                for index, backtest in enumerate(backtests)
+                if (shortcut := self.shortcuts[_menu_label(backtest)]) is not None
+            }
+            self.filtered_indices: list[int] = list(range(len(backtests)))
+            self._details_backtest_index: int | None = None
+
+        def compose(self) -> ComposeResult:
+            yield Static("", id="banner")
+            with Horizontal(id="body"):
+                with Vertical(id="sidebar"):
+                    yield Input(
+                        placeholder="Filter runners",
+                        compact=True,
+                        id="filter",
+                    )
+                    yield ListView(id="runner_list")
+                with Vertical(id="details"):
+                    yield Static("", id="details_title", markup=False)
+                    yield Static("", id="details_meta", markup=False)
+                    yield Static("File Preview", id="preview_heading")
+                    yield Static("", id="details_preview", markup=False)
+            yield Footer(show_command_palette=False, compact=True)
+
+        async def on_mount(self) -> None:
+            await self._refresh_menu()
+            self.query_one(ListView).focus()
+
+        def _set_banner(self) -> None:
+            query = self.query_one(Input).value.strip()
+            shown = len(self.filtered_indices)
+            total = len(self.backtests)
+            if query:
+                banner = f"{MENU_TITLE} | showing {shown} of {total} for '{query}'"
+            else:
+                banner = f"{MENU_TITLE} | {total} runnable entries"
+            self.query_one("#banner", Static).update(banner)
+
+        def _update_details(self, backtest_index: int | None) -> None:
+            if backtest_index == self._details_backtest_index:
+                return
+
+            title = self.query_one("#details_title", Static)
+            meta = self.query_one("#details_meta", Static)
+            preview = self.query_one("#details_preview", Static)
+
+            if backtest_index is None:
+                query = self.query_one(Input).value.strip()
+                title.update("No runners match the current filter.")
+                meta.update(
+                    f"Filter: {query}" if query else "No runnable backtests found."
+                )
+                preview.update("Try a broader search or press Esc to clear the filter.")
+                self._details_backtest_index = None
+                return
+
+            backtest = self.backtests[backtest_index]
+            shortcut = self.shortcuts[_menu_label(backtest)]
+            description = str(backtest.get("description") or "").strip()
+            title.update(_menu_label(backtest))
+            meta_lines = [f"runner: {backtest.get('name', _runner_stem(backtest))}"]
+            if shortcut is not None:
+                meta_lines.append(f"shortcut: {shortcut}")
+            if description:
+                meta_lines.append(description)
+            meta.update("\n".join(meta_lines))
+            preview.update(_runner_preview(backtest))
+            self._details_backtest_index = backtest_index
+
+        async def _refresh_menu(self, preferred_index: int | None = None) -> None:
+            list_view = self.query_one(ListView)
+            query = self.query_one(Input).value
+            self.filtered_indices = _filter_backtests(self.backtests, query)
+            items = [
+                _BacktestListItem(
+                    backtest_index=index,
+                    label=_textual_menu_label(
+                        self.backtests[index],
+                        self.shortcuts[_menu_label(self.backtests[index])],
+                    ),
+                )
+                for index in self.filtered_indices
+            ]
+            await list_view.clear()
+            if items:
+                await list_view.extend(items)
+                target_index = (
+                    preferred_index
+                    if preferred_index in self.filtered_indices
+                    else self.filtered_indices[0]
+                )
+                list_view.index = self.filtered_indices.index(target_index)
+                self._update_details(target_index)
+            else:
+                self._update_details(None)
+            self._set_banner()
+
+        def _selected_backtest_index(self) -> int | None:
+            highlighted = self.query_one(ListView).highlighted_child
+            if isinstance(highlighted, _BacktestListItem):
+                return highlighted.backtest_index
+            return None
+
+        def action_focus_filter(self) -> None:
+            self.query_one(Input).focus()
+
+        def action_dismiss_filter(self) -> None:
+            filter_widget = self.query_one(Input)
+            if filter_widget.value:
+                filter_widget.value = ""
+            self.query_one(ListView).focus()
+
+        def action_run_selected(self) -> None:
+            selected = self._selected_backtest_index()
+            if selected is not None:
+                self.exit(selected)
+
+        async def on_input_changed(self, event: Input.Changed) -> None:
+            if event.input.id != "filter":
+                return
+            await self._refresh_menu(self._selected_backtest_index())
+
+        def on_input_submitted(self, event: Input.Submitted) -> None:
+            if event.input.id != "filter":
+                return
+            self.action_run_selected()
+
+        def on_list_view_highlighted(self, event: ListView.Highlighted) -> None:
+            if isinstance(event.item, _BacktestListItem):
+                self._update_details(event.item.backtest_index)
+
+        def on_list_view_selected(self, event: ListView.Selected) -> None:
+            if isinstance(event.item, _BacktestListItem):
+                self.exit(event.item.backtest_index)
+
+        def on_key(self, event: Key) -> None:
+            if self.focused is self.query_one(Input):
+                return
+            character = event.character
+            if character is None:
+                return
+            selected = self.shortcut_to_index.get(character)
+            if selected is None:
+                return
+            self.exit(selected)
+            event.stop()
 
 
 def _load_runner(backtest: dict[str, Any]) -> Any:
@@ -306,8 +582,8 @@ def _load_runner(backtest: dict[str, Any]) -> Any:
     return runner
 
 
-def _supports_terminal_menu() -> bool:
-    if TerminalMenu is None:
+def _supports_textual_menu() -> bool:
+    if not TEXTUAL_AVAILABLE or App is None:
         return False
     if not sys.stdin.isatty() or not sys.stdout.isatty():
         return False
@@ -355,51 +631,14 @@ def _show_basic_menu(backtests: list[dict[str, Any]]) -> int:
     return choice - 1
 
 
-def _show_terminal_menu(backtests: list[dict[str, Any]]) -> int:
-    shortcuts = _assign_shortcuts(backtests)
-
-    backtests_by_key: dict[str, dict[str, Any]] = {}
-    menu_entries: list[str] = []
-    for backtest in backtests:
-        relative_key = _relative_runner_path(backtest).as_posix()
-        shortcut = shortcuts[relative_key]
-        backtests_by_key[relative_key] = backtest
-        if shortcut is None:
-            menu_entries.append(f"{_menu_label(backtest)}|{relative_key}")
-        else:
-            menu_entries.append(f"[{shortcut}] {_menu_label(backtest)}|{relative_key}")
-
-    terminal_menu = TerminalMenu(
-        menu_entries,
-        title=(
-            MENU_TITLE,
-            "assigned letters run immediately, enter runs selection, / searches, q exits",
-            f"{len(backtests)} runnable entries | preview shows a file excerpt",
-        ),
-        menu_cursor="> ",
-        menu_cursor_style=("fg_cyan", "bold"),
-        menu_highlight_style=("bold",),
-        shortcut_brackets_highlight_style=("fg_gray",),
-        shortcut_key_highlight_style=("fg_blue", "bold"),
-        preview_command=lambda preview_key: _runner_preview(
-            backtests_by_key[preview_key]
-        ),
-        preview_size=MENU_PREVIEW_SIZE,
-        preview_title="file",
-        search_case_sensitive=False,
-        show_search_hint=True,
-        show_shortcut_hints=False,
-    )
-    selection = terminal_menu.show()
+def _show_textual_menu(backtests: list[dict[str, Any]]) -> int:
+    if not TEXTUAL_AVAILABLE:
+        raise NotImplementedError("Textual is not installed")
+    app = _BacktestMenuApp(backtests)
+    selection = app.run()
     if selection is None:
         return -1
-
-    selected_entry = menu_entries[selection]
-    selected_key = selected_entry.split("|", 1)[1]
-    for index, backtest in enumerate(backtests):
-        if _relative_runner_path(backtest).as_posix() == selected_key:
-            return index
-    return -1
+    return int(selection)
 
 
 def _build_menu_tree(backtests: list[dict[str, Any]]) -> dict[str, Any]:
@@ -447,9 +686,9 @@ def _render_menu_tree(
 
 def show_menu(backtests: list[dict]) -> int:
     """Return the chosen backtest index, or -1 to exit."""
-    if _supports_terminal_menu():
+    if _supports_textual_menu():
         try:
-            return _show_terminal_menu(backtests)
+            return _show_textual_menu(backtests)
         except (NotImplementedError, OSError, subprocess.SubprocessError):
             pass
     return _show_basic_menu(backtests)
