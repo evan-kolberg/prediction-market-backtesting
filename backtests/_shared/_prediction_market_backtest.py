@@ -57,6 +57,7 @@ from nautilus_trader.model.identifiers import Venue
 from nautilus_trader.model.objects import Money
 from nautilus_trader.risk.config import RiskEngineConfig
 
+from backtests._shared._execution_config import ExecutionModelConfig
 from backtests._shared._prediction_market_runner import MarketDataConfig
 from backtests._shared._strategy_configs import build_importable_strategy_configs
 from backtests._shared._strategy_configs import StrategyConfigSpec
@@ -137,6 +138,7 @@ class PredictionMarketBacktest:
         default_start_time: pd.Timestamp | datetime | str | None = None,
         default_end_time: pd.Timestamp | datetime | str | None = None,
         nautilus_log_level: str = "INFO",
+        execution: ExecutionModelConfig | None = None,
     ) -> None:
         self.name = name
         self.data = data
@@ -152,6 +154,7 @@ class PredictionMarketBacktest:
         self.default_start_time = default_start_time
         self.default_end_time = default_end_time
         self.nautilus_log_level = nautilus_log_level
+        self.execution = execution if execution is not None else ExecutionModelConfig()
 
     def run(self) -> list[dict[str, Any]]:
         try:
@@ -492,6 +495,7 @@ class PredictionMarketBacktest:
                 risk_engine=RiskEngineConfig(bypass=True),
             ),
         )
+        latency_model = self.execution.build_latency_model()
 
         if self.data.platform == "polymarket":
             engine.add_venue(
@@ -507,7 +511,9 @@ class PredictionMarketBacktest:
                 book_type=BookType.L2_MBP
                 if self.data.data_type == "quote_tick"
                 else BookType.L1_MBP,
+                latency_model=latency_model,
                 liquidity_consumption=self.data.data_type == "quote_tick",
+                queue_position=self.execution.queue_position,
             )
             return engine
 
@@ -521,6 +527,8 @@ class PredictionMarketBacktest:
                 fill_model=PredictionMarketTakerFillModel(),
                 fee_model=KalshiProportionalFeeModel(),
                 book_type=BookType.L1_MBP,
+                latency_model=latency_model,
+                queue_position=self.execution.queue_position,
             )
             return engine
 

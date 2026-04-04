@@ -31,6 +31,7 @@ from nautilus_trader.model.enums import BookType
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.trading.strategy import Strategy
 
+from backtests._shared._execution_config import ExecutionModelConfig
 from backtests._shared._strategy_configs import resolve_strategy_factory
 from backtests._shared._strategy_configs import StrategyConfigSpec
 from backtests._shared.data_sources.pmxt import configured_pmxt_data_source
@@ -90,6 +91,7 @@ async def run_single_market_pmxt_backtest(
     start_time: pd.Timestamp | datetime | str | None = None,
     end_time: pd.Timestamp | datetime | str | None = None,
     data_sources: Sequence[str] = (),
+    execution: ExecutionModelConfig | None = None,
 ) -> dict[str, Any] | None:
     strategy_factory = resolve_strategy_factory(
         strategy_factory=strategy_factory,
@@ -203,6 +205,8 @@ async def run_single_market_pmxt_backtest(
         return_summary_series=return_summary_series,
         book_type=BookType.L2_MBP,
         liquidity_consumption=True,
+        queue_position=False if execution is None else execution.queue_position,
+        latency_model=None if execution is None else execution.build_latency_model(),
     )
 
     if emit_summary:

@@ -2,6 +2,8 @@ import asyncio
 from types import SimpleNamespace
 
 from backtests._shared import _polymarket_quote_tick_pmxt_runner as pmxt_runner
+from backtests._shared._execution_config import ExecutionModelConfig
+from backtests._shared._execution_config import StaticLatencyConfig
 
 
 class _QuoteStub:
@@ -72,11 +74,83 @@ def test_pmxt_runner_uses_l2_execution_settings(monkeypatch):
     assert captured["apply_default_fill_model"] is False
     assert captured["book_type"] == pmxt_runner.BookType.L2_MBP
     assert captured["liquidity_consumption"] is True
+    assert captured["queue_position"] is False
+    assert captured["latency_model"] is None
     assert captured["price_attr"] == "mid_price"
     assert captured["count_key"] == "quotes"
     assert captured["data_count"] == 2
     assert str(window["start"]) == "1970-01-01 00:00:00+00:00"
     assert str(window["end"]) == "1970-01-01 01:00:00+00:00"
+
+
+def test_pmxt_runner_forwards_queue_position_and_latency(monkeypatch):
+    captured: dict[str, object] = {}
+
+    class _LoaderStub:
+        instrument = SimpleNamespace(
+            id="POLYMARKET.TEST",
+            outcome="YES",
+            info={},
+        )
+
+        def load_order_book_and_quotes(self, start, end):  # type: ignore[no-untyped-def]
+            del start, end
+            return [_QuoteStub(0.40, 0.42), _QuoteStub(0.41, 0.43)]
+
+    async def _from_market_slug(_cls, market_slug, token_index=0):  # type: ignore[no-untyped-def]
+        del market_slug, token_index
+        return _LoaderStub()
+
+    def _fake_run_market_backtest(**kwargs):  # type: ignore[no-untyped-def]
+        captured.update(kwargs)
+        return {
+            "slug": kwargs["market_id"],
+            "quotes": kwargs["data_count"],
+            "fills": 0,
+            "pnl": 0.0,
+        }
+
+    monkeypatch.setattr(pmxt_runner, "QuoteTick", _QuoteStub)
+    monkeypatch.setattr(
+        pmxt_runner.PolymarketPMXTDataLoader,
+        "from_market_slug",
+        classmethod(_from_market_slug),
+    )
+    monkeypatch.setattr(pmxt_runner, "run_market_backtest", _fake_run_market_backtest)
+
+    result = asyncio.run(
+        pmxt_runner.run_single_market_pmxt_backtest(
+            name="pmxt_test",
+            market_slug="demo-market",
+            lookback_hours=1.0,
+            end_time="1970-01-01T01:00:00Z",
+            probability_window=5,
+            initial_cash=100.0,
+            emit_summary=False,
+            emit_html=False,
+            strategy_factory=lambda instrument_id: SimpleNamespace(
+                instrument_id=instrument_id
+            ),
+            execution=ExecutionModelConfig(
+                queue_position=True,
+                latency_model=StaticLatencyConfig(
+                    base_latency_ms=25.0,
+                    insert_latency_ms=10.0,
+                    update_latency_ms=5.0,
+                    cancel_latency_ms=2.0,
+                ),
+            ),
+        ),
+    )
+
+    assert result is not None
+    assert captured["queue_position"] is True
+    latency_model = captured["latency_model"]
+    assert latency_model is not None
+    assert latency_model.base_latency_nanos == 25_000_000
+    assert latency_model.insert_latency_nanos == 35_000_000
+    assert latency_model.update_latency_nanos == 30_000_000
+    assert latency_model.cancel_latency_nanos == 27_000_000
 
 
 def test_pmxt_runner_respects_explicit_start_and_end_times(monkeypatch):

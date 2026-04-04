@@ -39,6 +39,8 @@ from _script_helpers import ensure_repo_root
 
 ensure_repo_root(__file__)
 
+from backtests._shared._execution_config import ExecutionModelConfig
+from backtests._shared._execution_config import StaticLatencyConfig
 from backtests._shared._prediction_market_backtest import MarketReportConfig
 from backtests._shared._prediction_market_backtest import MarketSimConfig
 from backtests._shared._prediction_market_backtest import PredictionMarketBacktest
@@ -90,6 +92,16 @@ REPORT = MarketReportConfig(
     pnl_label="PnL (USDC)",
 )
 
+EXECUTION = ExecutionModelConfig(
+    queue_position=True,
+    latency_model=StaticLatencyConfig(
+        base_latency_ms=75.0,
+        insert_latency_ms=10.0,
+        update_latency_ms=5.0,
+        cancel_latency_ms=5.0,
+    ),
+)
+
 BACKTEST = PredictionMarketBacktest(
     name=NAME,
     data=DATA,
@@ -99,6 +111,7 @@ BACKTEST = PredictionMarketBacktest(
     probability_window=256,
     min_quotes=500,
     min_price_range=0.005,
+    execution=EXECUTION,
 )
 
 @timing_harness
@@ -125,6 +138,8 @@ Every public runner should expose:
 
 Use `REPORT` when the runner should print a summary table or write combined
 multi-market reports.
+Use `EXECUTION` when the runner should model non-default queue position or
+exchange latency.
 
 ## Designing Good Runner Files
 
@@ -145,6 +160,7 @@ That division is deliberate:
 - `DATA` selects the platform, modality, vendor, and source priority
 - `SIMS` is the instrument basket, whether that basket contains one market or many
 - `STRATEGY_CONFIGS` is the stable strategy payload passed into the backtest object
+- `EXECUTION` holds optional queue-position and latency assumptions
 - `BACKTEST` owns loading, engine construction, and execution
 
 ## Multi-Market Strategy Configs
@@ -198,6 +214,7 @@ Use these top-level objects as the edit surface:
 - `DATA` for platform, modality, vendor, and source priority
 - `SIMS` for one market or a basket of markets
 - `STRATEGY_CONFIGS` for strategy paths and parameter payloads
+- `EXECUTION` for optional queue-position and latency heuristics
 - `BACKTEST` for shared execution requirements like cash, quote/trade minimums,
   probability window, and Nautilus log level
 

@@ -17,6 +17,7 @@ from typing import Any
 
 import pandas as pd
 
+from backtests._shared._execution_config import ExecutionModelConfig
 from backtests._shared._trade_tick_ui import build_single_market_trade_summary_row
 from backtests._shared._trade_tick_ui import print_single_market_trade_summary
 from backtests._shared._strategy_configs import resolve_strategy_factory
@@ -60,6 +61,7 @@ async def run_single_market_trade_backtest(
     return_summary_series: bool = False,
     end_time: pd.Timestamp | datetime | None = None,
     data_sources: tuple[str, ...] = (),
+    execution: ExecutionModelConfig | None = None,
 ) -> dict[str, Any] | None:
     strategy_factory = resolve_strategy_factory(
         strategy_factory=strategy_factory,
@@ -130,6 +132,8 @@ async def run_single_market_trade_backtest(
         emit_html=emit_html,
         return_chart_layout=return_chart_layout,
         return_summary_series=return_summary_series,
+        queue_position=False if execution is None else execution.queue_position,
+        latency_model=None if execution is None else execution.build_latency_model(),
     )
 
     if emit_summary:

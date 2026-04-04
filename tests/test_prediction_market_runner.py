@@ -4,6 +4,8 @@ import asyncio
 from types import SimpleNamespace
 
 from backtests._shared import _prediction_market_runner as runner
+from backtests._shared._execution_config import ExecutionModelConfig
+from backtests._shared._execution_config import StaticLatencyConfig
 from backtests._shared.data_sources import Native
 from backtests._shared.data_sources import PMXT
 from backtests._shared.data_sources import PMXT_VENDOR
@@ -193,3 +195,41 @@ def test_generic_runner_forwards_strategy_configs(monkeypatch) -> None:
     assert result == {"ok": True}
     assert captured["strategy_configs"] == strategy_configs
     assert captured["strategy_factory"] is None
+
+
+def test_generic_runner_forwards_execution(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    async def _fake_runner(**kwargs):  # type: ignore[no-untyped-def]
+        captured.update(kwargs)
+        return {"ok": True}
+
+    monkeypatch.setattr(
+        runner,
+        "run_single_market_pmxt_backtest",
+        _fake_runner,
+    )
+
+    execution = ExecutionModelConfig(
+        queue_position=True,
+        latency_model=StaticLatencyConfig(base_latency_ms=12.5),
+    )
+
+    result = asyncio.run(
+        runner.run_single_market_backtest(
+            name="demo",
+            data=runner.MarketDataConfig(
+                platform=Polymarket,
+                data_type=QuoteTick,
+                vendor=PMXT,
+            ),
+            market_slug="demo-market",
+            probability_window=20,
+            start_time="2026-03-21T10:00:00Z",
+            end_time="2026-03-21T12:00:00Z",
+            execution=execution,
+        )
+    )
+
+    assert result == {"ok": True}
+    assert captured["execution"] == execution

@@ -35,6 +35,7 @@ Fantastic single & multi-market charting. Featuring: equity (total & individual 
 ![Charting preview](https://raw.githubusercontent.com/evan-kolberg/prediction-market-backtesting/main/docs/assets/charting-preview.jpeg)
 [```/nautilus_pm/nautilus_trader/analysis/legacy_backtesting/plotting.py```](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/nautilus_pm/nautilus_trader/analysis/legacy_backtesting/plotting.py)
 
+**If you find any bugs, unexpected behavior, or missing simulation features, PLEASE post an [issue](https://github.com/evan-kolberg/prediction-market-backtesting/issues/new) or [discussion](https://github.com/evan-kolberg/prediction-market-backtesting/discussions/new/choose).**
 
 Detailed guides have been filed away in the [docs index](https://evan-kolberg.github.io/prediction-market-backtesting/) for better organization and long-term sustainability.
 

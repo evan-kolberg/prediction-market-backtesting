@@ -11,6 +11,7 @@ import pandas as pd
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.trading.strategy import Strategy
 
+from backtests._shared._execution_config import ExecutionModelConfig
 from backtests._shared._strategy_configs import StrategyConfigSpec
 from backtests._shared.data_sources import MarketDataType
 from backtests._shared.data_sources import MarketPlatform
@@ -78,6 +79,7 @@ async def run_single_market_backtest(
     return_summary_series: bool = False,
     start_time: pd.Timestamp | datetime | str | None = None,
     end_time: pd.Timestamp | datetime | str | None = None,
+    execution: ExecutionModelConfig | None = None,
 ) -> dict[str, Any] | None:
     if (
         data.platform == "kalshi"
@@ -104,6 +106,7 @@ async def run_single_market_backtest(
             return_chart_layout=return_chart_layout,
             end_time=end_time,
             data_sources=data.sources,
+            execution=execution,
         )
 
     if (
@@ -135,6 +138,7 @@ async def run_single_market_backtest(
             return_summary_series=return_summary_series,
             end_time=end_time,
             data_sources=data.sources,
+            execution=execution,
         )
 
     if (
@@ -163,6 +167,7 @@ async def run_single_market_backtest(
             start_time=start_time,
             end_time=end_time,
             data_sources=data.sources,
+            execution=execution,
         )
 
     raise NotImplementedError(

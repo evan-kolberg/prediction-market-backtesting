@@ -30,15 +30,40 @@ the raw venue data are:
   fill model; they replay historical `OrderBookDeltas` with `book_type=L2_MBP`
   and `liquidity_consumption=True`
 
+## Passive Orders And Queue Position
+
+- public runners can now opt into Nautilus `queue_position=True`
+- the public PMXT quote-tick runners in this repo now enable that heuristic by
+  default
+- this is still a heuristic, not true venue queue reconstruction
+- Kalshi and Polymarket trade-tick replay can use trade prints to move queue
+  ahead estimates on passive limit orders
+- PMXT quote-tick replay can also enable queue tracking, but that path replays
+  L2 book updates and quotes rather than historical trade ticks, so fills still
+  depend more heavily on book-level clears and price moves than on true trade
+  consumption
+- public MBP data does not expose hidden liquidity, exact priority inside a
+  level, or venue-specific matching quirks
+
+## Latency
+
+- public runners can now attach a static Nautilus latency model through the
+  runner config
+- the public PMXT quote-tick runners in this repo now ship with a static
+  latency model enabled by default
+- the current repo-layer surface is a static millisecond model with separate
+  base, insert, update, and cancel delays
+- this helps test whether a market-making or quote-chasing strategy only works
+  because orders are assumed to land instantly
+
 ## Limits
 
 - Kalshi public backtests here are trade-tick replay only
 - Polymarket PMXT-backed backtests are full L2 order-book replay
-- neither path models queue position for passive orders because public MBP data
-  does not expose true queue position
 - taker-heavy strategies that harvest tiny price changes can look much worse
   once fees and one-tick slippage are turned on
-- PMXT L2 helps with taker modeling, but maker realism still needs L3 data
+- PMXT L2 helps with taker modeling, but robust maker realism still needs L3
+  or MBO-style data
 
 ## Vendor L2 Behavior
 

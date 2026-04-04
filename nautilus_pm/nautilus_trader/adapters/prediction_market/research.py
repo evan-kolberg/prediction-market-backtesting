@@ -338,6 +338,7 @@ def run_market_backtest(
     book_type: BookType = BookType.L1_MBP,
     liquidity_consumption: bool = False,
     queue_position: bool = False,
+    latency_model: Any | None = None,
 ) -> dict[str, Any]:
     """
     Run one prediction-market backtest and emit a legacy chart.
@@ -366,6 +367,7 @@ def run_market_backtest(
         starting_balances=[Money(initial_cash, base_currency)],
         fill_model=fill_model,
         fee_model=fee_model,
+        latency_model=latency_model,
         book_type=book_type,
         liquidity_consumption=liquidity_consumption,
         queue_position=queue_position,

@@ -17,6 +17,8 @@ from _script_helpers import ensure_repo_root
 
 ensure_repo_root(__file__)
 
+from backtests._shared._execution_config import ExecutionModelConfig
+from backtests._shared._execution_config import StaticLatencyConfig
 from backtests._shared._prediction_market_backtest import MarketReportConfig
 from backtests._shared._prediction_market_backtest import MarketSimConfig
 from backtests._shared._prediction_market_backtest import PredictionMarketBacktest
@@ -73,6 +75,16 @@ REPORT = MarketReportConfig(
     pnl_label="PnL (USDC)",
 )
 
+EXECUTION = ExecutionModelConfig(
+    queue_position=True,
+    latency_model=StaticLatencyConfig(
+        base_latency_ms=75.0,
+        insert_latency_ms=10.0,
+        update_latency_ms=5.0,
+        cancel_latency_ms=5.0,
+    ),
+)
+
 BACKTEST = PredictionMarketBacktest(
     name=NAME,
     data=DATA,
@@ -82,6 +94,7 @@ BACKTEST = PredictionMarketBacktest(
     probability_window=80,
     min_quotes=500,
     min_price_range=0.005,
+    execution=EXECUTION,
 )
 
 
