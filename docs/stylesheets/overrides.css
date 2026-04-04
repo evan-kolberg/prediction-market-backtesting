@@ -1,0 +1,13 @@
+article pre {
+  max-height: none !important;
+  overflow-x: auto;
+  overflow-y: visible;
+}
+
+article .codehilite {
+  overflow-x: auto;
+}
+
+article .codehilite pre {
+  max-height: none !important;
+}
