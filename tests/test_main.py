@@ -6,6 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import main as main_module
+import pytest
 
 
 def _strip_ansi(text: str) -> str:
@@ -21,9 +22,17 @@ def test_main_installs_timing_patch_by_default(monkeypatch):
     monkeypatch.setattr(
         main_module,
         "discover",
-        lambda: [{"name": "demo", "description": "", "run": _run}],
+        lambda: [
+            {
+                "name": "demo",
+                "description": "",
+                "module_name": "backtests.demo_runner",
+                "relative_parts": ("demo_runner.py",),
+            }
+        ],
     )
     monkeypatch.setattr(main_module, "show_menu", lambda _backtests: 0)
+    monkeypatch.setattr(main_module, "_load_runner", lambda _backtest: _run)
     monkeypatch.delenv(main_module.ENABLE_TIMING_ENV, raising=False)
     monkeypatch.setitem(
         sys.modules,
@@ -47,9 +56,17 @@ def test_main_skips_timing_patch_when_disabled(monkeypatch):
     monkeypatch.setattr(
         main_module,
         "discover",
-        lambda: [{"name": "demo", "description": "", "run": _run}],
+        lambda: [
+            {
+                "name": "demo",
+                "description": "",
+                "module_name": "backtests.demo_runner",
+                "relative_parts": ("demo_runner.py",),
+            }
+        ],
     )
     monkeypatch.setattr(main_module, "show_menu", lambda _backtests: 0)
+    monkeypatch.setattr(main_module, "_load_runner", lambda _backtest: _run)
     monkeypatch.setenv(main_module.ENABLE_TIMING_ENV, "0")
     monkeypatch.setitem(
         sys.modules,
@@ -195,3 +212,103 @@ def test_discoverable_backtest_paths_stay_flat(tmp_path: Path) -> None:
         Path("kalshi_trade_tick_breakout.py"),
         Path("private/local_runner.py"),
     ]
+
+
+def test_discover_reads_metadata_without_importing_modules(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    project_root = tmp_path
+    backtests_root = project_root / "backtests"
+    backtests_root.mkdir()
+    (backtests_root / "__init__.py").write_text("", encoding="utf-8")
+    (backtests_root / "demo_runner.py").write_text(
+        'NAME = "custom_demo"\n'
+        'DESCRIPTION = "Demo runner"\n'
+        'raise RuntimeError("should not import during discovery")\n'
+        "def run() -> None:\n"
+        "    pass\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(main_module, "PROJECT_ROOT", project_root)
+    monkeypatch.setattr(main_module, "BACKTESTS_ROOT", backtests_root)
+    monkeypatch.setattr(
+        main_module.importlib,
+        "import_module",
+        lambda _name: (_ for _ in ()).throw(
+            AssertionError("discover imported a module")
+        ),
+    )
+
+    discovered = main_module.discover()
+
+    assert discovered == [
+        {
+            "name": "custom_demo",
+            "description": "Demo runner",
+            "module_name": "backtests.demo_runner",
+            "relative_parts": ("demo_runner.py",),
+        }
+    ]
+
+
+def test_load_runner_defers_import_failure_until_selection(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    project_root = tmp_path
+    backtests_root = project_root / "backtests"
+    backtests_root.mkdir()
+    (backtests_root / "__init__.py").write_text("", encoding="utf-8")
+    (backtests_root / "lazy_bomb.py").write_text(
+        'NAME = "lazy_bomb"\n'
+        'DESCRIPTION = "Explodes on import"\n'
+        'raise RuntimeError("boom")\n'
+        "def run() -> None:\n"
+        "    pass\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(main_module, "PROJECT_ROOT", project_root)
+    monkeypatch.setattr(main_module, "BACKTESTS_ROOT", backtests_root)
+    monkeypatch.syspath_prepend(str(project_root))
+
+    discovered = main_module.discover()
+
+    with pytest.raises(
+        RuntimeError, match=r"could not import backtests/lazy_bomb\.py: boom"
+    ):
+        main_module._load_runner(discovered[0])
+
+
+def test_terminal_menu_keeps_preview_lazy(monkeypatch) -> None:
+    preview_calls: list[str] = []
+
+    class FakeTerminalMenu:
+        def __init__(self, _entries, **_kwargs):
+            self.kwargs = _kwargs
+
+        def show(self) -> None:
+            return None
+
+    monkeypatch.setattr(main_module, "TerminalMenu", FakeTerminalMenu)
+    monkeypatch.setattr(
+        main_module,
+        "_runner_preview",
+        lambda backtest: preview_calls.append(backtest["name"]) or "",
+    )
+
+    choice = main_module._show_terminal_menu(
+        [
+            {
+                "name": "demo_runner",
+                "description": "Demo runner",
+                "module_name": "backtests.demo_runner",
+                "relative_parts": ("demo_runner.py",),
+            }
+        ],
+    )
+
+    assert choice == -1
+    assert preview_calls == []

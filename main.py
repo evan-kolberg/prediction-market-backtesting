@@ -16,13 +16,16 @@ Run via:
 from __future__ import annotations
 
 import asyncio
+import ast
 import importlib
+import importlib.util
 import inspect
 import os
 import re
 import subprocess
 import sys
 import time
+from functools import lru_cache
 from pathlib import Path
 from string import ascii_lowercase
 from string import ascii_uppercase
@@ -69,32 +72,96 @@ def _discoverable_backtest_paths(backtests_root: Path) -> list[Path]:
     )
 
 
+def _warn(message: str) -> None:
+    print(f"{DIM}  Warning: {message}{RESET}")
+
+
+def _literal_string(node: ast.AST | None) -> str | None:
+    if node is None:
+        return None
+    try:
+        value = ast.literal_eval(node)
+    except (TypeError, ValueError):
+        return None
+    return value if isinstance(value, str) else None
+
+
+def _assignment_targets(node: ast.Assign | ast.AnnAssign) -> list[str]:
+    if isinstance(node, ast.Assign):
+        return [target.id for target in node.targets if isinstance(target, ast.Name)]
+    if isinstance(node.target, ast.Name):
+        return [node.target.id]
+    return []
+
+
+def _has_run_entrypoint(module_ast: ast.Module) -> bool:
+    for node in module_ast.body:
+        if (
+            isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.name == "run"
+        ):
+            return True
+        if isinstance(
+            node, (ast.Assign, ast.AnnAssign)
+        ) and "run" in _assignment_targets(
+            node,
+        ):
+            return True
+    return False
+
+
+def _load_runner_metadata(path: Path) -> dict[str, Any] | None:
+    relative_path = path.relative_to(PROJECT_ROOT)
+
+    try:
+        source = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        _warn(f"could not read {relative_path}: {exc}")
+        return None
+
+    try:
+        module_ast = ast.parse(source, filename=str(path))
+    except SyntaxError as exc:
+        _warn(f"could not parse {relative_path}: {exc}")
+        return None
+
+    if not _has_run_entrypoint(module_ast):
+        return None
+
+    name = path.stem
+    description = ""
+    for node in module_ast.body:
+        if not isinstance(node, (ast.Assign, ast.AnnAssign)):
+            continue
+        targets = _assignment_targets(node)
+        if not targets:
+            continue
+        literal = _literal_string(node.value)
+        if literal is None:
+            continue
+        if "NAME" in targets:
+            name = literal
+        if "DESCRIPTION" in targets:
+            description = literal
+
+    return {
+        "name": name,
+        "description": description,
+        "module_name": ".".join(relative_path.with_suffix("").parts),
+        "relative_parts": path.relative_to(BACKTESTS_ROOT).parts,
+    }
+
+
 def discover() -> list[dict]:
-    """Scan flat runner entrypoints for modules that expose NAME, DESCRIPTION, and run()."""
+    """Scan flat runner entrypoints without importing them on menu startup."""
     found = []
     if not BACKTESTS_ROOT.exists():
         return found
 
     for path in _discoverable_backtest_paths(BACKTESTS_ROOT):
-        relative_parts = path.relative_to(BACKTESTS_ROOT).parts
-
-        mod_name = ".".join(path.relative_to(PROJECT_ROOT).with_suffix("").parts)
-        try:
-            mod = importlib.import_module(mod_name)
-        except Exception as exc:
-            rel_path = path.relative_to(PROJECT_ROOT)
-            print(f"{DIM}  Warning: could not import {rel_path}: {exc}{RESET}")
-            continue
-        if not hasattr(mod, "run"):
-            continue
-        found.append(
-            {
-                "name": getattr(mod, "NAME", path.stem),
-                "description": getattr(mod, "DESCRIPTION", ""),
-                "relative_parts": relative_parts,
-                "run": mod.run,
-            }
-        )
+        metadata = _load_runner_metadata(path)
+        if metadata is not None:
+            found.append(metadata)
     return found
 
 
@@ -170,6 +237,7 @@ def _assign_shortcuts(
     return shortcuts
 
 
+@lru_cache(maxsize=None)
 def _runner_spec_preview(path: Path, *, max_lines: int = 18) -> str:
     try:
         lines = path.read_text(encoding="utf-8").splitlines()
@@ -203,6 +271,34 @@ def _runner_preview(backtest: dict[str, Any]) -> str:
         "Spec\n"
         f"{snippet}"
     )
+
+
+def _load_runner(backtest: dict[str, Any]) -> Any:
+    relative_path = _relative_runner_path(backtest)
+    module_name = backtest["module_name"]
+    runner_path = PROJECT_ROOT / relative_path
+    spec = importlib.util.spec_from_file_location(module_name, runner_path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"could not import {relative_path}: no module spec")
+
+    module = importlib.util.module_from_spec(spec)
+    prior_module = sys.modules.get(module_name)
+
+    try:
+        sys.modules[module_name] = module
+        spec.loader.exec_module(module)
+    except Exception as exc:
+        raise RuntimeError(f"could not import {relative_path}: {exc}") from exc
+    finally:
+        if prior_module is None:
+            sys.modules.pop(module_name, None)
+        else:
+            sys.modules[module_name] = prior_module
+
+    runner = getattr(module, "run", None)
+    if not callable(runner):
+        raise RuntimeError(f"{relative_path} does not expose a callable run()")
+    return runner
 
 
 def _supports_terminal_menu() -> bool:
@@ -257,13 +353,13 @@ def _show_basic_menu(backtests: list[dict[str, Any]]) -> int:
 def _show_terminal_menu(backtests: list[dict[str, Any]]) -> int:
     shortcuts = _assign_shortcuts(backtests)
 
-    preview_lookup: dict[str, str] = {}
+    backtests_by_key: dict[str, dict[str, Any]] = {}
     status_lookup: dict[str, str] = {}
     menu_entries: list[str] = []
     for backtest in backtests:
         relative_key = _relative_runner_path(backtest).as_posix()
         shortcut = shortcuts[relative_key]
-        preview_lookup[relative_key] = _runner_preview(backtest)
+        backtests_by_key[relative_key] = backtest
         status_lookup[relative_key] = (
             backtest.get("description")
             or "No description provided. Preview shows the pinned runner spec."
@@ -285,7 +381,9 @@ def _show_terminal_menu(backtests: list[dict[str, Any]]) -> int:
         menu_highlight_style=("bold",),
         shortcut_brackets_highlight_style=("fg_gray",),
         shortcut_key_highlight_style=("fg_blue", "bold"),
-        preview_command=lambda preview_key: preview_lookup.get(preview_key, ""),
+        preview_command=lambda preview_key: _runner_preview(
+            backtests_by_key[preview_key]
+        ),
         preview_size=0.45,
         preview_title="runner preview",
         search_case_sensitive=False,
@@ -381,6 +479,12 @@ def main() -> None:
         sys.exit(0)
 
     chosen = backtests[idx]
+    try:
+        runner = _load_runner(chosen)
+    except RuntimeError as exc:
+        print(f"\n{exc}")
+        sys.exit(1)
+
     print(f"\n{BOLD}Running: {chosen['name']}{RESET}\n")
 
     if _env_flag_enabled(ENABLE_TIMING_ENV):
@@ -392,7 +496,7 @@ def main() -> None:
             pass
 
     wall_start = time.perf_counter()
-    result = chosen["run"]()
+    result = runner()
     if inspect.isawaitable(result):
         asyncio.run(result)
     wall_total = time.perf_counter() - wall_start
