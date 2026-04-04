@@ -22,6 +22,8 @@ What it does today:
 - mirrors raw parquet files onto disk
 - exposes raw files under `/v1/raw/*`
 - serves health, queue, stats, system, events, inflight, and badge endpoints
+- backs off failed mirror retries and temporarily quarantines repeated upstream
+  404s on a slower retry cadence
 
 What it does not do anymore:
 
@@ -33,6 +35,11 @@ What it does not do anymore:
 The current deployment and operations details live in:
 
 - [`pmxt_relay/README.md`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/pmxt_relay/README.md)
+
+Operational note:
+
+- the public relay status badge reports relay health only
+- the public PMXT upstream badge reports unresolved mirror errors or lag
 
 ## Legacy Self-Hosted Relay
 

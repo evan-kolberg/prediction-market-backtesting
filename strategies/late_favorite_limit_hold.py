@@ -51,7 +51,12 @@ class _LateFavoriteLimitHoldBase(LongOnlyPredictionMarketStrategy):
         self._entered_once = False
 
     def _on_price(
-        self, *, signal_price: float, order_price: float, ts_event_ns: int
+        self,
+        *,
+        signal_price: float,
+        order_price: float,
+        ts_event_ns: int,
+        visible_size: float | None = None,
     ) -> None:
         if self._pending or self._in_position() or self._entered_once:
             return
@@ -69,10 +74,16 @@ class _LateFavoriteLimitHoldBase(LongOnlyPredictionMarketStrategy):
             return
 
         assert self._instrument is not None
+        quantity = self._entry_quantity(
+            reference_price=order_price,
+            visible_size=visible_size,
+        )
+        if quantity is None:
+            return
         order = self.order_factory.limit(
             instrument_id=self.config.instrument_id,
             order_side=OrderSide.BUY,
-            quantity=self._instrument.make_qty(float(self.config.trade_size)),
+            quantity=quantity,
             price=self._instrument.make_price(order_price),
             time_in_force=TimeInForce.GTC,
         )
@@ -114,4 +125,5 @@ class QuoteTickLateFavoriteLimitHoldStrategy(_LateFavoriteLimitHoldBase):
             signal_price=signal_price,
             order_price=float(tick.ask_price),
             ts_event_ns=int(tick.ts_event),
+            visible_size=float(tick.ask_size),
         )

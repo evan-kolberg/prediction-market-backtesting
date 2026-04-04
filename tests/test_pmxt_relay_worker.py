@@ -119,3 +119,41 @@ def test_adopt_local_raw_marks_hours_as_mirrored(tmp_path: Path) -> None:
     assert adopted == 1
     stats = worker._index.stats()  # noqa: SLF001
     assert stats["mirrored_hours"] == 1
+
+
+def test_repeated_404s_are_quarantined(tmp_path: Path, monkeypatch) -> None:
+    config = _make_config(tmp_path)
+    worker = RelayWorker(config, reset_inflight=False)
+    filename = "polymarket_orderbook_2026-03-21T12.parquet"
+    source_url = f"https://r2.pmxt.dev/{filename}"
+    worker._index.upsert_discovered_hour(filename, source_url, 1)  # noqa: SLF001
+    worker._index.mark_mirror_retry(  # noqa: SLF001
+        filename,
+        error="HTTP Error 404: Not Found",
+        next_retry_at="1970-01-01T00:00:00+00:00",
+    )
+    worker._index.mark_mirror_retry(  # noqa: SLF001
+        filename,
+        error="HTTP Error 404: Not Found",
+        next_retry_at="1970-01-01T00:00:00+00:00",
+    )
+
+    def _always_404(row) -> None:  # type: ignore[no-untyped-def]
+        request = Request(row["source_url"])
+        raise HTTPError(request.full_url, 404, "Not Found", hdrs=None, fp=None)
+
+    monkeypatch.setattr(worker, "_mirror_hour", _always_404)  # noqa: SLF001
+
+    assert worker._mirror_pending_hours() == 0  # noqa: SLF001
+
+    queue = worker._index.queue_summary()  # noqa: SLF001
+    stats = worker._index.stats()  # noqa: SLF001
+    events = worker._index.recent_events(limit=1)  # noqa: SLF001
+
+    assert queue["mirror_quarantined"] == 1
+    assert queue["mirror_error"] == 1
+    assert queue["mirror_retry_waiting"] == 1
+    assert queue["next_retry_at"] is not None
+    assert stats["mirror_quarantined"] == 1
+    assert worker._index.list_hours_needing_mirror() == []  # noqa: SLF001
+    assert events[0]["event_type"] == "mirror_quarantined"

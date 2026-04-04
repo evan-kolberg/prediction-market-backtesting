@@ -18,14 +18,20 @@ _LOCKED_ERROR_SNIPPETS = (
     "database schema is locked",
     "database table is locked",
 )
+_DUPLICATE_COLUMN_ERROR_SNIPPET = "duplicate column name"
 
 
 def _utc_now_datetime() -> datetime:
     return datetime.now(UTC)
 
 
+def _utc_now_at(now: datetime | None = None) -> str:
+    reference = _utc_now_datetime() if now is None else now.astimezone(UTC)
+    return reference.isoformat()
+
+
 def _utc_now() -> str:
-    return _utc_now_datetime().isoformat()
+    return _utc_now_at()
 
 
 class RelayIndex:
@@ -44,6 +50,8 @@ class RelayIndex:
             "mirror_status",
             "mirrored_at",
             "last_error",
+            "last_error_at",
+            "next_retry_at",
             "error_count",
         }
     )
@@ -101,6 +109,8 @@ class RelayIndex:
                 mirror_status TEXT NOT NULL DEFAULT 'pending',
                 mirrored_at TEXT,
                 last_error TEXT,
+                last_error_at TEXT,
+                next_retry_at TEXT,
                 error_count INTEGER NOT NULL DEFAULT 0
             );
 
@@ -124,6 +134,30 @@ class RelayIndex:
             ON relay_events (event_type, id DESC);
             """
         )
+        archive_columns = {
+            row[1] for row in self._conn.execute("PRAGMA table_info(archive_hours)")
+        }
+        if "last_error_at" not in archive_columns:
+            self._ensure_archive_column(
+                "ALTER TABLE archive_hours ADD COLUMN last_error_at TEXT"
+            )
+        if "next_retry_at" not in archive_columns:
+            self._ensure_archive_column(
+                "ALTER TABLE archive_hours ADD COLUMN next_retry_at TEXT"
+            )
+        self._conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_archive_hours_retry_status_hour
+            ON archive_hours (mirror_status, next_retry_at, hour DESC)
+            """
+        )
+
+    def _ensure_archive_column(self, sql: str) -> None:
+        try:
+            self._conn.execute(sql)
+        except sqlite3.OperationalError as exc:
+            if _DUPLICATE_COLUMN_ERROR_SNIPPET not in str(exc).lower():
+                raise
 
     def _schema_needs_bootstrap(self) -> bool:
         tables = {
@@ -245,9 +279,12 @@ class RelayIndex:
                     UPDATE archive_hours
                     SET mirror_status = 'pending',
                         last_error = COALESCE(last_error, 'mirror interrupted by restart'),
+                        last_error_at = COALESCE(last_error_at, ?),
+                        next_retry_at = NULL,
                         error_count = error_count + 1
                     WHERE mirror_status = 'processing'
-                    """
+                    """,
+                    (_utc_now(),),
                 )
             return cursor.rowcount
 
@@ -287,14 +324,26 @@ class RelayIndex:
 
         return self._run_with_lock_retry(operation)
 
-    def list_hours_needing_mirror(self) -> list[sqlite3.Row]:
+    def list_hours_needing_mirror(
+        self, *, now: datetime | None = None
+    ) -> list[sqlite3.Row]:
+        retry_cutoff = _utc_now_at(now)
         return self._fetchall(
             """
             SELECT *
             FROM archive_hours
-            WHERE mirror_status IN ('pending', 'error')
-            ORDER BY error_count ASC, hour DESC
-            """
+            WHERE mirror_status = 'pending'
+               OR (
+                    mirror_status IN ('error', 'quarantined')
+                    AND (next_retry_at IS NULL OR next_retry_at <= ?)
+               )
+            ORDER BY
+                CASE WHEN mirror_status = 'pending' THEN 0 ELSE 1 END,
+                COALESCE(next_retry_at, hour) ASC,
+                error_count ASC,
+                hour DESC
+            """,
+            (retry_cutoff,),
         )
 
     def mark_mirroring(self, filename: str) -> None:
@@ -302,7 +351,9 @@ class RelayIndex:
             lambda: self._write_single_update(
                 """
                 UPDATE archive_hours
-                SET mirror_status = 'processing', last_error = NULL
+                SET mirror_status = 'processing',
+                    last_error = NULL,
+                    next_retry_at = NULL
                 WHERE filename = ?
                 """,
                 (filename,),
@@ -316,10 +367,56 @@ class RelayIndex:
                 UPDATE archive_hours
                 SET mirror_status = 'error',
                     last_error = ?,
+                    last_error_at = ?,
+                    next_retry_at = NULL,
                     error_count = error_count + 1
                 WHERE filename = ?
                 """,
-                (error, filename),
+                (error, _utc_now(), filename),
+            )
+        )
+
+    def mark_mirror_retry(
+        self,
+        filename: str,
+        *,
+        error: str,
+        next_retry_at: str,
+    ) -> None:
+        self._run_with_lock_retry(
+            lambda: self._write_single_update(
+                """
+                UPDATE archive_hours
+                SET mirror_status = 'error',
+                    last_error = ?,
+                    last_error_at = ?,
+                    next_retry_at = ?,
+                    error_count = error_count + 1
+                WHERE filename = ?
+                """,
+                (error, _utc_now(), next_retry_at, filename),
+            )
+        )
+
+    def mark_mirror_quarantined(
+        self,
+        filename: str,
+        *,
+        error: str,
+        next_retry_at: str,
+    ) -> None:
+        self._run_with_lock_retry(
+            lambda: self._write_single_update(
+                """
+                UPDATE archive_hours
+                SET mirror_status = 'quarantined',
+                    last_error = ?,
+                    last_error_at = ?,
+                    next_retry_at = ?,
+                    error_count = error_count + 1
+                WHERE filename = ?
+                """,
+                (error, _utc_now(), next_retry_at, filename),
             )
         )
 
@@ -344,6 +441,8 @@ class RelayIndex:
                     mirror_status = 'ready',
                     mirrored_at = ?,
                     last_error = NULL,
+                    last_error_at = NULL,
+                    next_retry_at = NULL,
                     error_count = 0
                 WHERE filename = ?
                 """,
@@ -383,8 +482,9 @@ class RelayIndex:
                         local_path,
                         content_length,
                         mirror_status,
-                        mirrored_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, 'ready', ?)
+                        mirrored_at,
+                        error_count
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, 'ready', ?, 0)
                     """,
                     (
                         filename,
@@ -406,7 +506,10 @@ class RelayIndex:
                         content_length = COALESCE(content_length, ?),
                         mirror_status = 'ready',
                         mirrored_at = COALESCE(mirrored_at, ?),
-                        last_error = NULL
+                        last_error = NULL,
+                        last_error_at = NULL,
+                        next_retry_at = NULL,
+                        error_count = 0
                     WHERE filename = ?
                       AND (
                         local_path IS NULL
@@ -437,7 +540,8 @@ class RelayIndex:
             SELECT
                 COUNT(*) AS archive_hours,
                 SUM(CASE WHEN mirror_status = 'ready' THEN 1 ELSE 0 END) AS mirrored_hours,
-                SUM(CASE WHEN mirror_status = 'error' THEN 1 ELSE 0 END) AS mirror_errors
+                SUM(CASE WHEN mirror_status IN ('error', 'quarantined') THEN 1 ELSE 0 END) AS mirror_errors,
+                SUM(CASE WHEN mirror_status = 'quarantined' THEN 1 ELSE 0 END) AS mirror_quarantined
             FROM archive_hours
             """
         )
@@ -454,17 +558,25 @@ class RelayIndex:
             "archive_hours": int(stats_row.get("archive_hours") or 0),
             "mirrored_hours": int(stats_row.get("mirrored_hours") or 0),
             "mirror_errors": int(stats_row.get("mirror_errors") or 0),
+            "mirror_quarantined": int(stats_row.get("mirror_quarantined") or 0),
             "last_event_at": last_event_at,
             "last_error_at": last_error_at,
         }
 
-    def queue_summary(self) -> dict[str, int | str | None]:
+    def queue_summary(
+        self, *, now: datetime | None = None
+    ) -> dict[str, int | str | None]:
+        retry_cutoff = _utc_now_at(now)
         row = self._fetchone(
             """
             SELECT
                 SUM(CASE WHEN mirror_status = 'pending' THEN 1 ELSE 0 END) AS mirror_pending,
                 SUM(CASE WHEN mirror_status = 'processing' THEN 1 ELSE 0 END) AS mirror_processing,
-                SUM(CASE WHEN mirror_status = 'error' THEN 1 ELSE 0 END) AS mirror_error,
+                SUM(CASE WHEN mirror_status IN ('error', 'quarantined') THEN 1 ELSE 0 END) AS mirror_error,
+                SUM(CASE WHEN mirror_status IN ('error', 'quarantined') AND (next_retry_at IS NULL OR next_retry_at <= ?) THEN 1 ELSE 0 END) AS mirror_retry_due,
+                SUM(CASE WHEN mirror_status IN ('error', 'quarantined') AND next_retry_at > ? THEN 1 ELSE 0 END) AS mirror_retry_waiting,
+                SUM(CASE WHEN mirror_status = 'quarantined' THEN 1 ELSE 0 END) AS mirror_quarantined,
+                MIN(CASE WHEN mirror_status IN ('error', 'quarantined') THEN next_retry_at END) AS next_retry_at,
                 MAX(CASE WHEN mirror_status = 'ready' THEN hour END) AS latest_mirrored_hour,
                 (
                     SELECT filename
@@ -474,13 +586,18 @@ class RelayIndex:
                     LIMIT 1
                 ) AS latest_mirrored_filename
             FROM archive_hours
-            """
+            """,
+            (retry_cutoff, retry_cutoff),
         )
         queue_row = dict(row) if row is not None else {}
         return {
             "mirror_pending": int(queue_row.get("mirror_pending") or 0),
             "mirror_processing": int(queue_row.get("mirror_processing") or 0),
             "mirror_error": int(queue_row.get("mirror_error") or 0),
+            "mirror_retry_due": int(queue_row.get("mirror_retry_due") or 0),
+            "mirror_retry_waiting": int(queue_row.get("mirror_retry_waiting") or 0),
+            "mirror_quarantined": int(queue_row.get("mirror_quarantined") or 0),
+            "next_retry_at": queue_row.get("next_retry_at"),
             "latest_mirrored_hour": queue_row.get("latest_mirrored_hour"),
             "latest_mirrored_filename": queue_row.get("latest_mirrored_filename"),
         }

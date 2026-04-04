@@ -90,9 +90,17 @@ class _FinalPeriodMomentumBase(LongOnlyPredictionMarketStrategy):
             return False
         return previous_price < float(self.config.entry_price) <= price
 
-    def _on_price(self, *, price: float, ts_event_ns: int) -> None:
+    def _on_price(
+        self,
+        *,
+        price: float,
+        ts_event_ns: int,
+        entry_price: float | None = None,
+        visible_size: float | None = None,
+    ) -> None:
         previous_price = self._last_price
         self._last_price = price
+        reference_price = price if entry_price is None else entry_price
 
         if self._pending:
             return
@@ -103,7 +111,10 @@ class _FinalPeriodMomentumBase(LongOnlyPredictionMarketStrategy):
             if not self._is_in_final_period(ts_event_ns):
                 return
             if self._crossed_above_entry(previous_price, price):
-                self._submit_entry()
+                self._submit_entry(
+                    reference_price=reference_price,
+                    visible_size=visible_size,
+                )
             return
 
         if int(self.config.market_close_time_ns) > 0 and ts_event_ns >= int(
@@ -133,7 +144,12 @@ class BarFinalPeriodMomentumStrategy(_FinalPeriodMomentumBase):
         self.subscribe_bars(self.config.bar_type)
 
     def on_bar(self, bar: Bar) -> None:
-        self._on_price(price=float(bar.close), ts_event_ns=int(bar.ts_event))
+        close = float(bar.close)
+        self._on_price(
+            price=close,
+            ts_event_ns=int(bar.ts_event),
+            entry_price=close,
+        )
 
 
 class TradeTickFinalPeriodMomentumStrategy(_FinalPeriodMomentumBase):
@@ -141,7 +157,12 @@ class TradeTickFinalPeriodMomentumStrategy(_FinalPeriodMomentumBase):
         self.subscribe_trade_ticks(self.config.instrument_id)
 
     def on_trade_tick(self, tick: TradeTick) -> None:
-        self._on_price(price=float(tick.price), ts_event_ns=int(tick.ts_event))
+        price = float(tick.price)
+        self._on_price(
+            price=price,
+            ts_event_ns=int(tick.ts_event),
+            entry_price=price,
+        )
 
 
 class QuoteTickFinalPeriodMomentumStrategy(_FinalPeriodMomentumBase):
@@ -152,4 +173,6 @@ class QuoteTickFinalPeriodMomentumStrategy(_FinalPeriodMomentumBase):
         self._on_price(
             price=(float(tick.bid_price) + float(tick.ask_price)) / 2.0,
             ts_event_ns=int(tick.ts_event),
+            entry_price=float(tick.ask_price),
+            visible_size=float(tick.ask_size),
         )

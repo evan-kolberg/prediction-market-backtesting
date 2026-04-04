@@ -410,6 +410,7 @@ def _progress_color(*, numerator: int, denominator: int) -> str:
 def _status_badge_payload(
     *,
     stats: dict[str, int | str | None],
+    system: dict[str, object] | None,
     config: RelayConfig,
     now: datetime | None = None,
 ) -> dict[str, object]:
@@ -421,11 +422,72 @@ def _status_badge_payload(
     if last_event_at is None:
         return _badge_payload(label="PMXT relay", message="starting", color="yellow")
 
+    api_service = _service_metrics_for_badge(system or {}, "api")
+    worker_service = _service_metrics_for_badge(system or {}, "worker")
+    services = (api_service, worker_service)
+    if any(service is None for service in services):
+        return _badge_payload(label="PMXT relay", message="unknown", color="red")
+
+    active_states = {
+        str(service.get("active_state") or "unknown") for service in services
+    }
+    if "failed" in active_states:
+        return _badge_payload(label="PMXT relay", message="failed", color="red")
+    if active_states != {"active"}:
+        return _badge_payload(label="PMXT relay", message="degraded", color="orange")
+
     age_seconds = max(0.0, (current - last_event_at).total_seconds())
     stale_threshold = max(config.poll_interval_secs * 4, 3600)
     if age_seconds > stale_threshold:
         return _badge_payload(label="PMXT relay", message="stale", color="red")
     return _badge_payload(label="PMXT relay", message="up", color="brightgreen")
+
+
+def _upstream_badge_payload(
+    *,
+    stats: dict[str, int | str | None],
+    queue: dict[str, int | str | None],
+    config: RelayConfig,
+    now: datetime | None = None,
+) -> dict[str, object]:
+    current = (
+        datetime.now(timezone.utc) if now is None else now.astimezone(timezone.utc)
+    )
+    last_event_at = _parse_db_timestamp(stats.get("last_event_at"))  # type: ignore[arg-type]
+    last_error_at = _parse_db_timestamp(stats.get("last_error_at"))  # type: ignore[arg-type]
+    latest_mirrored_hour = _parse_db_timestamp(
+        queue.get("latest_mirrored_hour")  # type: ignore[arg-type]
+    )
+    mirror_pending = int(queue.get("mirror_pending") or 0)
+    mirror_processing = int(queue.get("mirror_processing") or 0)
+    mirror_error = int(queue.get("mirror_error") or 0)
+    outstanding = mirror_pending + mirror_processing + mirror_error
+
+    if last_event_at is None:
+        return _badge_payload(label="r2.pmxt.dev", message="starting", color="yellow")
+
+    age_seconds = max(0.0, (current - last_event_at).total_seconds())
+    stale_threshold = max(config.poll_interval_secs * 4, 3600)
+    if age_seconds > stale_threshold:
+        return _badge_payload(label="r2.pmxt.dev", message="stale", color="red")
+    if mirror_error > 0:
+        if last_error_at is not None:
+            error_age_seconds = max(0.0, (current - last_error_at).total_seconds())
+            if error_age_seconds <= max(config.poll_interval_secs * 2, 900):
+                return _badge_payload(
+                    label="r2.pmxt.dev", message="errors", color="red"
+                )
+        return _badge_payload(label="r2.pmxt.dev", message="degraded", color="orange")
+    if outstanding > 0 and latest_mirrored_hour is not None:
+        lag_seconds = max(0.0, (current - latest_mirrored_hour).total_seconds())
+        lag_threshold = max(config.poll_interval_secs * 8, 21600)
+        if lag_seconds > lag_threshold:
+            return _badge_payload(
+                label="r2.pmxt.dev", message="lagging", color="orange"
+            )
+    if outstanding > 0:
+        return _badge_payload(label="r2.pmxt.dev", message="syncing", color="yellow")
+    return _badge_payload(label="r2.pmxt.dev", message="up", color="brightgreen")
 
 
 def _ratio_badge_payload(
@@ -702,8 +764,16 @@ async def system_metrics(request: web.Request) -> web.Response:
 async def badge_status(request: web.Request) -> web.Response:
     config = request.app[CONFIG_APP_KEY]
     index = request.app[INDEX_APP_KEY]
+    stats_payload, system_payload = await asyncio.gather(
+        _index_stats_async(index),
+        asyncio.to_thread(_system_metrics_snapshot, config),
+    )
     return web.json_response(
-        _status_badge_payload(stats=await _index_stats_async(index), config=config)
+        _status_badge_payload(
+            stats=stats_payload,
+            system=system_payload,
+            config=config,
+        )
     )
 
 
@@ -795,8 +865,48 @@ async def badge_mirroring_svg(request: web.Request) -> web.Response:
 async def badge_status_svg(request: web.Request) -> web.Response:
     config = request.app[CONFIG_APP_KEY]
     index = request.app[INDEX_APP_KEY]
+    stats_payload, system_payload = await asyncio.gather(
+        _index_stats_async(index),
+        asyncio.to_thread(_system_metrics_snapshot, config),
+    )
     return _badge_svg_response(
-        _status_badge_payload(stats=await _index_stats_async(index), config=config)
+        _status_badge_payload(
+            stats=stats_payload,
+            system=system_payload,
+            config=config,
+        )
+    )
+
+
+async def badge_upstream(request: web.Request) -> web.Response:
+    config = request.app[CONFIG_APP_KEY]
+    index = request.app[INDEX_APP_KEY]
+    stats_payload, queue_payload = await asyncio.gather(
+        _index_stats_async(index),
+        _index_queue_summary_async(index),
+    )
+    return web.json_response(
+        _upstream_badge_payload(
+            stats=stats_payload,
+            queue=queue_payload,
+            config=config,
+        )
+    )
+
+
+async def badge_upstream_svg(request: web.Request) -> web.Response:
+    config = request.app[CONFIG_APP_KEY]
+    index = request.app[INDEX_APP_KEY]
+    stats_payload, queue_payload = await asyncio.gather(
+        _index_stats_async(index),
+        _index_queue_summary_async(index),
+    )
+    return _badge_svg_response(
+        _upstream_badge_payload(
+            stats=stats_payload,
+            queue=queue_payload,
+            config=config,
+        )
     )
 
 
@@ -843,8 +953,10 @@ def create_app(config: RelayConfig) -> web.Application:
     app.router.add_get("/v1/inflight", inflight)
     app.router.add_get("/v1/system", system_metrics)
     app.router.add_get("/v1/badge/status", badge_status)
+    app.router.add_get("/v1/badge/upstream", badge_upstream)
     app.router.add_get("/v1/badge/mirrored", badge_mirrored)
     app.router.add_get("/v1/badge/status.svg", badge_status_svg)
+    app.router.add_get("/v1/badge/upstream.svg", badge_upstream_svg)
     app.router.add_get("/v1/badge/mirrored.svg", badge_mirrored_svg)
     app.router.add_get("/v1/badge/latest-file.svg", badge_latest_file_svg)
     app.router.add_get("/v1/badge/cpu.svg", badge_cpu_svg)

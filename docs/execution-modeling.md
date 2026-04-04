@@ -34,7 +34,7 @@ the raw venue data are:
 
 - public runners can now opt into Nautilus `queue_position=True`
 - the public PMXT quote-tick runners in this repo now enable that heuristic by
-  default
+  default, and the public trade-tick late-favorite passive runner now does too
 - this is still a heuristic, not true venue queue reconstruction
 - Kalshi and Polymarket trade-tick replay can use trade prints to move queue
   ahead estimates on passive limit orders
@@ -58,6 +58,10 @@ the raw venue data are:
 
 ## Limits
 
+- repo-owned backtests keep cash-account risk checks enabled by default
+- result payloads now distinguish the requested replay window from the loaded
+  data window via `planned_start`, `planned_end`, `loaded_start`,
+  `loaded_end`, `coverage_ratio`, and `requested_coverage_ratio`
 - Kalshi public backtests here are trade-tick replay only
 - Polymarket PMXT-backed backtests are full L2 order-book replay
 - taker-heavy strategies that harvest tiny price changes can look much worse

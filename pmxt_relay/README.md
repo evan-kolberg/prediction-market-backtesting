@@ -51,6 +51,11 @@ The active relay only needs:
 - `state/` for SQLite metadata
 - `tmp/` for atomic download temp files
 
+Repeated upstream 404s are no longer retried every poll forever. The active
+relay now backs off failed mirrors and temporarily quarantines repeated 404s on
+a slower retry cadence so one stale archive reference does not dominate every
+worker cycle while the mirror still heals automatically when upstream recovers.
+
 ## Fresh Box Setup
 
 On a fresh Ubuntu 24 box:
@@ -64,7 +69,7 @@ git clone https://github.com/evan-kolberg/prediction-market-backtesting.git /opt
 cd /opt/prediction-market-backtesting
 
 uv venv --python 3.12
-uv pip install -e nautilus_pm/ bokeh plotly numpy py-clob-client duckdb
+uv pip install -e nautilus_pm/ bokeh plotly numpy py-clob-client duckdb simple-term-menu
 
 useradd --system --home /srv/pmxt-relay --shell /usr/sbin/nologin pmxtrelay || true
 install -o pmxtrelay -g pmxtrelay -d /srv/pmxt-relay /srv/pmxt-relay/raw /srv/pmxt-relay/state /srv/pmxt-relay/tmp
@@ -103,6 +108,13 @@ Active mirror-focused endpoints:
 `/v1/stats`, `/v1/queue`, and the active badge routes only expose raw-mirror
 state. Filtered-hour and processing-oriented HTTP endpoints are intentionally
 not part of the active relay path.
+
+The public badges separate relay health from `r2.pmxt.dev` availability:
+
+- `/v1/badge/status(.svg)` reports whether the relay itself is up, recent, and
+  has active API/worker services.
+- `/v1/badge/upstream(.svg)` reports whether `r2.pmxt.dev` is healthy,
+  lagging, or erroring.
 
 ## Legacy Archive
 

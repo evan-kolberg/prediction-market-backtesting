@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+from datetime import datetime
+from datetime import timezone
 from pathlib import Path
+import sqlite3
 
 from pmxt_relay.index_db import RelayIndex
 
@@ -25,6 +28,9 @@ def test_relay_index_events_and_queue_summary_are_mirror_only(tmp_path: Path):
     queue = index.queue_summary()
     assert queue["mirror_processing"] == 1
     assert queue["mirror_pending"] == 1
+    assert queue["mirror_retry_due"] == 0
+    assert queue["mirror_retry_waiting"] == 0
+    assert queue["mirror_quarantined"] == 0
     assert "process_pending" not in queue
 
     index.log_event(level="INFO", event_type="first", message="first message")
@@ -40,6 +46,7 @@ def test_relay_index_events_and_queue_summary_are_mirror_only(tmp_path: Path):
     assert stats["archive_hours"] == 2
     assert stats["mirrored_hours"] == 0
     assert stats["mirror_errors"] == 0
+    assert stats["mirror_quarantined"] == 0
     assert "processed_hours" not in stats
     assert stats["last_event_at"] is not None
     assert stats["last_error_at"] is not None
@@ -141,3 +148,136 @@ def test_queue_summary_reports_latest_mirrored_filename(tmp_path: Path):
 
     assert queue["latest_mirrored_filename"] == filenames[-1]
     assert queue["latest_mirrored_hour"] == "2026-03-21T13:00:00+00:00"
+
+
+def test_error_rows_back_off_until_next_retry(tmp_path: Path):
+    index = RelayIndex(tmp_path / "relay.sqlite3")
+    index.initialize()
+    filename = "polymarket_orderbook_2026-03-21T12.parquet"
+    retry_at = "2026-03-21T13:00:00+00:00"
+    index.upsert_discovered_hour(filename, f"https://r2.pmxt.dev/{filename}", 1)
+    index.mark_mirror_retry(
+        filename,
+        error="transient upstream failure",
+        next_retry_at=retry_at,
+    )
+
+    due_now = index.list_hours_needing_mirror(
+        now=datetime(2026, 3, 21, 12, 30, tzinfo=timezone.utc)
+    )
+    due_later = index.list_hours_needing_mirror(
+        now=datetime(2026, 3, 21, 13, 30, tzinfo=timezone.utc)
+    )
+    queue_now = index.queue_summary(
+        now=datetime(2026, 3, 21, 12, 30, tzinfo=timezone.utc)
+    )
+
+    assert due_now == []
+    assert [row["filename"] for row in due_later] == [filename]
+    assert queue_now["mirror_error"] == 1
+    assert queue_now["mirror_retry_due"] == 0
+    assert queue_now["mirror_retry_waiting"] == 1
+    assert queue_now["next_retry_at"] == retry_at
+
+
+def test_quarantined_rows_count_as_errors_until_their_retry_window(tmp_path: Path):
+    index = RelayIndex(tmp_path / "relay.sqlite3")
+    index.initialize()
+    filename = "polymarket_orderbook_2026-03-21T12.parquet"
+    retry_at = "2026-03-21T14:00:00+00:00"
+    index.upsert_discovered_hour(filename, f"https://r2.pmxt.dev/{filename}", 1)
+    index.mark_mirror_quarantined(
+        filename,
+        error="HTTP Error 404: Not Found",
+        next_retry_at=retry_at,
+    )
+
+    stats = index.stats()
+    queue_now = index.queue_summary(
+        now=datetime(2026, 3, 21, 13, 0, tzinfo=timezone.utc)
+    )
+    due_later = index.list_hours_needing_mirror(
+        now=datetime(2026, 3, 21, 14, 30, tzinfo=timezone.utc)
+    )
+
+    assert (
+        index.list_hours_needing_mirror(
+            now=datetime(2026, 3, 21, 13, 0, tzinfo=timezone.utc)
+        )
+        == []
+    )
+    assert [row["filename"] for row in due_later] == [filename]
+    assert stats["mirror_errors"] == 1
+    assert stats["mirror_quarantined"] == 1
+    assert queue_now["mirror_error"] == 1
+    assert queue_now["mirror_quarantined"] == 1
+    assert queue_now["mirror_retry_waiting"] == 1
+
+
+def test_initialize_tolerates_duplicate_column_race_during_schema_upgrade(
+    tmp_path: Path,
+):
+    db_path = tmp_path / "relay.sqlite3"
+    conn = sqlite3.connect(db_path)
+    conn.executescript(
+        """
+        CREATE TABLE archive_hours (
+            filename TEXT PRIMARY KEY,
+            hour TEXT NOT NULL,
+            source_url TEXT NOT NULL,
+            archive_page INTEGER NOT NULL,
+            discovered_at TEXT NOT NULL,
+            local_path TEXT,
+            etag TEXT,
+            content_length INTEGER,
+            last_modified TEXT,
+            mirror_status TEXT NOT NULL DEFAULT 'pending',
+            mirrored_at TEXT,
+            last_error TEXT,
+            error_count INTEGER NOT NULL DEFAULT 0
+        );
+
+        CREATE TABLE relay_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            created_at TEXT NOT NULL,
+            level TEXT NOT NULL,
+            event_type TEXT NOT NULL,
+            filename TEXT,
+            message TEXT NOT NULL,
+            payload_json TEXT
+        );
+        """
+    )
+    conn.close()
+
+    index = RelayIndex(db_path)
+    real_conn = index._conn  # noqa: SLF001
+
+    class _DuplicateColumnRaceConn:
+        def __init__(self, wrapped: sqlite3.Connection) -> None:
+            self._wrapped = wrapped
+            self._raised = False
+
+        def executescript(self, sql: str):  # type: ignore[no-untyped-def]
+            return self._wrapped.executescript(sql)
+
+        def execute(self, sql: str, params=()):  # type: ignore[no-untyped-def]
+            if (
+                not self._raised
+                and sql.strip()
+                == "ALTER TABLE archive_hours ADD COLUMN last_error_at TEXT"
+            ):
+                self._wrapped.execute(sql, params)
+                self._raised = True
+                raise sqlite3.OperationalError("duplicate column name: last_error_at")
+            return self._wrapped.execute(sql, params)
+
+    index._conn = _DuplicateColumnRaceConn(real_conn)  # type: ignore[assignment]  # noqa: SLF001
+    index.initialize(apply_maintenance=False)
+
+    columns = {
+        row[1]
+        for row in real_conn.execute("PRAGMA table_info(archive_hours)").fetchall()
+    }
+    assert "last_error_at" in columns
+    assert "next_retry_at" in columns

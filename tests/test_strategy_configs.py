@@ -101,6 +101,8 @@ def test_prediction_market_backtest_binds_strategy_configs_across_sims() -> None
             realized_outcome=1.0,
             prices=[],
             metadata={"market_close_time_ns": 111, "activation_start_time_ns": 11},
+            requested_start_ns=None,
+            requested_end_ns=None,
         ),
         _LoadedMarketSim(
             spec=backtest.sims[1],
@@ -114,6 +116,8 @@ def test_prediction_market_backtest_binds_strategy_configs_across_sims() -> None
             realized_outcome=1.0,
             prices=[],
             metadata={"market_close_time_ns": 222, "activation_start_time_ns": 22},
+            requested_start_ns=None,
+            requested_end_ns=None,
         ),
     ]
 

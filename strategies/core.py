@@ -19,6 +19,7 @@
 from __future__ import annotations
 
 from decimal import Decimal
+from decimal import InvalidOperation
 from typing import Protocol
 
 from nautilus_trader.model.enums import OrderSide
@@ -30,6 +31,76 @@ from nautilus_trader.trading.strategy import Strategy
 class LongOnlyConfig(Protocol):
     instrument_id: InstrumentId
     trade_size: Decimal
+
+
+def _decimal_or_none(value: object) -> Decimal | None:
+    if value is None:
+        return None
+    try:
+        return Decimal(str(value))
+    except (InvalidOperation, ValueError):
+        return None
+
+
+def _estimate_entry_unit_cost(
+    *,
+    reference_price: Decimal,
+    taker_fee: Decimal,
+) -> Decimal:
+    clamped_price = min(max(reference_price, Decimal("0")), Decimal("1"))
+    return clamped_price + (taker_fee * clamped_price * (Decimal("1") - clamped_price))
+
+
+def _cap_entry_size_to_free_balance(
+    *,
+    desired_size: Decimal,
+    reference_price: Decimal | None,
+    taker_fee: Decimal,
+    free_balance: Decimal | None,
+) -> Decimal:
+    if desired_size <= 0:
+        return Decimal("0")
+    if reference_price is None or reference_price <= 0 or free_balance is None:
+        return desired_size
+
+    unit_cost = _estimate_entry_unit_cost(
+        reference_price=reference_price,
+        taker_fee=max(taker_fee, Decimal("0")),
+    )
+    if unit_cost <= 0:
+        return desired_size
+
+    affordable_size = free_balance / unit_cost
+    return max(Decimal("0"), min(desired_size, affordable_size))
+
+
+def _cap_entry_size_to_visible_liquidity(
+    *,
+    desired_size: Decimal,
+    visible_size: Decimal | None,
+) -> Decimal:
+    if desired_size <= 0:
+        return Decimal("0")
+    if visible_size is None:
+        return desired_size
+    if visible_size <= 0:
+        return Decimal("0")
+    return min(desired_size, visible_size)
+
+
+def _effective_entry_reference_price(
+    *,
+    reference_price: Decimal | None,
+    visible_size: Decimal | None,
+) -> Decimal:
+    if reference_price is not None and visible_size is not None and visible_size > 0:
+        return reference_price
+
+    # Without a visible ask, a market buy can clear anywhere up to 1.0 in a
+    # binary prediction market. Size against that worst-case cash usage rather
+    # than the last print to avoid manufacturing affordable size from stale
+    # trade-only signals.
+    return Decimal("1")
 
 
 class LongOnlyPredictionMarketStrategy(Strategy):
@@ -59,12 +130,77 @@ class LongOnlyPredictionMarketStrategy(Strategy):
     def _in_position(self) -> bool:
         return not self.portfolio.is_flat(self.config.instrument_id)
 
-    def _submit_entry(self) -> None:
+    def _free_quote_balance(self) -> Decimal | None:
         assert self._instrument is not None
+        account = self.portfolio.account(venue=self.config.instrument_id.venue)
+        if account is None:
+            return None
+        free_balance = account.balance_free(self._instrument.quote_currency)
+        if free_balance is None:
+            return None
+        return _decimal_or_none(free_balance.as_double())
+
+    def _entry_quantity(
+        self,
+        *,
+        reference_price: float | None = None,
+        visible_size: float | None = None,
+    ):
+        assert self._instrument is not None
+        desired_size = _decimal_or_none(self.config.trade_size)
+        if desired_size is None or desired_size <= 0:
+            return None
+
+        visible_size_decimal = _decimal_or_none(visible_size)
+        liquidity_capped_size = _cap_entry_size_to_visible_liquidity(
+            desired_size=desired_size,
+            visible_size=visible_size_decimal,
+        )
+        capped_size = _cap_entry_size_to_free_balance(
+            desired_size=liquidity_capped_size,
+            reference_price=_effective_entry_reference_price(
+                reference_price=_decimal_or_none(reference_price),
+                visible_size=visible_size_decimal,
+            ),
+            taker_fee=_decimal_or_none(self._instrument.taker_fee) or Decimal("0"),
+            free_balance=self._free_quote_balance(),
+        )
+        if capped_size <= 0:
+            return None
+
+        try:
+            quantity = self._instrument.make_qty(float(capped_size), round_down=True)
+        except ValueError:
+            return None
+
+        lot_size = self._instrument.lot_size
+        if lot_size is not None and quantity.as_double() + 1e-12 < lot_size.as_double():
+            return None
+
+        if quantity.as_double() + 1e-12 < float(desired_size):
+            self.log.debug(
+                f"Clipped BUY size for {self.config.instrument_id} from {desired_size} "
+                f"to {quantity.as_double():.12f} using reference price "
+                f"{float(reference_price or 0.0):.6f}",
+            )
+        return quantity
+
+    def _submit_entry(
+        self,
+        *,
+        reference_price: float | None = None,
+        visible_size: float | None = None,
+    ) -> None:
+        quantity = self._entry_quantity(
+            reference_price=reference_price,
+            visible_size=visible_size,
+        )
+        if quantity is None:
+            return
         order = self.order_factory.market(
             instrument_id=self.config.instrument_id,
             order_side=OrderSide.BUY,
-            quantity=self._instrument.make_qty(float(self.config.trade_size)),
+            quantity=quantity,
             time_in_force=TimeInForce.IOC,
         )
         self.submit_order(order)

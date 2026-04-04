@@ -89,7 +89,13 @@ class _EMACrossoverBase(LongOnlyPredictionMarketStrategy):
         self._alpha_fast = 2.0 / (float(self.config.fast_period) + 1.0)
         self._alpha_slow = 2.0 / (float(self.config.slow_period) + 1.0)
 
-    def _on_price(self, price: float) -> None:
+    def _on_price(
+        self,
+        price: float,
+        *,
+        entry_price: float | None = None,
+        visible_size: float | None = None,
+    ) -> None:
         if self._fast_ema is None or self._slow_ema is None:
             self._fast_ema = price
             self._slow_ema = price
@@ -109,10 +115,14 @@ class _EMACrossoverBase(LongOnlyPredictionMarketStrategy):
 
         assert self._fast_ema is not None
         assert self._slow_ema is not None
+        reference_price = price if entry_price is None else entry_price
 
         if not self._in_position():
             if self._fast_ema >= self._slow_ema + self.config.entry_buffer:
-                self._submit_entry()
+                self._submit_entry(
+                    reference_price=reference_price,
+                    visible_size=visible_size,
+                )
             return
 
         if self._risk_exit(
@@ -137,7 +147,8 @@ class BarEMACrossoverStrategy(_EMACrossoverBase):
         self.subscribe_bars(self.config.bar_type)
 
     def on_bar(self, bar: Bar) -> None:
-        self._on_price(float(bar.close))
+        close = float(bar.close)
+        self._on_price(close, entry_price=close)
 
 
 class TradeTickEMACrossoverStrategy(_EMACrossoverBase):
@@ -145,7 +156,8 @@ class TradeTickEMACrossoverStrategy(_EMACrossoverBase):
         self.subscribe_trade_ticks(self.config.instrument_id)
 
     def on_trade_tick(self, tick: TradeTick) -> None:
-        self._on_price(float(tick.price))
+        price = float(tick.price)
+        self._on_price(price, entry_price=price)
 
 
 class QuoteTickEMACrossoverStrategy(_EMACrossoverBase):
@@ -153,4 +165,8 @@ class QuoteTickEMACrossoverStrategy(_EMACrossoverBase):
         self.subscribe_quote_ticks(self.config.instrument_id)
 
     def on_quote_tick(self, tick: QuoteTick) -> None:
-        self._on_price((float(tick.bid_price) + float(tick.ask_price)) / 2.0)
+        self._on_price(
+            (float(tick.bid_price) + float(tick.ask_price)) / 2.0,
+            entry_price=float(tick.ask_price),
+            visible_size=float(tick.ask_size),
+        )

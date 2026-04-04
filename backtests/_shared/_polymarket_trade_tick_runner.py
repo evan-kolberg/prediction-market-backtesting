@@ -17,6 +17,8 @@ from typing import Any
 
 import pandas as pd
 
+from backtests._shared._backtest_runtime import print_backtest_result_warnings
+from backtests._shared._backtest_runtime import run_market_backtest
 from backtests._shared._execution_config import ExecutionModelConfig
 from backtests._shared._trade_tick_ui import build_single_market_trade_summary_row
 from backtests._shared._trade_tick_ui import print_single_market_trade_summary
@@ -33,7 +35,6 @@ from nautilus_trader.adapters.polymarket.fee_model import PolymarketFeeModel
 from nautilus_trader.adapters.prediction_market.backtest_utils import (
     infer_realized_outcome,
 )
-from nautilus_trader.adapters.prediction_market.research import run_market_backtest
 from nautilus_trader.model.currencies import USDC_POS
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.trading.strategy import Strategy
@@ -134,6 +135,8 @@ async def run_single_market_trade_backtest(
         return_summary_series=return_summary_series,
         queue_position=False if execution is None else execution.queue_position,
         latency_model=None if execution is None else execution.build_latency_model(),
+        requested_start_ns=int(start.value),
+        requested_end_ns=int(end.value),
     )
 
     if emit_summary:
@@ -149,6 +152,7 @@ async def run_single_market_trade_backtest(
             count_label="Trades",
             pnl_label="PnL (USDC)",
         )
+        print_backtest_result_warnings(results=[result], market_key="slug")
         if emit_html and result.get("chart_path"):
             print(f"\nLegacy chart saved to {result['chart_path']}")
 

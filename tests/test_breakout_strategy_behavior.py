@@ -24,7 +24,12 @@ class _BreakoutHarness(QuoteTickBreakoutStrategy):
     def _in_position(self) -> bool:
         return self._position
 
-    def _submit_entry(self) -> None:
+    def _submit_entry(
+        self,
+        *,
+        reference_price: float | None = None,
+        visible_size: float | None = None,
+    ) -> None:
         self.entries += 1
         self._pending = True
 

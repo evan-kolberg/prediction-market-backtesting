@@ -128,9 +128,16 @@ class _BreakoutBase(LongOnlyPredictionMarketStrategy):
             or self._reentry_cooldown() > 0
         )
 
-    def _on_price(self, price: float) -> None:
+    def _on_price(
+        self,
+        price: float,
+        *,
+        entry_price: float | None = None,
+        visible_size: float | None = None,
+    ) -> None:
         previous_price = self._last_price
         prior_window = list(self._prices)
+        reference_price = price if entry_price is None else entry_price
 
         if len(prior_window) < int(self.config.window) or self._pending:
             self._append_price(price)
@@ -160,7 +167,10 @@ class _BreakoutBase(LongOnlyPredictionMarketStrategy):
                 and price <= float(self.config.max_entry_price)
                 and (crossed_breakout or not self._requires_fresh_breakout_cross())
             ):
-                self._submit_entry()
+                self._submit_entry(
+                    reference_price=reference_price,
+                    visible_size=visible_size,
+                )
             self._append_price(price)
             return
 
@@ -199,7 +209,8 @@ class BarBreakoutStrategy(_BreakoutBase):
         self.subscribe_bars(self.config.bar_type)
 
     def on_bar(self, bar: Bar) -> None:
-        self._on_price(float(bar.close))
+        close = float(bar.close)
+        self._on_price(close, entry_price=close)
 
 
 class TradeTickBreakoutStrategy(_BreakoutBase):
@@ -207,7 +218,8 @@ class TradeTickBreakoutStrategy(_BreakoutBase):
         self.subscribe_trade_ticks(self.config.instrument_id)
 
     def on_trade_tick(self, tick: TradeTick) -> None:
-        self._on_price(float(tick.price))
+        price = float(tick.price)
+        self._on_price(price, entry_price=price)
 
 
 class QuoteTickBreakoutStrategy(_BreakoutBase):
@@ -215,4 +227,8 @@ class QuoteTickBreakoutStrategy(_BreakoutBase):
         self.subscribe_quote_ticks(self.config.instrument_id)
 
     def on_quote_tick(self, tick: QuoteTick) -> None:
-        self._on_price((float(tick.bid_price) + float(tick.ask_price)) / 2.0)
+        self._on_price(
+            (float(tick.bid_price) + float(tick.ask_price)) / 2.0,
+            entry_price=float(tick.ask_price),
+            visible_size=float(tick.ask_size),
+        )

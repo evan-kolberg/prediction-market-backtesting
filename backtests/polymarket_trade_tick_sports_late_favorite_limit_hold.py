@@ -21,6 +21,8 @@ from nautilus_trader.adapters.prediction_market.backtest_utils import (
     compute_binary_settlement_pnl,
 )
 
+from backtests._shared._execution_config import ExecutionModelConfig
+from backtests._shared._execution_config import StaticLatencyConfig
 from backtests._shared._prediction_market_backtest import MarketReportConfig
 from backtests._shared._prediction_market_backtest import MarketSimConfig
 from backtests._shared._prediction_market_backtest import PredictionMarketBacktest
@@ -107,6 +109,16 @@ REPORT = MarketReportConfig(
     pnl_label="Settlement PnL (USDC)",
 )
 
+EXECUTION = ExecutionModelConfig(
+    queue_position=True,
+    latency_model=StaticLatencyConfig(
+        base_latency_ms=75.0,
+        insert_latency_ms=10.0,
+        update_latency_ms=5.0,
+        cancel_latency_ms=5.0,
+    ),
+)
+
 BACKTEST = PredictionMarketBacktest(
     name=NAME,
     data=DATA,
@@ -117,6 +129,7 @@ BACKTEST = PredictionMarketBacktest(
     min_trades=25,
     min_price_range=0.05,
     default_lookback_days=30,
+    execution=EXECUTION,
 )
 
 

@@ -10,9 +10,10 @@ uv run ruff format --check --exclude nautilus_pm .
 uv run pytest tests/ -q
 ```
 
-You can also use:
+You can also use the equivalent Make targets:
 
 ```bash
+make check
 make test
 ```
 

@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+import importlib
+from types import SimpleNamespace
+
+from backtests._shared._backtest_runtime import build_backtest_run_state
+from backtests._shared._backtest_runtime import print_backtest_result_warnings
 from backtests._shared import _prediction_market_backtest as backtest_module
 from backtests._shared._execution_config import ExecutionModelConfig
 from backtests._shared._execution_config import StaticLatencyConfig
@@ -55,3 +60,88 @@ def test_prediction_market_backtest_build_engine_forwards_execution(monkeypatch)
     assert latency_model.insert_latency_nanos == 35_000_000
     assert latency_model.update_latency_nanos == 30_000_000
     assert latency_model.cancel_latency_nanos == 27_000_000
+    assert engine.config.risk_engine.bypass is False
+
+
+def test_build_backtest_run_state_marks_forced_stop_with_partial_coverage():
+    data = [
+        SimpleNamespace(ts_init=0),
+        SimpleNamespace(ts_init=10),
+        SimpleNamespace(ts_init=20),
+    ]
+
+    state = build_backtest_run_state(
+        data=data,
+        backtest_end_ns=10,
+        forced_stop=True,
+    )
+
+    assert state["terminated_early"] is True
+    assert state["stop_reason"] == "account_error"
+    assert state["planned_start"] == "1970-01-01T00:00:00+00:00"
+    assert state["planned_end"] == "1970-01-01T00:00:00.000000020+00:00"
+    assert state["loaded_start"] == "1970-01-01T00:00:00+00:00"
+    assert state["loaded_end"] == "1970-01-01T00:00:00.000000020+00:00"
+    assert state["simulated_through"] == "1970-01-01T00:00:00.000000010+00:00"
+    assert state["coverage_ratio"] == 0.5
+    assert state["requested_coverage_ratio"] == 0.5
+
+
+def test_build_backtest_run_state_uses_requested_window_for_coverage():
+    data = [
+        SimpleNamespace(ts_init=10),
+        SimpleNamespace(ts_init=20),
+    ]
+
+    state = build_backtest_run_state(
+        data=data,
+        backtest_end_ns=20,
+        forced_stop=False,
+        requested_start_ns=0,
+        requested_end_ns=30,
+    )
+
+    assert state["terminated_early"] is False
+    assert state["stop_reason"] is None
+    assert state["planned_start"] == "1970-01-01T00:00:00+00:00"
+    assert state["planned_end"] == "1970-01-01T00:00:00.000000030+00:00"
+    assert state["loaded_start"] == "1970-01-01T00:00:00.000000010+00:00"
+    assert state["loaded_end"] == "1970-01-01T00:00:00.000000020+00:00"
+    assert state["simulated_through"] == "1970-01-01T00:00:00.000000020+00:00"
+    assert state["coverage_ratio"] == 1.0
+    assert state["requested_coverage_ratio"] == 2 / 3
+
+
+def test_trade_tick_late_favorite_runner_pins_passive_execution_heuristics():
+    module = importlib.import_module(
+        "backtests.polymarket_trade_tick_sports_late_favorite_limit_hold"
+    )
+
+    assert module.BACKTEST.execution.queue_position is True
+
+    latency_model = module.BACKTEST.execution.build_latency_model()
+    assert latency_model is not None
+    assert latency_model.base_latency_nanos == 75_000_000
+    assert latency_model.insert_latency_nanos == 85_000_000
+    assert latency_model.update_latency_nanos == 80_000_000
+    assert latency_model.cancel_latency_nanos == 80_000_000
+
+
+def test_result_warnings_distinguish_loaded_and_requested_coverage(capsys):
+    print_backtest_result_warnings(
+        results=[
+            {
+                "terminated_early": True,
+                "stop_reason": "incomplete_window",
+                "slug": "demo-market",
+                "simulated_through": "2026-03-24T06:00:00+00:00",
+                "coverage_ratio": 0.5,
+                "requested_coverage_ratio": 0.25,
+            }
+        ],
+        market_key="slug",
+    )
+
+    output = capsys.readouterr().out
+    assert "50.0% of the loaded-data window" in output
+    assert "25.0% of the requested window" in output

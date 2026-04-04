@@ -28,6 +28,12 @@ Good public examples:
 - fixed-basket multi-market runner:
   [`backtests/polymarket_trade_tick_sports_vwap_reversion.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_trade_tick_sports_vwap_reversion.py)
 
+Those public runners are intended as readable research demos, not profitability
+claims. Result payloads now separate the requested replay window from the data
+window that actually loaded, including `planned_start`, `planned_end`,
+`loaded_start`, `loaded_end`, `coverage_ratio` for loaded-data coverage, and
+`requested_coverage_ratio` for requested-window coverage.
+
 ## Runner Contract
 
 Public runners should read like flat experiment specs. The canonical shape is:
@@ -185,6 +191,11 @@ Interactive menu:
 make backtest
 ```
 
+The menu uses `Textual`, so you get a scrollable runner list on the left and a
+details/preview pane on the right. Single-letter shortcuts still launch
+runners directly, `/` focuses the filter box, `Esc` clears the filter, and the
+highlighted runner's full file contents stay visible while you browse.
+
 Equivalent direct command:
 
 ```bash
@@ -199,9 +210,11 @@ uv run python backtests/polymarket_trade_tick_vwap_reversion.py
 uv run python backtests/polymarket_quote_tick_pmxt_ema_crossover.py
 ```
 
-Public runners are now pinned directly in code. If you want a different market,
-window, cash value, or vendor source priority, edit `DATA`, `SIMS`, or
-`STRATEGY_CONFIGS` in the runner file, or copy the file into
+Public runners keep their experiment inputs in code. PMXT quote-tick runners
+pin absolute sample windows; native trade-tick runners pin market/source
+selection and use rolling lookbacks unless you also set `end_time`. If you want
+a different market, window, cash value, or vendor source priority, edit
+`DATA`, `SIMS`, or `STRATEGY_CONFIGS` in the runner file, or copy the file into
 `backtests/private/` and customize it there.
 
 ## Editing Runner Inputs

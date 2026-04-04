@@ -16,7 +16,7 @@ cd prediction-market-backtesting
 unset CONDA_PREFIX
 
 uv venv --python 3.13
-uv pip install -e nautilus_pm/ bokeh plotly numpy py-clob-client duckdb
+uv pip install -e nautilus_pm/ bokeh plotly numpy py-clob-client duckdb textual
 ```
 
 You can also use:
@@ -36,6 +36,12 @@ Interactive backtest menu:
 make backtest
 ```
 
+The interactive menu uses `Textual` with a left-side runner list, a right-side
+details/preview pane, single-letter shortcuts, and search via `/`. Arrow keys
+move the selection, `Enter` runs the highlighted runner, and `Esc` clears the
+current filter and returns focus to the list. The preview pane now shows the
+full runner file contents rather than an excerpt.
+
 Direct entrypoint:
 
 ```bash
@@ -49,9 +55,12 @@ uv run python backtests/kalshi_trade_tick_breakout.py
 uv run python backtests/polymarket_quote_tick_pmxt_ema_crossover.py
 ```
 
-Public runner files now carry their own pinned market, window, and source
-values. To use a different local PMXT mirror path or a different market, edit
-the runner file directly or copy it into `backtests/private/`.
+Public runner files carry their market, source, and execution assumptions in
+code. PMXT quote-tick runners also pin absolute sample windows; native
+trade-tick runners use rolling lookbacks unless you set `end_time` in `SIMS`
+or `default_end_time` on the backtest. To use a different local PMXT mirror
+path or a different market, edit the runner file directly or copy it into
+`backtests/private/`.
 
 ## Timing And Cache Defaults
 

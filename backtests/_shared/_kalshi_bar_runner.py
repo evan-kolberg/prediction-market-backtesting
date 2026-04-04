@@ -17,10 +17,11 @@ from typing import Any
 
 import pandas as pd
 
+from backtests._shared._backtest_runtime import print_backtest_result_warnings
+from backtests._shared._backtest_runtime import run_market_backtest
 from nautilus_trader.adapters.kalshi.fee_model import KalshiProportionalFeeModel
 from nautilus_trader.adapters.kalshi.loaders import KalshiDataLoader
 from nautilus_trader.adapters.prediction_market.research import print_backtest_summary
-from nautilus_trader.adapters.prediction_market.research import run_market_backtest
 from nautilus_trader.model.currencies import USD
 from nautilus_trader.model.data import Bar
 from nautilus_trader.model.data import BarType
@@ -162,6 +163,8 @@ async def run_single_market_bar_backtest(
         market_key="ticker",
         emit_html=emit_html,
         return_chart_layout=return_chart_layout,
+        requested_start_ns=int(start.value),
+        requested_end_ns=int(end.value),
     )
 
     if emit_summary:
@@ -172,6 +175,7 @@ async def run_single_market_bar_backtest(
             count_label="Bars",
             pnl_label="PnL (USD)",
         )
+        print_backtest_result_warnings(results=[result], market_key="ticker")
         if emit_html and result.get("chart_path"):
             print(f"\nLegacy chart saved to {result['chart_path']}")
 

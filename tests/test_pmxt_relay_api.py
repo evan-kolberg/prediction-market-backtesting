@@ -19,6 +19,7 @@ from pmxt_relay.api import (
     _cpu_percent_from_loadavg,
     _resolve_raw_path,
     _status_badge_payload,
+    _upstream_badge_payload,
     create_app,
 )
 from pmxt_relay.config import RelayConfig
@@ -268,6 +269,13 @@ def test_status_badge_uses_up_for_healthy_mirror_only_relay(tmp_path: Path):
     payload = _status_badge_payload(
         stats={
             "last_event_at": (now - timedelta(minutes=5)).isoformat(),
+            "last_error_at": None,
+        },
+        system={
+            "services": {
+                "api": {"active_state": "active"},
+                "worker": {"active_state": "active"},
+            }
         },
         config=config,
         now=now,
@@ -284,6 +292,13 @@ def test_status_badge_uses_stale_for_old_last_event(tmp_path: Path):
     payload = _status_badge_payload(
         stats={
             "last_event_at": (now - timedelta(hours=2)).isoformat(),
+            "last_error_at": None,
+        },
+        system={
+            "services": {
+                "api": {"active_state": "active"},
+                "worker": {"active_state": "active"},
+            }
         },
         config=config,
         now=now,
@@ -291,6 +306,102 @@ def test_status_badge_uses_stale_for_old_last_event(tmp_path: Path):
 
     assert payload["message"] == "stale"
     assert payload["color"] == "red"
+
+
+def test_status_badge_ignores_fresh_upstream_errors_when_services_are_healthy(
+    tmp_path: Path,
+):
+    config = _make_config(tmp_path)
+    now = datetime(2026, 4, 3, 20, 0, tzinfo=timezone.utc)
+
+    payload = _status_badge_payload(
+        stats={
+            "last_event_at": (now - timedelta(minutes=1)).isoformat(),
+            "last_error_at": (now - timedelta(minutes=1)).isoformat(),
+        },
+        system={
+            "services": {
+                "api": {"active_state": "active"},
+                "worker": {"active_state": "active"},
+            }
+        },
+        config=config,
+        now=now,
+    )
+
+    assert payload["message"] == "up"
+    assert payload["color"] == "brightgreen"
+
+
+def test_status_badge_uses_degraded_for_inactive_service(tmp_path: Path):
+    config = _make_config(tmp_path)
+    now = datetime(2026, 4, 3, 20, 0, tzinfo=timezone.utc)
+
+    payload = _status_badge_payload(
+        stats={
+            "last_event_at": (now - timedelta(minutes=1)).isoformat(),
+            "last_error_at": (now - timedelta(minutes=1)).isoformat(),
+        },
+        system={
+            "services": {
+                "api": {"active_state": "active"},
+                "worker": {"active_state": "deactivating"},
+            }
+        },
+        config=config,
+        now=now,
+    )
+
+    assert payload["message"] == "degraded"
+    assert payload["color"] == "orange"
+
+
+def test_upstream_badge_uses_errors_for_fresh_unresolved_failures(tmp_path: Path):
+    config = _make_config(tmp_path)
+    now = datetime(2026, 4, 3, 20, 0, tzinfo=timezone.utc)
+
+    payload = _upstream_badge_payload(
+        stats={
+            "last_event_at": (now - timedelta(minutes=1)).isoformat(),
+            "last_error_at": (now - timedelta(minutes=1)).isoformat(),
+        },
+        queue={
+            "mirror_pending": 0,
+            "mirror_processing": 0,
+            "mirror_error": 7,
+            "latest_mirrored_hour": (now - timedelta(hours=1)).isoformat(),
+        },
+        config=config,
+        now=now,
+    )
+
+    assert payload["label"] == "r2.pmxt.dev"
+    assert payload["message"] == "errors"
+    assert payload["color"] == "red"
+
+
+def test_upstream_badge_uses_lagging_for_backlog_with_old_latest_mirror(tmp_path: Path):
+    config = _make_config(tmp_path)
+    now = datetime(2026, 4, 3, 20, 0, tzinfo=timezone.utc)
+
+    payload = _upstream_badge_payload(
+        stats={
+            "last_event_at": (now - timedelta(minutes=5)).isoformat(),
+            "last_error_at": None,
+        },
+        queue={
+            "mirror_pending": 3,
+            "mirror_processing": 0,
+            "mirror_error": 0,
+            "latest_mirrored_hour": (now - timedelta(hours=12)).isoformat(),
+        },
+        config=config,
+        now=now,
+    )
+
+    assert payload["label"] == "r2.pmxt.dev"
+    assert payload["message"] == "lagging"
+    assert payload["color"] == "orange"
 
 
 def test_latest_file_badge_reports_latest_mirrored_filename(tmp_path: Path):

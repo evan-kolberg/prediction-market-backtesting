@@ -28,6 +28,14 @@ uv run python backtests/polymarket_quote_tick_pmxt_ema_crossover.py
 Optimize for real bugs, regressions, and stale operational assumptions, not
 cosmetic churn.
 
+Backtest realism is the highest priority in this repo. The point of the
+project is to simulate honestly, surface failure modes clearly, and avoid
+results that flatter toy assumptions or mislead users.
+
+Work with a high level of scrutiny. If a result, metric, health signal, or
+example could cause a careful reader to believe something false about the
+system, treat that as a bug until it is disproven.
+
 High-value things to catch:
 
 - broken direct runner entrypoints
@@ -185,6 +193,9 @@ Examples in README should be durable:
 
 ## PR Hygiene
 
+- Never push directly to `main`.
+- Every commit intended for `main` must go through a pull request.
+- The required path is: branch -> draft PR -> review -> merge.
 - If the work belongs in the roadmap/known-issues history, add the relevant PR link in `README.md`.
 - Review the PR diff after opening it, wait for GitHub Actions to pass, then merge.
 

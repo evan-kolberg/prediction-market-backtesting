@@ -109,7 +109,13 @@ class _RSIReversionBase(LongOnlyPredictionMarketStrategy):
         rs = avg_gain / avg_loss
         return 100.0 - (100.0 / (1.0 + rs))
 
-    def _on_price(self, price: float) -> None:
+    def _on_price(
+        self,
+        price: float,
+        *,
+        entry_price: float | None = None,
+        visible_size: float | None = None,
+    ) -> None:
         self._prices.append(price)
         if self._pending:
             return
@@ -120,7 +126,10 @@ class _RSIReversionBase(LongOnlyPredictionMarketStrategy):
 
         if not self._in_position():
             if rsi <= float(self.config.entry_rsi):
-                self._submit_entry()
+                self._submit_entry(
+                    reference_price=price if entry_price is None else entry_price,
+                    visible_size=visible_size,
+                )
             return
 
         if self._risk_exit(
@@ -143,7 +152,8 @@ class BarRSIReversionStrategy(_RSIReversionBase):
         self.subscribe_bars(self.config.bar_type)
 
     def on_bar(self, bar: Bar) -> None:
-        self._on_price(float(bar.close))
+        close = float(bar.close)
+        self._on_price(close, entry_price=close)
 
 
 class TradeTickRSIReversionStrategy(_RSIReversionBase):
@@ -151,7 +161,8 @@ class TradeTickRSIReversionStrategy(_RSIReversionBase):
         self.subscribe_trade_ticks(self.config.instrument_id)
 
     def on_trade_tick(self, tick: TradeTick) -> None:
-        self._on_price(float(tick.price))
+        price = float(tick.price)
+        self._on_price(price, entry_price=price)
 
 
 class QuoteTickRSIReversionStrategy(_RSIReversionBase):
@@ -159,4 +170,8 @@ class QuoteTickRSIReversionStrategy(_RSIReversionBase):
         self.subscribe_quote_ticks(self.config.instrument_id)
 
     def on_quote_tick(self, tick: QuoteTick) -> None:
-        self._on_price((float(tick.bid_price) + float(tick.ask_price)) / 2.0)
+        self._on_price(
+            (float(tick.bid_price) + float(tick.ask_price)) / 2.0,
+            entry_price=float(tick.ask_price),
+            visible_size=float(tick.ask_size),
+        )

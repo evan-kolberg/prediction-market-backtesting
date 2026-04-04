@@ -43,6 +43,7 @@ from nautilus_trader.analysis.legacy_plot_adapter import build_legacy_backtest_l
 from nautilus_trader.analysis.legacy_plot_adapter import save_legacy_backtest_layout
 from nautilus_trader.backtest.config import BacktestEngineConfig
 from nautilus_trader.backtest.engine import BacktestEngine
+from nautilus_trader.common.component import is_backtest_force_stop
 from nautilus_trader.config import LoggingConfig
 from nautilus_trader.config import StrategyFactory as NautilusStrategyFactory
 from nautilus_trader.model.currencies import USD
@@ -57,6 +58,9 @@ from nautilus_trader.model.identifiers import Venue
 from nautilus_trader.model.objects import Money
 from nautilus_trader.risk.config import RiskEngineConfig
 
+from backtests._shared._backtest_runtime import apply_backtest_run_state
+from backtests._shared._backtest_runtime import build_backtest_run_state
+from backtests._shared._backtest_runtime import print_backtest_result_warnings
 from backtests._shared._execution_config import ExecutionModelConfig
 from backtests._shared._prediction_market_runner import MarketDataConfig
 from backtests._shared._strategy_configs import build_importable_strategy_configs
@@ -118,6 +122,8 @@ class _LoadedMarketSim:
     realized_outcome: float | None
     prices: list[float]
     metadata: Mapping[str, Any]
+    requested_start_ns: int | None
+    requested_end_ns: int | None
 
 
 class PredictionMarketBacktest:
@@ -190,6 +196,8 @@ class PredictionMarketBacktest:
                 f"and {len(self.strategy_configs)} strategy config(s)..."
             )
             engine.run()
+            engine_result = engine.get_result()
+            forced_stop = bool(is_backtest_force_stop())
 
             fills_report = engine.trader.generate_order_fills_report()
             positions_report = engine.trader.generate_positions_report()
@@ -203,6 +211,13 @@ class PredictionMarketBacktest:
                     fills_report=fills_report,
                     positions_report=positions_report,
                     chart_path=chart_paths.get(str(loaded_sim.instrument.id)),
+                    run_state=build_backtest_run_state(
+                        data=loaded_sim.records,
+                        backtest_end_ns=engine_result.backtest_end,
+                        forced_stop=forced_stop,
+                        requested_start_ns=loaded_sim.requested_start_ns,
+                        requested_end_ns=loaded_sim.requested_end_ns,
+                    ),
                 )
                 for loaded_sim in loaded_sims
             ]
@@ -332,6 +347,8 @@ class PredictionMarketBacktest:
             realized_outcome=infer_realized_outcome(loader.instrument),
             prices=prices,
             metadata=metadata,
+            requested_start_ns=int(start.value),
+            requested_end_ns=int(end.value),
         )
 
     async def _load_polymarket_pmxt_quote_tick_sim(
@@ -422,6 +439,8 @@ class PredictionMarketBacktest:
             realized_outcome=infer_realized_outcome(loader.instrument),
             prices=prices,
             metadata=metadata,
+            requested_start_ns=int(start.value),
+            requested_end_ns=int(end.value),
         )
 
     async def _load_kalshi_trade_tick_sim(
@@ -485,6 +504,8 @@ class PredictionMarketBacktest:
             realized_outcome=infer_realized_outcome(loader.instrument),
             prices=prices,
             metadata=metadata,
+            requested_start_ns=int(start.value),
+            requested_end_ns=int(end.value),
         )
 
     def _build_engine(self) -> BacktestEngine:
@@ -492,7 +513,7 @@ class PredictionMarketBacktest:
             config=BacktestEngineConfig(
                 trader_id=TraderId("BACKTESTER-001"),
                 logging=LoggingConfig(log_level=self.nautilus_log_level),
-                risk_engine=RiskEngineConfig(bypass=True),
+                risk_engine=RiskEngineConfig(),
             ),
         )
         latency_model = self.execution.build_latency_model()
@@ -661,6 +682,7 @@ class PredictionMarketBacktest:
         fills_report: pd.DataFrame,
         positions_report: pd.DataFrame,
         chart_path: str | None = None,
+        run_state: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         instrument_id = str(loaded_sim.instrument.id)
         instrument_fills = self._filter_report_rows(
@@ -695,7 +717,7 @@ class PredictionMarketBacktest:
         if chart_path is not None:
             result["chart_path"] = chart_path
         result.update(dict(loaded_sim.metadata))
-        return result
+        return apply_backtest_run_state(result=result, run_state=run_state or {})
 
     def _build_single_market_chart_paths(
         self,
@@ -852,6 +874,7 @@ def finalize_market_results(
         count_label=report.count_label,
         pnl_label=report.pnl_label,
     )
+    print_backtest_result_warnings(results=results, market_key=market_key)
 
     if len(results) == 1:
         chart_path = results[0].get("chart_path")

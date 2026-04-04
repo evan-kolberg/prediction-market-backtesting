@@ -78,7 +78,14 @@ class _VWAPReversionBase(LongOnlyPredictionMarketStrategy):
         self._weighted_sum += price * size
         self._size_sum += size
 
-    def _on_price_size(self, *, price: float, size: float) -> None:
+    def _on_price_size(
+        self,
+        *,
+        price: float,
+        size: float,
+        entry_price: float | None = None,
+        visible_size: float | None = None,
+    ) -> None:
         if self._pending:
             return
 
@@ -92,7 +99,10 @@ class _VWAPReversionBase(LongOnlyPredictionMarketStrategy):
         vwap = self._weighted_sum / self._size_sum
         if not self._in_position():
             if price <= vwap - float(self.config.entry_threshold):
-                self._submit_entry()
+                self._submit_entry(
+                    reference_price=price if entry_price is None else entry_price,
+                    visible_size=visible_size,
+                )
             return
 
         if self._risk_exit(
@@ -117,7 +127,12 @@ class TradeTickVWAPReversionStrategy(_VWAPReversionBase):
         self.subscribe_trade_ticks(self.config.instrument_id)
 
     def on_trade_tick(self, tick: TradeTick) -> None:
-        self._on_price_size(price=float(tick.price), size=float(tick.size))
+        price = float(tick.price)
+        self._on_price_size(
+            price=price,
+            size=float(tick.size),
+            entry_price=price,
+        )
 
 
 class QuoteTickVWAPReversionStrategy(_VWAPReversionBase):
@@ -132,4 +147,6 @@ class QuoteTickVWAPReversionStrategy(_VWAPReversionBase):
         self._on_price_size(
             price=(float(tick.bid_price) + float(tick.ask_price)) / 2.0,
             size=(float(tick.bid_size) + float(tick.ask_size)) / 2.0,
+            entry_price=float(tick.ask_price),
+            visible_size=float(tick.ask_size),
         )

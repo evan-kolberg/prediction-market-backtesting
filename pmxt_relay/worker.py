@@ -4,6 +4,9 @@ import logging
 import os
 import shutil
 import time
+from datetime import UTC
+from datetime import datetime
+from datetime import timedelta
 from urllib.error import HTTPError
 from urllib.request import Request
 from urllib.request import urlopen
@@ -16,6 +19,9 @@ from pmxt_relay.storage import raw_relative_path
 
 
 LOG = logging.getLogger(__name__)
+_MIRROR_404_QUARANTINE_AFTER = 3
+_MIRROR_RETRY_BACKOFF_CAP_SECS = 6 * 3600
+_MIRROR_QUARANTINE_RETRY_SECS = 3600
 
 
 class RelayWorker:
@@ -176,18 +182,73 @@ class RelayWorker:
             try:
                 self._mirror_hour(row)
             except Exception as exc:  # noqa: BLE001
-                self._index.mark_mirror_error(row["filename"], str(exc))
+                next_error_count = int(row["error_count"] or 0) + 1
+                if self._should_quarantine_error(exc, error_count=next_error_count):
+                    next_retry_at = self._quarantine_retry_at()
+                    self._index.mark_mirror_quarantined(
+                        row["filename"],
+                        error=str(exc),
+                        next_retry_at=next_retry_at.isoformat(),
+                    )
+                    self._record_event(
+                        level="WARNING",
+                        event_type="mirror_quarantined",
+                        filename=row["filename"],
+                        message=(
+                            f"Temporarily quarantined {row['filename']} after repeated mirror failures"
+                        ),
+                        payload={
+                            "error": str(exc),
+                            "error_count": next_error_count,
+                            "next_retry_at": next_retry_at.isoformat(),
+                        },
+                    )
+                    LOG.warning(
+                        "Temporarily quarantined %s until %s after repeated mirror failures: %s",
+                        row["filename"],
+                        next_retry_at.isoformat(),
+                        exc,
+                    )
+                    continue
+                next_retry_at = self._next_retry_at(error_count=next_error_count)
+                self._index.mark_mirror_retry(
+                    row["filename"],
+                    error=str(exc),
+                    next_retry_at=next_retry_at.isoformat(),
+                )
                 self._record_event(
                     level="ERROR",
                     event_type="mirror_error",
                     filename=row["filename"],
                     message=f"Failed to mirror {row['filename']}",
-                    payload={"error": str(exc)},
+                    payload={
+                        "error": str(exc),
+                        "error_count": next_error_count,
+                        "next_retry_at": next_retry_at.isoformat(),
+                    },
                 )
                 LOG.exception("Failed to mirror %s", row["filename"])
                 continue
             mirrored += 1
         return mirrored
+
+    def _next_retry_at(self, *, error_count: int) -> datetime:
+        base_delay = max(60, int(self._config.poll_interval_secs))
+        retry_delay = min(
+            base_delay * (2 ** max(0, error_count - 1)),
+            _MIRROR_RETRY_BACKOFF_CAP_SECS,
+        )
+        return datetime.now(UTC) + timedelta(seconds=retry_delay)
+
+    def _quarantine_retry_at(self) -> datetime:
+        return datetime.now(UTC) + timedelta(seconds=_MIRROR_QUARANTINE_RETRY_SECS)
+
+    def _should_quarantine_error(self, exc: Exception, *, error_count: int) -> bool:
+        return (
+            isinstance(exc, HTTPError)
+            and exc.code == 404
+            and error_count >= _MIRROR_404_QUARANTINE_AFTER
+        )
 
     def _mirror_hour(self, row) -> None:  # type: ignore[no-untyped-def]
         filename = row["filename"]

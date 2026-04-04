@@ -23,6 +23,18 @@ from backtests._shared._prediction_market_backtest import MarketReportConfig
 from backtests._shared._prediction_market_backtest import MarketSimConfig
 from backtests._shared._prediction_market_backtest import PredictionMarketBacktest
 from backtests._shared._prediction_market_backtest import run_reported_backtest
+from backtests._shared._polymarket_quote_tick_defaults import (
+    DEFAULT_PMXT_CLOSE_WINDOW_END_TIME,
+)
+from backtests._shared._polymarket_quote_tick_defaults import (
+    DEFAULT_PMXT_CLOSE_WINDOW_START_TIME,
+)
+from backtests._shared._polymarket_quote_tick_defaults import (
+    DEFAULT_PMXT_MARKET_ACTIVATION_START_NS,
+)
+from backtests._shared._polymarket_quote_tick_defaults import (
+    DEFAULT_PMXT_MARKET_CLOSE_TIME_NS,
+)
 from backtests._shared._prediction_market_runner import MarketDataConfig
 from backtests._shared._timing_harness import timing_harness
 from backtests._shared.data_sources import PMXT, Polymarket, QuoteTick
@@ -49,8 +61,8 @@ SIMS = (
     MarketSimConfig(
         market_slug="will-openai-launch-a-new-consumer-hardware-product-by-march-31-2026",
         token_index=0,
-        start_time="2026-02-21T16:00:00Z",
-        end_time="2026-02-23T10:00:00Z",
+        start_time=DEFAULT_PMXT_CLOSE_WINDOW_START_TIME,
+        end_time=DEFAULT_PMXT_CLOSE_WINDOW_END_TIME,
     ),
 )
 
@@ -60,8 +72,8 @@ STRATEGY_CONFIGS = [
         "config_path": "strategies:QuoteTickThresholdMomentumConfig",
         "config": {
             "trade_size": Decimal("100"),
-            "activation_start_time_ns": 1774326957277659000,
-            "market_close_time_ns": 1774337757277659000,
+            "activation_start_time_ns": DEFAULT_PMXT_MARKET_ACTIVATION_START_NS,
+            "market_close_time_ns": DEFAULT_PMXT_MARKET_CLOSE_TIME_NS,
             "entry_price": 0.8,
             "take_profit_price": 0.92,
             "stop_loss_price": 0.5,
