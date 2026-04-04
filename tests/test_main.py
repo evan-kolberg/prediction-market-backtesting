@@ -166,11 +166,17 @@ def test_assign_shortcuts_leaves_overflow_entries_without_hotkeys():
     assert len(unassigned) == 5
 
 
-def test_runner_preview_includes_command_and_spec(tmp_path: Path, monkeypatch):
+def test_runner_preview_shows_file_excerpt_without_generated_sections(
+    tmp_path: Path,
+    monkeypatch,
+):
     runner_path = tmp_path / "backtests" / "demo_runner.py"
     runner_path.parent.mkdir(parents=True)
     runner_path.write_text(
-        'NAME = "demo_runner"\nDESCRIPTION = "Demo runner"\nDATA = object()\n',
+        'NAME = "demo_runner"\n'
+        'DESCRIPTION = "Demo runner"\n'
+        "DATA = object()\n"
+        "SIMS = ()\n",
         encoding="utf-8",
     )
 
@@ -184,9 +190,11 @@ def test_runner_preview_includes_command_and_spec(tmp_path: Path, monkeypatch):
 
     preview = main_module._runner_preview(backtest)
 
-    assert "backtests/demo_runner.py" in preview
-    assert "uv run python backtests/demo_runner.py" in preview
-    assert 'NAME = "demo_runner"' in preview
+    assert preview.startswith("demo_runner\n\nDATA = object()")
+    assert "SIMS = ()" in preview
+    assert "Run\n" not in preview
+    assert "Spec\n" not in preview
+    assert "backtests/demo_runner.py" not in preview
 
 
 def test_discoverable_backtest_paths_stay_flat(tmp_path: Path) -> None:

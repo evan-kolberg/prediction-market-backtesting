@@ -46,7 +46,7 @@ ENABLE_TIMING_ENV = "BACKTEST_ENABLE_TIMING"
 SHORTCUT_LETTERS = ascii_lowercase.replace("q", "") + ascii_uppercase.replace("Q", "")
 MENU_TITLE = "Prediction Market Backtests"
 MENU_PREVIEW_SIZE = 0.30
-RUNNER_SPEC_MAX_LINES = 10
+RUNNER_PREVIEW_MAX_LINES = 10
 
 
 def _env_flag_enabled(name: str) -> bool:
@@ -240,39 +240,42 @@ def _assign_shortcuts(
 
 
 @lru_cache(maxsize=None)
-def _runner_spec_preview(path: Path, *, max_lines: int = RUNNER_SPEC_MAX_LINES) -> str:
+def _runner_file_preview(
+    path: Path,
+    *,
+    max_lines: int = RUNNER_PREVIEW_MAX_LINES,
+) -> str:
     try:
         lines = path.read_text(encoding="utf-8").splitlines()
     except OSError as exc:
         return f"(unable to read runner file: {exc})"
 
     start = 0
-    for index, line in enumerate(lines):
-        if (
-            line.startswith("NAME =")
-            or line.startswith("DESCRIPTION =")
-            or line.startswith("DATA =")
-        ):
-            start = index
-            break
+    for marker in (
+        "DATA =",
+        "SIMS =",
+        "STRATEGY_CONFIGS =",
+        "BACKTEST =",
+        "NAME =",
+    ):
+        for index, line in enumerate(lines):
+            if line.startswith(marker):
+                start = index
+                break
+        else:
+            continue
+        break
 
     snippet_lines = lines[start : start + max_lines]
     return "\n".join(snippet_lines).strip() or "(runner file is empty)"
 
 
 def _runner_preview(backtest: dict[str, Any]) -> str:
-    relative_path = _relative_runner_path(backtest)
-    description = backtest.get("description") or "No description provided."
-    snippet = _runner_spec_preview(PROJECT_ROOT / relative_path)
-
-    return (
-        f"{relative_path}\n\n"
-        f"{description}\n\n"
-        "Run\n"
-        f"  uv run python {relative_path}\n\n"
-        "Spec\n"
-        f"{snippet}"
-    )
+    name = str(backtest.get("name") or _runner_stem(backtest))
+    snippet = _runner_file_preview(PROJECT_ROOT / _relative_runner_path(backtest))
+    if snippet.startswith("NAME ="):
+        return snippet
+    return f"{name}\n\n{snippet}"
 
 
 def _load_runner(backtest: dict[str, Any]) -> Any:
@@ -371,7 +374,7 @@ def _show_terminal_menu(backtests: list[dict[str, Any]]) -> int:
         title=(
             MENU_TITLE,
             "assigned letters run immediately, enter runs selection, / searches, q exits",
-            f"{len(backtests)} runnable entries | preview shows the flat runner spec",
+            f"{len(backtests)} runnable entries | preview shows a file excerpt",
         ),
         menu_cursor="> ",
         menu_cursor_style=("fg_cyan", "bold"),
@@ -382,7 +385,7 @@ def _show_terminal_menu(backtests: list[dict[str, Any]]) -> int:
             backtests_by_key[preview_key]
         ),
         preview_size=MENU_PREVIEW_SIZE,
-        preview_title="runner",
+        preview_title="file",
         search_case_sensitive=False,
         show_search_hint=True,
         show_shortcut_hints=False,
