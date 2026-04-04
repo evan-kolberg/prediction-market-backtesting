@@ -1,6 +1,6 @@
 # Derived from NautilusTrader prediction-market example code.
 # Distributed under the GNU Lesser General Public License Version 3.0 or later.
-# Modified in this repository on 2026-03-11, 2026-03-15, and 2026-03-31.
+# Modified in this repository on 2026-03-11, 2026-03-15, 2026-03-31, and 2026-04-04.
 # See the repository NOTICE file for provenance and licensing scope.
 
 """
@@ -13,7 +13,6 @@ from collections.abc import Callable
 from collections.abc import Sequence
 from datetime import UTC
 from datetime import datetime
-import os
 from typing import Any
 
 import pandas as pd
@@ -44,34 +43,6 @@ from backtests._shared.data_sources.pmxt import (
 type StrategyFactory = Callable[[InstrumentId], Strategy]
 
 
-def _apply_window_env_overrides(
-    *,
-    start_time: pd.Timestamp | datetime | str | None,
-    end_time: pd.Timestamp | datetime | str | None,
-    lookback_hours: float | None,
-) -> tuple[
-    pd.Timestamp | datetime | str | None,
-    pd.Timestamp | datetime | str | None,
-    float | None,
-]:
-    override_start = os.getenv("START_TIME", "").strip()
-    override_end = os.getenv("END_TIME", "").strip()
-    override_lookback = os.getenv("LOOKBACK_HOURS", "").strip()
-
-    if override_start:
-        start_time = override_start
-    if override_end:
-        end_time = override_end
-    if override_lookback:
-        try:
-            lookback_hours = float(override_lookback)
-        except ValueError as exc:
-            raise ValueError(
-                f"LOOKBACK_HOURS must be numeric, got {override_lookback!r}"
-            ) from exc
-    return start_time, end_time, lookback_hours
-
-
 async def run_single_market_pmxt_backtest(
     *,
     name: str,
@@ -99,11 +70,6 @@ async def run_single_market_pmxt_backtest(
         strategy_factory=strategy_factory,
         strategy_configs=strategy_configs,
     )
-    start_time, end_time, lookback_hours = _apply_window_env_overrides(
-        start_time=start_time,
-        end_time=end_time,
-        lookback_hours=lookback_hours,
-    )
     try:
         end = pd.Timestamp(end_time if end_time is not None else datetime.now(UTC))
         if end.tzinfo is None:
@@ -120,12 +86,12 @@ async def run_single_market_pmxt_backtest(
         elif lookback_hours is not None:
             start = end - pd.Timedelta(hours=lookback_hours)
         else:
-            raise ValueError("set START_TIME/END_TIME or LOOKBACK_HOURS")
+            raise ValueError("set start_time/end_time or lookback_hours")
 
         if start >= end:
             raise ValueError(
-                f"START_TIME {start.isoformat()} must be earlier than "
-                f"END_TIME {end.isoformat()}"
+                f"start_time {start.isoformat()} must be earlier than "
+                f"end_time {end.isoformat()}"
             )
     except Exception as exc:
         print(f"Unable to resolve PMXT backtest window for {market_slug}: {exc}")

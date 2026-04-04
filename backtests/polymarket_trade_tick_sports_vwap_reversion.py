@@ -1,6 +1,6 @@
 # Derived from NautilusTrader prediction-market example code.
 # Distributed under the GNU Lesser General Public License Version 3.0 or later.
-# Modified in this repository on 2026-03-11, 2026-03-16, and 2026-04-03.
+# Modified in this repository on 2026-03-11, 2026-03-16, 2026-04-03, and 2026-04-04.
 # See the repository NOTICE file for provenance and licensing scope.
 
 """
@@ -28,7 +28,9 @@ from backtests._shared.data_sources import Native, Polymarket, TradeTick
 
 NAME = "polymarket_trade_tick_sports_vwap_reversion"
 
-DESCRIPTION = "VWAP reversion on a fixed Polymarket sports basket"
+DESCRIPTION = (
+    "VWAP reversion on a fixed Polymarket sports basket pinned to market close"
+)
 
 DATA = MarketDataConfig(
     platform=Polymarket,
@@ -41,26 +43,55 @@ DATA = MarketDataConfig(
     ),
 )
 
+# Pin each replay window to the market close so the fixed basket stays
+# reproducible and under the public trades API offset ceiling.
+FIXED_LOOKBACK_DAYS = 7
+
 SIMS = (
     MarketSimConfig(
         market_slug="will-ukraine-qualify-for-the-2026-fifa-world-cup",
+        lookback_days=FIXED_LOOKBACK_DAYS,
+        end_time="2026-03-26T23:53:59Z",
         outcome="Yes",
+        metadata={
+            "market_close_time_ns": 1774569239000000000,
+        },
     ),
     MarketSimConfig(
         market_slug="will-man-city-win-the-202526-champions-league",
+        lookback_days=FIXED_LOOKBACK_DAYS,
+        end_time="2026-03-18T01:28:17Z",
         outcome="Yes",
+        metadata={
+            "market_close_time_ns": 1773797297000000000,
+        },
     ),
     MarketSimConfig(
         market_slug="will-chelsea-win-the-202526-champions-league",
+        lookback_days=FIXED_LOOKBACK_DAYS,
+        end_time="2026-03-18T01:22:09Z",
         outcome="Yes",
+        metadata={
+            "market_close_time_ns": 1773796929000000000,
+        },
     ),
     MarketSimConfig(
         market_slug="will-newcastle-win-the-202526-champions-league",
+        lookback_days=FIXED_LOOKBACK_DAYS,
+        end_time="2026-03-18T22:56:01Z",
         outcome="Yes",
+        metadata={
+            "market_close_time_ns": 1773874561000000000,
+        },
     ),
     MarketSimConfig(
         market_slug="will-leverkusen-win-the-202526-champions-league",
+        lookback_days=FIXED_LOOKBACK_DAYS,
+        end_time="2026-03-18T01:28:15Z",
         outcome="Yes",
+        metadata={
+            "market_close_time_ns": 1773797295000000000,
+        },
     ),
 )
 
@@ -94,8 +125,7 @@ BACKTEST = PredictionMarketBacktest(
     initial_cash=100.0,
     probability_window=80,
     min_trades=25,
-    min_price_range=0.05,
-    default_lookback_days=30,
+    min_price_range=0.01,
 )
 
 

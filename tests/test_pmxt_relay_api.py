@@ -55,6 +55,16 @@ def test_rate_limiter_enforces_sliding_window():
     assert limiter.allow("203.0.113.1", now=20.0) is False
 
 
+def test_rate_limiter_periodically_prunes_stale_clients():
+    limiter = RequestRateLimiter(requests_per_minute=2)
+
+    assert limiter.allow("203.0.113.1", now=0.0) is True
+    assert "203.0.113.1" in limiter._requests  # noqa: SLF001
+
+    assert limiter.allow("198.51.100.7", now=61.0) is True
+    assert "203.0.113.1" not in limiter._requests  # noqa: SLF001
+
+
 def test_client_id_uses_forwarded_for_from_trusted_proxy():
     class _Transport:
         def get_extra_info(self, name: str):  # type: ignore[no-untyped-def]

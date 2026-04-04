@@ -331,22 +331,3 @@ def test_pmxt_multi_sim_example_runner_uses_fixed_windows(
         captured["partial_message"]
         == "Completed {completed} of {total} fixed example sims."
     )
-
-
-def test_pmxt_runner_window_env_overrides(monkeypatch: pytest.MonkeyPatch):
-    runner = importlib.import_module(
-        "backtests._shared._polymarket_quote_tick_pmxt_runner"
-    )
-    monkeypatch.setenv("START_TIME", "2026-02-21T16:00:00Z")
-    monkeypatch.setenv("END_TIME", "2026-02-23T06:00:00Z")
-    monkeypatch.setenv("LOOKBACK_HOURS", "38")
-
-    start_time, end_time, lookback_hours = runner._apply_window_env_overrides(  # noqa: SLF001
-        start_time=EXPECTED_START_TIME,
-        end_time=EXPECTED_END_TIME,
-        lookback_hours=None,
-    )
-
-    assert start_time == "2026-02-21T16:00:00Z"
-    assert end_time == "2026-02-23T06:00:00Z"
-    assert lookback_hours == 38.0

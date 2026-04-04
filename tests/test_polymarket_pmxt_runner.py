@@ -188,6 +188,9 @@ def test_pmxt_runner_respects_explicit_start_and_end_times(monkeypatch):
             "pnl": 0.0,
         },
     )
+    monkeypatch.setenv("START_TIME", "2030-01-01T00:00:00Z")
+    monkeypatch.setenv("END_TIME", "2030-01-01T01:00:00Z")
+    monkeypatch.setenv("LOOKBACK_HOURS", "999")
 
     result = asyncio.run(
         pmxt_runner.run_single_market_pmxt_backtest(

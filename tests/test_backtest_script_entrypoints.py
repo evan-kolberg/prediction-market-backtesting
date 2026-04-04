@@ -24,6 +24,12 @@ PMXT_SINGLE_MARKET_QUOTE_TICK_RUNNERS = sorted(
     if "sports_" not in path.name and "multi_sim_runner" not in path.name
 )
 
+FIXED_SPORTS_TRADE_TICK_RUNNERS = [
+    Path("backtests/polymarket_trade_tick_sports_final_period_momentum.py"),
+    Path("backtests/polymarket_trade_tick_sports_late_favorite_limit_hold.py"),
+    Path("backtests/polymarket_trade_tick_sports_vwap_reversion.py"),
+]
+
 
 @pytest.mark.parametrize(
     "relative_path",
@@ -131,3 +137,31 @@ def test_pmxt_single_market_quote_tick_runners_expose_explicit_experiment_consta
     assert backtest.initial_cash == 100.0
     assert backtest.min_quotes == 500
     assert backtest.min_price_range == 0.005
+
+
+@pytest.mark.parametrize("relative_path", FIXED_SPORTS_TRADE_TICK_RUNNERS)
+def test_fixed_sports_trade_tick_runners_pin_historical_close_windows(
+    monkeypatch: pytest.MonkeyPatch,
+    relative_path: Path,
+) -> None:
+    script_path = REPO_ROOT / relative_path
+    normalized_sys_path = [
+        entry for entry in sys.path if Path(entry or ".").resolve() != REPO_ROOT
+    ]
+    monkeypatch.setattr(sys, "path", [str(script_path.parent), *normalized_sys_path])
+
+    globals_dict = runpy.run_path(str(script_path), run_name="__script_test__")
+
+    sims = globals_dict["SIMS"]
+    backtest = globals_dict["BACKTEST"]
+    pd = pytest.importorskip("pandas")
+
+    assert backtest.default_lookback_days is None
+    assert backtest.min_price_range == 0.01
+    assert len(sims) >= 2
+    for sim in sims:
+        assert sim.market_slug
+        assert sim.lookback_days == 7
+        assert isinstance(sim.end_time, str) and sim.end_time
+        close_ns = sim.metadata["market_close_time_ns"]
+        assert pd.Timestamp(sim.end_time).value == close_ns

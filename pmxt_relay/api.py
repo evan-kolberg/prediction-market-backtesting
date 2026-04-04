@@ -44,6 +44,8 @@ _BADGE_COLOR_HEX = {
 }
 _SYSTEM_METRICS_CACHE_TTL_SECS = 2.0
 _SYSTEM_METRICS_SAMPLE_SECS = 0.2
+_RATE_LIMITER_PRUNE_INTERVAL_SECS = 60.0
+_RATE_LIMITER_FORCE_PRUNE_CLIENTS = 10_000
 _SYSTEM_SERVICE_SPECS = {
     "api": ("pmxt-relay-api.service", "API service"),
     "worker": ("pmxt-relay-worker.service", "Worker service"),
@@ -540,6 +542,7 @@ class RequestRateLimiter:
     def __init__(self, requests_per_minute: int) -> None:
         self._requests_per_minute = requests_per_minute
         self._requests: dict[str, deque[float]] = defaultdict(deque)
+        self._last_prune_at = 0.0
 
     @staticmethod
     def _prune_bucket(bucket: deque[float], *, window_start: float) -> None:
@@ -556,11 +559,24 @@ class RequestRateLimiter:
         for client_id in stale_clients:
             del self._requests[client_id]
 
+    def _maybe_prune_stale_buckets(self, *, now: float) -> None:
+        if len(self._requests) >= _RATE_LIMITER_FORCE_PRUNE_CLIENTS:
+            self._prune_stale_buckets(now=now)
+            self._last_prune_at = now
+            return
+
+        if (now - self._last_prune_at) < _RATE_LIMITER_PRUNE_INTERVAL_SECS:
+            return
+
+        self._prune_stale_buckets(now=now)
+        self._last_prune_at = now
+
     def allow(self, client_id: str, *, now: float | None = None) -> bool:
         if self._requests_per_minute <= 0:
             return True
 
         current = time.monotonic() if now is None else now
+        self._maybe_prune_stale_buckets(now=current)
         window_start = current - 60.0
         bucket = self._requests[client_id]
         self._prune_bucket(bucket, window_start=window_start)
@@ -569,8 +585,6 @@ class RequestRateLimiter:
             return False
 
         bucket.append(current)
-        if len(self._requests) > 10000:
-            self._prune_stale_buckets(now=current)
         return True
 
     def bucket_size(self, client_id: str, *, now: float | None = None) -> int:
