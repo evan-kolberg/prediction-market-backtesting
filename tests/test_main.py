@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import re
 import sys
 from pathlib import Path
@@ -166,19 +167,23 @@ def test_assign_shortcuts_leaves_overflow_entries_without_hotkeys():
     assert len(unassigned) == 5
 
 
-def test_runner_preview_shows_file_excerpt_without_generated_sections(
+def test_runner_preview_shows_full_file_contents(
     tmp_path: Path,
     monkeypatch,
 ):
     runner_path = tmp_path / "backtests" / "demo_runner.py"
     runner_path.parent.mkdir(parents=True)
-    runner_path.write_text(
+    contents = (
         'NAME = "demo_runner"\n'
         'DESCRIPTION = "Demo runner"\n'
+        "\n"
+        "from pathlib import Path\n"
+        "\n"
         "DATA = object()\n"
         "SIMS = ()\n",
-        encoding="utf-8",
     )
+    contents = "".join(contents)
+    runner_path.write_text(contents, encoding="utf-8")
 
     backtest = {
         "name": "demo_runner",
@@ -190,11 +195,7 @@ def test_runner_preview_shows_file_excerpt_without_generated_sections(
 
     preview = main_module._runner_preview(backtest)
 
-    assert preview.startswith("demo_runner\n\nDATA = object()")
-    assert "SIMS = ()" in preview
-    assert "Run\n" not in preview
-    assert "Spec\n" not in preview
-    assert "backtests/demo_runner.py" not in preview
+    assert preview == contents
 
 
 def test_discoverable_backtest_paths_stay_flat(tmp_path: Path) -> None:
@@ -290,37 +291,138 @@ def test_load_runner_defers_import_failure_until_selection(
         main_module._load_runner(discovered[0])
 
 
-def test_terminal_menu_keeps_preview_lazy(monkeypatch) -> None:
+def test_filter_backtests_matches_name_description_and_path() -> None:
+    backtests = [
+        {
+            "name": "demo_runner",
+            "description": "Demo runner",
+            "relative_parts": ("demo_runner.py",),
+        },
+        {
+            "name": "pmxt_runner",
+            "description": "PMXT quote runner",
+            "relative_parts": ("pmxt_runner.py",),
+        },
+    ]
+
+    assert main_module._filter_backtests(backtests, "") == [0, 1]
+    assert main_module._filter_backtests(backtests, "quote") == [1]
+    assert main_module._filter_backtests(backtests, "backtests/demo_runner.py") == [0]
+
+
+def test_textual_menu_keeps_preview_lazy(monkeypatch) -> None:
+    if not main_module.TEXTUAL_AVAILABLE:
+        pytest.skip("textual is not installed")
+
     preview_calls: list[str] = []
-    terminal_kwargs: dict[str, object] = {}
-
-    class FakeTerminalMenu:
-        def __init__(self, _entries, **_kwargs):
-            terminal_kwargs.update(_kwargs)
-
-        def show(self) -> None:
-            return None
-
-    monkeypatch.setattr(main_module, "TerminalMenu", FakeTerminalMenu)
     monkeypatch.setattr(
         main_module,
         "_runner_preview",
-        lambda backtest: preview_calls.append(backtest["name"]) or "",
+        lambda backtest: preview_calls.append(backtest["name"]) or backtest["name"],
     )
 
-    choice = main_module._show_terminal_menu(
-        [
-            {
-                "name": "demo_runner",
-                "description": "Demo runner",
-                "module_name": "backtests.demo_runner",
-                "relative_parts": ("demo_runner.py",),
-            }
-        ],
-    )
+    backtests = [
+        {
+            "name": "demo_runner",
+            "description": "Demo runner",
+            "module_name": "backtests.demo_runner",
+            "relative_parts": ("demo_runner.py",),
+        },
+        {
+            "name": "pmxt_runner",
+            "description": "PMXT runner",
+            "module_name": "backtests.pmxt_runner",
+            "relative_parts": ("pmxt_runner.py",),
+        },
+    ]
 
-    assert choice == -1
-    assert preview_calls == []
-    assert terminal_kwargs.get("preview_border", True) is True
-    assert terminal_kwargs["preview_size"] == main_module.MENU_PREVIEW_SIZE
-    assert "status_bar" not in terminal_kwargs
+    async def run() -> None:
+        app = main_module._BacktestMenuApp(backtests)
+        async with app.run_test(size=(120, 32)) as pilot:
+            await pilot.pause()
+            assert preview_calls == ["demo_runner"]
+            await pilot.press("down")
+            await pilot.pause()
+            assert preview_calls == ["demo_runner", "pmxt_runner"]
+            await pilot.press("enter")
+        assert app.return_value == 1
+
+    asyncio.run(run())
+
+
+def test_textual_menu_filters_and_submits_selection() -> None:
+    if not main_module.TEXTUAL_AVAILABLE:
+        pytest.skip("textual is not installed")
+
+    backtests = [
+        {
+            "name": "demo_runner",
+            "description": "Demo runner",
+            "module_name": "backtests.demo_runner",
+            "relative_parts": ("demo_runner.py",),
+        },
+        {
+            "name": "pmxt_runner",
+            "description": "PMXT runner",
+            "module_name": "backtests.pmxt_runner",
+            "relative_parts": ("pmxt_runner.py",),
+        },
+    ]
+
+    async def run() -> None:
+        app = main_module._BacktestMenuApp(backtests)
+        async with app.run_test(size=(120, 32)) as pilot:
+            await pilot.pause()
+            await pilot.press("slash")
+            await pilot.pause()
+            assert getattr(app.focused, "id", None) == "filter"
+            await pilot.press("p", "m", "x", "t")
+            await pilot.pause()
+            assert app.filtered_indices == [1]
+            assert (
+                str(app.query_one("#details_title").content)
+                == "backtests/pmxt_runner.py"
+            )
+            await pilot.press("enter")
+        assert app.return_value == 1
+
+    asyncio.run(run())
+
+
+def test_textual_menu_shortcut_runs_selected_entry() -> None:
+    if not main_module.TEXTUAL_AVAILABLE:
+        pytest.skip("textual is not installed")
+
+    backtests = [
+        {
+            "name": "demo_runner",
+            "description": "Demo runner",
+            "module_name": "backtests.demo_runner",
+            "relative_parts": ("demo_runner.py",),
+        },
+        {
+            "name": "pmxt_runner",
+            "description": "PMXT runner",
+            "module_name": "backtests.pmxt_runner",
+            "relative_parts": ("pmxt_runner.py",),
+        },
+    ]
+
+    async def run() -> None:
+        app = main_module._BacktestMenuApp(backtests)
+        async with app.run_test(size=(120, 32)) as pilot:
+            await pilot.pause()
+            await pilot.press("p")
+        assert app.return_value == 1
+
+    asyncio.run(run())
+
+
+def test_textual_list_item_disables_markup() -> None:
+    if not main_module.TEXTUAL_AVAILABLE:
+        pytest.skip("textual is not installed")
+
+    item = main_module._BacktestListItem(0, "[u] backtests/demo_runner.py")
+    child = item._pending_children[0]
+
+    assert getattr(child, "_render_markup", None) is False
