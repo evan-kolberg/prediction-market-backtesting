@@ -45,6 +45,8 @@ RESET = "\033[0m"
 ENABLE_TIMING_ENV = "BACKTEST_ENABLE_TIMING"
 SHORTCUT_LETTERS = ascii_lowercase.replace("q", "") + ascii_uppercase.replace("Q", "")
 MENU_TITLE = "Prediction Market Backtests"
+MENU_PREVIEW_SIZE = 0.30
+RUNNER_SPEC_MAX_LINES = 10
 
 
 def _env_flag_enabled(name: str) -> bool:
@@ -238,7 +240,7 @@ def _assign_shortcuts(
 
 
 @lru_cache(maxsize=None)
-def _runner_spec_preview(path: Path, *, max_lines: int = 18) -> str:
+def _runner_spec_preview(path: Path, *, max_lines: int = RUNNER_SPEC_MAX_LINES) -> str:
     try:
         lines = path.read_text(encoding="utf-8").splitlines()
     except OSError as exc:
@@ -354,16 +356,11 @@ def _show_terminal_menu(backtests: list[dict[str, Any]]) -> int:
     shortcuts = _assign_shortcuts(backtests)
 
     backtests_by_key: dict[str, dict[str, Any]] = {}
-    status_lookup: dict[str, str] = {}
     menu_entries: list[str] = []
     for backtest in backtests:
         relative_key = _relative_runner_path(backtest).as_posix()
         shortcut = shortcuts[relative_key]
         backtests_by_key[relative_key] = backtest
-        status_lookup[relative_key] = (
-            backtest.get("description")
-            or "No description provided. Preview shows the pinned runner spec."
-        )
         if shortcut is None:
             menu_entries.append(f"{_menu_label(backtest)}|{relative_key}")
         else:
@@ -384,18 +381,11 @@ def _show_terminal_menu(backtests: list[dict[str, Any]]) -> int:
         preview_command=lambda preview_key: _runner_preview(
             backtests_by_key[preview_key]
         ),
-        preview_size=0.45,
-        preview_title="runner preview",
+        preview_size=MENU_PREVIEW_SIZE,
+        preview_title="runner",
         search_case_sensitive=False,
         show_search_hint=True,
         show_shortcut_hints=False,
-        status_bar=lambda preview_key: (
-            f"{preview_key}\n"
-            f"{status_lookup.get(preview_key, '')}\n"
-            "BACKTEST_ENABLE_TIMING=0 disables timing output"
-        ),
-        status_bar_style=("fg_yellow", "bg_black"),
-        status_bar_below_preview=True,
     )
     selection = terminal_menu.show()
     if selection is None:

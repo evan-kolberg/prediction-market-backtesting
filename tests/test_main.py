@@ -284,10 +284,11 @@ def test_load_runner_defers_import_failure_until_selection(
 
 def test_terminal_menu_keeps_preview_lazy(monkeypatch) -> None:
     preview_calls: list[str] = []
+    terminal_kwargs: dict[str, object] = {}
 
     class FakeTerminalMenu:
         def __init__(self, _entries, **_kwargs):
-            self.kwargs = _kwargs
+            terminal_kwargs.update(_kwargs)
 
         def show(self) -> None:
             return None
@@ -312,3 +313,6 @@ def test_terminal_menu_keeps_preview_lazy(monkeypatch) -> None:
 
     assert choice == -1
     assert preview_calls == []
+    assert terminal_kwargs.get("preview_border", True) is True
+    assert terminal_kwargs["preview_size"] == main_module.MENU_PREVIEW_SIZE
+    assert "status_bar" not in terminal_kwargs
