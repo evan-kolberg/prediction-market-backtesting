@@ -48,6 +48,7 @@ class RelayWorker:
                     "reset_mirror": reset_mirror,
                 },
             )
+        self._initial_local_raw_adoption_complete = False
 
     def _record_event(
         self,
@@ -164,35 +165,55 @@ class RelayWorker:
         return discovered
 
     def _adopt_local_raw_hours(self) -> int:
+        if not self._initial_local_raw_adoption_complete:
+            adopted = self._adopt_all_local_raw_hours()
+            self._initial_local_raw_adoption_complete = True
+            return adopted
+        return self._adopt_pending_local_raw_hours()
+
+    def _adopt_all_local_raw_hours(self) -> int:
         adopted = 0
         for raw_path in sorted(
             self._config.raw_root.rglob("polymarket_orderbook_*.parquet")
         ):
-            if not raw_path.is_file():
-                continue
-            filename = raw_path.name
-            try:
-                byte_size = raw_path.stat().st_size
-            except FileNotFoundError:
-                continue
-            changed = self._index.register_local_raw(
-                filename,
-                local_path=str(raw_path),
-                content_length=byte_size,
-                source_url=f"{self._config.raw_base_url}/{filename}",
-            )
-            if not changed:
-                continue
-            adopted += 1
-        if adopted > 0:
-            self._record_event(
-                level="INFO",
-                event_type="adopt_local_raw",
-                message=f"Adopted {adopted} existing raw hours from local disk",
-                payload={"adopted_hours": adopted},
-            )
-            LOG.info("Adopted %s existing raw hours from local disk", adopted)
+            adopted += self._register_local_raw_file(raw_path)
+        self._emit_adopted_local_raw_event(adopted)
         return adopted
+
+    def _adopt_pending_local_raw_hours(self) -> int:
+        adopted = 0
+        for row in self._index.list_hours_needing_mirror():
+            raw_path = self._config.raw_root / raw_relative_path(row["filename"])
+            adopted += self._register_local_raw_file(raw_path)
+        self._emit_adopted_local_raw_event(adopted)
+        return adopted
+
+    def _register_local_raw_file(self, raw_path) -> int:  # type: ignore[no-untyped-def]
+        if not raw_path.is_file():
+            return 0
+        filename = raw_path.name
+        try:
+            byte_size = raw_path.stat().st_size
+        except FileNotFoundError:
+            return 0
+        changed = self._index.register_local_raw(
+            filename,
+            local_path=str(raw_path),
+            content_length=byte_size,
+            source_url=f"{self._config.raw_base_url}/{filename}",
+        )
+        return 1 if changed else 0
+
+    def _emit_adopted_local_raw_event(self, adopted: int) -> None:
+        if adopted <= 0:
+            return
+        self._record_event(
+            level="INFO",
+            event_type="adopt_local_raw",
+            message=f"Adopted {adopted} existing raw hours from local disk",
+            payload={"adopted_hours": adopted},
+        )
+        LOG.info("Adopted %s existing raw hours from local disk", adopted)
 
     def _mirror_pending_hours(self) -> int:
         mirrored = 0

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from types import SimpleNamespace
 
 from backtests._shared import _polymarket_quote_tick_pmxt_multi_runner as multi_runner
 from backtests._shared._prediction_market_backtest import MarketSimConfig
@@ -42,7 +43,9 @@ def test_multi_sim_pmxt_runner_forwards_nautilus_log_level(
                 end_time="2026-02-21T17:00:00Z",
             ),
         ),
-        strategy_configs=(),
+        strategy_factory=lambda instrument_id: SimpleNamespace(
+            instrument_id=instrument_id
+        ),
         initial_cash=100.0,
         probability_window=5,
         nautilus_log_level="INFO",
@@ -90,7 +93,9 @@ def test_multi_sim_pmxt_runner_defaults_to_warning_log_level(
                 end_time="2026-02-21T17:00:00Z",
             ),
         ),
-        strategy_configs=(),
+        strategy_factory=lambda instrument_id: SimpleNamespace(
+            instrument_id=instrument_id
+        ),
         initial_cash=100.0,
         probability_window=5,
     )

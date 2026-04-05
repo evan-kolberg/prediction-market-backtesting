@@ -8,6 +8,13 @@ on:
       - "docs/**"
       - "docs_overrides/**"
       - "mkdocs.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "README.md"
+      - "docs/**"
+      - "docs_overrides/**"
+      - "mkdocs.yml"
 
 permissions:
   contents: read

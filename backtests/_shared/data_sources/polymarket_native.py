@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Any, Iterator, Sequence
 from urllib.parse import urlparse
@@ -38,10 +39,30 @@ class PolymarketNativeDataSourceSelection:
     summary: str
 
 
+@dataclass(frozen=True)
+class PolymarketNativeLoaderConfig:
+    gamma_base_url: str | None
+    clob_base_url: str | None
+    trade_api_base_url: str | None
+
+
+_CURRENT_POLYMARKET_NATIVE_LOADER_CONFIG: ContextVar[
+    PolymarketNativeLoaderConfig | None
+] = ContextVar("polymarket_native_loader_config", default=None)
+
+
+def _current_loader_config() -> PolymarketNativeLoaderConfig | None:
+    return _CURRENT_POLYMARKET_NATIVE_LOADER_CONFIG.get()
+
+
 class RunnerPolymarketDataLoader(PolymarketDataLoader):
     @classmethod
     def _configured_gamma_base_url(cls) -> str:
-        value = env_value(os.getenv(POLYMARKET_GAMMA_BASE_URL_ENV))
+        config = _current_loader_config()
+        if config is not None:
+            value = config.gamma_base_url
+        else:
+            value = env_value(os.getenv(POLYMARKET_GAMMA_BASE_URL_ENV))
         if is_disabled(value) or value is None:
             raise ValueError(
                 "Polymarket native data source requires a gamma base URL via "
@@ -51,7 +72,11 @@ class RunnerPolymarketDataLoader(PolymarketDataLoader):
 
     @classmethod
     def _configured_clob_base_url(cls) -> str:
-        value = env_value(os.getenv(POLYMARKET_CLOB_BASE_URL_ENV))
+        config = _current_loader_config()
+        if config is not None:
+            value = config.clob_base_url
+        else:
+            value = env_value(os.getenv(POLYMARKET_CLOB_BASE_URL_ENV))
         if is_disabled(value) or value is None:
             raise ValueError(
                 "Polymarket native data source requires a clob base URL via "
@@ -61,7 +86,11 @@ class RunnerPolymarketDataLoader(PolymarketDataLoader):
 
     @classmethod
     def _configured_trade_api_base_url(cls) -> str:
-        value = env_value(os.getenv(POLYMARKET_TRADE_API_BASE_URL_ENV))
+        config = _current_loader_config()
+        if config is not None:
+            value = config.trade_api_base_url
+        else:
+            value = env_value(os.getenv(POLYMARKET_TRADE_API_BASE_URL_ENV))
         if is_disabled(value) or value is None:
             raise ValueError(
                 "Polymarket native data source requires a trades base URL via "
@@ -365,7 +394,7 @@ def _normalized_env_updates(
 
 def _resolve_explicit_sources(
     sources: Sequence[str],
-) -> tuple[PolymarketNativeDataSourceSelection, dict[str, str | None]]:
+) -> tuple[PolymarketNativeDataSourceSelection, PolymarketNativeLoaderConfig]:
     updates = _normalized_env_updates(
         gamma_base_url=None,
         clob_base_url=None,
@@ -397,13 +426,17 @@ def _resolve_explicit_sources(
                 trade_api_base_url=updates[POLYMARKET_TRADE_API_BASE_URL_ENV],
             ),
         ),
-        updates,
+        PolymarketNativeLoaderConfig(
+            gamma_base_url=updates[POLYMARKET_GAMMA_BASE_URL_ENV],
+            clob_base_url=updates[POLYMARKET_CLOB_BASE_URL_ENV],
+            trade_api_base_url=updates[POLYMARKET_TRADE_API_BASE_URL_ENV],
+        ),
     )
 
 
-def resolve_polymarket_native_data_source_selection(
+def resolve_polymarket_native_loader_config(
     sources: Sequence[str] | None = None,
-) -> tuple[PolymarketNativeDataSourceSelection, dict[str, str | None]]:
+) -> tuple[PolymarketNativeDataSourceSelection, PolymarketNativeLoaderConfig]:
     if sources:
         return _resolve_explicit_sources(sources)
 
@@ -430,8 +463,28 @@ def resolve_polymarket_native_data_source_selection(
                 trade_api_base_url=trade_api_base_url,
             ),
         ),
-        {},
+        PolymarketNativeLoaderConfig(
+            gamma_base_url=gamma_base_url,
+            clob_base_url=clob_base_url,
+            trade_api_base_url=trade_api_base_url,
+        ),
     )
+
+
+def resolve_polymarket_native_data_source_selection(
+    sources: Sequence[str] | None = None,
+) -> tuple[PolymarketNativeDataSourceSelection, dict[str, str | None]]:
+    selection, config = resolve_polymarket_native_loader_config(sources=sources)
+    if sources:
+        return (
+            selection,
+            _normalized_env_updates(
+                gamma_base_url=config.gamma_base_url,
+                clob_base_url=config.clob_base_url,
+                trade_api_base_url=config.trade_api_base_url,
+            ),
+        )
+    return selection, {}
 
 
 @contextmanager
@@ -439,21 +492,9 @@ def configured_polymarket_native_data_source(
     *,
     sources: Sequence[str] | None = None,
 ) -> Iterator[PolymarketNativeDataSourceSelection]:
-    selection, updates = resolve_polymarket_native_data_source_selection(
-        sources=sources
-    )
-    originals = {name: os.environ.get(name) for name in updates}
-
+    selection, config = resolve_polymarket_native_loader_config(sources=sources)
+    token = _CURRENT_POLYMARKET_NATIVE_LOADER_CONFIG.set(config)
     try:
-        for name, value in updates.items():
-            if value is None:
-                os.environ.pop(name, None)
-            else:
-                os.environ[name] = value
         yield selection
     finally:
-        for name, value in originals.items():
-            if value is None:
-                os.environ.pop(name, None)
-            else:
-                os.environ[name] = value
+        _CURRENT_POLYMARKET_NATIVE_LOADER_CONFIG.reset(token)

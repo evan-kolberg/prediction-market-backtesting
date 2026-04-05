@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 from collections.abc import Mapping
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -11,9 +12,9 @@ from typing import Any
 
 import pandas as pd
 
-from nautilus_trader.adapters.kalshi.fee_model import KalshiProportionalFeeModel
-from nautilus_trader.adapters.polymarket import POLYMARKET_VENUE
-from nautilus_trader.adapters.polymarket.fee_model import PolymarketFeeModel
+from nautilus_trader.adapters.prediction_market import (
+    research as prediction_market_research,
+)
 from nautilus_trader.adapters.prediction_market.backtest_utils import (
     build_brier_inputs,
 )
@@ -46,41 +47,34 @@ from nautilus_trader.backtest.engine import BacktestEngine
 from nautilus_trader.common.component import is_backtest_force_stop
 from nautilus_trader.config import LoggingConfig
 from nautilus_trader.config import StrategyFactory as NautilusStrategyFactory
-from nautilus_trader.model.currencies import USD
-from nautilus_trader.model.currencies import USDC_POS
 from nautilus_trader.model.data import QuoteTick
 from nautilus_trader.model.enums import AccountType
-from nautilus_trader.model.enums import BookType
-from nautilus_trader.model.enums import OmsType
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.model.identifiers import TraderId
-from nautilus_trader.model.identifiers import Venue
 from nautilus_trader.model.objects import Money
 from nautilus_trader.risk.config import RiskEngineConfig
+from nautilus_trader.trading.strategy import Strategy
 
 from backtests._shared._backtest_runtime import apply_backtest_run_state
 from backtests._shared._backtest_runtime import build_backtest_run_state
 from backtests._shared._backtest_runtime import print_backtest_result_warnings
 from backtests._shared._execution_config import ExecutionModelConfig
+from backtests._shared._market_data_support import resolve_market_data_support
 from backtests._shared._prediction_market_runner import MarketDataConfig
 from backtests._shared._strategy_configs import build_importable_strategy_configs
 from backtests._shared._strategy_configs import StrategyConfigSpec
 from backtests._shared.data_sources.kalshi_native import (
     RunnerKalshiDataLoader as KalshiDataLoader,
 )
-from backtests._shared.data_sources.kalshi_native import (
-    configured_kalshi_native_data_source,
-)
 from backtests._shared.data_sources.pmxt import (
     RunnerPolymarketPMXTDataLoader as PolymarketPMXTDataLoader,
 )
-from backtests._shared.data_sources.pmxt import configured_pmxt_data_source
 from backtests._shared.data_sources.polymarket_native import (
     RunnerPolymarketDataLoader as PolymarketDataLoader,
 )
-from backtests._shared.data_sources.polymarket_native import (
-    configured_polymarket_native_data_source,
-)
+
+
+type StrategyFactory = Callable[[InstrumentId], Strategy]
 
 
 @dataclass(frozen=True)
@@ -133,7 +127,8 @@ class PredictionMarketBacktest:
         name: str,
         data: MarketDataConfig,
         sims: Sequence[MarketSimConfig],
-        strategy_configs: Sequence[StrategyConfigSpec],
+        strategy_configs: Sequence[StrategyConfigSpec] = (),
+        strategy_factory: StrategyFactory | None = None,
         initial_cash: float,
         probability_window: int,
         min_trades: int = 0,
@@ -145,11 +140,22 @@ class PredictionMarketBacktest:
         default_end_time: pd.Timestamp | datetime | str | None = None,
         nautilus_log_level: str = "INFO",
         execution: ExecutionModelConfig | None = None,
+        chart_resample_rule: str | None = None,
+        emit_html: bool = True,
+        return_chart_layout: bool = False,
+        return_summary_series: bool = False,
     ) -> None:
+        if strategy_factory is not None and strategy_configs:
+            raise ValueError("Use strategy_factory or strategy_configs, not both.")
+        if strategy_factory is None and not strategy_configs:
+            raise ValueError(
+                "strategy_configs is required when strategy_factory is not provided."
+            )
         self.name = name
         self.data = data
         self.sims = tuple(sims)
         self.strategy_configs = tuple(strategy_configs)
+        self.strategy_factory = strategy_factory
         self.initial_cash = float(initial_cash)
         self.probability_window = int(probability_window)
         self.min_trades = int(min_trades)
@@ -161,6 +167,10 @@ class PredictionMarketBacktest:
         self.default_end_time = default_end_time
         self.nautilus_log_level = nautilus_log_level
         self.execution = execution if execution is not None else ExecutionModelConfig()
+        self.chart_resample_rule = chart_resample_rule
+        self.emit_html = emit_html
+        self.return_chart_layout = return_chart_layout
+        self.return_summary_series = return_summary_series
 
     def run(self) -> list[dict[str, Any]]:
         try:
@@ -186,10 +196,16 @@ class PredictionMarketBacktest:
                 engine.add_instrument(loaded_sim.instrument)
                 engine.add_data(loaded_sim.records)
 
-            for importable_config in self._build_importable_strategy_configs(
-                loaded_sims
-            ):
-                engine.add_strategy(NautilusStrategyFactory.create(importable_config))
+            if self.strategy_factory is not None:
+                for loaded_sim in loaded_sims:
+                    engine.add_strategy(self.strategy_factory(loaded_sim.instrument.id))
+            else:
+                for importable_config in self._build_importable_strategy_configs(
+                    loaded_sims
+                ):
+                    engine.add_strategy(
+                        NautilusStrategyFactory.create(importable_config)
+                    )
 
             print(
                 f"Starting {self.name} with {len(loaded_sims)} sims "
@@ -201,16 +217,17 @@ class PredictionMarketBacktest:
 
             fills_report = engine.trader.generate_order_fills_report()
             positions_report = engine.trader.generate_positions_report()
-            chart_paths = self._build_single_market_chart_paths(
+            single_market_artifacts = self._build_single_market_artifacts(
                 engine=engine,
                 loaded_sims=loaded_sims,
+                fills_report=fills_report,
             )
             return [
                 self._build_result(
                     loaded_sim=loaded_sim,
                     fills_report=fills_report,
                     positions_report=positions_report,
-                    chart_path=chart_paths.get(str(loaded_sim.instrument.id)),
+                    single_market_artifacts=single_market_artifacts,
                     run_state=build_backtest_run_state(
                         data=loaded_sim.records,
                         backtest_end_ns=engine_result.backtest_end,
@@ -229,57 +246,20 @@ class PredictionMarketBacktest:
         return await self.run_async()
 
     async def _load_sims_async(self) -> list[_LoadedMarketSim]:
-        if (
-            self.data.platform == "polymarket"
-            and self.data.data_type == "trade_tick"
-            and self.data.vendor == "native"
-        ):
-            with configured_polymarket_native_data_source(
-                sources=self.data.sources
-            ) as data_source:
-                print(data_source.summary)
-                loaded_sims: list[_LoadedMarketSim] = []
-                for sim in self.sims:
-                    loaded_sim = await self._load_polymarket_trade_tick_sim(sim)
-                    if loaded_sim is not None:
-                        loaded_sims.append(loaded_sim)
-                return loaded_sims
-
-        if (
-            self.data.platform == "polymarket"
-            and self.data.data_type == "quote_tick"
-            and self.data.vendor == "pmxt"
-        ):
-            with configured_pmxt_data_source(sources=self.data.sources) as data_source:
-                print(data_source.summary)
-                loaded_sims: list[_LoadedMarketSim] = []
-                for sim in self.sims:
-                    loaded_sim = await self._load_polymarket_pmxt_quote_tick_sim(sim)
-                    if loaded_sim is not None:
-                        loaded_sims.append(loaded_sim)
-                return loaded_sims
-
-        if (
-            self.data.platform == "kalshi"
-            and self.data.data_type == "trade_tick"
-            and self.data.vendor == "native"
-        ):
-            with configured_kalshi_native_data_source(
-                sources=self.data.sources
-            ) as data_source:
-                print(data_source.summary)
-                loaded_sims: list[_LoadedMarketSim] = []
-                for sim in self.sims:
-                    loaded_sim = await self._load_kalshi_trade_tick_sim(sim)
-                    if loaded_sim is not None:
-                        loaded_sims.append(loaded_sim)
-                return loaded_sims
-
-        raise NotImplementedError(
-            "Unsupported backtest data selection: "
-            f"platform={self.data.platform!r}, data_type={self.data.data_type!r}, "
-            f"vendor={self.data.vendor!r}."
+        support = resolve_market_data_support(
+            platform=self.data.platform,
+            data_type=self.data.data_type,
+            vendor=self.data.vendor,
         )
+        load_sim = getattr(self, support.load_sim_method_name)
+        with support.configure_data_source(sources=self.data.sources) as data_source:
+            print(data_source.summary)
+            loaded_sims: list[_LoadedMarketSim] = []
+            for sim in self.sims:
+                loaded_sim = await load_sim(sim)
+                if loaded_sim is not None:
+                    loaded_sims.append(loaded_sim)
+            return loaded_sims
 
     async def _load_polymarket_trade_tick_sim(
         self, sim: MarketSimConfig
@@ -517,45 +497,34 @@ class PredictionMarketBacktest:
             ),
         )
         latency_model = self.execution.build_latency_model()
-
-        if self.data.platform == "polymarket":
-            engine.add_venue(
-                venue=POLYMARKET_VENUE,
-                oms_type=OmsType.NETTING,
-                account_type=AccountType.CASH,
-                base_currency=USDC_POS,
-                starting_balances=[Money(self.initial_cash, USDC_POS)],
-                fill_model=None
-                if self.data.data_type == "quote_tick"
-                else PredictionMarketTakerFillModel(),
-                fee_model=PolymarketFeeModel(),
-                book_type=BookType.L2_MBP
-                if self.data.data_type == "quote_tick"
-                else BookType.L1_MBP,
-                latency_model=latency_model,
-                liquidity_consumption=self.data.data_type == "quote_tick",
-                queue_position=self.execution.queue_position,
-            )
-            return engine
-
-        if self.data.platform == "kalshi":
-            engine.add_venue(
-                venue=Venue("KALSHI"),
-                oms_type=OmsType.NETTING,
-                account_type=AccountType.CASH,
-                base_currency=USD,
-                starting_balances=[Money(self.initial_cash, USD)],
-                fill_model=PredictionMarketTakerFillModel(),
-                fee_model=KalshiProportionalFeeModel(),
-                book_type=BookType.L1_MBP,
-                latency_model=latency_model,
-                queue_position=self.execution.queue_position,
-            )
-            return engine
-
-        raise NotImplementedError(
-            f"Unsupported platform for engine construction: {self.data.platform!r}"
+        support = resolve_market_data_support(
+            platform=self.data.platform,
+            data_type=self.data.data_type,
+            vendor=self.data.vendor,
         )
+        fill_model = None
+        if support.engine_spec.fill_model_mode == "taker":
+            fill_model = PredictionMarketTakerFillModel()
+        elif support.engine_spec.fill_model_mode != "passive_book":
+            raise AssertionError(
+                f"Unsupported fill model mode {support.engine_spec.fill_model_mode!r}"
+            )
+        engine.add_venue(
+            venue=support.engine_spec.venue,
+            oms_type=support.engine_spec.oms_type,
+            account_type=AccountType.CASH,
+            base_currency=support.engine_spec.base_currency,
+            starting_balances=[
+                Money(self.initial_cash, support.engine_spec.base_currency)
+            ],
+            fill_model=fill_model,
+            fee_model=support.engine_spec.fee_model_factory(),
+            book_type=support.engine_spec.book_type,
+            latency_model=latency_model,
+            liquidity_consumption=support.engine_spec.liquidity_consumption,
+            queue_position=self.execution.queue_position,
+        )
+        return engine
 
     def _build_importable_strategy_configs(
         self, loaded_sims: Sequence[_LoadedMarketSim]
@@ -681,7 +650,7 @@ class PredictionMarketBacktest:
         loaded_sim: _LoadedMarketSim,
         fills_report: pd.DataFrame,
         positions_report: pd.DataFrame,
-        chart_path: str | None = None,
+        single_market_artifacts: Mapping[str, Any] | None = None,
         run_state: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         instrument_id = str(loaded_sim.instrument.id)
@@ -714,72 +683,167 @@ class PredictionMarketBacktest:
             result["entry_min"] = min(loaded_sim.prices)
             result["max"] = max(loaded_sim.prices)
             result["last"] = loaded_sim.prices[-1]
-        if chart_path is not None:
-            result["chart_path"] = chart_path
+        if single_market_artifacts:
+            result.update(single_market_artifacts)
         result.update(dict(loaded_sim.metadata))
         return apply_backtest_run_state(result=result, run_state=run_state or {})
 
-    def _build_single_market_chart_paths(
+    def _build_single_market_artifacts(
         self,
         *,
         engine: BacktestEngine,
         loaded_sims: Sequence[_LoadedMarketSim],
-    ) -> dict[str, str]:
+        fills_report: pd.DataFrame,
+    ) -> dict[str, Any]:
         if len(loaded_sims) != 1:
             return {}
 
-        loaded_sim = loaded_sims[0]
-        chart_path = self._save_single_market_chart(
+        return self._build_single_market_artifacts_for_loaded_sim(
             engine=engine,
-            loaded_sim=loaded_sim,
+            loaded_sim=loaded_sims[0],
+            fills_report=fills_report,
         )
-        if chart_path is None:
-            return {}
-        return {str(loaded_sim.instrument.id): chart_path}
 
-    def _save_single_market_chart(
+    def _build_single_market_artifacts_for_loaded_sim(
         self,
         *,
         engine: BacktestEngine,
         loaded_sim: _LoadedMarketSim,
-    ) -> str | None:
+        fills_report: pd.DataFrame,
+    ) -> dict[str, Any]:
         price_points = extract_price_points(
             loaded_sim.records,
             price_attr="mid_price" if self.data.data_type == "quote_tick" else "price",
         )
-        market_prices = build_market_prices(price_points)
+        market_prices = build_market_prices(
+            price_points,
+            resample_rule=self.chart_resample_rule,
+        )
         user_probabilities, market_probabilities, outcomes = build_brier_inputs(
             price_points,
             window=self.probability_window,
             realized_outcome=loaded_sim.realized_outcome,
         )
-        output_path = (
-            Path("output") / f"{self.name}_{loaded_sim.market_id}_legacy.html"
-        ).resolve()
-        output_path.parent.mkdir(parents=True, exist_ok=True)
+        artifacts: dict[str, Any] = {}
 
-        try:
-            chart_layout, chart_title = build_legacy_backtest_layout(
-                engine=engine,
-                output_path=str(output_path),
-                strategy_name=f"{self.name}:{loaded_sim.market_id}",
-                platform=self.data.platform,
-                initial_cash=self.initial_cash,
-                market_prices={str(loaded_sim.instrument.id): market_prices},
-                user_probabilities=user_probabilities,
-                market_probabilities=market_probabilities,
-                outcomes=outcomes,
-                open_browser=False,
+        chart_layout = None
+        chart_title = f"{self.name}:{loaded_sim.market_id} legacy chart"
+        if self.emit_html or self.return_chart_layout:
+            output_path = (
+                Path("output") / f"{self.name}_{loaded_sim.market_id}_legacy.html"
+            ).resolve()
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                chart_layout, chart_title = build_legacy_backtest_layout(
+                    engine=engine,
+                    output_path=str(output_path),
+                    strategy_name=f"{self.name}:{loaded_sim.market_id}",
+                    platform=self.data.platform,
+                    initial_cash=self.initial_cash,
+                    market_prices={str(loaded_sim.instrument.id): market_prices},
+                    user_probabilities=user_probabilities,
+                    market_probabilities=market_probabilities,
+                    outcomes=outcomes,
+                    open_browser=False,
+                )
+            except Exception as exc:
+                print(f"Unable to save legacy chart for {loaded_sim.market_id}: {exc}")
+            else:
+                if self.emit_html:
+                    artifacts["chart_path"] = save_legacy_backtest_layout(
+                        chart_layout,
+                        str(output_path),
+                        chart_title,
+                    )
+                if self.return_chart_layout:
+                    artifacts["chart_layout"] = chart_layout
+                    artifacts["chart_title"] = chart_title
+
+        if self.return_summary_series:
+            artifacts.update(
+                self._build_single_market_summary_series(
+                    engine=engine,
+                    loaded_sim=loaded_sim,
+                    fills_report=fills_report,
+                    market_prices=market_prices,
+                    user_probabilities=user_probabilities,
+                    market_probabilities=market_probabilities,
+                    outcomes=outcomes,
+                )
             )
-        except Exception as exc:
-            print(f"Unable to save legacy chart for {loaded_sim.market_id}: {exc}")
-            return None
 
-        return save_legacy_backtest_layout(
-            chart_layout,
-            str(output_path),
-            chart_title,
+        return artifacts
+
+    def _build_single_market_summary_series(
+        self,
+        *,
+        engine: BacktestEngine,
+        loaded_sim: _LoadedMarketSim,
+        fills_report: pd.DataFrame,
+        market_prices: Any,
+        user_probabilities: pd.Series,
+        market_probabilities: pd.Series,
+        outcomes: pd.Series,
+    ) -> dict[str, Any]:
+        legacy_models, _ = (
+            prediction_market_research.legacy_plot_adapter._load_legacy_modules()
         )
+        legacy_fills = prediction_market_research.legacy_plot_adapter._convert_fills(
+            fills_report,
+            legacy_models,
+        )
+        market_prices_with_fills = prediction_market_research.legacy_plot_adapter._market_prices_with_fill_points(
+            {loaded_sim.market_id: market_prices},
+            legacy_fills,
+        ).get(loaded_sim.market_id, market_prices)
+        dense_equity_series, dense_cash_series = (
+            prediction_market_research._dense_account_series_from_engine(
+                engine=engine,
+                market_id=loaded_sim.market_id,
+                market_prices=market_prices,
+                initial_cash=self.initial_cash,
+            )
+        )
+        pnl_series = (
+            dense_equity_series - float(dense_equity_series.iloc[0])
+            if not dense_equity_series.empty
+            else prediction_market_research._extract_account_pnl_series(engine)
+        )
+        return {
+            "price_series": prediction_market_research._series_to_iso_pairs(
+                prediction_market_research._pairs_to_series(market_prices_with_fills)
+            ),
+            "pnl_series": prediction_market_research._series_to_iso_pairs(pnl_series)
+            if not pnl_series.empty
+            else [],
+            "equity_series": prediction_market_research._series_to_iso_pairs(
+                dense_equity_series
+            )
+            if not dense_equity_series.empty
+            else [],
+            "cash_series": prediction_market_research._series_to_iso_pairs(
+                dense_cash_series
+            )
+            if not dense_cash_series.empty
+            else [],
+            "user_probability_series": prediction_market_research._series_to_iso_pairs(
+                user_probabilities
+            )
+            if not user_probabilities.empty
+            else [],
+            "market_probability_series": prediction_market_research._series_to_iso_pairs(
+                market_probabilities
+            )
+            if not market_probabilities.empty
+            else [],
+            "outcome_series": prediction_market_research._series_to_iso_pairs(outcomes)
+            if not outcomes.empty
+            else [],
+            "fill_events": prediction_market_research._serialize_fill_events(
+                market_id=loaded_sim.market_id,
+                fills_report=fills_report,
+            ),
+        }
 
     def _filter_report_rows(
         self, report: pd.DataFrame, *, instrument_id: str

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Any, Iterator, Sequence
 
@@ -26,10 +27,28 @@ class KalshiNativeDataSourceSelection:
     summary: str
 
 
+@dataclass(frozen=True)
+class KalshiNativeLoaderConfig:
+    rest_base_url: str | None
+
+
+_CURRENT_KALSHI_NATIVE_LOADER_CONFIG: ContextVar[KalshiNativeLoaderConfig | None] = (
+    ContextVar("kalshi_native_loader_config", default=None)
+)
+
+
+def _current_loader_config() -> KalshiNativeLoaderConfig | None:
+    return _CURRENT_KALSHI_NATIVE_LOADER_CONFIG.get()
+
+
 class RunnerKalshiDataLoader(KalshiDataLoader):
     @classmethod
     def _configured_rest_base_url(cls) -> str:
-        value = env_value(os.getenv(KALSHI_REST_BASE_URL_ENV))
+        config = _current_loader_config()
+        if config is not None:
+            value = config.rest_base_url
+        else:
+            value = env_value(os.getenv(KALSHI_REST_BASE_URL_ENV))
         if value is None or is_disabled(value):
             raise ValueError(
                 "Kalshi native data source requires an explicit REST base URL via "
@@ -161,7 +180,7 @@ def _summary_from_rest_base_url(rest_base_url: str | None) -> str:
 
 def _resolve_explicit_sources(
     sources: Sequence[str],
-) -> tuple[KalshiNativeDataSourceSelection, dict[str, str | None]]:
+) -> tuple[KalshiNativeDataSourceSelection, KalshiNativeLoaderConfig]:
     rest_base_url: str | None = None
 
     for raw_source in sources:
@@ -185,13 +204,13 @@ def _resolve_explicit_sources(
                 else "Kalshi source: native public endpoint"
             ),
         ),
-        {KALSHI_REST_BASE_URL_ENV: rest_base_url},
+        KalshiNativeLoaderConfig(rest_base_url=rest_base_url),
     )
 
 
-def resolve_kalshi_native_data_source_selection(
+def resolve_kalshi_native_loader_config(
     sources: Sequence[str] | None = None,
-) -> tuple[KalshiNativeDataSourceSelection, dict[str, str | None]]:
+) -> tuple[KalshiNativeDataSourceSelection, KalshiNativeLoaderConfig]:
     if sources:
         return _resolve_explicit_sources(sources)
 
@@ -205,8 +224,22 @@ def resolve_kalshi_native_data_source_selection(
         KalshiNativeDataSourceSelection(
             summary=_summary_from_rest_base_url(rest_base_url),
         ),
-        {},
+        KalshiNativeLoaderConfig(rest_base_url=rest_base_url),
     )
+
+
+def resolve_kalshi_native_data_source_selection(
+    sources: Sequence[str] | None = None,
+) -> tuple[KalshiNativeDataSourceSelection, dict[str, str | None]]:
+    selection, config = resolve_kalshi_native_loader_config(sources=sources)
+    if sources:
+        return (
+            selection,
+            {
+                KALSHI_REST_BASE_URL_ENV: config.rest_base_url,
+            },
+        )
+    return selection, {}
 
 
 @contextmanager
@@ -214,19 +247,9 @@ def configured_kalshi_native_data_source(
     *,
     sources: Sequence[str] | None = None,
 ) -> Iterator[KalshiNativeDataSourceSelection]:
-    selection, updates = resolve_kalshi_native_data_source_selection(sources=sources)
-    originals = {name: os.environ.get(name) for name in updates}
-
+    selection, config = resolve_kalshi_native_loader_config(sources=sources)
+    token = _CURRENT_KALSHI_NATIVE_LOADER_CONFIG.set(config)
     try:
-        for name, value in updates.items():
-            if value is None:
-                os.environ.pop(name, None)
-            else:
-                os.environ[name] = value
         yield selection
     finally:
-        for name, value in originals.items():
-            if value is None:
-                os.environ.pop(name, None)
-            else:
-                os.environ[name] = value
+        _CURRENT_KALSHI_NATIVE_LOADER_CONFIG.reset(token)

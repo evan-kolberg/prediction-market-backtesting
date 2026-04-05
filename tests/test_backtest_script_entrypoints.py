@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib
 import runpy
 import sys
 from pathlib import Path
@@ -35,7 +36,6 @@ SCRIPT_ENTRYPOINT_PATHS = [
 ]
 
 REPO_BOOTSTRAP_HELPERS = {
-    Path("_script_helpers.py"),
     Path("backtests/_script_helpers.py"),
     Path("scripts/_script_helpers.py"),
 }
@@ -135,6 +135,41 @@ def test_public_runner_modules_expose_metadata_contract(
         assert isinstance(getattr(data, "vendor", None), str) and data.vendor
         assert isinstance(getattr(data, "sources", ()), tuple)
     assert callable(globals_dict.get("run"))
+
+
+@pytest.mark.parametrize(
+    "module_name",
+    [
+        "backtests.kalshi_trade_tick_breakout",
+        "scripts.pmxt_download_raws",
+    ],
+)
+def test_entrypoint_modules_import_as_packages_without_root_helper_shim(
+    monkeypatch: pytest.MonkeyPatch,
+    module_name: str,
+) -> None:
+    normalized_sys_path = [
+        entry
+        for entry in sys.path
+        if Path(entry or ".").resolve() not in {REPO_ROOT, BACKTESTS_ROOT}
+    ]
+    monkeypatch.setattr(sys, "path", [str(REPO_ROOT), *normalized_sys_path])
+
+    prior_helper_module = sys.modules.get("_script_helpers")
+    prior_module = sys.modules.get(module_name)
+    try:
+        sys.modules.pop("_script_helpers", None)
+        sys.modules.pop(module_name, None)
+        module = importlib.import_module(module_name)
+        assert module is not None
+    finally:
+        sys.modules.pop(module_name, None)
+        if prior_module is not None:
+            sys.modules[module_name] = prior_module
+        if prior_helper_module is None:
+            sys.modules.pop("_script_helpers", None)
+        else:
+            sys.modules["_script_helpers"] = prior_helper_module
 
 
 @pytest.mark.parametrize("relative_path", PMXT_SINGLE_MARKET_QUOTE_TICK_RUNNERS)
