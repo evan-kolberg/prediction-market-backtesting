@@ -100,4 +100,4 @@ def test_multi_sim_pmxt_runner_defaults_to_warning_log_level(
     )
 
     assert len(results) == 1
-    assert captured["nautilus_log_level"] == "WARNING"
+    assert captured["nautilus_log_level"] == "INFO"

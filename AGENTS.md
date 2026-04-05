@@ -97,6 +97,9 @@ The latter is not automatically a code bug.
 
 - Timing/progress output should stay enabled by default in `main.py`.
 - `BACKTEST_ENABLE_TIMING=0` is the explicit quiet opt-out.
+- Nautilus backtest output should stay enabled by default in the repo layer.
+- The default repo-layer `nautilus_log_level` is `INFO`; do not downgrade it to `WARNING` or quieter unless the user explicitly asks for that behavior.
+- Treat changes that hide Nautilus runner output by default as a regression, not a cleanup.
 - Direct script runners must work both as package imports and as direct script execution via `uv run python path/to/script.py`.
 - Use the shared `_script_helpers` bootstrap pattern for repo-root imports instead of one-off `sys.path` hacks.
 

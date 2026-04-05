@@ -76,7 +76,7 @@ def test_pmxt_runner_uses_l2_execution_settings(monkeypatch):
     assert captured["liquidity_consumption"] is True
     assert captured["queue_position"] is False
     assert captured["latency_model"] is None
-    assert captured["nautilus_log_level"] == "WARNING"
+    assert captured["nautilus_log_level"] == "INFO"
     assert captured["price_attr"] == "mid_price"
     assert captured["count_key"] == "quotes"
     assert captured["data_count"] == 2

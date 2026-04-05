@@ -64,7 +64,7 @@ async def run_single_market_pmxt_backtest(
     end_time: pd.Timestamp | datetime | str | None = None,
     data_sources: Sequence[str] = (),
     execution: ExecutionModelConfig | None = None,
-    nautilus_log_level: str = "WARNING",
+    nautilus_log_level: str = "INFO",
 ) -> dict[str, Any] | None:
     strategy_factory = resolve_strategy_factory(
         strategy_factory=strategy_factory,

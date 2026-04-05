@@ -229,7 +229,7 @@ def run_market_backtest(
     liquidity_consumption: bool = False,
     queue_position: bool = False,
     latency_model: Any | None = None,
-    nautilus_log_level: str = "WARNING",
+    nautilus_log_level: str = "INFO",
     requested_start_ns: int | None = None,
     requested_end_ns: int | None = None,
 ) -> dict[str, Any]:
