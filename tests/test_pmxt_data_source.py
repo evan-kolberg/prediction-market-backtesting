@@ -10,14 +10,12 @@ import pyarrow.parquet as pq
 import pytest
 
 import backtests._shared.data_sources.pmxt as pmxt_module
-from backtests._shared.data_sources.pmxt import PMXT_CACHE_DIR_ENV
 from backtests._shared.data_sources.pmxt import PMXT_DATA_SOURCE_ENV
 from backtests._shared.data_sources.pmxt import PMXT_DISABLE_REMOTE_ARCHIVE_ENV
-from backtests._shared.data_sources.pmxt import PMXT_LOCAL_FILTERED_DIR_ENV
-from backtests._shared.data_sources.pmxt import PMXT_LOCAL_MIRROR_DIR_ENV
+from backtests._shared.data_sources.pmxt import PMXT_LOCAL_RAWS_DIR_ENV
+from backtests._shared.data_sources.pmxt import PMXT_PREFETCH_WORKERS_ENV
 from backtests._shared.data_sources.pmxt import PMXT_REMOTE_BASE_URL_ENV
 from backtests._shared.data_sources.pmxt import PMXT_RAW_ROOT_ENV
-from backtests._shared.data_sources.pmxt import PMXT_PREFETCH_WORKERS_ENV
 from backtests._shared.data_sources.pmxt import PMXT_RELAY_BASE_URL_ENV
 from backtests._shared.data_sources.pmxt import PMXT_SOURCE_PRIORITY_ENV
 from backtests._shared.data_sources.pmxt import RunnerPolymarketPMXTDataLoader
@@ -61,7 +59,7 @@ def test_configured_pmxt_data_source_sets_raw_local_overrides(monkeypatch, tmp_p
     mirror_root = tmp_path / "mirror"
     mirror_root.mkdir()
     monkeypatch.setenv(PMXT_DATA_SOURCE_ENV, "raw-local")
-    monkeypatch.setenv(PMXT_LOCAL_MIRROR_DIR_ENV, str(mirror_root))
+    monkeypatch.setenv(PMXT_LOCAL_RAWS_DIR_ENV, str(mirror_root))
 
     with configured_pmxt_data_source() as selection:
         assert selection.mode == "raw-local"
@@ -74,23 +72,6 @@ def test_configured_pmxt_data_source_sets_raw_local_overrides(monkeypatch, tmp_p
 
     assert os.getenv(PMXT_RAW_ROOT_ENV) is None
     assert os.getenv(PMXT_RELAY_BASE_URL_ENV) is None
-
-
-def test_configured_pmxt_data_source_sets_filtered_local_overrides(
-    monkeypatch,
-    tmp_path,
-):
-    filtered_root = tmp_path / "filtered"
-    filtered_root.mkdir()
-    monkeypatch.setenv(PMXT_DATA_SOURCE_ENV, "filtered-local")
-    monkeypatch.setenv(PMXT_LOCAL_FILTERED_DIR_ENV, str(filtered_root))
-
-    with configured_pmxt_data_source() as selection:
-        assert selection.mode == "filtered-local"
-        assert str(filtered_root) in selection.summary
-        assert os.environ[PMXT_RELAY_BASE_URL_ENV] == "0"
-        assert os.environ[PMXT_CACHE_DIR_ENV] == str(filtered_root)
-        assert os.environ[PMXT_DISABLE_REMOTE_ARCHIVE_ENV] == "1"
 
 
 def test_configured_pmxt_data_source_preserves_manual_low_level_env(
@@ -109,9 +90,9 @@ def test_configured_pmxt_data_source_preserves_manual_low_level_env(
 
 def test_configured_pmxt_data_source_requires_local_mirror(monkeypatch):
     monkeypatch.setenv(PMXT_DATA_SOURCE_ENV, "raw-local")
-    monkeypatch.delenv(PMXT_LOCAL_MIRROR_DIR_ENV, raising=False)
+    monkeypatch.delenv(PMXT_LOCAL_RAWS_DIR_ENV, raising=False)
 
-    with pytest.raises(ValueError, match=PMXT_LOCAL_MIRROR_DIR_ENV):
+    with pytest.raises(ValueError, match=PMXT_LOCAL_RAWS_DIR_ENV):
         with configured_pmxt_data_source():
             pass
 
@@ -126,17 +107,16 @@ def test_configured_pmxt_data_source_preserves_explicit_source_order(
 
     with configured_pmxt_data_source(
         sources=[
-            "cache",
-            "archive.vendor.test",
-            str(mirror_root),
-            "relay.vendor.test",
+            "archive:archive.vendor.test",
+            f"local:{mirror_root}",
+            "relay:relay.vendor.test",
         ]
     ) as selection:
         assert selection.mode == "auto"
         assert selection.summary == (
             "PMXT source: explicit priority "
-            f"(cache -> https://archive.vendor.test -> {mirror_root} "
-            "-> https://relay.vendor.test)"
+            f"(cache -> archive https://archive.vendor.test -> local {mirror_root} "
+            "-> relay https://relay.vendor.test)"
         )
         assert os.environ[PMXT_RAW_ROOT_ENV] == str(mirror_root)
         assert os.environ[PMXT_REMOTE_BASE_URL_ENV] == "https://archive.vendor.test"
@@ -159,9 +139,39 @@ def test_configured_pmxt_data_source_preserves_existing_prefetch_override(
     mirror_root.mkdir()
     monkeypatch.setenv(PMXT_PREFETCH_WORKERS_ENV, "7")
 
-    with configured_pmxt_data_source(sources=[str(mirror_root)]) as selection:
+    with configured_pmxt_data_source(sources=[f"local:{mirror_root}"]) as selection:
         assert selection.mode == "auto"
         assert os.environ[PMXT_PREFETCH_WORKERS_ENV] == "7"
+
+
+def test_configured_pmxt_data_source_rejects_cache_explicit_source() -> None:
+    with pytest.raises(
+        ValueError,
+        match="The cache layer is implicit",
+    ):
+        with configured_pmxt_data_source(sources=["cache"]):
+            pass
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "r2.pmxt.dev",
+        "/tmp/pmxt-raw",
+        "local_raws:/tmp/pmxt-raw",
+        "processed:/tmp/pmxt-processed",
+        "raw:/tmp/pmxt-raw",
+        "raw-remote:https://r2.pmxt.dev",
+        "mirror:/tmp/pmxt-raw",
+        "relay-raw:https://relay.vendor.test",
+    ],
+)
+def test_configured_pmxt_data_source_rejects_legacy_or_unprefixed_explicit_sources(
+    source: str,
+) -> None:
+    with pytest.raises(ValueError, match="Use one of: local:, archive:, relay:"):
+        with configured_pmxt_data_source(sources=[source]):
+            pass
 
 
 def test_runner_loader_reads_market_rows_from_local_raw_mirror(tmp_path):

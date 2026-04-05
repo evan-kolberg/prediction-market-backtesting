@@ -26,12 +26,22 @@ def test_relay_index_events_and_queue_summary_are_mirror_only(tmp_path: Path):
     index.mark_mirroring("polymarket_orderbook_2026-03-21T12.parquet")
 
     queue = index.queue_summary()
-    assert queue["mirror_processing"] == 1
+    assert queue["mirror_active"] == 1
     assert queue["mirror_pending"] == 1
     assert queue["mirror_retry_due"] == 0
     assert queue["mirror_retry_waiting"] == 0
     assert queue["mirror_quarantined"] == 0
-    assert "process_pending" not in queue
+    assert sorted(queue.keys()) == [
+        "latest_mirrored_filename",
+        "latest_mirrored_hour",
+        "mirror_active",
+        "mirror_error",
+        "mirror_pending",
+        "mirror_quarantined",
+        "mirror_retry_due",
+        "mirror_retry_waiting",
+        "next_retry_at",
+    ]
 
     index.log_event(level="INFO", event_type="first", message="first message")
     index.log_event(level="INFO", event_type="second", message="second message")
@@ -47,7 +57,14 @@ def test_relay_index_events_and_queue_summary_are_mirror_only(tmp_path: Path):
     assert stats["mirrored_hours"] == 0
     assert stats["mirror_errors"] == 0
     assert stats["mirror_quarantined"] == 0
-    assert "processed_hours" not in stats
+    assert sorted(stats.keys()) == [
+        "archive_hours",
+        "last_error_at",
+        "last_event_at",
+        "mirror_errors",
+        "mirror_quarantined",
+        "mirrored_hours",
+    ]
     assert stats["last_event_at"] is not None
     assert stats["last_error_at"] is not None
 
@@ -97,7 +114,7 @@ def test_initialize_resets_stale_mirror_rows(tmp_path: Path):
 
     assert reset_count == 1
     assert queue["mirror_pending"] == 1
-    assert queue["mirror_processing"] == 0
+    assert queue["mirror_active"] == 0
 
 
 def test_register_local_raw_marks_hour_ready(tmp_path: Path):

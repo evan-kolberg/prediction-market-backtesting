@@ -74,7 +74,7 @@ the raw venue data are:
 ### PMXT
 
 - the loader prefers local filtered cache first, then raw sources in the order
-  configured by the runner
+  configured by the runner with `local:`, `archive:`, and `relay:`
 - for the public PMXT runners in this repo, that usually means local raw
   mirror first, then the configured remote archive, then a raw mirror fallback
 - the current shared relay direction is mirror-only, so the durable shared

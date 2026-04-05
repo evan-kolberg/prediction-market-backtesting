@@ -17,24 +17,26 @@ from nautilus_trader.adapters.polymarket import PolymarketPMXTDataLoader
 
 from backtests._shared.data_sources._common import DISABLED_ENV_VALUES
 from backtests._shared.data_sources._common import env_value
-from backtests._shared.data_sources._common import looks_like_local_path
 from backtests._shared.data_sources._common import normalize_local_path
 from backtests._shared.data_sources._common import normalize_urlish
 
 
 PMXT_DATA_SOURCE_ENV = "PMXT_DATA_SOURCE"
-PMXT_LOCAL_MIRROR_DIR_ENV = "PMXT_LOCAL_MIRROR_DIR"
-PMXT_LOCAL_FILTERED_DIR_ENV = "PMXT_LOCAL_FILTERED_DIR"
+PMXT_LOCAL_RAWS_DIR_ENV = "PMXT_LOCAL_RAWS_DIR"
 PMXT_RAW_ROOT_ENV = "PMXT_RAW_ROOT"
 PMXT_DISABLE_REMOTE_ARCHIVE_ENV = "PMXT_DISABLE_REMOTE_ARCHIVE"
 PMXT_RELAY_BASE_URL_ENV = "PMXT_RELAY_BASE_URL"
 PMXT_REMOTE_BASE_URL_ENV = "PMXT_REMOTE_BASE_URL"
 PMXT_CACHE_DIR_ENV = "PMXT_CACHE_DIR"
+PMXT_DISABLE_CACHE_ENV = "PMXT_DISABLE_CACHE"
 PMXT_SOURCE_PRIORITY_ENV = "PMXT_SOURCE_PRIORITY"
 PMXT_PREFETCH_WORKERS_ENV = "PMXT_PREFETCH_WORKERS"
 _PMXT_RUNNER_HTTP_USER_AGENT = "prediction-market-backtesting/1.0"
 _PMXT_RUNNER_HTTP_TIMEOUT_SECS = 30
 _PMXT_LOCAL_RAW_PREFETCH_WORKERS = "4"
+_PMXT_ARCHIVE_SOURCE_PREFIXES = ("archive:",)
+_PMXT_RAW_LOCAL_SOURCE_PREFIXES = ("local:",)
+_PMXT_RELAY_SOURCE_PREFIXES = ("relay:",)
 
 _PMXT_SOURCE_STAGE_RAW_LOCAL = "raw-local"
 _PMXT_SOURCE_STAGE_RAW_REMOTE = "raw-remote"
@@ -56,12 +58,10 @@ _MODE_ALIASES = {
     "remote-raw": "raw-remote",
     "raw-local": "raw-local",
     "local-raw": "raw-local",
+    "local-raws": "raw-local",
     "mirror": "raw-local",
-    "filtered-local": "filtered-local",
-    "local-filtered": "filtered-local",
-    "cache-local": "filtered-local",
 }
-_VALID_MODES = ("auto", "relay", "raw-remote", "raw-local", "filtered-local")
+_VALID_MODES = ("auto", "relay", "raw-remote", "raw-local")
 
 
 class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
@@ -174,8 +174,8 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
 
     def _relay_url_for_hour(self, hour):  # type: ignore[no-untyped-def]
         del hour
-        # The active mirror only serves raw hours. Filtered relay fetches belong to
-        # the retired full-stack relay and should never be attempted by runner code.
+        # The active relay only serves raw hours, so runner code never attempts
+        # any alternate relay data path here.
         return None
 
     @classmethod
@@ -534,9 +534,72 @@ def _resolve_required_directory(env_name: str, *, label: str) -> Path:
     return path
 
 
+def _strip_prefixed_local_source(
+    source: str,
+    *,
+    prefixes: Sequence[str],
+) -> str | None:
+    for prefix in prefixes:
+        if source.casefold().startswith(prefix):
+            remainder = source[len(prefix) :].strip()
+            if not remainder:
+                raise ValueError(
+                    f"PMXT explicit source {source!r} is missing a local path."
+                )
+            return normalize_local_path(remainder)
+    return None
+
+
+def _strip_prefixed_remote_source(
+    source: str,
+    *,
+    prefixes: Sequence[str],
+) -> str | None:
+    for prefix in prefixes:
+        if source.casefold().startswith(prefix):
+            remainder = source[len(prefix) :].strip()
+            if not remainder:
+                raise ValueError(
+                    f"PMXT explicit source {source!r} is missing a remote URL."
+                )
+            return normalize_urlish(remainder)
+    return None
+
+
+def _display_explicit_source(source: str) -> str:
+    archive_base_url = _strip_prefixed_remote_source(
+        source,
+        prefixes=_PMXT_ARCHIVE_SOURCE_PREFIXES,
+    )
+    if archive_base_url is not None:
+        return f"archive {archive_base_url}"
+    raw_root = _strip_prefixed_local_source(
+        source,
+        prefixes=_PMXT_RAW_LOCAL_SOURCE_PREFIXES,
+    )
+    if raw_root is not None:
+        return f"local {raw_root}"
+    relay_base_url = _strip_prefixed_remote_source(
+        source,
+        prefixes=_PMXT_RELAY_SOURCE_PREFIXES,
+    )
+    if relay_base_url is not None:
+        return f"relay {relay_base_url}"
+    raise ValueError(
+        "Unsupported PMXT explicit source "
+        f"{source!r}. Use one of: local:, archive:, relay:."
+    )
+
+
 def _classify_explicit_pmxt_sources(
     sources: Sequence[str],
-) -> tuple[str | None, str | None, str | None, tuple[str, ...], tuple[str, ...]]:
+) -> tuple[
+    str | None,
+    str | None,
+    str | None,
+    tuple[str, ...],
+    tuple[str, ...],
+]:
     raw_root: str | None = None
     remote_base_url: str | None = None
     relay_base_url: str | None = None
@@ -548,36 +611,62 @@ def _classify_explicit_pmxt_sources(
         if not stripped:
             continue
         if stripped.casefold() == "cache":
-            continue
-        if looks_like_local_path(stripped):
-            normalized_local = normalize_local_path(stripped)
-            if raw_root is not None and normalized_local != raw_root:
+            raise ValueError(
+                "Unsupported PMXT explicit source 'cache'. "
+                "The cache layer is implicit. Use local:/path to pin a local raw "
+                "mirror, or archive:/relay: to control remote fetch order."
+            )
+        normalized_archive = _strip_prefixed_remote_source(
+            stripped,
+            prefixes=_PMXT_ARCHIVE_SOURCE_PREFIXES,
+        )
+        if normalized_archive is not None:
+            if remote_base_url is not None and normalized_archive != remote_base_url:
                 raise ValueError(
-                    "PMXT explicit sources supports at most one local raw mirror path."
+                    "PMXT explicit sources supports at most one remote archive source."
                 )
-            raw_root = normalized_local
-            if _PMXT_SOURCE_STAGE_RAW_LOCAL not in priority:
-                priority.append(_PMXT_SOURCE_STAGE_RAW_LOCAL)
-            if normalized_local not in ordered_sources:
-                ordered_sources.append(normalized_local)
-            continue
-
-        normalized_remote = normalize_urlish(stripped)
-        if remote_base_url is None:
-            remote_base_url = normalized_remote
+            remote_base_url = normalized_archive
             if _PMXT_SOURCE_STAGE_RAW_REMOTE not in priority:
                 priority.append(_PMXT_SOURCE_STAGE_RAW_REMOTE)
-            ordered_sources.append(normalized_remote)
+            archive_display = f"archive {normalized_archive}"
+            if archive_display not in ordered_sources:
+                ordered_sources.append(archive_display)
             continue
-        if relay_base_url is None:
-            relay_base_url = normalized_remote
+        normalized_raw = _strip_prefixed_local_source(
+            stripped,
+            prefixes=_PMXT_RAW_LOCAL_SOURCE_PREFIXES,
+        )
+        if normalized_raw is not None:
+            if raw_root is not None and normalized_raw != raw_root:
+                raise ValueError(
+                    "PMXT explicit sources support at most one local raw mirror path."
+                )
+            raw_root = normalized_raw
+            if _PMXT_SOURCE_STAGE_RAW_LOCAL not in priority:
+                priority.append(_PMXT_SOURCE_STAGE_RAW_LOCAL)
+            raw_display = f"local {normalized_raw}"
+            if raw_display not in ordered_sources:
+                ordered_sources.append(raw_display)
+            continue
+        normalized_relay = _strip_prefixed_remote_source(
+            stripped,
+            prefixes=_PMXT_RELAY_SOURCE_PREFIXES,
+        )
+        if normalized_relay is not None:
+            if relay_base_url is not None and normalized_relay != relay_base_url:
+                raise ValueError(
+                    "PMXT explicit sources supports at most one relay raw source."
+                )
+            relay_base_url = normalized_relay
             if _PMXT_SOURCE_STAGE_RELAY_RAW not in priority:
                 priority.append(_PMXT_SOURCE_STAGE_RELAY_RAW)
-            ordered_sources.append(normalized_remote)
+            relay_display = f"relay {normalized_relay}"
+            if relay_display not in ordered_sources:
+                ordered_sources.append(relay_display)
             continue
         raise ValueError(
-            "PMXT explicit sources supports at most two remote sources: "
-            "remote archive first, relay second."
+            "Unsupported PMXT explicit source "
+            f"{stripped!r}. Use one of: local:, archive:, relay:."
         )
 
     return (
@@ -593,7 +682,7 @@ def _explicit_source_summary(
     *,
     ordered_sources: Sequence[str],
 ) -> str:
-    parts: list[str] = ["cache", *ordered_sources]
+    parts = ["cache", *ordered_sources]
     return "PMXT source: explicit priority (" + " -> ".join(parts) + ")"
 
 
@@ -605,9 +694,13 @@ def resolve_pmxt_data_source_selection(
     dict[str, str | None],
 ]:
     if sources:
-        raw_root, remote_base_url, relay_base_url, source_priority, ordered_sources = (
-            _classify_explicit_pmxt_sources(sources)
-        )
+        (
+            raw_root,
+            remote_base_url,
+            relay_base_url,
+            source_priority,
+            ordered_sources,
+        ) = _classify_explicit_pmxt_sources(sources)
         return (
             PMXTDataSourceSelection(
                 mode="auto",
@@ -615,13 +708,15 @@ def resolve_pmxt_data_source_selection(
                     ordered_sources=ordered_sources,
                 ),
             ),
-            {
-                PMXT_RAW_ROOT_ENV: raw_root,
-                PMXT_REMOTE_BASE_URL_ENV: remote_base_url or "0",
-                PMXT_RELAY_BASE_URL_ENV: relay_base_url or "0",
-                PMXT_DISABLE_REMOTE_ARCHIVE_ENV: None if remote_base_url else "1",
-                PMXT_SOURCE_PRIORITY_ENV: ",".join(source_priority) or None,
-            },
+            (
+                {
+                    PMXT_RAW_ROOT_ENV: raw_root,
+                    PMXT_REMOTE_BASE_URL_ENV: remote_base_url or "0",
+                    PMXT_RELAY_BASE_URL_ENV: relay_base_url or "0",
+                    PMXT_DISABLE_REMOTE_ARCHIVE_ENV: (None if remote_base_url else "1"),
+                    PMXT_SOURCE_PRIORITY_ENV: ",".join(source_priority) or None,
+                }
+            ),
         )
 
     configured_mode = os.getenv(PMXT_DATA_SOURCE_ENV)
@@ -631,23 +726,12 @@ def resolve_pmxt_data_source_selection(
         raw_root = _env_value(PMXT_RAW_ROOT_ENV)
         relay_base_url = _env_value(PMXT_RELAY_BASE_URL_ENV)
         remote_base_url = _env_value(PMXT_REMOTE_BASE_URL_ENV)
-        cache_dir = _env_value(PMXT_CACHE_DIR_ENV)
-        disable_remote_archive = _env_enabled(PMXT_DISABLE_REMOTE_ARCHIVE_ENV)
 
         if raw_root is not None and raw_root.casefold() not in DISABLED_ENV_VALUES:
             return (
                 PMXTDataSourceSelection(
                     mode="raw-local",
-                    summary=f"PMXT source: local raw mirror ({Path(raw_root).expanduser()})",
-                ),
-                {},
-            )
-
-        if disable_remote_archive and cache_dir is not None:
-            return (
-                PMXTDataSourceSelection(
-                    mode="filtered-local",
-                    summary=f"PMXT source: local filtered parquet ({Path(cache_dir).expanduser()})",
+                    summary=f"PMXT source: local raws ({Path(raw_root).expanduser()})",
                 ),
                 {},
             )
@@ -681,7 +765,7 @@ def resolve_pmxt_data_source_selection(
                 mode="auto",
                 summary=(
                     "PMXT source: auto "
-                    "(cache -> local raw -> explicit remote raw -> explicit relay)"
+                    "(cache -> local raws -> explicit remote raw -> explicit relay)"
                 ),
             ),
             {},
@@ -693,7 +777,7 @@ def resolve_pmxt_data_source_selection(
                 mode=mode,
                 summary=(
                     "PMXT source: auto "
-                    "(cache -> local raw -> explicit remote raw -> explicit relay)"
+                    "(cache -> local raws -> explicit remote raw -> explicit relay)"
                 ),
             ),
             {
@@ -739,13 +823,13 @@ def resolve_pmxt_data_source_selection(
 
     if mode == "raw-local":
         raw_root = _resolve_required_directory(
-            PMXT_LOCAL_MIRROR_DIR_ENV,
-            label="local raw PMXT mirror",
+            PMXT_LOCAL_RAWS_DIR_ENV,
+            label="local PMXT raws",
         )
         return (
             PMXTDataSourceSelection(
                 mode=mode,
-                summary=f"PMXT source: local raw mirror ({raw_root})",
+                summary=f"PMXT source: local raws ({raw_root})",
             ),
             {
                 PMXT_RELAY_BASE_URL_ENV: "0",
@@ -754,24 +838,7 @@ def resolve_pmxt_data_source_selection(
                 PMXT_DISABLE_REMOTE_ARCHIVE_ENV: "1",
             },
         )
-
-    filtered_root = _resolve_required_directory(
-        PMXT_LOCAL_FILTERED_DIR_ENV,
-        label="local filtered PMXT root",
-    )
-    return (
-        PMXTDataSourceSelection(
-            mode=mode,
-            summary=f"PMXT source: local filtered parquet ({filtered_root})",
-        ),
-        {
-            PMXT_RELAY_BASE_URL_ENV: "0",
-            PMXT_REMOTE_BASE_URL_ENV: "0",
-            PMXT_CACHE_DIR_ENV: str(filtered_root),
-            PMXT_RAW_ROOT_ENV: None,
-            PMXT_DISABLE_REMOTE_ARCHIVE_ENV: "1",
-        },
-    )
+    raise AssertionError(f"Unsupported PMXT mode normalization result: {mode}")
 
 
 @contextmanager

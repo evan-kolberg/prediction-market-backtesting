@@ -461,9 +461,9 @@ def _upstream_badge_payload(
         queue.get("latest_mirrored_hour")  # type: ignore[arg-type]
     )
     mirror_pending = int(queue.get("mirror_pending") or 0)
-    mirror_processing = int(queue.get("mirror_processing") or 0)
+    mirror_active = int(queue.get("mirror_active") or 0)
     mirror_error = int(queue.get("mirror_error") or 0)
-    outstanding = mirror_pending + mirror_processing + mirror_error
+    outstanding = mirror_pending + mirror_active + mirror_error
 
     if last_event_at is None:
         return _badge_payload(label="r2.pmxt.dev", message="starting", color="yellow")
@@ -869,7 +869,7 @@ async def badge_mirroring_svg(request: web.Request) -> web.Response:
     return _badge_svg_response(
         _stage_badge_payload(
             label="Mirror service",
-            active_count=int(queue.get("mirror_processing") or 0),
+            active_count=int(queue.get("mirror_active") or 0),
             queued_count=int(queue.get("mirror_pending") or 0),
             error_count=int(queue.get("mirror_error") or 0),
         )

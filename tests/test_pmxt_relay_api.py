@@ -377,7 +377,7 @@ def test_upstream_badge_uses_errors_for_fresh_unresolved_failures(tmp_path: Path
         },
         queue={
             "mirror_pending": 0,
-            "mirror_processing": 0,
+            "mirror_active": 0,
             "mirror_error": 7,
             "latest_mirrored_hour": (now - timedelta(hours=1)).isoformat(),
         },
@@ -401,7 +401,7 @@ def test_upstream_badge_uses_lagging_for_backlog_with_old_latest_mirror(tmp_path
         },
         queue={
             "mirror_pending": 3,
-            "mirror_processing": 0,
+            "mirror_active": 0,
             "mirror_error": 0,
             "latest_mirrored_hour": (now - timedelta(hours=12)).isoformat(),
         },
@@ -494,13 +494,25 @@ def test_stats_and_queue_payloads_are_mirror_only(tmp_path: Path):
 
         assert stats_response.status == 200
         assert queue_response.status == 200
-        assert "processed_hours" not in stats_payload
-        assert "processing_hours" not in stats_payload
-        assert "ready_to_process_hours" not in stats_payload
-        assert "process_errors" not in stats_payload
-        assert "process_pending" not in queue_payload
-        assert "process_processing" not in queue_payload
-        assert "prebuild_pending" not in queue_payload
+        assert sorted(stats_payload.keys()) == [
+            "archive_hours",
+            "last_error_at",
+            "last_event_at",
+            "mirror_errors",
+            "mirror_quarantined",
+            "mirrored_hours",
+        ]
+        assert sorted(queue_payload.keys()) == [
+            "latest_mirrored_filename",
+            "latest_mirrored_hour",
+            "mirror_active",
+            "mirror_error",
+            "mirror_pending",
+            "mirror_quarantined",
+            "mirror_retry_due",
+            "mirror_retry_waiting",
+            "next_retry_at",
+        ]
         assert queue_payload["latest_mirrored_filename"] == filename
 
     asyncio.run(scenario())

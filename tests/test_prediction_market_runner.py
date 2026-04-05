@@ -125,9 +125,9 @@ def test_generic_runner_dispatches_pmxt_quote_tick(monkeypatch) -> None:
                 data_type=QuoteTick,
                 vendor=PMXT,
                 sources=(
-                    "/Volumes/LaCie/pmxt_raws",
-                    "mirror.example.com",
-                    "relay.example.com",
+                    "local:/Volumes/LaCie/pmxt_raws",
+                    "archive:mirror.example.com",
+                    "relay:relay.example.com",
                 ),
             ),
             market_slug="demo-market",
@@ -149,9 +149,9 @@ def test_generic_runner_dispatches_pmxt_quote_tick(monkeypatch) -> None:
     assert captured["start_time"] == "2026-03-21T10:00:00Z"
     assert captured["end_time"] == "2026-03-21T12:00:00Z"
     assert captured["data_sources"] == (
-        "/Volumes/LaCie/pmxt_raws",
-        "mirror.example.com",
-        "relay.example.com",
+        "local:/Volumes/LaCie/pmxt_raws",
+        "archive:mirror.example.com",
+        "relay:relay.example.com",
     )
 
 

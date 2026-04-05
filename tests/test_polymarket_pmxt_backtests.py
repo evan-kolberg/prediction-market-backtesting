@@ -56,9 +56,9 @@ EXPECTED_END_TIME = DEFAULT_PMXT_RELAY_SAMPLE_END_TIME
 EXPECTED_CLOSE_WINDOW_START_TIME = DEFAULT_PMXT_CLOSE_WINDOW_START_TIME
 EXPECTED_CLOSE_WINDOW_END_TIME = DEFAULT_PMXT_CLOSE_WINDOW_END_TIME
 EXPECTED_PMXT_SOURCES = (
-    "/Volumes/LaCie/pmxt_raws",
-    "r2.pmxt.dev",
-    "209-209-10-83.sslip.io",
+    "local:/Volumes/LaCie/pmxt_raws",
+    "archive:r2.pmxt.dev",
+    "relay:209-209-10-83.sslip.io",
 )
 TIME_BASED_SINGLE_MARKET_MODULES = {
     "backtests.polymarket_quote_tick_pmxt_final_period_momentum",

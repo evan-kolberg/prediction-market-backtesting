@@ -30,7 +30,7 @@
 Backtesting framework for prediction market strategies on
 [Kalshi](https://kalshi.com) and [Polymarket](https://polymarket.com), built on
 top of [NautilusTrader](https://github.com/nautechsystems/nautilus_trader) with
-custom exchange adapters. Plotting inspired by [minitrade](https://github.com/dodid/minitrade). This repo is still in active development, and **a full release should happen within the next one to two months.**
+custom exchange adapters. Plotting inspired by [minitrade](https://github.com/dodid/minitrade). This repo is still in active development.
 
 
 Fantastic single & multi-market charting. Featuring: equity (total & individual markets), profit / loss ticks, P&L periodic bars, market allocation, YES price (with green buy and red sell fills), drawdown, sharpe (with above/below shading), cash / equity, monthly returns, and cumulative brier advantage.
@@ -61,7 +61,9 @@ Detailed guides have been filed away in the [docs index](https://evan-kolberg.gi
   - [Slippage](https://evan-kolberg.github.io/prediction-market-backtesting/execution-modeling/#slippage)
   - [Limits](https://evan-kolberg.github.io/prediction-market-backtesting/execution-modeling/#limits)
   - [Vendor L2 Behavior](https://evan-kolberg.github.io/prediction-market-backtesting/execution-modeling/#vendor-l2-behavior)
-- [Data Vendors, Local Mirrors, And Local Processing](https://evan-kolberg.github.io/prediction-market-backtesting/pmxt-byod/)
+- [Data Vendors, Local Mirrors, And Raw PMXT](https://evan-kolberg.github.io/prediction-market-backtesting/pmxt-byod/)
+  - [Runner Source Modes](https://evan-kolberg.github.io/prediction-market-backtesting/pmxt-byod/#runner-source-modes)
+  - [Lower-Level Loader Env Vars](https://evan-kolberg.github.io/prediction-market-backtesting/pmxt-byod/#lower-level-loader-env-vars)
   - [What Works Today](https://evan-kolberg.github.io/prediction-market-backtesting/pmxt-byod/#what-works-today)
   - [Supported Local File Layout](https://evan-kolberg.github.io/prediction-market-backtesting/pmxt-byod/#supported-local-file-layout)
   - [Required Parquet Columns](https://evan-kolberg.github.io/prediction-market-backtesting/pmxt-byod/#required-parquet-columns)
@@ -70,9 +72,8 @@ Detailed guides have been filed away in the [docs index](https://evan-kolberg.gi
   - [What Is Not Plug-And-Play Yet](https://evan-kolberg.github.io/prediction-market-backtesting/pmxt-byod/#what-is-not-plug-and-play-yet)
   - [Mirror And Relay Ops](https://evan-kolberg.github.io/prediction-market-backtesting/pmxt-relay/)
   - [Active Mirror Service](https://evan-kolberg.github.io/prediction-market-backtesting/pmxt-relay/#active-mirror-service)
-  - [Legacy Self-Hosted Relay](https://evan-kolberg.github.io/prediction-market-backtesting/pmxt-relay/#legacy-self-hosted-relay)
-  - [Storage-Rich Team Deployment](https://evan-kolberg.github.io/prediction-market-backtesting/pmxt-relay/#storage-rich-team-deployment)
   - [Local-First Alternative](https://evan-kolberg.github.io/prediction-market-backtesting/pmxt-relay/#local-first-alternative)
+  - [Archived Relay Snapshot](https://evan-kolberg.github.io/prediction-market-backtesting/pmxt-relay/#archived-relay-snapshot)
 - [Vendor Fetch Sources And Timing](https://evan-kolberg.github.io/prediction-market-backtesting/pmxt-fetch-sources/)
   - [Example Output](https://evan-kolberg.github.io/prediction-market-backtesting/pmxt-fetch-sources/#example-output)
   - [Timing Expectations By Source](https://evan-kolberg.github.io/prediction-market-backtesting/pmxt-fetch-sources/#timing-expectations-by-source)

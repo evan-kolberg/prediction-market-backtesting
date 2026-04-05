@@ -16,7 +16,7 @@ top-level product surface.
 - [Setup](setup.md)
 - [Backtests And Runners](backtests.md)
 - [Execution Modeling](execution-modeling.md)
-- [Data Vendors, Local Mirrors, And Local Processing](pmxt-byod.md)
+- [Data Vendors, Local Mirrors, And Raw PMXT](pmxt-byod.md)
 - [Mirror And Relay Ops](pmxt-relay.md)
 - [Vendor Fetch Sources And Timing](pmxt-fetch-sources.md)
 - [Plotting](plotting.md)

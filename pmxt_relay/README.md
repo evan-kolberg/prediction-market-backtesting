@@ -6,11 +6,10 @@ Current direction:
 
 - mirror raw PMXT archive hours onto disk
 - optionally expose those mirrored raw files over `/v1/raw/*`
-- process mirrored data locally with a separate script, not through the relay CLI
-- keep server-side filtered processing retired from the active relay path
+- use mirrored raw files directly from runners or the repo downloader
+- keep the active relay scoped to raw mirroring and raw file serving
 
-The old full-stack relay, including ClickHouse-backed processing and filtered
-HTTP serving, has been archived under `archive/pmxt_relay_legacy/`.
+Older relay code has been archived under `archive/pmxt_relay_legacy/`.
 
 ## Active Commands
 
@@ -26,13 +25,20 @@ Mirror API:
 uv run python -m pmxt_relay api
 ```
 
-Local processing stays separate from the relay:
+Repo-level raw download helper:
 
 ```bash
-uv run python scripts/pmxt_process_local.py \
-  --raw-root /data/pmxt/raw \
-  --filtered-root ~/.cache/nautilus_trader/pmxt
+make download-pmxt-raws DESTINATION=/data/pmxt/raw
 ```
+
+It shows a live progress bar while copying raw archive hours. Example output:
+
+```text
+Downloading PMXT raws:  13%|███████████████████████▍| 137/1017 [41:27<3:37:59, 14.86s/hour, archive 2026-02-27T11:00:00+00:00 392.0/445.9 MiB]
+```
+
+Expect those numbers to vary by current archive size, source, and the
+destination window you are downloading.
 
 ## Directory Layout
 
@@ -106,8 +112,8 @@ Active mirror-focused endpoints:
 - mirror/system badge endpoints under `/v1/badge/*`
 
 `/v1/stats`, `/v1/queue`, and the active badge routes only expose raw-mirror
-state. Filtered-hour and processing-oriented HTTP endpoints are intentionally
-not part of the active relay path.
+state. The active relay path is limited to mirroring, health, and raw file
+serving.
 
 The public badges separate relay health from `r2.pmxt.dev` availability:
 
@@ -118,7 +124,5 @@ The public badges separate relay health from `r2.pmxt.dev` availability:
 
 ## Legacy Archive
 
-Use `archive/pmxt_relay_legacy/` if you need to inspect or revive the older
-server-side processing stack. That archive preserves the old relay-oriented
-ClickHouse and filtered-serving code for teams that want to run that older
-architecture on their own infrastructure.
+Use `archive/pmxt_relay_legacy/` only if you need historical context for the
+older relay implementation.

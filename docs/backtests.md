@@ -53,19 +53,20 @@ from backtests._shared._prediction_market_backtest import PredictionMarketBackte
 from backtests._shared._prediction_market_backtest import run_reported_backtest
 from backtests._shared._prediction_market_runner import MarketDataConfig
 from backtests._shared._timing_harness import timing_harness
-from backtests._shared.data_sources import PMXT_VENDOR
+from backtests._shared.data_sources import PMXT, Polymarket, QuoteTick
 
 NAME = "polymarket_quote_tick_pmxt_ema_crossover"
 DESCRIPTION = "EMA crossover momentum on one Polymarket market"
-PLATFORM = "polymarket"
-DATA_TYPE = "quote_tick"
-VENDOR = PMXT_VENDOR.name
 
 DATA = MarketDataConfig(
-    platform=PLATFORM,
-    data_type=DATA_TYPE,
-    vendor=PMXT_VENDOR,
-    sources=("/path/to/local/pmxt_raws",),
+    platform=Polymarket,
+    data_type=QuoteTick,
+    vendor=PMXT,
+    sources=(
+        "local:/Volumes/LaCie/pmxt_raws",
+        "archive:r2.pmxt.dev",
+        "relay:209-209-10-83.sslip.io",
+    ),
 )
 
 SIMS = (
@@ -133,19 +134,13 @@ Every public runner should expose:
 
 - `NAME`
 - `DESCRIPTION`
-- `PLATFORM`
-- `DATA_TYPE`
-- `VENDOR`
 - `DATA`
 - `SIMS`
 - `STRATEGY_CONFIGS`
+- `REPORT` when the runner prints a summary table or writes combined reports
+- `EXECUTION` when the runner models non-default queue position or exchange latency
 - `BACKTEST`
 - `run()`
-
-Use `REPORT` when the runner should print a summary table or write combined
-multi-market reports.
-Use `EXECUTION` when the runner should model non-default queue position or
-exchange latency.
 
 ## Designing Good Runner Files
 
@@ -254,10 +249,18 @@ workflows:
 ### PMXT
 
 - PMXT is the first documented quote-tick vendor adapter in this repo
-- the preferred sustained workflow is local-first: mirror raw archive hours onto
-  local disk, then point `DATA.sources` at that mirror
-- after cache, PMXT quote-tick runners try the remaining `DATA.sources` entries
+- the preferred sustained workflow is raw-first: point runners at a local raw
+  mirror when you have one, otherwise let them pull from archive and relay
+- use `archive:archive.example.com` when you want the runner to fetch raw
+  archive hours explicitly
+- use `local:/path/to/raw-hours` when you want the runner to fetch from a
+  local PMXT raw mirror explicitly
+- use `relay:relay.example.com` when you want the runner to fetch raw hours
+  from a relay explicitly
+- after the cache layer, PMXT quote-tick runners try the explicit raw sources
   in the exact order you list them
+- PMXT source parsing is strict on purpose; only `local:`, `archive:`,
+  and `relay:` are accepted in `DATA.sources`
 - the local PMXT filtered cache is enabled by default at
   `~/.cache/nautilus_trader/pmxt`
 - the shared public relay is now treated as a raw mirror service; filtered relay
@@ -267,6 +270,6 @@ workflows:
 
 For vendor-specific data-source behavior and timings, use:
 
-- [Data Vendors, Local Mirrors, And Local Processing](pmxt-byod.md)
+- [Data Vendors, Local Mirrors, And Raw PMXT](pmxt-byod.md)
 - [Vendor Fetch Sources And Timing](pmxt-fetch-sources.md)
 - [Mirror And Relay Ops](pmxt-relay.md)
