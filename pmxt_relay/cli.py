@@ -73,31 +73,38 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "worker":
-        RelayWorker(config).run_forever()
+        worker = RelayWorker(config)
+        try:
+            worker.run_forever()
+        finally:
+            worker.close()
         return 0
 
     if args.command == "sync-once":
         worker = RelayWorker(config)
-        adopted = worker._adopt_local_raw_hours()  # noqa: SLF001
-        discovered = worker._discover_archive_hours()  # noqa: SLF001
-        mirrored = worker._mirror_pending_hours()  # noqa: SLF001
-        print(
-            json.dumps(
-                {
-                    "adopted": adopted,
-                    "discovered": discovered,
-                    "mirrored": mirrored,
-                },
-                indent=2,
-                sort_keys=True,
+        try:
+            adopted = worker._adopt_local_raw_hours()  # noqa: SLF001
+            discovered = worker._discover_archive_hours()  # noqa: SLF001
+            mirrored = worker._mirror_pending_hours()  # noqa: SLF001
+            print(
+                json.dumps(
+                    {
+                        "adopted": adopted,
+                        "discovered": discovered,
+                        "mirrored": mirrored,
+                    },
+                    indent=2,
+                    sort_keys=True,
+                )
             )
-        )
+        finally:
+            worker.close()
         return 0
 
     if args.command == "stats":
-        index = RelayIndex(config.db_path)
-        index.initialize(apply_maintenance=False)
-        print(json.dumps(index.stats(), indent=2, sort_keys=True))
+        with RelayIndex(config.db_path) as index:
+            index.initialize(apply_maintenance=False)
+            print(json.dumps(index.stats(), indent=2, sort_keys=True))
         return 0
 
     if args.command == "verify-raw-mirror":

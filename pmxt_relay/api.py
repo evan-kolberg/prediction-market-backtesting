@@ -950,6 +950,9 @@ async def serve_raw(request: web.Request) -> web.StreamResponse:
 
 
 def create_app(config: RelayConfig) -> web.Application:
+    async def close_index(app: web.Application) -> None:
+        app[INDEX_APP_KEY].close()
+
     app = web.Application(
         client_max_size=4096,
         middlewares=[hardening_middleware],
@@ -959,6 +962,7 @@ def create_app(config: RelayConfig) -> web.Application:
     app[INDEX_APP_KEY] = index
     app[RATE_LIMITER_APP_KEY] = RequestRateLimiter(config.api_rate_limit_per_minute)
     index.initialize(apply_maintenance=False)
+    app.on_cleanup.append(close_index)
     app.on_response_prepare.append(on_prepare_response)
     app.router.add_get("/healthz", healthz)
     app.router.add_get("/v1/stats", stats)

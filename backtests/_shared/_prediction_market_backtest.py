@@ -143,7 +143,7 @@ class PredictionMarketBacktest:
         default_lookback_hours: float | None = None,
         default_start_time: pd.Timestamp | datetime | str | None = None,
         default_end_time: pd.Timestamp | datetime | str | None = None,
-        nautilus_log_level: str = "INFO",
+        nautilus_log_level: str = "WARNING",
         execution: ExecutionModelConfig | None = None,
     ) -> None:
         self.name = name

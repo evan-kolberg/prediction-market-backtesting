@@ -77,6 +77,28 @@ class RelayIndex:
         self._conn.execute("PRAGMA wal_autocheckpoint=2000")
         self._conn.execute("PRAGMA foreign_keys=ON")
         self._events_since_prune = 0
+        self._closed = False
+
+    def close(self) -> None:
+        if self._closed:
+            return
+        with self._conn_lock:
+            if self._closed:
+                return
+            self._conn.close()
+            self._closed = True
+
+    def __enter__(self) -> RelayIndex:
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        self.close()
+
+    def __del__(self) -> None:
+        try:
+            self.close()
+        except Exception:
+            pass
 
     def initialize(
         self,

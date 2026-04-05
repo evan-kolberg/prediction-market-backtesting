@@ -66,15 +66,33 @@ class RelayWorker:
             payload=payload,
         )
 
+    def close(self) -> None:
+        self._index.close()
+
+    def __enter__(self) -> RelayWorker:
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        self.close()
+
+    def __del__(self) -> None:
+        try:
+            self.close()
+        except Exception:
+            pass
+
     def run_forever(self) -> None:
-        while True:
-            progress = self.run_once()
-            if progress == 0:
-                LOG.info(
-                    "No relay work pending, sleeping for %ss",
-                    self._config.poll_interval_secs,
-                )
-                time.sleep(self._config.poll_interval_secs)
+        try:
+            while True:
+                progress = self.run_once()
+                if progress == 0:
+                    LOG.info(
+                        "No relay work pending, sleeping for %ss",
+                        self._config.poll_interval_secs,
+                    )
+                    time.sleep(self._config.poll_interval_secs)
+        finally:
+            self.close()
 
     def run_once(self) -> int:
         discovered = self._discover_archive_hours()
