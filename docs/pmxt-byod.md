@@ -151,13 +151,13 @@ Enable that source with low-level env vars:
 PMXT_LOCAL_ARCHIVE_DIR=/custom/raw-hours
 ```
 
-The runner-level `raw-local` mode expects the archive-style layout:
+The lower-level loader `raw-local` mode expects the archive-style layout:
 
 ```text
 /data/pmxt/raw/YYYY/MM/DD/polymarket_orderbook_YYYY-MM-DDTHH.parquet
 ```
 
-Enable that source with:
+Enable that mode with:
 
 ```bash
 PMXT_DATA_SOURCE=raw-local

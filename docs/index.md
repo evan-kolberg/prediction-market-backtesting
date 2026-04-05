@@ -6,8 +6,8 @@ This repository is documented around two active operating assumptions:
   local disk, replay those raws directly, and keep shared infrastructure
   focused on raw mirroring and file serving
 - public backtest runners are flat experiment specs built around `DATA`,
-  `SIMS`, `STRATEGY_CONFIGS`, and a `PredictionMarketBacktest` object with a
-  `.run()` entrypoint
+  `SIMS`, `STRATEGY_CONFIGS`, optional `EXECUTION` / `REPORT`, and a top-level
+  `BACKTEST` object powered by `PredictionMarketBacktest`
 
 PMXT is the first fully documented vendor path. Mirror and relay operations are
 filed alongside the PMXT docs instead of being treated as a separate product

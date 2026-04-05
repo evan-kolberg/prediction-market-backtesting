@@ -19,11 +19,13 @@ The active `pmxt_relay/` service is mirror-only.
 What it does today:
 
 - discovers PMXT archive hours
+- adopts already mirrored local raw hours on startup
 - mirrors raw parquet files onto disk
 - exposes raw files under `/v1/raw/*`
 - serves health, queue, stats, system, events, inflight, and badge endpoints
 - backs off failed mirror retries and temporarily quarantines repeated upstream
   404s on a slower retry cadence
+- avoids rescanning the full raw tree on every steady-state worker cycle
 
 What it does not do anymore:
 

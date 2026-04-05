@@ -38,3 +38,11 @@ Coverage is mixed by design:
 - smoke tests that exercise real backtest flows
 - generated chart output redirected to temp dirs during tests so the working
   tree stays clean
+
+## Docs Validation
+
+When you change docs, README navigation, or MkDocs config, also run:
+
+```bash
+uv run mkdocs build --strict
+```

@@ -44,6 +44,10 @@ The active relay only needs:
 - `state/` for SQLite metadata
 - `tmp/` for atomic download temp files
 
+On startup the worker adopts any already mirrored local raw hours into the
+state DB. During steady-state polling it only checks for incremental additions
+instead of rescanning the full raw tree every cycle.
+
 Repeated upstream 404s are no longer retried every poll forever. The active
 relay now backs off failed mirrors and temporarily quarantines repeated 404s on
 a slower retry cadence so one stale archive reference does not dominate every

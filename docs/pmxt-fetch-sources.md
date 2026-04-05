@@ -71,7 +71,7 @@ warmth, mirror speed, and the requested window.
 | Source | Typical time | When it happens |
 |---|---|---|
 | Local cache | <0.05s | Second run onward for the same market/token/hour |
-| Local raw PMXT archive | local disk bound | You mirrored raw PMXT hours locally and pointed `DATA_SOURCES` or `PMXT_RAW_ROOT` at them |
+| Local raw PMXT archive | local disk bound | You mirrored raw PMXT hours locally and pointed `DATA.sources` at `local:/...`, or used `PMXT_RAW_ROOT` for a lower-level loader workflow |
 | Remote raw PMXT archive | network and file-size bound | Hour is missing from local cache and local raw mirror, so the client downloads the upstream raw parquet to a temp file and filters it locally |
 | Relay raw mirror | network and file-size bound | A mirror-only relay serves `/v1/raw/...`, so the client downloads the raw parquet to a temp file and filters it locally |
 | None | <1s | Hour does not exist yet |

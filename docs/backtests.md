@@ -36,12 +36,17 @@ window that actually loaded, including `planned_start`, `planned_end`,
 
 ## Runner Contract
 
-Public runners should read like flat experiment specs. The canonical shape is:
+Public runners should read like flat experiment specs.
+`PredictionMarketBacktest` is the canonical repo-layer execution surface. The
+canonical shape is:
 
 ```python
 from decimal import Decimal
 
-from _script_helpers import ensure_repo_root
+if __package__ in {None, ""}:
+    from _script_helpers import ensure_repo_root
+else:
+    from ._script_helpers import ensure_repo_root
 
 ensure_repo_root(__file__)
 
@@ -263,8 +268,8 @@ workflows:
   and `relay:` are accepted in `DATA.sources`
 - the local PMXT filtered cache is enabled by default at
   `~/.cache/nautilus_trader/pmxt`
-- the shared public relay is now treated as a raw mirror service; filtered relay
-  behavior is legacy or self-hosted
+- the shared public relay is now treated as a raw mirror service; filtered
+  relay behavior is legacy or self-hosted
 - direct script execution keeps normal Nautilus output visible, and runners that
   opt into `@timing_harness` keep timing output too
 
