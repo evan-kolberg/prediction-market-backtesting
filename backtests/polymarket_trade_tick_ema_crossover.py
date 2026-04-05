@@ -34,7 +34,7 @@ NAME = "polymarket_trade_tick_ema_crossover"
 DESCRIPTION = "EMA crossover momentum on a single Polymarket market"
 
 EMIT_HTML = True
-CHART_OUTPUT_PATH = None
+CHART_OUTPUT_PATH = "output"
 
 DATA = MarketDataConfig(
     platform=Polymarket,

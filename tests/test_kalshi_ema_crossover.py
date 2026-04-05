@@ -1,22 +1,34 @@
 """End-to-end test for the Kalshi EMA-crossover backtest."""
 
+from pathlib import Path
+
 import pytest
 
 import backtests.kalshi_trade_tick_ema_crossover as strat
 
 
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
 @pytest.fixture(autouse=True)
-def _isolate_output(tmp_path, monkeypatch):
-    """Redirect generated chart output to a temp directory."""
-    monkeypatch.chdir(tmp_path)
+def _clean_chart_output():
+    """Keep the repo-root chart artifact deterministic across test runs."""
+    chart = (
+        REPO_ROOT
+        / "output"
+        / f"{strat.NAME}_{strat.REPLAYS[0].market_ticker}_legacy.html"
+    )
+    chart.unlink(missing_ok=True)
+    yield
+    chart.unlink(missing_ok=True)
 
 
-def test_full_run_produces_legacy_chart(tmp_path):
+def test_full_run_produces_legacy_chart():
     """Full pipeline runs without error and writes a legacy HTML chart."""
     strat.run()
 
     chart = (
-        tmp_path
+        REPO_ROOT
         / "output"
         / f"{strat.NAME}_{strat.REPLAYS[0].market_ticker}_legacy.html"
     )

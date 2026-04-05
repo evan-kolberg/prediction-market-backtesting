@@ -10,7 +10,7 @@ EXPECTED_INITIAL_CASH = 100.0
 EXPECTED_SINGLE_MARKET_LOOKBACK_DAYS = 30
 EXPECTED_FIXED_SPORTS_LOOKBACK_DAYS = 7
 EXPECTED_EMIT_HTML = True
-EXPECTED_CHART_OUTPUT_PATH = None
+EXPECTED_CHART_OUTPUT_PATH = "output"
 EXPECTED_KALSHI_TRADE_SOURCES = ("rest:https://api.elections.kalshi.com/trade-api/v2",)
 EXPECTED_KALSHI_MARKET_TICKER = "KXNEXTIRANLEADER-45JAN01-MKHA"
 EXPECTED_POLYMARKET_TRADE_SOURCES = (
@@ -187,6 +187,21 @@ def test_polymarket_trade_tick_sports_runners_use_fixed_replay_windows(
     )
     assert _experiment_keyword_value(module, "emit_html") == "EMIT_HTML"
     assert _experiment_keyword_value(module, "chart_output_path") == "CHART_OUTPUT_PATH"
+    assert _experiment_keyword_value(module, "return_summary_series") is True
+    assert "output/" in ast.unparse(
+        _find_assignment(module, "SUMMARY_REPORT_PATH").value
+    )
+    assert "_multi_market.html" in ast.unparse(
+        _find_assignment(module, "SUMMARY_REPORT_PATH").value
+    )
+
+    report_assign = _find_assignment(module, "REPORT")
+    assert isinstance(report_assign.value, ast.Call)
+    assert _keyword_value(report_assign.value, "summary_report") is True
+    assert (
+        _keyword_value(report_assign.value, "summary_report_path")
+        == "SUMMARY_REPORT_PATH"
+    )
 
     fixed_lookback_assign = _find_assignment(module, "FIXED_LOOKBACK_DAYS")
     assert (

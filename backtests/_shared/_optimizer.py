@@ -35,6 +35,9 @@ type ParameterValues = tuple[tuple[str, Any], ...]
 type BacktestEvaluator = Callable[[PredictionMarketBacktest], object]
 
 
+REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
 @dataclass(frozen=True)
 class OptimizationWindow:
     name: str
@@ -119,7 +122,10 @@ class OptimizationConfig:
         object.__setattr__(self, "parameter_grid", MappingProxyType(normalized_grid))
         object.__setattr__(self, "train_windows", tuple(self.train_windows))
         object.__setattr__(self, "holdout_windows", tuple(self.holdout_windows))
-        object.__setattr__(self, "artifact_root", Path(self.artifact_root))
+        artifact_root = Path(self.artifact_root).expanduser()
+        if not artifact_root.is_absolute():
+            artifact_root = REPO_ROOT / artifact_root
+        object.__setattr__(self, "artifact_root", artifact_root.resolve())
 
         if not self.train_windows:
             raise ValueError("train_windows must not be empty.")

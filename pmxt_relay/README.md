@@ -89,6 +89,23 @@ Edit `/etc/pmxt-relay.env` before starting the services. The active relay does
 not bake in archive or raw-origin URLs; set your mirror's upstream listing URL
 and raw origin URL explicitly for the environment you run.
 
+Important env knobs from `pmxt_relay/systemd/pmxt-relay.env.example`:
+
+- `PMXT_RELAY_DATA_DIR` for relay-owned state under `/srv/pmxt-relay`
+- `PMXT_RELAY_ARCHIVE_LISTING_URL` for the upstream archive listing to poll
+- `PMXT_RELAY_RAW_BASE_URL` for the upstream raw object base URL
+- `PMXT_RELAY_TRUSTED_PROXY_IPS` if the API sits behind Caddy, nginx, or
+  another reverse proxy and should trust forwarded client IPs from that proxy
+
+After startup, verify the deployment with:
+
+```bash
+systemctl is-active pmxt-relay-api.service pmxt-relay-worker.service
+curl -fsS http://127.0.0.1:8080/healthz
+curl -fsS http://127.0.0.1:8080/v1/stats
+curl -fsS http://127.0.0.1:8080/v1/system
+```
+
 ## API Surface
 
 Active mirror-focused endpoints:

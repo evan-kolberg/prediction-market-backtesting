@@ -229,11 +229,15 @@ def test_pmxt_multi_sim_example_runner_uses_fixed_windows(
     )
     captured: dict[str, object] = {}
 
-    def _fake_run_experiment(experiment):  # type: ignore[no-untyped-def]
-        captured["experiment"] = experiment
+    def _fake_run_reported_multi_sim_pmxt_backtest(**kwargs):  # type: ignore[no-untyped-def]
+        captured.update(kwargs)
         return []
 
-    monkeypatch.setattr(module, "run_experiment", _fake_run_experiment)
+    monkeypatch.setattr(
+        module,
+        "run_reported_multi_sim_pmxt_backtest",
+        _fake_run_reported_multi_sim_pmxt_backtest,
+    )
 
     module.run()
 
@@ -243,9 +247,25 @@ def test_pmxt_multi_sim_example_runner_uses_fixed_windows(
     assert module.EXPERIMENT.initial_cash == 100.0
     assert module.EXPERIMENT.min_quotes == 500
     assert module.EXPERIMENT.min_price_range == 0.005
+    assert module.EXPERIMENT.chart_output_path == "output"
+    assert module.EXPERIMENT.return_summary_series is True
     assert module.EXPERIMENT.probability_window == 30
     assert module.DATA.sources == EXPECTED_PMXT_SOURCES
     assert module.REPORT.market_key == "sim_label"
+    assert module.REPORT.combined_report is True
+    assert module.REPORT.combined_report_path == (
+        f"output/{module.NAME}_combined_legacy.html"
+    )
+    assert module.REPORT.summary_report is True
+    assert module.REPORT.summary_report_path == (
+        f"output/{module.NAME}_multi_market.html"
+    )
+    assert captured["report"] == module.REPORT
+    assert captured["empty_message"] == module.EMPTY_MESSAGE
+    assert captured["partial_message"] == module.PARTIAL_MESSAGE
+    assert captured["backtest"].name == module.NAME
+    assert captured["backtest"].data == module.DATA
+    assert captured["backtest"].replays == module.REPLAYS
     assert [sim.market_slug for sim in module.REPLAYS] == [
         EXPECTED_MARKET_SLUG,
         EXPECTED_MARKET_SLUG,
@@ -287,7 +307,8 @@ def test_pmxt_multi_sim_example_runner_uses_fixed_windows(
     assert isinstance(strategy, QuoteTickVWAPReversionStrategy)
     assert isinstance(strategy.config, QuoteTickVWAPReversionConfig)
 
-    assert captured["experiment"] is module.EXPERIMENT
+    assert captured["backtest"].emit_html is True
+    assert captured["backtest"].return_summary_series is True
     assert (
         module.EXPERIMENT.empty_message
         == "No PMXT multi-sim example windows met the quote-tick requirements."

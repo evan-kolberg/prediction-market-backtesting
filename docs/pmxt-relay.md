@@ -44,6 +44,26 @@ Operational note:
 The archived relay under `archive/pmxt_relay_legacy/` is historical context
 only. It is not part of the active public relay path.
 
+Deployment facts for the active box:
+
+- live checkout path: `/opt/prediction-market-backtesting`
+- env file: `/etc/pmxt-relay.env`
+- systemd units:
+  `pmxt-relay-api.service` and `pmxt-relay-worker.service`
+- public URL:
+  `https://209-209-10-83.sslip.io`
+- trusted-proxy env var:
+  `PMXT_RELAY_TRUSTED_PROXY_IPS`
+
+Useful health checks:
+
+```bash
+systemctl is-active pmxt-relay-api.service pmxt-relay-worker.service
+curl -fsS https://209-209-10-83.sslip.io/healthz
+curl -fsS https://209-209-10-83.sslip.io/v1/stats
+curl -fsS https://209-209-10-83.sslip.io/v1/system
+```
+
 ## PC-Side Alternative
 
 The active relay docs here stay focused on VPS infrastructure. If you only need

@@ -23,6 +23,8 @@ make test
 uv run python backtests/kalshi_trade_tick_breakout.py
 uv run python backtests/polymarket_trade_tick_vwap_reversion.py
 uv run python backtests/polymarket_quote_tick_pmxt_ema_crossover.py
+uv run python backtests/polymarket_trade_tick_sports_vwap_reversion.py
+uv run python backtests/polymarket_quote_tick_pmxt_multi_sim_runner.py
 ```
 
 Quote-tick PMXT runners use the source path pinned in `DATA.sources` inside the
@@ -36,8 +38,16 @@ Coverage is mixed by design:
 - fast unit tests for strategy, loader, cache, and relay logic
 - relay processor and API integration tests against temp dirs
 - smoke tests that exercise real backtest flows
-- generated chart output redirected to temp dirs during tests so the working
-  tree stays clean
+- generated chart output either redirected to temp dirs or explicitly cleaned up
+  so the working tree stays clean
+
+If you are specifically validating HTML/report behavior, include at least:
+
+- one single-market runner that should emit one `*_legacy.html`
+- one fixed-basket multi-market runner that should emit per-market
+  `*_legacy.html` files plus one `*_multi_market.html`
+- the PMXT multi-sim runner, which should emit per-sim `*_legacy.html` files
+  plus both `*_combined_legacy.html` and `*_multi_market.html`
 
 ## Docs Validation
 

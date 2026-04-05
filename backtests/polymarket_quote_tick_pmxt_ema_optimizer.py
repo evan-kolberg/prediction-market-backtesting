@@ -37,7 +37,7 @@ NAME = "polymarket_quote_tick_pmxt_ema_optimizer"
 DESCRIPTION = "Random-search EMA optimizer with explicit train and holdout windows on PMXT L2 data"
 
 EMIT_HTML = False
-CHART_OUTPUT_PATH = None
+CHART_OUTPUT_PATH = "output"
 
 DATA = MarketDataConfig(
     platform=Polymarket,

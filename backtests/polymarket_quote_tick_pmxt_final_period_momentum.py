@@ -36,7 +36,7 @@ NAME = "polymarket_quote_tick_pmxt_final_period_momentum"
 DESCRIPTION = "Late breakout momentum on a single Polymarket market using PMXT L2 data"
 
 EMIT_HTML = True
-CHART_OUTPUT_PATH = None
+CHART_OUTPUT_PATH = "output"
 
 DATA = MarketDataConfig(
     platform=Polymarket,

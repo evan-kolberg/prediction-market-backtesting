@@ -78,6 +78,16 @@ PolymarketPMXTDataLoader = RunnerPolymarketPMXTDataLoader
 type StrategyFactory = Callable[[InstrumentId], Strategy]
 
 
+REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+def _resolve_repo_relative_path(path_like: str | Path) -> Path:
+    path = Path(path_like).expanduser()
+    if not path.is_absolute():
+        path = REPO_ROOT / path
+    return path.resolve()
+
+
 @dataclass(frozen=True)
 class MarketReportConfig:
     count_key: str
@@ -580,7 +590,7 @@ class PredictionMarketBacktest:
         default_filename = f"{self.name}_{market_id}_legacy.html"
         configured_path = self.chart_output_path
         if configured_path is None:
-            return (Path("output") / default_filename).resolve()
+            return _resolve_repo_relative_path(Path("output") / default_filename)
 
         if isinstance(configured_path, Path):
             raw_path = str(configured_path)
@@ -597,14 +607,16 @@ class PredictionMarketBacktest:
             path = Path(resolved)
             if not path.suffix:
                 path = path / default_filename
-            return path.resolve()
+            return _resolve_repo_relative_path(path)
 
         path = Path(raw_path)
         if path.suffix:
             if len(self.sims) == 1:
-                return path.resolve()
-            return path.with_name(f"{path.stem}_{market_id}{path.suffix}").resolve()
-        return (path / default_filename).resolve()
+                return _resolve_repo_relative_path(path)
+            return _resolve_repo_relative_path(
+                path.with_name(f"{path.stem}_{market_id}{path.suffix}")
+            )
+        return _resolve_repo_relative_path(path / default_filename)
 
     def _build_single_market_summary_series(
         self,
@@ -780,7 +792,7 @@ def finalize_market_results(
     if report.combined_report and report.combined_report_path is not None:
         combined_path = save_combined_backtest_report(
             results=list(results),
-            output_path=report.combined_report_path,
+            output_path=_resolve_repo_relative_path(report.combined_report_path),
             title=f"{name} combined legacy chart",
             market_key=market_key,
             pnl_label=report.pnl_label,
@@ -791,7 +803,7 @@ def finalize_market_results(
     if report.summary_report and report.summary_report_path is not None:
         summary_path = save_aggregate_backtest_report(
             results=list(results),
-            output_path=report.summary_report_path,
+            output_path=_resolve_repo_relative_path(report.summary_report_path),
             title=f"{name} legacy multi-market chart",
             market_key=market_key,
             pnl_label=report.pnl_label,

@@ -34,7 +34,7 @@ NAME = "polymarket_trade_tick_spread_capture"
 DESCRIPTION = "Mean-reversion spread capture on a single Polymarket market"
 
 EMIT_HTML = True
-CHART_OUTPUT_PATH = None
+CHART_OUTPUT_PATH = "output"
 
 DATA = MarketDataConfig(
     platform=Polymarket,
