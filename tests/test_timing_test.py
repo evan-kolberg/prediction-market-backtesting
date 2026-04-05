@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import importlib
+
 import pytest
 
 from backtests._shared._timing_test import _progress_bar_description
@@ -162,3 +164,55 @@ def test_active_transfer_progress_dedupes_by_hour() -> None:
 
     assert active_hours == 1
     assert active_progress == pytest.approx(0.96)
+
+
+def test_install_timing_patches_runner_loader_override() -> None:
+    from backtests._shared import _timing_test as timing_module
+    from backtests._shared.data_sources.pmxt import RunnerPolymarketPMXTDataLoader
+    from nautilus_trader.adapters.polymarket.pmxt import PolymarketPMXTDataLoader
+
+    timing_module = importlib.reload(timing_module)
+
+    method_names = (
+        "_load_cached_market_batches",
+        "_load_relay_market_batches",
+        "_load_relay_raw_market_batches",
+        "_load_local_archive_market_batches",
+        "_load_remote_market_batches",
+        "_load_market_batches",
+        "_iter_market_batches",
+    )
+    base_originals = {
+        name: getattr(PolymarketPMXTDataLoader, name) for name in method_names
+    }
+    runner_originals = {
+        name: getattr(RunnerPolymarketPMXTDataLoader, name) for name in method_names
+    }
+    runner_had_own = {
+        name: name in RunnerPolymarketPMXTDataLoader.__dict__ for name in method_names
+    }
+
+    try:
+        timing_module.install_timing()
+
+        assert (
+            RunnerPolymarketPMXTDataLoader._load_market_batches
+            is not runner_originals["_load_market_batches"]
+        )
+        assert (
+            RunnerPolymarketPMXTDataLoader._iter_market_batches
+            is not runner_originals["_iter_market_batches"]
+        )
+        assert (
+            PolymarketPMXTDataLoader._load_market_batches
+            is not base_originals["_load_market_batches"]
+        )
+    finally:
+        timing_module._installed = False
+        for name, original in base_originals.items():
+            setattr(PolymarketPMXTDataLoader, name, original)
+        for name, original in runner_originals.items():
+            if runner_had_own[name]:
+                setattr(RunnerPolymarketPMXTDataLoader, name, original)
+            elif name in RunnerPolymarketPMXTDataLoader.__dict__:
+                delattr(RunnerPolymarketPMXTDataLoader, name)

@@ -618,9 +618,13 @@ def install_timing() -> None:
 
         loader_cls._load_local_archive_market_batches = patched_local_archive
 
-    _install_full_timing(PolymarketPMXTDataLoader)
     if RunnerPolymarketPMXTDataLoader is not None:
+        # Patch the repo-layer runner first because it overrides
+        # _load_market_batches; patching only the base class leaves local
+        # mirror scans outside the started/completed hour bookkeeping.
+        _install_full_timing(RunnerPolymarketPMXTDataLoader)
         _install_runner_local_archive_timing(RunnerPolymarketPMXTDataLoader)
+    _install_full_timing(PolymarketPMXTDataLoader)
 
 
 def _load_backtest_module(path_str: str):
