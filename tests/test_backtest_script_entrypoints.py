@@ -34,6 +34,11 @@ SCRIPT_ENTRYPOINT_PATHS = [
     Path("scripts/pmxt_download_raws.py"),
 ]
 
+REPO_BOOTSTRAP_HELPERS = {
+    Path("backtests/_script_helpers.py"),
+    Path("scripts/_script_helpers.py"),
+}
+
 
 @pytest.mark.parametrize(
     "relative_path",
@@ -94,6 +99,15 @@ def test_backtests_tree_keeps_public_runners_flat() -> None:
         not in {"_shared", "private", "__pycache__"}
     ]
     assert unexpected_nested_runners == []
+
+
+def test_repo_keeps_script_bootstrap_helpers_only_next_to_entrypoints() -> None:
+    helpers = {
+        path.relative_to(REPO_ROOT)
+        for path in REPO_ROOT.rglob("_script_helpers.py")
+        if "nautilus_pm" not in path.parts
+    }
+    assert helpers == REPO_BOOTSTRAP_HELPERS
 
 
 @pytest.mark.parametrize("relative_path", PUBLIC_RUNNER_PATHS)

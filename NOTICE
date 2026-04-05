@@ -23,7 +23,6 @@ prediction-market example code during March 2026, beginning with refactor
 commit `b34beabd4b` on 2026-03-11, and now carry file-level LGPL provenance
 notices with file-specific change dates:
 
-- `backtests/_shared/_script_helpers.py`
 - `backtests/_shared/_kalshi_trade_tick_defaults.py`
 - `backtests/_shared/_kalshi_bar_runner.py`
 - `backtests/_shared/_kalshi_trade_tick_runner.py`
