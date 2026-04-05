@@ -35,6 +35,7 @@ SCRIPT_ENTRYPOINT_PATHS = [
 ]
 
 REPO_BOOTSTRAP_HELPERS = {
+    Path("_script_helpers.py"),
     Path("backtests/_script_helpers.py"),
     Path("scripts/_script_helpers.py"),
 }

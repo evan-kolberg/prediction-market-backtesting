@@ -291,6 +291,52 @@ def test_load_runner_defers_import_failure_until_selection(
         main_module._load_runner(discovered[0])
 
 
+def test_load_runner_supports_runner_local_script_helpers(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    project_root = tmp_path
+    backtests_root = project_root / "backtests"
+    backtests_root.mkdir()
+    (backtests_root / "__init__.py").write_text("", encoding="utf-8")
+    (backtests_root / "_script_helpers.py").write_text(
+        'HELPER_VALUE = "helper-ok"\n',
+        encoding="utf-8",
+    )
+    (backtests_root / "helper_runner.py").write_text(
+        'NAME = "helper_runner"\n'
+        'DESCRIPTION = "Uses a local helper shim"\n'
+        "from _script_helpers import HELPER_VALUE\n"
+        "\n"
+        "def run() -> str:\n"
+        "    return HELPER_VALUE\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(main_module, "PROJECT_ROOT", project_root)
+    monkeypatch.setattr(main_module, "BACKTESTS_ROOT", backtests_root)
+    normalized_sys_path = [
+        entry
+        for entry in sys.path
+        if Path(entry or ".").resolve() not in {project_root, backtests_root}
+    ]
+    monkeypatch.setattr(sys, "path", normalized_sys_path)
+
+    discovered = main_module.discover()
+    prior_helper_module = sys.modules.get("_script_helpers")
+
+    try:
+        sys.modules.pop("_script_helpers", None)
+        runner = main_module._load_runner(discovered[0])
+        assert runner() == "helper-ok"
+        assert str(backtests_root) not in sys.path
+    finally:
+        if prior_helper_module is None:
+            sys.modules.pop("_script_helpers", None)
+        else:
+            sys.modules["_script_helpers"] = prior_helper_module
+
+
 def test_filter_backtests_matches_name_description_and_path() -> None:
     backtests = [
         {

@@ -564,13 +564,16 @@ def _load_runner(backtest: dict[str, Any]) -> Any:
 
     module = importlib.util.module_from_spec(spec)
     prior_module = sys.modules.get(module_name)
+    prior_sys_path = list(sys.path)
 
     try:
+        sys.path.insert(0, str(runner_path.parent))
         sys.modules[module_name] = module
         spec.loader.exec_module(module)
     except Exception as exc:
         raise RuntimeError(f"could not import {relative_path}: {exc}") from exc
     finally:
+        sys.path[:] = prior_sys_path
         if prior_module is None:
             sys.modules.pop(module_name, None)
         else:
