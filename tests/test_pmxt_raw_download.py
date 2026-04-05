@@ -36,6 +36,42 @@ class _Response:
         return chunk
 
 
+class _FakeTqdm:
+    def __init__(self, *args, **kwargs) -> None:  # type: ignore[no-untyped-def]
+        del args
+        self.total = kwargs["total"]
+        self.desc = kwargs["desc"]
+        self.unit = kwargs["unit"]
+        self.leave = kwargs["leave"]
+        self.bar_format = kwargs["bar_format"]
+        self.n = 0
+        self.descriptions = [self.desc]
+        self.postfixes: list[str] = []
+        self.writes: list[str] = []
+        self.closed = False
+
+    def set_description_str(self, desc: str, refresh: bool = True) -> None:
+        del refresh
+        self.desc = desc
+        self.descriptions.append(desc)
+
+    def set_postfix_str(self, postfix: str, refresh: bool = True) -> None:
+        del refresh
+        self.postfixes.append(postfix)
+
+    def refresh(self) -> None:
+        return
+
+    def update(self, value: int) -> None:
+        self.n += value
+
+    def write(self, text: str) -> None:
+        self.writes.append(text)
+
+    def close(self) -> None:
+        self.closed = True
+
+
 def _raw_parquet_payload() -> bytes:
     buffer = BytesIO()
     pq.write_table(
@@ -181,3 +217,126 @@ def test_download_raw_hours_skips_existing_files(monkeypatch, tmp_path: Path) ->
     assert summary.downloaded_hours == 1
     assert summary.skipped_existing_hours == 1
     assert existing_path.read_bytes() == b"existing"
+
+
+def test_download_raw_hours_removes_stale_temp_files_before_skipping(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    destination = tmp_path / "raws"
+    existing_path = (
+        destination
+        / "2026"
+        / "03"
+        / "21"
+        / "polymarket_orderbook_2026-03-21T09.parquet"
+    )
+    existing_path.parent.mkdir(parents=True, exist_ok=True)
+    existing_path.write_bytes(b"existing")
+
+    plain_tmp_path = existing_path.with_name(f"{existing_path.name}.tmp")
+    plain_tmp_path.write_bytes(b"stale-plain-tmp")
+
+    pid_tmp_path = existing_path.with_name(f"{existing_path.name}.tmp.999999")
+    pid_tmp_path.write_bytes(b"stale-pid-tmp")
+
+    monkeypatch.setattr(
+        raw_download,
+        "discover_archive_hours",
+        lambda **_: [
+            raw_download.parse_archive_hour(
+                "polymarket_orderbook_2026-03-21T09.parquet"
+            ),
+        ],
+    )
+
+    def fake_pid_is_active(pid: int) -> bool:
+        del pid
+        return False
+
+    def unexpected_urlopen(request, timeout=60):  # type: ignore[no-untyped-def]
+        del timeout
+        raise AssertionError(f"unexpected download request for {request.full_url}")
+
+    monkeypatch.setattr(raw_download, "_pid_is_active", fake_pid_is_active)
+    monkeypatch.setattr(raw_download, "urlopen", unexpected_urlopen)
+
+    summary = raw_download.download_raw_hours(
+        destination=destination,
+        show_progress=False,
+    )
+
+    assert summary.downloaded_hours == 0
+    assert summary.skipped_existing_hours == 1
+    assert existing_path.read_bytes() == b"existing"
+    assert not plain_tmp_path.exists()
+    assert not pid_tmp_path.exists()
+
+
+def test_download_raw_hours_progress_output_uses_short_hour_labels(
+    monkeypatch,
+    tmp_path: Path,
+    capsys,
+) -> None:
+    payload = _raw_parquet_payload()
+    bars: list[_FakeTqdm] = []
+
+    monkeypatch.setattr(
+        raw_download,
+        "discover_archive_hours",
+        lambda **_: [
+            raw_download.parse_archive_hour(
+                "polymarket_orderbook_2026-03-21T09.parquet"
+            ),
+            raw_download.parse_archive_hour(
+                "polymarket_orderbook_2026-03-21T10.parquet"
+            ),
+        ],
+    )
+
+    def fake_tqdm(*args, **kwargs):  # type: ignore[no-untyped-def]
+        bar = _FakeTqdm(*args, **kwargs)
+        bars.append(bar)
+        return bar
+
+    def fake_urlopen(request, timeout=60):  # type: ignore[no-untyped-def]
+        del timeout
+        if (
+            request.full_url.endswith("2026-03-21T10.parquet")
+            and "/v1/raw/" not in request.full_url
+        ):
+            raise HTTPError(request.full_url, 404, "missing", hdrs=None, fp=None)
+        return _Response(payload, headers={"Content-Length": str(len(payload))})
+
+    monkeypatch.setattr(raw_download, "tqdm", fake_tqdm)
+    monkeypatch.setattr(raw_download, "urlopen", fake_urlopen)
+
+    summary = raw_download.download_raw_hours(
+        destination=tmp_path / "raws",
+        show_progress=True,
+    )
+
+    assert summary.downloaded_hours == 2
+    assert len(bars) == 1
+
+    bar = bars[0]
+    captured = capsys.readouterr()
+
+    assert (
+        "PMXT raw source: explicit priority "
+        "(archive https://r2.pmxt.dev -> relay https://209-209-10-83.sslip.io)"
+    ) in captured.out
+    assert "window_start=2026-03-21T09" in captured.out
+    assert "window_end=2026-03-21T10" in captured.out
+    assert any("active: archive 2026-03-21T09" in status for status in bar.postfixes)
+    assert any("active: relay 2026-03-21T10" in status for status in bar.postfixes)
+    assert not any("+00:00" in status for status in bar.postfixes)
+    assert any(
+        "2026-03-21T09" in line and line.endswith("archive") for line in bar.writes
+    )
+    assert any(
+        "2026-03-21T10" in line and line.endswith("relay") for line in bar.writes
+    )
+    assert not any("+00:00" in line for line in bar.writes)
+    assert "Downloading raw hours (0/2 done, 1 active)" in bar.descriptions
+    assert bar.desc == "Downloading raw hours (2/2 done)"

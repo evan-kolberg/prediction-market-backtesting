@@ -69,14 +69,19 @@ To mirror PMXT raw archive hours locally, run:
 make download-pmxt-raws DESTINATION=/path/to/pmxt_raws
 ```
 
-The download is long-running and prints a live progress bar. Example output:
+The download is long-running and prints per-hour completion lines plus the
+currently active transfer. Example output:
 
 ```text
-Downloading PMXT raws:  13%|███████████████████████▍| 137/1017 [41:27<3:37:59, 14.86s/hour, archive 2026-02-27T11:00:00+00:00 392.0/445.9 MiB]
+PMXT raw source: explicit priority (archive https://r2.pmxt.dev -> relay https://209-209-10-83.sslip.io)
+Downloading PMXT raw hours to /path/to/pmxt_raws (requested_hours=3, window_start=2026-02-27T11, window_end=2026-02-27T13)...
+  2026-02-27T11  12.431s   445.9 MiB  archive
+  2026-02-27T12   0.000s    existing  skip
+Downloading raw hours (2/3 done, 1 active):  67%|████████████████████████████████████████████████████████████▏                              | [00:41<00:20]active: relay 2026-02-27T13 392.0/445.9 MiB 14.8s
 ```
 
-The counts, hour timestamp, source label, and byte totals vary with the
-current archive and the window you are mirroring.
+The counts, hour labels, source label, and byte totals vary with the current
+archive and the window you are mirroring.
 
 ## Timing And Cache Defaults
 

@@ -42,37 +42,14 @@ Operational note:
 The archived relay under `archive/pmxt_relay_legacy/` is historical context
 only. It is not part of the active public relay path.
 
-## Local-First Alternative
+## PC-Side Alternative
 
-If you do not want to run storage-heavy infrastructure for raw mirrors, the
-recommended path is much simpler:
+The active relay docs here stay focused on VPS infrastructure. If you only need
+a one-off local raw download for a PC or external drive, use the local workflow
+docs instead:
 
-- download the raw dumps to a local drive
-- point runners at that raw mirror with `local:/path`
-- let the normal loader cache warm itself as you replay
-
-A large local or external drive is usually enough:
-
-![External drive for local PMXT dumps](https://www.digitaltrends.com/tachyon/2017/03/Lacie-Rugged-4gb-HD-inhandscale.jpg?resize=1200%2C720)
-
-That path avoids VPS relay storage pressure and usually keeps first-pass replay
-fast enough if the raw dump is on a decent SSD or a fast external drive.
-
-The repo-level downloader for that workflow is:
-
-```bash
-make download-pmxt-raws DESTINATION=/path/to/pmxt_raws
-```
-
-The local mirror download is expected to run for a while and report progress in
-place. Example output:
-
-```text
-Downloading PMXT raws:  13%|███████████████████████▍| 137/1017 [41:27<3:37:59, 14.86s/hour, archive 2026-02-27T11:00:00+00:00 392.0/445.9 MiB]
-```
-
-The exact percent, hour count, timestamp, source, and transferred bytes depend
-on the archive state and the mirror window.
+- [`docs/pmxt-byod.md`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/docs/pmxt-byod.md)
+- [`docs/setup.md`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/docs/setup.md)
 
 ## Archived Relay Snapshot
 

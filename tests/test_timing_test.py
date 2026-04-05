@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import importlib
+from datetime import datetime
+from datetime import timezone
 
 import pytest
 
@@ -8,6 +10,7 @@ from backtests._shared._timing_test import _progress_bar_description
 from backtests._shared._timing_test import _progress_bar_position
 from backtests._shared._timing_test import _progress_bar_total
 from backtests._shared._timing_test import _active_transfer_progress
+from backtests._shared._timing_test import _format_completed_hour_line
 from backtests._shared._timing_test import _transfer_progress_fraction
 from backtests._shared._timing_test import _transfer_label
 
@@ -52,6 +55,20 @@ def test_transfer_label_identifies_r2_raw_urls() -> None:
     )
 
     assert label == "r2 raw 2026-02-22T11"
+
+
+def test_format_completed_hour_line_keeps_long_elapsed_values_aligned() -> None:
+    line = _format_completed_hour_line(
+        datetime(2026, 2, 22, 1, tzinfo=timezone.utc),
+        elapsed=22.608,
+        rows=4156,
+        source="local-raw::/Volumes/LaCie/pmxt_raws/2026/02/22/polymarket_orderbook_2026-02-22T01.parquet",
+    )
+
+    assert (
+        line
+        == "  2026-02-22T01:00:00+00:00     22.608s      4156 rows  local raw 2026-02-22T01"
+    )
 
 
 def test_progress_bar_description_reports_started_hours_before_completion() -> None:

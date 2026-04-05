@@ -40,13 +40,13 @@ Running: polymarket_quote_tick_pmxt_panic_fade
 
 PMXT source: explicit priority (cache -> local /Volumes/LaCie/pmxt_raws -> archive https://r2.pmxt.dev -> relay https://209-209-10-83.sslip.io)
 Loading PMXT Polymarket market will-openai-launch-a-new-consumer-hardware-product-by-march-31-2026 (token_index=0, window_start=2026-02-21T16:00:00+00:00, window_end=2026-02-23T10:00:00+00:00)...
-  2026-02-21T18:00:00+00:00   0.002s     263 rows  cache 2026-02-21T18
-  2026-02-21T17:00:00+00:00   0.002s     339 rows  cache 2026-02-21T17
-  2026-02-21T16:00:00+00:00   0.003s     117 rows  cache 2026-02-21T16
-  2026-02-21T15:00:00+00:00   0.553s       0 rows  none
-  2026-02-21T19:00:00+00:00   6.466s     862 rows  local raw 2026-02-21T19
-  2026-02-22T01:00:00+00:00  22.608s    4156 rows  local raw 2026-02-22T01
-  2026-02-22T16:00:00+00:00  24.068s    3571 rows  local raw 2026-02-22T16
+  2026-02-21T18:00:00+00:00      0.002s       263 rows  cache 2026-02-21T18
+  2026-02-21T17:00:00+00:00      0.002s       339 rows  cache 2026-02-21T17
+  2026-02-21T16:00:00+00:00      0.003s       117 rows  cache 2026-02-21T16
+  2026-02-21T15:00:00+00:00      0.553s         0 rows  none
+  2026-02-21T19:00:00+00:00      6.466s       862 rows  local raw 2026-02-21T19
+  2026-02-22T01:00:00+00:00     22.608s      4156 rows  local raw 2026-02-22T01
+  2026-02-22T16:00:00+00:00     24.068s      3571 rows  local raw 2026-02-22T16
 Fetching hours (41/44 done, 3 active):  95%|████████████████████████████████████████████████████████████████████████████████████████████████████████▉| [02:43<00:07], prefetch: - local raw 2026-02-23T09 scan 529.8MiB 574b 220r 3.6s | local raw 2026-02-23T08 scan 563.5MiB 3.6s | +1 more
 ```
 

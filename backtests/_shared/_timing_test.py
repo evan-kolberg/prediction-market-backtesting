@@ -30,6 +30,9 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 _installed = False
+_COMPLETED_HOUR_TIMESTAMP_WIDTH = 25
+_COMPLETED_HOUR_ELAPSED_WIDTH = 9
+_COMPLETED_HOUR_ROWS_WIDTH = 8
 
 
 def _hour_label(source: str) -> str:
@@ -116,6 +119,20 @@ def _progress_bar_position(
     remaining = max(0.0, float(total - completed))
     active_progress = min(max(0.0, active_hours_progress), remaining)
     return completed + active_progress
+
+
+def _format_completed_hour_line(
+    hour,  # type: ignore[no-untyped-def]
+    *,
+    elapsed: float,
+    rows: int,
+    source: str,
+) -> str:
+    return (
+        f"  {hour.isoformat():>{_COMPLETED_HOUR_TIMESTAMP_WIDTH}s}"
+        f"  {elapsed:{_COMPLETED_HOUR_ELAPSED_WIDTH}.3f}s"
+        f"  {rows:>{_COMPLETED_HOUR_ROWS_WIDTH}} rows  {_transfer_label(source)}"
+    )
 
 
 def _hour_label_from_hour(hour) -> str:  # type: ignore[no-untyped-def]
@@ -510,7 +527,12 @@ def install_timing() -> None:
                 bar = pbar_state["bar"]
                 if bar is not None:
                     bar.write(
-                        f"  {hour.isoformat():>25s}  {elapsed:6.3f}s  {rows:>6} rows  {_transfer_label(source)}"
+                        _format_completed_hour_line(
+                            hour,
+                            elapsed=elapsed,
+                            rows=rows,
+                            source=source,
+                        )
                     )
                     _mark_hour_completed(hour)
                     _refresh_transfer_status()

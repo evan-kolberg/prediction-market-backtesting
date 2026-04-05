@@ -80,7 +80,7 @@ Detailed guides have been filed away in the [docs index](https://evan-kolberg.gi
   - [What Is Not Plug-And-Play Yet](https://evan-kolberg.github.io/prediction-market-backtesting/pmxt-byod/#what-is-not-plug-and-play-yet)
 - [Mirror And Relay Ops](https://evan-kolberg.github.io/prediction-market-backtesting/pmxt-relay/)
   - [Active Mirror Service](https://evan-kolberg.github.io/prediction-market-backtesting/pmxt-relay/#active-mirror-service)
-  - [Local-First Alternative](https://evan-kolberg.github.io/prediction-market-backtesting/pmxt-relay/#local-first-alternative)
+  - [PC-Side Alternative](https://evan-kolberg.github.io/prediction-market-backtesting/pmxt-relay/#pc-side-alternative)
   - [Archived Relay Snapshot](https://evan-kolberg.github.io/prediction-market-backtesting/pmxt-relay/#archived-relay-snapshot)
 - [Vendor Fetch Sources And Timing](https://evan-kolberg.github.io/prediction-market-backtesting/pmxt-fetch-sources/)
   - [Example Output](https://evan-kolberg.github.io/prediction-market-backtesting/pmxt-fetch-sources/#example-output)

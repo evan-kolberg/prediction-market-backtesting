@@ -1,12 +1,14 @@
 # PMXT Relay
 
-`pmxt_relay/` is now the active mirror-focused PMXT service layer for this repo.
+`pmxt_relay/` is the VPS deployment subtree for the active PMXT mirror service.
+Keep this folder limited to server infrastructure, service code, and deploy
+artifacts. PC-side download helpers and other local workflows should live
+outside `pmxt_relay/`.
 
 Current direction:
 
 - mirror raw PMXT archive hours onto disk
 - optionally expose those mirrored raw files over `/v1/raw/*`
-- use mirrored raw files directly from runners or the repo downloader
 - keep the active relay scoped to raw mirroring and raw file serving
 
 Older relay code has been archived under `archive/pmxt_relay_legacy/`.
@@ -24,21 +26,6 @@ Mirror API:
 ```bash
 uv run python -m pmxt_relay api
 ```
-
-Repo-level raw download helper:
-
-```bash
-make download-pmxt-raws DESTINATION=/data/pmxt/raw
-```
-
-It shows a live progress bar while copying raw archive hours. Example output:
-
-```text
-Downloading PMXT raws:  13%|███████████████████████▍| 137/1017 [41:27<3:37:59, 14.86s/hour, archive 2026-02-27T11:00:00+00:00 392.0/445.9 MiB]
-```
-
-Expect those numbers to vary by current archive size, source, and the
-destination window you are downloading.
 
 ## Directory Layout
 
