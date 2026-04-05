@@ -9,9 +9,13 @@ from backtests._shared.data_sources.data_types import TradeTick
 from backtests._shared.data_sources.data_types import TRADE_TICK_DATA
 from backtests._shared.data_sources.kalshi_native import KALSHI_REST_BASE_URL_ENV
 from backtests._shared.data_sources.kalshi_native import KalshiNativeDataSourceSelection
+from backtests._shared.data_sources.kalshi_native import KalshiNativeLoaderConfig
 from backtests._shared.data_sources.kalshi_native import RunnerKalshiDataLoader
 from backtests._shared.data_sources.kalshi_native import (
     configured_kalshi_native_data_source,
+)
+from backtests._shared.data_sources.kalshi_native import (
+    resolve_kalshi_native_loader_config,
 )
 from backtests._shared.data_sources.kalshi_native import (
     resolve_kalshi_native_data_source_selection,
@@ -25,8 +29,10 @@ from backtests._shared.data_sources.pmxt import PMXT_REMOTE_BASE_URL_ENV
 from backtests._shared.data_sources.pmxt import PMXT_RAW_ROOT_ENV
 from backtests._shared.data_sources.pmxt import PMXT_RELAY_BASE_URL_ENV
 from backtests._shared.data_sources.pmxt import PMXTDataSourceSelection
+from backtests._shared.data_sources.pmxt import PMXTLoaderConfig
 from backtests._shared.data_sources.pmxt import RunnerPolymarketPMXTDataLoader
 from backtests._shared.data_sources.pmxt import configured_pmxt_data_source
+from backtests._shared.data_sources.pmxt import resolve_pmxt_loader_config
 from backtests._shared.data_sources.polymarket_native import (
     POLYMARKET_CLOB_BASE_URL_ENV,
 )
@@ -40,10 +46,16 @@ from backtests._shared.data_sources.polymarket_native import (
     PolymarketNativeDataSourceSelection,
 )
 from backtests._shared.data_sources.polymarket_native import (
+    PolymarketNativeLoaderConfig,
+)
+from backtests._shared.data_sources.polymarket_native import (
     RunnerPolymarketDataLoader,
 )
 from backtests._shared.data_sources.polymarket_native import (
     configured_polymarket_native_data_source,
+)
+from backtests._shared.data_sources.polymarket_native import (
+    resolve_polymarket_native_loader_config,
 )
 from backtests._shared.data_sources.polymarket_native import (
     resolve_polymarket_native_data_source_selection,
@@ -59,8 +71,6 @@ from backtests._shared.data_sources.vendors import Native
 from backtests._shared.data_sources.vendors import NATIVE_VENDOR
 from backtests._shared.data_sources.vendors import PMXT
 from backtests._shared.data_sources.vendors import PMXT_VENDOR
-from backtests._shared.data_sources.vendors import Telonex
-from backtests._shared.data_sources.vendors import TELONEX_VENDOR
 
 __all__ = [
     "Bar",
@@ -69,6 +79,7 @@ __all__ = [
     "KALSHI_PLATFORM",
     "Kalshi",
     "KalshiNativeDataSourceSelection",
+    "KalshiNativeLoaderConfig",
     "MarketDataType",
     "MarketPlatform",
     "MarketDataVendor",
@@ -84,6 +95,7 @@ __all__ = [
     "PMXT_RAW_ROOT_ENV",
     "PMXT_RELAY_BASE_URL_ENV",
     "PMXTDataSourceSelection",
+    "PMXTLoaderConfig",
     "PMXT_VENDOR",
     "POLYMARKET_PLATFORM",
     "POLYMARKET_CLOB_BASE_URL_ENV",
@@ -91,19 +103,21 @@ __all__ = [
     "POLYMARKET_TRADE_API_BASE_URL_ENV",
     "Polymarket",
     "PolymarketNativeDataSourceSelection",
+    "PolymarketNativeLoaderConfig",
     "QuoteTick",
     "QUOTE_TICK_DATA",
     "RunnerKalshiDataLoader",
     "RunnerPolymarketDataLoader",
     "RunnerPolymarketPMXTDataLoader",
-    "Telonex",
-    "TELONEX_VENDOR",
     "TradeTick",
     "TRADE_TICK_DATA",
     "configured_kalshi_native_data_source",
     "configured_polymarket_native_data_source",
     "configured_pmxt_data_source",
+    "resolve_kalshi_native_loader_config",
     "resolve_kalshi_native_data_source_selection",
+    "resolve_polymarket_native_loader_config",
     "resolve_polymarket_native_data_source_selection",
+    "resolve_pmxt_loader_config",
     "resolve_pmxt_data_source_selection",
 ]

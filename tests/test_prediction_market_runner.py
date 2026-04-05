@@ -35,11 +35,7 @@ def test_generic_runner_dispatches_polymarket_trade_tick(monkeypatch) -> None:
         captured.update(kwargs)
         return {"ok": True}
 
-    monkeypatch.setattr(
-        runner,
-        "run_single_market_polymarket_trade_backtest",
-        _fake_runner,
-    )
+    monkeypatch.setattr(runner, "load_single_market_runner", lambda spec: _fake_runner)
 
     result = asyncio.run(
         runner.run_single_market_backtest(
@@ -73,11 +69,7 @@ def test_generic_runner_dispatches_kalshi_trade_tick(monkeypatch) -> None:
         captured.update(kwargs)
         return {"ok": True}
 
-    monkeypatch.setattr(
-        runner,
-        "run_single_market_kalshi_trade_backtest",
-        _fake_runner,
-    )
+    monkeypatch.setattr(runner, "load_single_market_runner", lambda spec: _fake_runner)
 
     result = asyncio.run(
         runner.run_single_market_backtest(
@@ -111,11 +103,7 @@ def test_generic_runner_dispatches_pmxt_quote_tick(monkeypatch) -> None:
         captured.update(kwargs)
         return {"ok": True}
 
-    monkeypatch.setattr(
-        runner,
-        "run_single_market_pmxt_backtest",
-        _fake_runner,
-    )
+    monkeypatch.setattr(runner, "load_single_market_runner", lambda spec: _fake_runner)
 
     result = asyncio.run(
         runner.run_single_market_backtest(
@@ -162,11 +150,7 @@ def test_generic_runner_forwards_strategy_configs(monkeypatch) -> None:
         captured.update(kwargs)
         return {"ok": True}
 
-    monkeypatch.setattr(
-        runner,
-        "run_single_market_pmxt_backtest",
-        _fake_runner,
-    )
+    monkeypatch.setattr(runner, "load_single_market_runner", lambda spec: _fake_runner)
 
     strategy_configs = [
         {
@@ -204,11 +188,7 @@ def test_generic_runner_forwards_execution(monkeypatch) -> None:
         captured.update(kwargs)
         return {"ok": True}
 
-    monkeypatch.setattr(
-        runner,
-        "run_single_market_pmxt_backtest",
-        _fake_runner,
-    )
+    monkeypatch.setattr(runner, "load_single_market_runner", lambda spec: _fake_runner)
 
     execution = ExecutionModelConfig(
         queue_position=True,

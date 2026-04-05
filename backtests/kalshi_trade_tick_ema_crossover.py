@@ -16,7 +16,10 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from _script_helpers import ensure_repo_root
+if __package__ in {None, ""}:
+    from _script_helpers import ensure_repo_root
+else:
+    from ._script_helpers import ensure_repo_root
 
 ensure_repo_root(__file__)
 
@@ -25,6 +28,12 @@ from backtests._shared._prediction_market_backtest import MarketSimConfig
 from backtests._shared._prediction_market_backtest import PredictionMarketBacktest
 from backtests._shared._prediction_market_backtest import run_reported_backtest
 from backtests._shared._prediction_market_runner import MarketDataConfig
+from backtests._shared._trade_tick_defaults import DEFAULT_INITIAL_CASH
+from backtests._shared._trade_tick_defaults import DEFAULT_KALSHI_MARKET_TICKER
+from backtests._shared._trade_tick_defaults import DEFAULT_KALSHI_NATIVE_DATA_SOURCES
+from backtests._shared._trade_tick_defaults import (
+    DEFAULT_SINGLE_MARKET_TRADE_TICK_LOOKBACK_DAYS,
+)
 from backtests._shared._timing_harness import timing_harness
 from backtests._shared.data_sources import Kalshi, Native, TradeTick
 
@@ -37,13 +46,13 @@ DATA = MarketDataConfig(
     platform=Kalshi,
     data_type=TradeTick,
     vendor=Native,
-    sources=("https://api.elections.kalshi.com/trade-api/v2",),
+    sources=DEFAULT_KALSHI_NATIVE_DATA_SOURCES,
 )
 
 SIMS = (
     MarketSimConfig(
-        market_ticker="KXNEXTIRANLEADER-45JAN01-MKHA",
-        lookback_days=30,
+        market_ticker=DEFAULT_KALSHI_MARKET_TICKER,
+        lookback_days=DEFAULT_SINGLE_MARKET_TRADE_TICK_LOOKBACK_DAYS,
     ),
 )
 
@@ -73,7 +82,7 @@ BACKTEST = PredictionMarketBacktest(
     data=DATA,
     sims=SIMS,
     strategy_configs=STRATEGY_CONFIGS,
-    initial_cash=100.0,
+    initial_cash=DEFAULT_INITIAL_CASH,
     probability_window=96,
     min_trades=1000,
     min_price_range=0.03,

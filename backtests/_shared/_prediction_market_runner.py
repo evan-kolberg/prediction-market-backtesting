@@ -12,19 +12,15 @@ from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.trading.strategy import Strategy
 
 from backtests._shared._execution_config import ExecutionModelConfig
+from backtests._shared._market_data_support import (
+    build_single_market_runner_kwargs,
+)
+from backtests._shared._market_data_support import load_single_market_runner
+from backtests._shared._market_data_support import resolve_market_data_support
 from backtests._shared._strategy_configs import StrategyConfigSpec
 from backtests._shared.data_sources import MarketDataType
 from backtests._shared.data_sources import MarketPlatform
 from backtests._shared.data_sources import MarketDataVendor
-from backtests._shared._kalshi_trade_tick_runner import (
-    run_single_market_trade_backtest as run_single_market_kalshi_trade_backtest,
-)
-from backtests._shared._polymarket_quote_tick_pmxt_runner import (
-    run_single_market_pmxt_backtest,
-)
-from backtests._shared._polymarket_trade_tick_runner import (
-    run_single_market_trade_backtest as run_single_market_polymarket_trade_backtest,
-)
 
 
 type StrategyFactory = Callable[[InstrumentId], Strategy]
@@ -81,96 +77,39 @@ async def run_single_market_backtest(
     end_time: pd.Timestamp | datetime | str | None = None,
     execution: ExecutionModelConfig | None = None,
 ) -> dict[str, Any] | None:
-    if (
-        data.platform == "kalshi"
-        and data.data_type == "trade_tick"
-        and data.vendor == "native"
-    ):
-        if market_ticker is None:
-            raise ValueError("market_ticker is required for Kalshi trade-tick runs.")
-        if lookback_days is None:
-            raise ValueError("lookback_days is required for Kalshi trade-tick runs.")
-        return await run_single_market_kalshi_trade_backtest(
-            name=name,
-            market_ticker=market_ticker,
-            lookback_days=lookback_days,
-            strategy_factory=strategy_factory,
-            strategy_configs=strategy_configs,
-            probability_window=probability_window,
-            min_trades=min_trades,
-            min_price_range=min_price_range,
-            initial_cash=initial_cash,
-            chart_resample_rule=chart_resample_rule,
-            emit_summary=emit_summary,
-            emit_html=emit_html,
-            return_chart_layout=return_chart_layout,
-            end_time=end_time,
-            data_sources=data.sources,
-            execution=execution,
-        )
-
-    if (
-        data.platform == "polymarket"
-        and data.data_type == "trade_tick"
-        and data.vendor == "native"
-    ):
-        if market_slug is None:
-            raise ValueError("market_slug is required for Polymarket trade-tick runs.")
-        if lookback_days is None:
-            raise ValueError(
-                "lookback_days is required for Polymarket trade-tick runs."
-            )
-        return await run_single_market_polymarket_trade_backtest(
-            name=name,
-            market_slug=market_slug,
-            token_index=token_index,
-            lookback_days=lookback_days,
-            strategy_factory=strategy_factory,
-            strategy_configs=strategy_configs,
-            probability_window=probability_window,
-            min_trades=min_trades,
-            min_price_range=min_price_range,
-            initial_cash=initial_cash,
-            chart_resample_rule=chart_resample_rule,
-            emit_summary=emit_summary,
-            emit_html=emit_html,
-            return_chart_layout=return_chart_layout,
-            return_summary_series=return_summary_series,
-            end_time=end_time,
-            data_sources=data.sources,
-            execution=execution,
-        )
-
-    if (
-        data.platform == "polymarket"
-        and data.data_type == "quote_tick"
-        and data.vendor == "pmxt"
-    ):
-        if market_slug is None:
-            raise ValueError("market_slug is required for Polymarket quote-tick runs.")
-        return await run_single_market_pmxt_backtest(
-            name=name,
-            market_slug=market_slug,
-            token_index=token_index,
-            lookback_hours=lookback_hours,
-            strategy_factory=strategy_factory,
-            strategy_configs=strategy_configs,
-            probability_window=probability_window,
-            min_quotes=min_quotes,
-            min_price_range=min_price_range,
-            initial_cash=initial_cash,
-            chart_resample_rule=chart_resample_rule,
-            emit_summary=emit_summary,
-            emit_html=emit_html,
-            return_chart_layout=return_chart_layout,
-            return_summary_series=return_summary_series,
-            start_time=start_time,
-            end_time=end_time,
-            data_sources=data.sources,
-            execution=execution,
-        )
-
-    raise NotImplementedError(
-        "Unsupported backtest data selection: "
-        f"platform={data.platform!r}, data_type={data.data_type!r}, vendor={data.vendor!r}."
+    support = resolve_market_data_support(
+        platform=data.platform,
+        data_type=data.data_type,
+        vendor=data.vendor,
     )
+    runner_fn = load_single_market_runner(support.single_market_runner)
+    runner_kwargs = build_single_market_runner_kwargs(
+        spec=support.single_market_runner,
+        name=name,
+        probability_window=probability_window,
+        strategy_factory=strategy_factory,
+        strategy_configs=list(strategy_configs)
+        if strategy_configs is not None
+        else None,
+        initial_cash=initial_cash,
+        field_values={
+            "market_slug": market_slug,
+            "market_ticker": market_ticker,
+            "token_index": token_index,
+            "lookback_days": lookback_days,
+            "lookback_hours": lookback_hours,
+            "min_trades": min_trades,
+            "min_quotes": min_quotes,
+            "min_price_range": min_price_range,
+            "chart_resample_rule": chart_resample_rule,
+            "emit_summary": emit_summary,
+            "emit_html": emit_html,
+            "return_chart_layout": return_chart_layout,
+            "return_summary_series": return_summary_series,
+            "start_time": start_time,
+            "end_time": end_time,
+            "data_sources": data.sources,
+            "execution": execution,
+        },
+    )
+    return await runner_fn(**runner_kwargs)

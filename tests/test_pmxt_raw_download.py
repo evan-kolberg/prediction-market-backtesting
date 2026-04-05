@@ -7,7 +7,7 @@ from urllib.error import HTTPError
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-import pmxt_raw_download as raw_download
+from scripts import _pmxt_raw_download as raw_download
 
 
 class _Response:

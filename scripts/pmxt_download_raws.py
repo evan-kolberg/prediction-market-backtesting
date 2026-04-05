@@ -4,11 +4,14 @@ import argparse
 import json
 from pathlib import Path
 
-from _script_helpers import ensure_repo_root
+if __package__ in {None, ""}:
+    from _script_helpers import ensure_repo_root
+else:
+    from ._script_helpers import ensure_repo_root
 
 ensure_repo_root(__file__)
 
-from pmxt_raw_download import download_raw_hours  # noqa: E402
+from scripts._pmxt_raw_download import download_raw_hours  # noqa: E402
 
 
 def main() -> int:

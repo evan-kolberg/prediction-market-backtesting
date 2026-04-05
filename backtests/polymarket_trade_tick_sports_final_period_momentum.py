@@ -13,7 +13,10 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from _script_helpers import ensure_repo_root
+if __package__ in {None, ""}:
+    from _script_helpers import ensure_repo_root
+else:
+    from ._script_helpers import ensure_repo_root
 
 ensure_repo_root(__file__)
 
@@ -22,6 +25,13 @@ from backtests._shared._prediction_market_backtest import MarketSimConfig
 from backtests._shared._prediction_market_backtest import PredictionMarketBacktest
 from backtests._shared._prediction_market_backtest import finalize_market_results
 from backtests._shared._prediction_market_runner import MarketDataConfig
+from backtests._shared._trade_tick_defaults import (
+    DEFAULT_FIXED_TRADE_TICK_SPORTS_LOOKBACK_DAYS,
+)
+from backtests._shared._trade_tick_defaults import DEFAULT_INITIAL_CASH
+from backtests._shared._trade_tick_defaults import (
+    DEFAULT_POLYMARKET_NATIVE_DATA_SOURCES,
+)
 from backtests._shared._timing_harness import timing_harness
 from backtests._shared.data_sources import Native, Polymarket, TradeTick
 
@@ -36,16 +46,12 @@ DATA = MarketDataConfig(
     platform=Polymarket,
     data_type=TradeTick,
     vendor=Native,
-    sources=(
-        "gamma=https://gamma-api.polymarket.com",
-        "trades=https://data-api.polymarket.com",
-        "clob=https://clob.polymarket.com",
-    ),
+    sources=DEFAULT_POLYMARKET_NATIVE_DATA_SOURCES,
 )
 
 # Pin each replay window to the market close so the fixed basket stays
 # reproducible and under the public trades API offset ceiling.
-FIXED_LOOKBACK_DAYS = 7
+FIXED_LOOKBACK_DAYS = DEFAULT_FIXED_TRADE_TICK_SPORTS_LOOKBACK_DAYS
 
 SIMS = (
     MarketSimConfig(
@@ -121,7 +127,7 @@ BACKTEST = PredictionMarketBacktest(
     data=DATA,
     sims=SIMS,
     strategy_configs=STRATEGY_CONFIGS,
-    initial_cash=100.0,
+    initial_cash=DEFAULT_INITIAL_CASH,
     probability_window=180,
     min_trades=25,
     min_price_range=0.01,

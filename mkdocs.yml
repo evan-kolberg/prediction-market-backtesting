@@ -28,7 +28,7 @@ nav:
       - Repo Layout: /prediction-market-backtesting/backtests/#repo-layout
       - Runner Contract: /prediction-market-backtesting/backtests/#runner-contract
       - Running Backtests: /prediction-market-backtesting/backtests/#running-backtests
-      - Common Environment Variables: /prediction-market-backtesting/backtests/#common-environment-variables
+      - Editing Runner Inputs: /prediction-market-backtesting/backtests/#editing-runner-inputs
       - Data Vendor Notes: /prediction-market-backtesting/backtests/#data-vendor-notes
   - Execution Modeling:
       - Execution Modeling: execution-modeling.md
@@ -46,9 +46,8 @@ nav:
       - What Is Not Plug-And-Play Yet: /prediction-market-backtesting/pmxt-byod/#what-is-not-plug-and-play-yet
       - Mirror And Relay Ops: pmxt-relay.md
       - Active Mirror Service: /prediction-market-backtesting/pmxt-relay/#active-mirror-service
-      - Legacy Self-Hosted Relay: /prediction-market-backtesting/pmxt-relay/#legacy-self-hosted-relay
-      - Storage-Rich Team Deployment: /prediction-market-backtesting/pmxt-relay/#storage-rich-team-deployment
-      - Local-First Alternative: /prediction-market-backtesting/pmxt-relay/#local-first-alternative
+      - PC-Side Alternative: /prediction-market-backtesting/pmxt-relay/#pc-side-alternative
+      - Archived Relay Snapshot: /prediction-market-backtesting/pmxt-relay/#archived-relay-snapshot
   - Vendor Fetch Sources And Timing:
       - Vendor Fetch Sources And Timing: pmxt-fetch-sources.md
       - Example Output: /prediction-market-backtesting/pmxt-fetch-sources/#example-output

@@ -33,7 +33,9 @@ def test_prediction_market_backtest_build_engine_forwards_execution(monkeypatch)
             vendor="pmxt",
         ),
         sims=(MarketSimConfig(market_slug="demo-market"),),
-        strategy_configs=(),
+        strategy_factory=lambda instrument_id: SimpleNamespace(
+            instrument_id=instrument_id
+        ),
         initial_cash=100.0,
         probability_window=16,
         execution=ExecutionModelConfig(

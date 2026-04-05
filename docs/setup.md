@@ -19,6 +19,13 @@ uv venv --python 3.13
 uv pip install -e nautilus_pm/ bokeh plotly numpy py-clob-client duckdb textual
 ```
 
+If you want to build the docs locally, also install the MkDocs theme used by
+this repo:
+
+```bash
+uv pip install mkdocs-shadcn
+```
+
 You can also use:
 
 ```bash

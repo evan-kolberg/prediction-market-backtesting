@@ -13,7 +13,10 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from _script_helpers import ensure_repo_root
+if __package__ in {None, ""}:
+    from _script_helpers import ensure_repo_root
+else:
+    from ._script_helpers import ensure_repo_root
 
 ensure_repo_root(__file__)
 
@@ -23,6 +26,33 @@ from backtests._shared._prediction_market_backtest import MarketReportConfig
 from backtests._shared._prediction_market_backtest import MarketSimConfig
 from backtests._shared._prediction_market_backtest import PredictionMarketBacktest
 from backtests._shared._prediction_market_backtest import run_reported_backtest
+from backtests._shared._polymarket_quote_tick_defaults import (
+    DEFAULT_POLYMARKET_MARKET_SLUG,
+)
+from backtests._shared._polymarket_quote_tick_defaults import (
+    DEFAULT_PMXT_BASE_LATENCY_MS,
+)
+from backtests._shared._polymarket_quote_tick_defaults import (
+    DEFAULT_PMXT_CANCEL_LATENCY_MS,
+)
+from backtests._shared._polymarket_quote_tick_defaults import (
+    DEFAULT_PMXT_DATA_SOURCES,
+)
+from backtests._shared._polymarket_quote_tick_defaults import (
+    DEFAULT_PMXT_INSERT_LATENCY_MS,
+)
+from backtests._shared._polymarket_quote_tick_defaults import (
+    DEFAULT_PMXT_QUEUE_POSITION,
+)
+from backtests._shared._polymarket_quote_tick_defaults import (
+    DEFAULT_PMXT_RELAY_SAMPLE_END_TIME,
+)
+from backtests._shared._polymarket_quote_tick_defaults import (
+    DEFAULT_PMXT_RELAY_SAMPLE_START_TIME,
+)
+from backtests._shared._polymarket_quote_tick_defaults import (
+    DEFAULT_PMXT_UPDATE_LATENCY_MS,
+)
 from backtests._shared._prediction_market_runner import MarketDataConfig
 from backtests._shared._timing_harness import timing_harness
 from backtests._shared.data_sources import PMXT, Polymarket, QuoteTick
@@ -38,19 +68,15 @@ DATA = MarketDataConfig(
     platform=Polymarket,
     data_type=QuoteTick,
     vendor=PMXT,
-    sources=(
-        "local:/Volumes/LaCie/pmxt_raws",
-        "archive:r2.pmxt.dev",
-        "relay:209-209-10-83.sslip.io",
-    ),
+    sources=DEFAULT_PMXT_DATA_SOURCES,
 )
 
 SIMS = (
     MarketSimConfig(
-        market_slug="will-openai-launch-a-new-consumer-hardware-product-by-march-31-2026",
+        market_slug=DEFAULT_POLYMARKET_MARKET_SLUG,
         token_index=0,
-        start_time="2026-02-21T16:00:00Z",
-        end_time="2026-02-23T10:00:00Z",
+        start_time=DEFAULT_PMXT_RELAY_SAMPLE_START_TIME,
+        end_time=DEFAULT_PMXT_RELAY_SAMPLE_END_TIME,
     ),
 )
 
@@ -75,12 +101,12 @@ REPORT = MarketReportConfig(
 )
 
 EXECUTION = ExecutionModelConfig(
-    queue_position=True,
+    queue_position=DEFAULT_PMXT_QUEUE_POSITION,
     latency_model=StaticLatencyConfig(
-        base_latency_ms=75.0,
-        insert_latency_ms=10.0,
-        update_latency_ms=5.0,
-        cancel_latency_ms=5.0,
+        base_latency_ms=DEFAULT_PMXT_BASE_LATENCY_MS,
+        insert_latency_ms=DEFAULT_PMXT_INSERT_LATENCY_MS,
+        update_latency_ms=DEFAULT_PMXT_UPDATE_LATENCY_MS,
+        cancel_latency_ms=DEFAULT_PMXT_CANCEL_LATENCY_MS,
     ),
 )
 

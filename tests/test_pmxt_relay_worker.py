@@ -121,6 +121,34 @@ def test_adopt_local_raw_marks_hours_as_mirrored(tmp_path: Path) -> None:
         assert stats["mirrored_hours"] == 1
 
 
+def test_run_once_scans_full_local_tree_only_on_first_cycle(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    config = _make_config(tmp_path)
+    with RelayWorker(config, reset_inflight=False) as worker:
+        calls = {"full": 0, "pending": 0}
+
+        monkeypatch.setattr(worker, "_discover_archive_hours", lambda: 0)  # noqa: SLF001
+        monkeypatch.setattr(worker, "_mirror_pending_hours", lambda: 0)  # noqa: SLF001
+
+        def _adopt_all() -> int:
+            calls["full"] += 1
+            return 0
+
+        def _adopt_pending() -> int:
+            calls["pending"] += 1
+            return 0
+
+        monkeypatch.setattr(worker, "_adopt_all_local_raw_hours", _adopt_all)  # noqa: SLF001
+        monkeypatch.setattr(worker, "_adopt_pending_local_raw_hours", _adopt_pending)  # noqa: SLF001
+
+        assert worker.run_once() == 0
+        assert worker.run_once() == 0
+
+        assert calls == {"full": 1, "pending": 1}
+
+
 def test_repeated_404s_are_quarantined(tmp_path: Path, monkeypatch) -> None:
     config = _make_config(tmp_path)
     with RelayWorker(config, reset_inflight=False) as worker:

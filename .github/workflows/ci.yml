@@ -7,16 +7,17 @@ on:
     branches: [main]
 
 jobs:
-  lint:
-    name: Ruff lint & format
+  repo-gate:
+    name: Repo gate
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/ruff-action@v3
+      - uses: actions/setup-python@v5
         with:
-          version: "0.15.5"
-          args: check --exclude nautilus_pm
-      - uses: astral-sh/ruff-action@v3
-        with:
-          version: "0.15.5"
-          args: format --check --exclude nautilus_pm
+          python-version: "3.13"
+      - uses: astral-sh/setup-uv@v5
+      - run: uv venv --python 3.13
+      - run: uv pip install "nautilus_trader[polymarket,visualization]==1.224.0" aiohttp bokeh duckdb textual pytest ruff
+      - run: uv run ruff check --exclude nautilus_pm .
+      - run: uv run ruff format --check --exclude nautilus_pm .
+      - run: uv run pytest tests/ -q
