@@ -1,5 +1,12 @@
 from __future__ import annotations
 
+import pytest
+
+from backtests._shared._timing_test import _progress_bar_description
+from backtests._shared._timing_test import _progress_bar_position
+from backtests._shared._timing_test import _progress_bar_total
+from backtests._shared._timing_test import _active_transfer_progress
+from backtests._shared._timing_test import _transfer_progress_fraction
 from backtests._shared._timing_test import _transfer_label
 
 
@@ -43,3 +50,115 @@ def test_transfer_label_identifies_r2_raw_urls() -> None:
     )
 
     assert label == "r2 raw 2026-02-22T11"
+
+
+def test_progress_bar_description_reports_started_hours_before_completion() -> None:
+    description = _progress_bar_description(
+        total_hours=44,
+        started_hours=4,
+        completed_hours=0,
+    )
+
+    assert description == "Fetching hours (4/44 started, 4 active)"
+
+
+def test_progress_bar_description_reports_completion_and_active_work() -> None:
+    description = _progress_bar_description(
+        total_hours=44,
+        started_hours=7,
+        completed_hours=3,
+    )
+
+    assert description == "Fetching hours (3/44 done, 4 active)"
+
+
+def test_progress_bar_description_uses_actual_active_transfer_count() -> None:
+    description = _progress_bar_description(
+        total_hours=44,
+        started_hours=39,
+        completed_hours=0,
+        active_hours=8,
+    )
+
+    assert description == "Fetching hours (39/44 started, 8 active)"
+
+
+def test_progress_bar_total_matches_total_hours() -> None:
+    assert _progress_bar_total(7) == 7
+
+
+def test_progress_bar_position_includes_active_transfer_progress() -> None:
+    assert (
+        _progress_bar_position(
+            total_hours=7,
+            completed_hours=0,
+            active_hours_progress=0.0,
+        )
+        == 0
+    )
+    assert (
+        _progress_bar_position(
+            total_hours=7,
+            completed_hours=3,
+            active_hours_progress=1.5,
+        )
+        == 4.5
+    )
+
+
+def test_transfer_progress_fraction_uses_download_bytes() -> None:
+    assert (
+        _transfer_progress_fraction(
+            mode="download",
+            downloaded_bytes=50,
+            total_bytes=100,
+            scanned_batches=0,
+        )
+        == 0.45
+    )
+
+
+def test_transfer_progress_fraction_does_not_front_load_local_scan() -> None:
+    assert (
+        _transfer_progress_fraction(
+            mode="scan",
+            source="/Volumes/LaCie/pmxt_raws/2026/02/22/polymarket_orderbook_2026-02-22T15.parquet",
+            downloaded_bytes=0,
+            total_bytes=100,
+            scanned_batches=0,
+        )
+        == 0.0
+    )
+    assert _transfer_progress_fraction(
+        mode="scan",
+        source="/Volumes/LaCie/pmxt_raws/2026/02/22/polymarket_orderbook_2026-02-22T15.parquet",
+        downloaded_bytes=0,
+        total_bytes=100,
+        scanned_batches=2,
+    ) == pytest.approx(2 / 3)
+
+
+def test_active_transfer_progress_dedupes_by_hour() -> None:
+    active_hours, active_progress = _active_transfer_progress(
+        {
+            "one": {
+                "url": "https://r2.pmxt.dev/polymarket_orderbook_2026-02-22T15.parquet",
+                "hour_key": "2026-02-22T15:00:00+00:00",
+                "mode": "download",
+                "downloaded_bytes": 50,
+                "total_bytes": 100,
+                "scanned_batches": 0,
+            },
+            "two": {
+                "url": "https://209-209-10-83.sslip.io/v1/raw/2026/02/22/polymarket_orderbook_2026-02-22T15.parquet",
+                "hour_key": "2026-02-22T15:00:00+00:00",
+                "mode": "scan",
+                "downloaded_bytes": 0,
+                "total_bytes": 100,
+                "scanned_batches": 2,
+            },
+        }
+    )
+
+    assert active_hours == 1
+    assert active_progress == pytest.approx(0.96)

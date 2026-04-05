@@ -55,6 +55,7 @@ notices with file-specific change dates:
 - `backtests/polymarket_trade_tick_sports_vwap_reversion.py`
 - `backtests/polymarket_trade_tick_spread_capture.py`
 - `backtests/polymarket_trade_tick_vwap_reversion.py`
+- `scripts/_script_helpers.py`
 - `strategies/__init__.py`
 - `strategies/breakout.py`
 - `strategies/core.py`

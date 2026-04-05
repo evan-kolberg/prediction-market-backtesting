@@ -7,8 +7,11 @@ L2 order-book data one hour at a time. In the current codebase, the hour lookup
 order is:
 
 1. local filtered cache
-2. each explicit source in `DATA.sources`, left to right
+2. each explicit raw source in `DATA.sources`, left to right
 3. none
+
+`DATA.sources` is prefix-driven on purpose: use `local:`, `archive:`, and
+`relay:` only. Bare hosts, bare paths, and alias prefixes are not accepted.
 
 Two practical notes matter here:
 
@@ -25,25 +28,31 @@ filtered cache so subsequent runs are fast.
 
 ## Example Output
 
-The timing harness prints one line per completed hour. A representative PMXT
-run looks like this:
+The timing harness now keeps one aggregate progress bar for the requested
+window and refreshes the active prefetch status in place. A representative
+`make backtest` PMXT run looks like this:
 
 ```text
-Loading PMXT Polymarket market market-slug (token_index=0, window_start=2026-03-19T07:35:57.277659+00:00, window_end=2026-03-24T07:35:57.277659+00:00, window_hours=120.0)...
-  2026-03-19T11:00:00+00:00   0.001s     214 rows  /Users/you/.cache/nautilus_trader/pmxt/.../polymarket_orderbook_2026-03-19T11.parquet
-  2026-03-20T03:00:00+00:00   0.487s    2443 rows  /Volumes/data/pmxt_raws/2026/03/20/polymarket_orderbook_2026-03-20T03.parquet
-  2026-03-20T05:00:00+00:00  31.842s      91 rows  https://r2.pmxt.dev
-  2026-03-20T06:00:00+00:00   0.711s      88 rows  https://mirror.example.com/v1/raw/2026/03/20/polymarket_orderbook_2026-03-20T06.parquet
-  2026-03-24T07:00:00+00:00   0.404s       0 rows  none
-Fetching hours: 100%|██████████████████████████████████████| 122/122 [00:34<00:00]
+make backtest
+uv run python main.py
+
+Running: polymarket_quote_tick_pmxt_deep_value_hold
+
+PMXT source: explicit priority (cache -> local /Volumes/LaCie/pmxt_raws -> archive https://r2.pmxt.dev -> relay https://209-209-10-83.sslip.io)
+Loading PMXT Polymarket market will-openai-launch-a-new-consumer-hardware-product-by-march-31-2026 (token_index=0, window_start=2026-02-21T16:00:00+00:00, window_end=2026-02-23T10:00:00+00:00)...
+Fetching hours (43/44 started, 43 active):  49%|█████████████████████████████████████████████████████████████                                                                | [12:34<20:04], prefetch: | relay raw 2026-02-22T22 52.0/654.6 MiB 170.4s | r2 raw 2026-02-23T10 548.0/565.1 MiB 15.7s
 ```
 
-The important signal is the rightmost source column:
+The important signals are:
 
-- cache hits are immediate
-- local raw mirrors are disk-bound
-- remote raw hours are network and file-size bound
-- mirror-only relays serve raw parquet, not server-built filtered parquet
+- the `PMXT source:` line shows the exact cache, local, archive, and relay priority
+  the runner will use
+- `started` and `active` show how much of the window has been dispatched and is
+  still in flight
+- the `prefetch:` segment shows the currently active remote raw-hour transfers,
+  including source, hour, bytes, and elapsed time
+- no per-hour completion lines are printed anymore; the aggregate bar is the
+  intended output shape
 
 ## Timing Expectations By Source
 
@@ -80,4 +89,5 @@ uv run python backtests/_shared/_timing_test.py backtests/polymarket_quote_tick_
 
 Public PMXT examples are pinned to known-good sample windows in code so the
 direct script paths stay runnable without editing the file first. If your local
-raw mirror lives somewhere else, update `DATA.sources` in the runner file.
+raw mirror or relay lives somewhere else, update `DATA.sources` in the runner
+file.

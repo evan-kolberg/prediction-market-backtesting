@@ -51,9 +51,9 @@ DATA = MarketDataConfig(
     data_type=QuoteTick,
     vendor=PMXT,
     sources=(
-        "/Volumes/LaCie/pmxt_raws",
-        "r2.pmxt.dev",
-        "209-209-10-83.sslip.io",
+        "local:/Volumes/LaCie/pmxt_raws",
+        "archive:r2.pmxt.dev",
+        "relay:209-209-10-83.sslip.io",
     ),
 )
 

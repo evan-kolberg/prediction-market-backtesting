@@ -18,9 +18,9 @@ from backtests._shared.data_sources.kalshi_native import (
 )
 from backtests._shared.data_sources.pmxt import PMXT_CACHE_DIR_ENV
 from backtests._shared.data_sources.pmxt import PMXT_DATA_SOURCE_ENV
+from backtests._shared.data_sources.pmxt import PMXT_DISABLE_CACHE_ENV
 from backtests._shared.data_sources.pmxt import PMXT_DISABLE_REMOTE_ARCHIVE_ENV
-from backtests._shared.data_sources.pmxt import PMXT_LOCAL_FILTERED_DIR_ENV
-from backtests._shared.data_sources.pmxt import PMXT_LOCAL_MIRROR_DIR_ENV
+from backtests._shared.data_sources.pmxt import PMXT_LOCAL_RAWS_DIR_ENV
 from backtests._shared.data_sources.pmxt import PMXT_REMOTE_BASE_URL_ENV
 from backtests._shared.data_sources.pmxt import PMXT_RAW_ROOT_ENV
 from backtests._shared.data_sources.pmxt import PMXT_RELAY_BASE_URL_ENV
@@ -77,9 +77,9 @@ __all__ = [
     "PMXT",
     "PMXT_CACHE_DIR_ENV",
     "PMXT_DATA_SOURCE_ENV",
+    "PMXT_DISABLE_CACHE_ENV",
     "PMXT_DISABLE_REMOTE_ARCHIVE_ENV",
-    "PMXT_LOCAL_FILTERED_DIR_ENV",
-    "PMXT_LOCAL_MIRROR_DIR_ENV",
+    "PMXT_LOCAL_RAWS_DIR_ENV",
     "PMXT_REMOTE_BASE_URL_ENV",
     "PMXT_RAW_ROOT_ENV",
     "PMXT_RELAY_BASE_URL_ENV",

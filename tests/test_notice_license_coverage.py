@@ -17,7 +17,7 @@ LGPL_HEADER_MARKERS = (
 
 def _tracked_files() -> list[str]:
     output = subprocess.check_output(
-        ["git", "ls-files"],
+        ["git", "ls-files", "--cached", "--others", "--exclude-standard"],
         cwd=REPO_ROOT,
         text=True,
     )

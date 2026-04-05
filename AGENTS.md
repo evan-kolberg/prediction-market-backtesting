@@ -176,7 +176,7 @@ One transient timeout immediately after restart is less important than a repeat.
 ## Relay Metrics Note
 
 - `/v1/system` CPU is based on `1-minute loadavg / cpu_count`, capped at `100`.
-- A high CPU percentage can reflect worker or ClickHouse pressure or I/O wait, not necessarily an API failure.
+- A high CPU percentage can reflect worker load or I/O wait, not necessarily an API failure.
 - Confirm with `uptime`, `/proc/loadavg`, `vmstat`, and top processes before concluding the box is unhealthy.
 
 ## Docs Invariants

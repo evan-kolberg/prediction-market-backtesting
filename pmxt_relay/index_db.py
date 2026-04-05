@@ -19,6 +19,7 @@ _LOCKED_ERROR_SNIPPETS = (
     "database table is locked",
 )
 _DUPLICATE_COLUMN_ERROR_SNIPPET = "duplicate column name"
+_LEGACY_ACTIVE_STATUS = "processing"
 
 
 def _utc_now_datetime() -> datetime:
@@ -151,6 +152,14 @@ class RelayIndex:
             ON archive_hours (mirror_status, next_retry_at, hour DESC)
             """
         )
+        self._conn.execute(
+            """
+            UPDATE archive_hours
+            SET mirror_status = 'active'
+            WHERE mirror_status = ?
+            """,
+            (_LEGACY_ACTIVE_STATUS,),
+        )
 
     def _ensure_archive_column(self, sql: str) -> None:
         try:
@@ -282,9 +291,9 @@ class RelayIndex:
                         last_error_at = COALESCE(last_error_at, ?),
                         next_retry_at = NULL,
                         error_count = error_count + 1
-                    WHERE mirror_status = 'processing'
+                    WHERE mirror_status IN ('active', ?)
                     """,
-                    (_utc_now(),),
+                    (_utc_now(), _LEGACY_ACTIVE_STATUS),
                 )
             return cursor.rowcount
 
@@ -351,7 +360,7 @@ class RelayIndex:
             lambda: self._write_single_update(
                 """
                 UPDATE archive_hours
-                SET mirror_status = 'processing',
+                SET mirror_status = 'active',
                     last_error = NULL,
                     next_retry_at = NULL
                 WHERE filename = ?
@@ -571,7 +580,7 @@ class RelayIndex:
             """
             SELECT
                 SUM(CASE WHEN mirror_status = 'pending' THEN 1 ELSE 0 END) AS mirror_pending,
-                SUM(CASE WHEN mirror_status = 'processing' THEN 1 ELSE 0 END) AS mirror_processing,
+                SUM(CASE WHEN mirror_status IN ('active', ?) THEN 1 ELSE 0 END) AS mirror_active,
                 SUM(CASE WHEN mirror_status IN ('error', 'quarantined') THEN 1 ELSE 0 END) AS mirror_error,
                 SUM(CASE WHEN mirror_status IN ('error', 'quarantined') AND (next_retry_at IS NULL OR next_retry_at <= ?) THEN 1 ELSE 0 END) AS mirror_retry_due,
                 SUM(CASE WHEN mirror_status IN ('error', 'quarantined') AND next_retry_at > ? THEN 1 ELSE 0 END) AS mirror_retry_waiting,
@@ -587,12 +596,12 @@ class RelayIndex:
                 ) AS latest_mirrored_filename
             FROM archive_hours
             """,
-            (retry_cutoff, retry_cutoff),
+            (_LEGACY_ACTIVE_STATUS, retry_cutoff, retry_cutoff),
         )
         queue_row = dict(row) if row is not None else {}
         return {
             "mirror_pending": int(queue_row.get("mirror_pending") or 0),
-            "mirror_processing": int(queue_row.get("mirror_processing") or 0),
+            "mirror_active": int(queue_row.get("mirror_active") or 0),
             "mirror_error": int(queue_row.get("mirror_error") or 0),
             "mirror_retry_due": int(queue_row.get("mirror_retry_due") or 0),
             "mirror_retry_waiting": int(queue_row.get("mirror_retry_waiting") or 0),

@@ -30,6 +30,10 @@ FIXED_SPORTS_TRADE_TICK_RUNNERS = [
     Path("backtests/polymarket_trade_tick_sports_vwap_reversion.py"),
 ]
 
+SCRIPT_ENTRYPOINT_PATHS = [
+    Path("scripts/pmxt_download_raws.py"),
+]
+
 
 @pytest.mark.parametrize(
     "relative_path",
@@ -56,6 +60,22 @@ def test_direct_script_entrypoints_import_without_repo_root_on_sys_path(
 
     assert "NAME" in globals_dict
     assert "run" in globals_dict
+
+
+@pytest.mark.parametrize("relative_path", SCRIPT_ENTRYPOINT_PATHS)
+def test_repo_scripts_import_without_repo_root_on_sys_path(
+    monkeypatch: pytest.MonkeyPatch,
+    relative_path: Path,
+) -> None:
+    script_path = REPO_ROOT / relative_path
+    normalized_sys_path = [
+        entry for entry in sys.path if Path(entry or ".").resolve() != REPO_ROOT
+    ]
+    monkeypatch.setattr(sys, "path", [str(script_path.parent), *normalized_sys_path])
+
+    globals_dict = runpy.run_path(str(script_path), run_name="__script_test__")
+
+    assert "main" in globals_dict
 
 
 def test_backtests_tree_keeps_public_runners_flat() -> None:

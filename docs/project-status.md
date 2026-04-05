@@ -25,4 +25,3 @@ No repo-level open issues are tracked here right now.
 - [x] relay DB writes now retry across transient SQLite lock contention instead of killing services [PR#36](https://github.com/evan-kolberg/prediction-market-backtesting/pull/36)
 - [x] PMXT L2 replay now orders book updates ahead of quote ticks so longer windows do not lose book state [PR#26](https://github.com/evan-kolberg/prediction-market-backtesting/pull/26)
 - [x] `polymarket_simple_quoter.py` now works when run directly because repo-root bootstrap happens early enough [PR#26](https://github.com/evan-kolberg/prediction-market-backtesting/pull/26)
-- [x] relay ingest now writes filtered rows into ClickHouse instead of rebuilding the old tiny-file fanout on the live VPS [PR#40](https://github.com/evan-kolberg/prediction-market-backtesting/pull/40)

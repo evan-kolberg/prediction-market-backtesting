@@ -66,6 +66,129 @@ def _transfer_label(source: str) -> str:
     return f"r2 raw {hour_label}"
 
 
+def _progress_bar_description(
+    *,
+    total_hours: int,
+    started_hours: int,
+    completed_hours: int,
+    active_hours: int | None = None,
+) -> str:
+    if total_hours <= 0:
+        return "Fetching hours"
+
+    started = min(max(0, started_hours), total_hours)
+    completed = min(max(0, completed_hours), total_hours)
+    if active_hours is None:
+        active = max(0, started - completed)
+    else:
+        active = min(max(0, active_hours), total_hours)
+
+    if completed == 0 and active > 0:
+        return f"Fetching hours ({started}/{total_hours} started, {active} active)"
+    if completed == 0 and started > 0:
+        return f"Fetching hours ({started}/{total_hours} started)"
+    if active > 0:
+        return f"Fetching hours ({completed}/{total_hours} done, {active} active)"
+    if completed >= total_hours:
+        return f"Fetching hours ({total_hours}/{total_hours} done)"
+    return f"Fetching hours ({completed}/{total_hours} done)"
+
+
+def _hour_progress_key(hour) -> str:  # type: ignore[no-untyped-def]
+    try:
+        return hour.isoformat()
+    except AttributeError:
+        return str(hour)
+
+
+def _progress_bar_total(total_hours: int) -> int:
+    return max(0, total_hours)
+
+
+def _progress_bar_position(
+    *,
+    total_hours: int,
+    completed_hours: int,
+    active_hours_progress: float = 0.0,
+) -> float:
+    total = max(0, total_hours)
+    completed = min(max(0, completed_hours), total)
+    remaining = max(0.0, float(total - completed))
+    active_progress = min(max(0.0, active_hours_progress), remaining)
+    return completed + active_progress
+
+
+def _hour_label_from_hour(hour) -> str:  # type: ignore[no-untyped-def]
+    try:
+        return hour.strftime("%Y-%m-%dT%H")
+    except AttributeError:
+        return _hour_label(_hour_progress_key(hour))
+
+
+def _is_local_scan_source(source: str | None) -> bool:
+    if source is None:
+        return False
+    parsed = urlparse(source)
+    if parsed.scheme == "file":
+        return True
+    return "://" not in source
+
+
+def _transfer_progress_fraction(
+    *,
+    mode: str | None,
+    source: str | None = None,
+    downloaded_bytes: int,
+    total_bytes: int | None,
+    scanned_batches: int,
+) -> float:
+    if mode == "scan":
+        batches = max(0, scanned_batches)
+        if _is_local_scan_source(source):
+            if batches == 0:
+                return 0.0
+            return min(0.99, 1.0 - (1.0 / (1.0 + batches)))
+        if batches == 0:
+            return 0.90
+        tail_fraction = 1.0 - (1.0 / (1.0 + batches))
+        return min(0.99, 0.90 + (0.09 * tail_fraction))
+
+    total = total_bytes if total_bytes is not None else None
+    downloaded = max(0, downloaded_bytes)
+    if total is not None and total > 0:
+        return min(0.90, (downloaded / total) * 0.90)
+    if downloaded > 0:
+        return 0.45
+    return 0.0
+
+
+def _active_transfer_progress(
+    downloads: dict[str, dict[str, object]],
+) -> tuple[int, float]:
+    progress_by_hour: dict[str, float] = {}
+    for state in downloads.values():
+        hour_key = str(state.get("hour_key") or state.get("url") or "")
+        if not hour_key:
+            continue
+        progress_by_hour[hour_key] = max(
+            progress_by_hour.get(hour_key, 0.0),
+            _transfer_progress_fraction(
+                mode=(
+                    str(state.get("mode")) if state.get("mode") is not None else None
+                ),
+                source=str(state.get("url")) if state.get("url") is not None else None,
+                downloaded_bytes=int(state.get("downloaded_bytes", 0)),
+                total_bytes=(
+                    int(state["total_bytes"])
+                    if state.get("total_bytes") is not None
+                    else None
+                ),
+                scanned_batches=int(state.get("scanned_batches", 0)),
+            ),
+        )
+    return len(progress_by_hour), sum(progress_by_hour.values())
+
+
 def install_timing() -> None:
     """Monkey-patch the PMXT loader to show per-hour progress, timing, and source."""
     global _installed
@@ -86,6 +209,16 @@ def install_timing() -> None:
     source_local = threading.local()
     pbar_state: dict = {"bar": None}
     pbar_lock = threading.Lock()
+    progress_state: dict[str, int] = {
+        "total_hours": 0,
+        "started_hours": 0,
+        "completed_hours": 0,
+    }
+    hour_keys_by_label: dict[str, str] = {}
+    progress_keys: dict[str, set[str]] = {
+        "started": set(),
+        "completed": set(),
+    }
     transfer_state: dict[str, object] = {
         "downloads": {},
         "stop": threading.Event(),
@@ -98,9 +231,11 @@ def install_timing() -> None:
         url: str,
         total_bytes: int | None,
         mode: str | None = None,
+        hour_key: str | None = None,
     ) -> dict[str, object]:
         downloads: dict[str, dict[str, object]] = transfer_state["downloads"]  # type: ignore[assignment]
         state = downloads.get(url)
+        resolved_hour_key = hour_key or hour_keys_by_label.get(_hour_label(url))
         if state is None:
             state = {
                 "url": url,
@@ -111,6 +246,7 @@ def install_timing() -> None:
                 "scanned_batches": 0,
                 "scanned_rows": 0,
                 "matched_rows": 0,
+                "hour_key": resolved_hour_key,
             }
             downloads[url] = state
         else:
@@ -118,6 +254,8 @@ def install_timing() -> None:
                 state["total_bytes"] = total_bytes
             if mode is not None:
                 state["mode"] = mode
+            if resolved_hour_key is not None:
+                state["hour_key"] = resolved_hour_key
         return state
 
     def _close_transfer_state(url: str) -> None:
@@ -181,8 +319,44 @@ def install_timing() -> None:
         bar = pbar_state["bar"]
         if bar is None:
             return
+        downloads: dict[str, dict[str, object]] = transfer_state["downloads"]  # type: ignore[assignment]
+        active_hours, active_progress = _active_transfer_progress(downloads)
+        target_position = _progress_bar_position(
+            total_hours=int(progress_state["total_hours"]),
+            completed_hours=int(progress_state["completed_hours"]),
+            active_hours_progress=active_progress,
+        )
+        if target_position > float(bar.n):
+            bar.update(target_position - bar.n)
+        bar.set_description_str(
+            _progress_bar_description(
+                total_hours=int(progress_state["total_hours"]),
+                started_hours=int(progress_state["started_hours"]),
+                completed_hours=int(progress_state["completed_hours"]),
+                active_hours=active_hours,
+            ),
+            refresh=False,
+        )
         status_text = _transfer_status_text()
         bar.set_postfix_str(status_text, refresh=True)
+
+    def _mark_hour_started(hour) -> None:  # type: ignore[no-untyped-def]
+        key = _hour_progress_key(hour)
+        hour_keys_by_label[_hour_label_from_hour(hour)] = key
+        started = progress_keys["started"]
+        if key in started:
+            return
+        started.add(key)
+        progress_state["started_hours"] = len(started)
+
+    def _mark_hour_completed(hour) -> None:  # type: ignore[no-untyped-def]
+        key = _hour_progress_key(hour)
+        hour_keys_by_label[_hour_label_from_hour(hour)] = key
+        completed = progress_keys["completed"]
+        if key in completed:
+            return
+        completed.add(key)
+        progress_state["completed_hours"] = len(completed)
 
     def _download_progress(
         url: str,
@@ -234,11 +408,16 @@ def install_timing() -> None:
                 if downloads:
                     _refresh_transfer_status()
 
-    def _start_transfer(url: str | None) -> None:
+    def _start_transfer(hour, url: str | None) -> None:  # type: ignore[no-untyped-def]
         if url is None:
             return
         with pbar_lock:
-            _ensure_transfer_state(url=url, total_bytes=None)
+            _mark_hour_started(hour)
+            _ensure_transfer_state(
+                url=url,
+                total_bytes=None,
+                hour_key=_hour_progress_key(hour),
+            )
             _refresh_transfer_status()
 
     def _finish_transfer(url: str | None) -> None:
@@ -277,7 +456,7 @@ def install_timing() -> None:
 
         def patched_relay_raw(self, hour, *, batch_size):
             relay_raw_url = self._relay_raw_url_for_hour(hour)
-            _start_transfer(relay_raw_url)
+            _start_transfer(hour, relay_raw_url)
             try:
                 result = orig_relay_raw(self, hour, batch_size=batch_size)
             finally:
@@ -307,7 +486,7 @@ def install_timing() -> None:
 
         def patched_remote(self, hour, *, batch_size):
             remote_url = self._archive_url_for_hour(hour)
-            _start_transfer(remote_url)
+            _start_transfer(hour, remote_url)
             try:
                 result = orig_remote(self, hour, batch_size=batch_size)
             finally:
@@ -319,6 +498,9 @@ def install_timing() -> None:
         def timed_load(self, hour, *, batch_size):
             source_local.source = "none"
             t0 = time.perf_counter()
+            with pbar_lock:
+                _mark_hour_started(hour)
+                _refresh_transfer_status()
             result = orig_load(self, hour, batch_size=batch_size)
             elapsed = time.perf_counter() - t0
             rows = sum(b.num_rows for b in result) if result else 0
@@ -330,27 +512,35 @@ def install_timing() -> None:
                     bar.write(
                         f"  {hour.isoformat():>25s}  {elapsed:6.3f}s  {rows:>6} rows  {_transfer_label(source)}"
                     )
-                    bar.update(1)
+                    _mark_hour_completed(hour)
+                    _refresh_transfer_status()
             return result
 
         def patched_iter(self, hours, *, batch_size):
             with pbar_lock:
                 stop_event: threading.Event = transfer_state["stop"]  # type: ignore[assignment]
                 stop_event.clear()
+                progress_state["total_hours"] = len(hours)
+                progress_state["started_hours"] = 0
+                progress_state["completed_hours"] = 0
+                hour_keys_by_label.clear()
+                progress_keys["started"].clear()
+                progress_keys["completed"].clear()
                 heartbeat_thread = threading.Thread(
                     target=_transfer_heartbeat,
                     name="pmxt-timing-heartbeat",
                     daemon=True,
                 )
                 pbar_state["bar"] = tqdm(
-                    total=len(hours),
-                    desc="Fetching hours",
+                    total=_progress_bar_total(len(hours)),
+                    desc=_progress_bar_description(
+                        total_hours=len(hours),
+                        started_hours=0,
+                        completed_hours=0,
+                    ),
                     unit="hr",
                     leave=False,
-                    bar_format=(
-                        "{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]"
-                        "{postfix}"
-                    ),
+                    bar_format=("{l_bar}{bar}| [{elapsed}<{remaining}]{postfix}"),
                 )
                 previous_callback = getattr(
                     self,
@@ -380,6 +570,12 @@ def install_timing() -> None:
                     ]  # type: ignore[assignment]
                     downloads.clear()
                     transfer_state["parallel"] = False
+                    progress_state["total_hours"] = 0
+                    progress_state["started_hours"] = 0
+                    progress_state["completed_hours"] = 0
+                    hour_keys_by_label.clear()
+                    progress_keys["started"].clear()
+                    progress_keys["completed"].clear()
                     bar = pbar_state["bar"]
                     if bar is not None:
                         bar.clear(nolock=True)
