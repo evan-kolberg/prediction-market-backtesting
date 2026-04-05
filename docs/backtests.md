@@ -66,7 +66,7 @@ from backtests._shared.data_sources import PMXT, Polymarket, QuoteTick
 NAME = "polymarket_quote_tick_pmxt_ema_crossover"
 DESCRIPTION = "EMA crossover momentum on one Polymarket market"
 EMIT_HTML = True
-CHART_OUTPUT_PATH = None
+CHART_OUTPUT_PATH = "output"
 
 DATA = MarketDataConfig(
     platform=Polymarket,
@@ -147,6 +147,8 @@ Every public runner should expose:
 - `DESCRIPTION`
 - `EMIT_HTML`
 - `CHART_OUTPUT_PATH`
+- `COMBINED_REPORT_PATH` when the runner emits a concatenated legacy HTML page
+- `SUMMARY_REPORT_PATH` when the runner emits one aggregate multi-market HTML page
 - `DATA`
 - `REPLAYS`
 - `STRATEGY_CONFIGS`
@@ -154,6 +156,86 @@ Every public runner should expose:
 - `EXECUTION` when the runner models non-default queue position or exchange latency
 - `EXPERIMENT`
 - `run()`
+
+Use `CHART_OUTPUT_PATH="output"` for the normal public-runner default. The
+shared runner layer resolves that relative path from the repo root so it lands
+under this repo's `output/` directory consistently.
+
+## HTML And Report Modes
+
+The repo-layer runner contract distinguishes three different output shapes:
+
+- per-sim legacy chart:
+  controlled by `EMIT_HTML` and `CHART_OUTPUT_PATH`
+- combined legacy report:
+  controlled by `REPORT.combined_report=True` and `COMBINED_REPORT_PATH`
+- aggregate multi-market report:
+  controlled by `REPORT.summary_report=True` and `SUMMARY_REPORT_PATH`
+
+Those are not interchangeable:
+
+- per-sim legacy charts are one HTML file per loaded replay or labeled sim
+- a combined legacy report is a concatenation of the already-generated per-sim
+  HTML pages
+- an aggregate multi-market report is built from summary series and shows all
+  markets or labeled sims in one shared report
+
+The corresponding runner patterns are:
+
+- single-market runner:
+  `EMIT_HTML = True` and `CHART_OUTPUT_PATH = "output"`
+- multi-market runner:
+  the single-market settings plus `SUMMARY_REPORT_PATH`, `REPORT.summary_report=True`,
+  and `return_summary_series=True`
+- PMXT multi-sim runner:
+  the single-market settings plus `COMBINED_REPORT_PATH`,
+  `SUMMARY_REPORT_PATH`, `REPORT.combined_report=True`,
+  `REPORT.summary_report=True`, and `return_summary_series=True`
+
+Minimal shapes:
+
+```python
+EMIT_HTML = True
+CHART_OUTPUT_PATH = "output"
+```
+
+```python
+SUMMARY_REPORT_PATH = f"output/{NAME}_multi_market.html"
+
+REPORT = MarketReportConfig(
+    ...,
+    summary_report=True,
+    summary_report_path=SUMMARY_REPORT_PATH,
+)
+
+EXPERIMENT = build_replay_experiment(
+    ...,
+    emit_html=EMIT_HTML,
+    chart_output_path=CHART_OUTPUT_PATH,
+    return_summary_series=True,
+)
+```
+
+```python
+COMBINED_REPORT_PATH = f"output/{NAME}_combined_legacy.html"
+SUMMARY_REPORT_PATH = f"output/{NAME}_multi_market.html"
+
+REPORT = MarketReportConfig(
+    ...,
+    combined_report=True,
+    combined_report_path=COMBINED_REPORT_PATH,
+    summary_report=True,
+    summary_report_path=SUMMARY_REPORT_PATH,
+)
+```
+
+Practical constraints:
+
+- `COMBINED_REPORT_PATH` depends on the individual HTML files already existing,
+  so keep `EMIT_HTML = True` when you enable it
+- `SUMMARY_REPORT_PATH` depends on summary-series data, so the experiment must
+  opt into `return_summary_series=True`
+- `CHART_OUTPUT_PATH` templates may reference only `{name}` and `{market_id}`
 
 ## Optimization Runners
 
@@ -245,6 +327,11 @@ uv run python backtests/polymarket_trade_tick_vwap_reversion.py
 uv run python backtests/polymarket_quote_tick_pmxt_ema_crossover.py
 ```
 
+When a runner keeps `CHART_OUTPUT_PATH="output"`, those direct commands still
+write into this repo's `output/` directory. The shared runner layer resolves
+that relative path from the repo root rather than from your shell's current
+working directory.
+
 Public runners keep their experiment inputs in code. PMXT quote-tick runners
 pin absolute sample windows; native trade-tick runners pin market/source
 selection and use rolling lookbacks unless you also set `end_time`. If you want
@@ -267,6 +354,10 @@ Use these top-level objects as the edit surface:
 - `EMIT_HTML` to skip per-run HTML output when you are sweeping many runners
 - `CHART_OUTPUT_PATH` for an explicit file, directory, or `{name}` /
   `{market_id}` template
+- `COMBINED_REPORT_PATH` for one concatenated legacy HTML page when the runner
+  should stitch individual chart pages together
+- `SUMMARY_REPORT_PATH` for one aggregate HTML report when the runner should
+  show all markets or labeled sims in one shared report
 - `DATA` for platform, modality, vendor, and source priority
 - `REPLAYS` for one market or a basket of markets
 - `STRATEGY_CONFIGS` for strategy paths and parameter payloads

@@ -20,8 +20,11 @@ else:
 
 ensure_repo_root(__file__)
 
+from backtests._shared._experiments import build_backtest_for_experiment
 from backtests._shared._experiments import build_replay_experiment
-from backtests._shared._experiments import run_experiment
+from backtests._shared._polymarket_trade_tick_multi_runner import (
+    run_reported_multi_market_trade_backtest,
+)
 from backtests._shared._prediction_market_backtest import MarketReportConfig
 from backtests._shared._prediction_market_runner import MarketDataConfig
 from backtests._shared._replay_specs import PolymarketTradeTickReplay
@@ -36,7 +39,8 @@ DESCRIPTION = (
 )
 
 EMIT_HTML = True
-CHART_OUTPUT_PATH = None
+CHART_OUTPUT_PATH = "output"
+SUMMARY_REPORT_PATH = f"output/{NAME}_multi_market.html"
 
 DATA = MarketDataConfig(
     platform=Polymarket,
@@ -118,6 +122,8 @@ REPORT = MarketReportConfig(
     count_key="trades",
     count_label="Trades",
     pnl_label="PnL (USDC)",
+    summary_report=True,
+    summary_report_path=SUMMARY_REPORT_PATH,
 )
 
 EXPERIMENT = build_replay_experiment(
@@ -135,12 +141,18 @@ EXPERIMENT = build_replay_experiment(
     partial_message="Completed {completed} of {total} fixed sports sims.",
     emit_html=EMIT_HTML,
     chart_output_path=CHART_OUTPUT_PATH,
+    return_summary_series=True,
 )
 
 
 @timing_harness
 def run() -> None:
-    run_experiment(EXPERIMENT)
+    run_reported_multi_market_trade_backtest(
+        backtest=build_backtest_for_experiment(EXPERIMENT),
+        report=REPORT,
+        empty_message=EXPERIMENT.empty_message,
+        partial_message=EXPERIMENT.partial_message,
+    )
 
 
 if __name__ == "__main__":

@@ -41,6 +41,15 @@ Fantastic single & multi-market charting. Featuring: equity (total & individual 
 
 Detailed guides have been filed away in the [docs index](https://evan-kolberg.github.io/prediction-market-backtesting/) for better organization and long-term sustainability.
 
+## Quick Start
+
+```bash
+git clone https://github.com/evan-kolberg/prediction-market-backtesting.git
+cd prediction-market-backtesting
+make install
+make backtest
+```
+
 ## Table of Contents
 
 - [Docs Index](https://evan-kolberg.github.io/prediction-market-backtesting/)
@@ -53,6 +62,7 @@ Detailed guides have been filed away in the [docs index](https://evan-kolberg.gi
 - [Backtests And Runners](https://evan-kolberg.github.io/prediction-market-backtesting/backtests/)
   - [Repo Layout](https://evan-kolberg.github.io/prediction-market-backtesting/backtests/#repo-layout)
   - [Runner Contract](https://evan-kolberg.github.io/prediction-market-backtesting/backtests/#runner-contract)
+  - [HTML And Report Modes](https://evan-kolberg.github.io/prediction-market-backtesting/backtests/#html-and-report-modes)
   - [Designing Good Runner Files](https://evan-kolberg.github.io/prediction-market-backtesting/backtests/#designing-good-runner-files)
   - [Multi-Market Strategy Configs](https://evan-kolberg.github.io/prediction-market-backtesting/backtests/#multi-market-strategy-configs)
   - [Running Backtests](https://evan-kolberg.github.io/prediction-market-backtesting/backtests/#running-backtests)
@@ -87,6 +97,7 @@ Detailed guides have been filed away in the [docs index](https://evan-kolberg.gi
   - [Timing Expectations By Source](https://evan-kolberg.github.io/prediction-market-backtesting/pmxt-fetch-sources/#timing-expectations-by-source)
   - [How To See This Output](https://evan-kolberg.github.io/prediction-market-backtesting/pmxt-fetch-sources/#how-to-see-this-output)
 - [Plotting](https://evan-kolberg.github.io/prediction-market-backtesting/plotting/)
+  - [Output Types](https://evan-kolberg.github.io/prediction-market-backtesting/plotting/#output-types)
   - [Output Paths](https://evan-kolberg.github.io/prediction-market-backtesting/plotting/#output-paths)
   - [Multi-Market References](https://evan-kolberg.github.io/prediction-market-backtesting/plotting/#multi-market-references)
 - [Testing](https://evan-kolberg.github.io/prediction-market-backtesting/testing/)

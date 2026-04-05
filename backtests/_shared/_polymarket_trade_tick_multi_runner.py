@@ -5,12 +5,10 @@ from pathlib import Path
 import re
 from typing import Any
 
-from backtests._shared._polymarket_quote_tick_pmxt_runner import (
-    run_single_market_pmxt_backtest,
-)
 from backtests._shared._prediction_market_backtest import MarketReportConfig
 from backtests._shared._prediction_market_backtest import PredictionMarketBacktest
 from backtests._shared._prediction_market_backtest import finalize_market_results
+from backtests._shared._result_policies import ResultPolicy
 
 
 def _sanitize_chart_label(value: object, *, default: str) -> str:
@@ -22,7 +20,7 @@ def _sanitize_chart_label(value: object, *, default: str) -> str:
     return sanitized or default
 
 
-def _resolve_multi_sim_chart_output_path(
+def _resolve_multi_market_chart_output_path(
     *,
     backtest: PredictionMarketBacktest,
     sim: Any,
@@ -33,18 +31,23 @@ def _resolve_multi_sim_chart_output_path(
         return None
 
     raw_market_id = getattr(sim, "market_slug", None) or getattr(
-        sim, "market_ticker", None
+        sim,
+        "market_ticker",
+        None,
     )
     market_id = str(raw_market_id or f"market-{sim_index + 1}")
-    sim_label = _sanitize_chart_label(
-        (getattr(sim, "metadata", None) or {}).get("sim_label"),
-        default=f"sim-{sim_index + 1}",
-    )
     market_label = _sanitize_chart_label(
         market_id,
         default=f"market-{sim_index + 1}",
     )
-    default_filename = f"{backtest.name}_{sim_label}_{market_label}_legacy.html"
+    sim_label = _sanitize_chart_label(
+        (getattr(sim, "metadata", None) or {}).get("sim_label"),
+        default=market_label,
+    )
+    filename_label = (
+        market_label if sim_label == market_label else f"{sim_label}_{market_label}"
+    )
+    default_filename = f"{backtest.name}_{filename_label}_legacy.html"
 
     if configured_path is None:
         return str(Path("output") / default_filename)
@@ -69,54 +72,58 @@ def _resolve_multi_sim_chart_output_path(
 
     path = Path(raw_path)
     if path.suffix:
-        return str(path.with_name(f"{path.stem}_{sim_label}{path.suffix}"))
+        unique_label = market_label if sim_label == market_label else sim_label
+        return str(path.with_name(f"{path.stem}_{unique_label}{path.suffix}"))
     return str(path / default_filename)
 
 
-async def run_multi_sim_pmxt_backtest_async(
+async def run_multi_market_trade_backtest_async(
     *,
     backtest: PredictionMarketBacktest,
 ) -> list[dict[str, Any]]:
     if (
         backtest.data.platform != "polymarket"
-        or backtest.data.data_type != "quote_tick"
-        or backtest.data.vendor != "pmxt"
+        or backtest.data.data_type != "trade_tick"
+        or backtest.data.vendor != "native"
     ):
         raise ValueError(
-            "run_multi_sim_pmxt_backtest_async requires PMXT quote-tick data"
+            "run_multi_market_trade_backtest_async requires Polymarket native trade-tick data"
         )
 
     results: list[dict[str, Any]] = []
     for sim_index, sim in enumerate(backtest.sims):
         if sim.market_slug is None:
-            raise ValueError("market_slug is required for Polymarket quote-tick sims.")
+            raise ValueError("market_slug is required for Polymarket trade-tick sims.")
 
-        result = await run_single_market_pmxt_backtest(
+        isolated_backtest = PredictionMarketBacktest(
             name=backtest.name,
-            market_slug=sim.market_slug,
-            token_index=sim.token_index,
-            probability_window=backtest.probability_window,
+            data=backtest.data,
+            replays=(sim,),
             strategy_factory=backtest.strategy_factory,
             strategy_configs=backtest.strategy_configs,
+            initial_cash=backtest.initial_cash,
+            probability_window=backtest.probability_window,
+            min_trades=backtest.min_trades,
             min_quotes=backtest.min_quotes,
             min_price_range=backtest.min_price_range,
-            initial_cash=backtest.initial_cash,
+            default_lookback_days=backtest.default_lookback_days,
+            default_lookback_hours=backtest.default_lookback_hours,
+            default_start_time=backtest.default_start_time,
+            default_end_time=backtest.default_end_time,
+            nautilus_log_level=backtest.nautilus_log_level,
+            execution=backtest.execution,
             chart_resample_rule=backtest.chart_resample_rule,
-            emit_summary=False,
             emit_html=backtest.emit_html,
-            chart_output_path=_resolve_multi_sim_chart_output_path(
+            chart_output_path=_resolve_multi_market_chart_output_path(
                 backtest=backtest,
                 sim=sim,
                 sim_index=sim_index,
             ),
             return_chart_layout=backtest.return_chart_layout,
             return_summary_series=backtest.return_summary_series,
-            start_time=sim.start_time,
-            end_time=sim.end_time,
-            data_sources=backtest.data.sources,
-            execution=backtest.execution,
-            nautilus_log_level=backtest.nautilus_log_level,
         )
+        isolated_results = await isolated_backtest.run_async()
+        result = isolated_results[0] if isolated_results else None
         if result is None:
             continue
 
@@ -126,20 +133,21 @@ async def run_multi_sim_pmxt_backtest_async(
     return results
 
 
-def run_reported_multi_sim_pmxt_backtest(
+def run_reported_multi_market_trade_backtest(
     *,
     backtest: PredictionMarketBacktest,
     report: MarketReportConfig,
     empty_message: str | None = None,
     partial_message: str | None = None,
+    result_policy: ResultPolicy | None = None,
 ) -> list[dict[str, Any]]:
     try:
         asyncio.get_running_loop()
     except RuntimeError:
-        results = asyncio.run(run_multi_sim_pmxt_backtest_async(backtest=backtest))
+        results = asyncio.run(run_multi_market_trade_backtest_async(backtest=backtest))
     else:
         raise RuntimeError(
-            "run_reported_multi_sim_pmxt_backtest() cannot run inside an active event loop."
+            "run_reported_multi_market_trade_backtest() cannot run inside an active event loop."
         )
 
     if not results:
@@ -150,5 +158,16 @@ def run_reported_multi_sim_pmxt_backtest(
     if partial_message and len(results) < len(backtest.sims):
         print(partial_message.format(completed=len(results), total=len(backtest.sims)))
 
+    if result_policy is not None:
+        transformed = result_policy.apply(results)
+        if transformed is not None:
+            results = transformed
+
     finalize_market_results(name=backtest.name, results=results, report=report)
     return results
+
+
+__all__ = [
+    "run_multi_market_trade_backtest_async",
+    "run_reported_multi_market_trade_backtest",
+]

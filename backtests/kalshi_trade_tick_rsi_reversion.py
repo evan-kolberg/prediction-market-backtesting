@@ -37,7 +37,7 @@ NAME = "kalshi_trade_tick_rsi_reversion"
 DESCRIPTION = "RSI pullback mean-reversion on a single Kalshi market using trade ticks"
 
 EMIT_HTML = True
-CHART_OUTPUT_PATH = None
+CHART_OUTPUT_PATH = "output"
 
 DATA = MarketDataConfig(
     platform=Kalshi,

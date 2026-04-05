@@ -137,9 +137,8 @@ def test_public_runner_modules_expose_metadata_contract(
     )
     assert isinstance(globals_dict.get("EMIT_HTML"), bool)
     assert "CHART_OUTPUT_PATH" in globals_dict
-    assert globals_dict["CHART_OUTPUT_PATH"] is None or isinstance(
-        globals_dict["CHART_OUTPUT_PATH"], str
-    )
+    assert isinstance(globals_dict["CHART_OUTPUT_PATH"], str)
+    assert globals_dict["CHART_OUTPUT_PATH"]
     if "DATA" in globals_dict:
         data = globals_dict["DATA"]
         assert getattr(data, "platform", None) in {"kalshi", "polymarket"}
@@ -239,12 +238,12 @@ def test_pmxt_single_market_quote_tick_runners_expose_explicit_experiment_consta
     assert replays[0].start_time
     assert replays[0].end_time
     assert globals_dict["EMIT_HTML"] is True
-    assert globals_dict["CHART_OUTPUT_PATH"] is None
+    assert globals_dict["CHART_OUTPUT_PATH"] == "output"
     assert experiment.initial_cash == 100.0
     assert experiment.min_quotes == 500
     assert experiment.min_price_range == 0.005
     assert experiment.emit_html is True
-    assert experiment.chart_output_path is None
+    assert experiment.chart_output_path == "output"
 
 
 @pytest.mark.parametrize("relative_path", PMXT_QUOTE_TICK_OPTIMIZER_RUNNERS)
@@ -290,9 +289,9 @@ def test_pmxt_quote_tick_optimizer_runners_expose_explicit_search_configuration(
     assert optimization.base_replay is base_replay
     assert optimization.strategy_spec is globals_dict["STRATEGY_SPEC"]
     assert globals_dict["EMIT_HTML"] is False
-    assert globals_dict["CHART_OUTPUT_PATH"] is None
+    assert globals_dict["CHART_OUTPUT_PATH"] == "output"
     assert optimization.emit_html is False
-    assert optimization.chart_output_path is None
+    assert optimization.chart_output_path == "output"
     assert dict(optimization.parameter_grid) == parameter_grid
     assert optimization.train_windows == train_windows
     assert optimization.holdout_windows == holdout_windows
@@ -317,10 +316,18 @@ def test_fixed_sports_trade_tick_runners_pin_historical_close_windows(
 
     replays = globals_dict["REPLAYS"]
     experiment = globals_dict["EXPERIMENT"]
+    report = globals_dict["REPORT"]
     pd = pytest.importorskip("pandas")
 
+    assert globals_dict["CHART_OUTPUT_PATH"] == "output"
     assert experiment.default_lookback_days is None
     assert experiment.min_price_range == 0.01
+    assert experiment.chart_output_path == "output"
+    assert experiment.return_summary_series is True
+    assert report.summary_report is True
+    assert (
+        report.summary_report_path == f"output/{globals_dict['NAME']}_multi_market.html"
+    )
     assert len(replays) >= 2
     for replay in replays:
         assert replay.market_slug

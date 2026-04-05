@@ -60,7 +60,12 @@ Direct runner files also work:
 ```bash
 uv run python backtests/kalshi_trade_tick_breakout.py
 uv run python backtests/polymarket_quote_tick_pmxt_ema_crossover.py
+uv run python backtests/polymarket_trade_tick_sports_vwap_reversion.py
+uv run python backtests/polymarket_quote_tick_pmxt_multi_sim_runner.py
 ```
+
+Those direct runs write HTML artifacts into the repo-local `output/` directory
+when the runner keeps `CHART_OUTPUT_PATH="output"`.
 
 Public runner files carry their market, source, and execution assumptions in
 code. PMXT quote-tick runners also pin absolute sample windows; native

@@ -22,8 +22,11 @@ ensure_repo_root(__file__)
 
 from backtests._shared._execution_config import ExecutionModelConfig
 from backtests._shared._execution_config import StaticLatencyConfig
+from backtests._shared._experiments import build_backtest_for_experiment
 from backtests._shared._experiments import build_replay_experiment
-from backtests._shared._experiments import run_experiment
+from backtests._shared._polymarket_quote_tick_pmxt_multi_runner import (
+    run_reported_multi_sim_pmxt_backtest,
+)
 from backtests._shared._prediction_market_backtest import MarketReportConfig
 from backtests._shared._prediction_market_runner import MarketDataConfig
 from backtests._shared._replay_specs import PolymarketPMXTQuoteReplay
@@ -36,7 +39,11 @@ NAME = "polymarket_quote_tick_pmxt_multi_sim_runner"
 DESCRIPTION = "Example PMXT quote-tick multi-sim runner using fixed historical sims"
 
 EMIT_HTML = True
-CHART_OUTPUT_PATH = None
+CHART_OUTPUT_PATH = "output"
+COMBINED_REPORT_PATH = f"output/{NAME}_combined_legacy.html"
+SUMMARY_REPORT_PATH = f"output/{NAME}_multi_market.html"
+EMPTY_MESSAGE = "No PMXT multi-sim example windows met the quote-tick requirements."
+PARTIAL_MESSAGE = "Completed {completed} of {total} fixed example sims."
 
 DATA = MarketDataConfig(
     platform=Polymarket,
@@ -101,6 +108,10 @@ REPORT = MarketReportConfig(
     count_label="Quotes",
     pnl_label="PnL (USDC)",
     market_key="sim_label",
+    combined_report=True,
+    combined_report_path=COMBINED_REPORT_PATH,
+    summary_report=True,
+    summary_report_path=SUMMARY_REPORT_PATH,
 )
 
 EXECUTION = ExecutionModelConfig(
@@ -125,16 +136,22 @@ EXPERIMENT = build_replay_experiment(
     min_price_range=0.005,
     execution=EXECUTION,
     report=REPORT,
-    empty_message="No PMXT multi-sim example windows met the quote-tick requirements.",
-    partial_message="Completed {completed} of {total} fixed example sims.",
+    empty_message=EMPTY_MESSAGE,
+    partial_message=PARTIAL_MESSAGE,
     emit_html=EMIT_HTML,
     chart_output_path=CHART_OUTPUT_PATH,
+    return_summary_series=True,
 )
 
 
 @timing_harness
 def run() -> None:
-    run_experiment(EXPERIMENT)
+    run_reported_multi_sim_pmxt_backtest(
+        backtest=build_backtest_for_experiment(EXPERIMENT),
+        report=REPORT,
+        empty_message=EMPTY_MESSAGE,
+        partial_message=PARTIAL_MESSAGE,
+    )
 
 
 if __name__ == "__main__":
