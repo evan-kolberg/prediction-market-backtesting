@@ -28,31 +28,43 @@ filtered cache so subsequent runs are fast.
 
 ## Example Output
 
-The timing harness now keeps one aggregate progress bar for the requested
-window and refreshes the active prefetch status in place. A representative
+The timing harness prints one completion line per resolved hour and keeps an
+aggregate progress bar for any hours that are still in flight. A representative
 `make backtest` PMXT run looks like this:
 
 ```text
 make backtest
 uv run python main.py
 
-Running: polymarket_quote_tick_pmxt_deep_value_hold
+Running: polymarket_quote_tick_pmxt_panic_fade
 
 PMXT source: explicit priority (cache -> local /Volumes/LaCie/pmxt_raws -> archive https://r2.pmxt.dev -> relay https://209-209-10-83.sslip.io)
 Loading PMXT Polymarket market will-openai-launch-a-new-consumer-hardware-product-by-march-31-2026 (token_index=0, window_start=2026-02-21T16:00:00+00:00, window_end=2026-02-23T10:00:00+00:00)...
-Fetching hours (43/44 started, 43 active):  49%|█████████████████████████████████████████████████████████████                                                                | [12:34<20:04], prefetch: | relay raw 2026-02-22T22 52.0/654.6 MiB 170.4s | r2 raw 2026-02-23T10 548.0/565.1 MiB 15.7s
+  2026-02-21T18:00:00+00:00   0.002s     263 rows  cache 2026-02-21T18
+  2026-02-21T17:00:00+00:00   0.002s     339 rows  cache 2026-02-21T17
+  2026-02-21T16:00:00+00:00   0.003s     117 rows  cache 2026-02-21T16
+  2026-02-21T15:00:00+00:00   0.553s       0 rows  none
+  2026-02-21T19:00:00+00:00   6.466s     862 rows  local raw 2026-02-21T19
+  2026-02-22T01:00:00+00:00  22.608s    4156 rows  local raw 2026-02-22T01
+  2026-02-22T16:00:00+00:00  24.068s    3571 rows  local raw 2026-02-22T16
+Fetching hours (41/44 done, 3 active):  95%|████████████████████████████████████████████████████████████████████████████████████████████████████████▉| [02:43<00:07], prefetch: - local raw 2026-02-23T09 scan 529.8MiB 574b 220r 3.6s | local raw 2026-02-23T08 scan 563.5MiB 3.6s | +1 more
 ```
 
 The important signals are:
 
 - the `PMXT source:` line shows the exact cache, local, archive, and relay priority
   the runner will use
-- `started` and `active` show how much of the window has been dispatched and is
-  still in flight
-- the `prefetch:` segment shows the currently active remote raw-hour transfers,
-  including source, hour, bytes, and elapsed time
-- no per-hour completion lines are printed anymore; the aggregate bar is the
-  intended output shape
+- each per-hour line shows the hour, load time, filtered row count, and the
+  source that satisfied that hour
+- `cache`, `local raw`, and `none` tell you whether the hour came from warm
+  cache, the local raw mirror, or a confirmed miss
+- `done` and `active` on the aggregate bar show how much of the window has
+  completed and how many hours are still in flight
+- the `prefetch:` segment shows the currently active raw-hour scans or
+  transfers, including source, hour, bytes, and elapsed time
+
+The exact timings, row counts, and active prefetch details vary with cache
+warmth, mirror speed, and the requested window.
 
 ## Timing Expectations By Source
 

@@ -3,15 +3,15 @@
 This repository is documented around two active operating assumptions:
 
 - vendor-backed historical data is local-first: mirror raw archive hours onto
-  local disk, process them locally, and keep shared infrastructure focused on
-  raw mirroring and file serving
+  local disk, replay those raws directly, and keep shared infrastructure
+  focused on raw mirroring and file serving
 - public backtest runners are flat experiment specs built around `DATA`,
   `SIMS`, `STRATEGY_CONFIGS`, and a `PredictionMarketBacktest` object with a
   `.run()` entrypoint
 
 PMXT is the first fully documented vendor path. Mirror and relay operations are
-filed under the vendor/local-processing docs instead of being treated as a
-top-level product surface.
+filed alongside the PMXT docs instead of being treated as a separate product
+surface.
 
 - [Setup](setup.md)
 - [Backtests And Runners](backtests.md)
