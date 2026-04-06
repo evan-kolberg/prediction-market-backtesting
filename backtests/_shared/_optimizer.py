@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import csv
 import json
-import math
 from collections.abc import Callable
 from collections.abc import Mapping
 from collections.abc import Sequence
@@ -16,8 +15,6 @@ from random import Random
 from statistics import median
 from types import MappingProxyType
 from typing import Any
-
-import pandas as pd
 
 from backtests._shared._execution_config import ExecutionModelConfig
 from backtests._shared._market_data_config import MarketDataConfig
@@ -234,13 +231,6 @@ def _sample_parameter_sets(config: OptimizationConfig) -> list[ParameterValues]:
     indices = list(range(len(candidates)))
     Random(config.random_seed).shuffle(indices)
     return [candidates[index] for index in indices[: config.max_trials]]
-
-
-def _window_duration_days(window: OptimizationWindow) -> int:
-    start = pd.Timestamp(window.start_time)
-    end = pd.Timestamp(window.end_time)
-    duration_days = (end - start).total_seconds() / 86_400.0
-    return max(1, int(math.ceil(duration_days)))
 
 
 def _windowed_replay(

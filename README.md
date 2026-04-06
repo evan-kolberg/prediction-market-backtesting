@@ -50,6 +50,23 @@ make install
 make backtest
 ```
 
+The repo now uses one unified backtest launcher in `main.py`. `make backtest`
+opens the interactive runner menu when `Textual` is available on a real TTY,
+and falls back to the numbered console menu otherwise.
+
+![Unified backtest runner](docs/assets/backtests-menu-textual.png)
+
+Timing output stays on by default in the unified menu and direct script
+entrypoints. PMXT filtered cache is also enabled by default under
+`~/.cache/nautilus_trader/pmxt`, so rerunning the same PMXT market window
+should usually be much faster than the first load.
+
+PMXT-backed multi-market runs also keep the source-resolution and report-output
+details visible in the terminal so you can tell what actually loaded, what
+settled, and which HTML artifacts were written.
+
+![PMXT multi-run terminal output](docs/assets/pmxt-multi-run-output.png)
+
 ## Table of Contents
 
 - [Docs Index](https://evan-kolberg.github.io/prediction-market-backtesting/)

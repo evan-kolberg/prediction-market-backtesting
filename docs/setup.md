@@ -49,6 +49,17 @@ move the selection, `Enter` runs the highlighted runner, and `Esc` clears the
 current filter and returns focus to the list. The preview pane now shows the
 full runner file contents rather than an excerpt.
 
+![Unified backtest runner menu](assets/backtests-menu-textual.png)
+
+What that view is telling you:
+
+- the left pane only shows flat runner entrypoints under `backtests/` and
+  `backtests/private/`
+- the right pane shows the exact file path, runner metadata, and current file
+  contents for the highlighted entry
+- shortcuts are assigned per visible runner, so filtering changes the set of
+  hotkeys you can use immediately
+
 Direct entrypoint:
 
 ```bash
@@ -100,6 +111,13 @@ Downloading raw hours (2/3 done, 1 active):  67%|██████████�
 
 The counts, hour labels, source label, and byte totals vary with the current
 archive and the window you are mirroring.
+
+If you want to see the full loader and reporting flow in one place, the PMXT
+multi-sim output below is representative of the current repo-layer behavior:
+Nautilus logs stay visible, the summary table is printed in-terminal, and the
+combined/multi-market legacy HTML output paths are printed after the run.
+
+![PMXT multi-run terminal output](assets/pmxt-multi-run-output.png)
 
 ## Timing And Cache Defaults
 

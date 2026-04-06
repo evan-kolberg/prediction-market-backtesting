@@ -210,7 +210,6 @@ def test_discoverable_backtest_paths_stay_flat(tmp_path: Path) -> None:
     (backtests_root / "private" / "local_runner.py").write_text("")
     (backtests_root / "private" / "_helper.py").write_text("")
     (backtests_root / "nested" / "should_not_show.py").write_text("")
-    (backtests_root / "_shared" / "_trade_tick_ui.py").write_text("")
 
     discovered = [
         path.relative_to(backtests_root)

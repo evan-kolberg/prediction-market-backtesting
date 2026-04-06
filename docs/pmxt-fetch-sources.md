@@ -66,6 +66,12 @@ The important signals are:
 The exact timings, row counts, and active prefetch details vary with cache
 warmth, mirror speed, and the requested window.
 
+This is what the repo's current PMXT multi-sim output looks like once Nautilus
+logs, the market summary table, and HTML artifact paths are all printed in the
+same terminal session:
+
+![PMXT multi-run terminal output](assets/pmxt-multi-run-output.png)
+
 ## Timing Expectations By Source
 
 | Source | Typical time | When it happens |

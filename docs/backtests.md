@@ -6,7 +6,7 @@
 - `strategies/private/` is for git-ignored local strategy modules
 - `backtests/` contains flat public runner entrypoints
 - `backtests/_shared/` contains shared runner plumbing, data-source adapters,
-  strategy-config binding, timing, and UI helpers
+  strategy-config binding, timing, reporting, and replay helpers
 - `backtests/private/` is for git-ignored local runners
 
 Only `backtests/*.py` and `backtests/private/*.py` are discoverable runner
@@ -312,6 +312,12 @@ The menu uses `Textual`, so you get a scrollable runner list on the left and a
 details/preview pane on the right. Single-letter shortcuts still launch
 runners directly, `/` focuses the filter box, `Esc` clears the filter, and the
 highlighted runner's full file contents stay visible while you browse.
+
+![Unified backtest runner menu](assets/backtests-menu-textual.png)
+
+Use the menu when you want to browse what is runnable in the current worktree.
+The left pane is the discoverable runner list, while the right pane shows the
+exact file path, runner metadata, and source preview for the highlighted entry.
 
 Equivalent direct command:
 
