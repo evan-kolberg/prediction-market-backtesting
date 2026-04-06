@@ -50,10 +50,6 @@ make install
 make backtest
 ```
 
-Timing output stays enabled by default for `make backtest` and direct script
-runners; set `BACKTEST_ENABLE_TIMING=0` to opt out. The local PMXT filtered
-cache is also enabled by default, so repeated PMXT windows should usually load
-faster after the first run.
 
 ## Table of Contents
 

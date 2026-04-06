@@ -1,5 +1,8 @@
 # Repository Notes For Agents
 
+## Appendix
+1. DO NOT TOUCH OTHER PARTS OF THE ROOT README. ONLY TOUCH TABLE OF CONTENTS. ALL OTHER DOCUMENTATION CHANGES GET FILED AWAY, DO NOT BLOAT ROOT README. ONLY CHANGE TOC TO BE IN SYNC WITH DOCS.
+
 ## Keep Scope Tight
 
 - Treat subtree updates in `nautilus_pm/` as separate work. Do not mix an upstream subtree pull with normal bugfix/docs PRs.
