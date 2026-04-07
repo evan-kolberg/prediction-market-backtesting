@@ -24,7 +24,13 @@ PMXT_SINGLE_MARKET_QUOTE_TICK_RUNNERS = sorted(
     for path in BACKTESTS_ROOT.glob("polymarket_quote_tick_pmxt_*.py")
     if "sports_" not in path.name
     and "multi_sim_runner" not in path.name
+    and not path.name.endswith("_sims_runner.py")
     and "optimizer" not in path.name
+)
+PMXT_MULTI_SIM_QUOTE_TICK_RUNNERS = sorted(
+    path.relative_to(REPO_ROOT)
+    for path in BACKTESTS_ROOT.glob("polymarket_quote_tick_pmxt_*.py")
+    if "multi_sim_runner" in path.name or path.name.endswith("_sims_runner.py")
 )
 PMXT_QUOTE_TICK_OPTIMIZER_RUNNERS = sorted(
     path.relative_to(REPO_ROOT)
@@ -244,6 +250,42 @@ def test_pmxt_single_market_quote_tick_runners_expose_explicit_experiment_consta
     assert experiment.min_price_range == 0.005
     assert experiment.emit_html is True
     assert experiment.chart_output_path == "output"
+
+
+@pytest.mark.parametrize("relative_path", PMXT_MULTI_SIM_QUOTE_TICK_RUNNERS)
+def test_pmxt_multi_sim_quote_tick_runners_expose_explicit_summary_contract(
+    monkeypatch: pytest.MonkeyPatch,
+    relative_path: Path,
+) -> None:
+    script_path = REPO_ROOT / relative_path
+    normalized_sys_path = [
+        entry for entry in sys.path if Path(entry or ".").resolve() != REPO_ROOT
+    ]
+    monkeypatch.setattr(sys, "path", [str(script_path.parent), *normalized_sys_path])
+
+    globals_dict = runpy.run_path(str(script_path), run_name="__script_test__")
+
+    data = globals_dict["DATA"]
+    replays = globals_dict["REPLAYS"]
+    report = globals_dict["REPORT"]
+    experiment = globals_dict["EXPERIMENT"]
+
+    assert globals_dict["NAME"] == relative_path.stem
+    assert data.platform == "polymarket"
+    assert data.data_type == "quote_tick"
+    assert data.vendor == "pmxt"
+    assert len(replays) > 1
+    assert globals_dict["EMIT_HTML"] is True
+    assert globals_dict["CHART_OUTPUT_PATH"] == "output"
+    assert isinstance(globals_dict["SUMMARY_PLOT_PANELS"], tuple)
+    assert globals_dict["SUMMARY_PLOT_PANELS"]
+    assert report.summary_report is True
+    assert report.summary_report_path == globals_dict["SUMMARY_REPORT_PATH"]
+    assert report.summary_plot_panels == globals_dict["SUMMARY_PLOT_PANELS"]
+    assert experiment.return_summary_series is True
+    assert experiment.emit_html is True
+    assert experiment.chart_output_path == "output"
+    assert experiment.detail_plot_panels == globals_dict["DETAIL_PLOT_PANELS"]
 
 
 @pytest.mark.parametrize("relative_path", PMXT_QUOTE_TICK_OPTIMIZER_RUNNERS)

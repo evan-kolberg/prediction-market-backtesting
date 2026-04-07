@@ -43,6 +43,7 @@ EXPECTED_SUMMARY_PLOT_PANELS = (
     "monthly_returns",
     "brier_advantage",
 )
+SUPPORTED_SUMMARY_PLOT_PANELS = frozenset(EXPECTED_SUMMARY_PLOT_PANELS)
 
 RUNNER_FILES = sorted(
     Path(__file__)
@@ -51,8 +52,15 @@ RUNNER_FILES = sorted(
     .joinpath("backtests")
     .glob("polymarket_quote_tick_pmxt_*.py")
 )
+MULTI_SIM_RUNNER_FILES = sorted(
+    path
+    for path in RUNNER_FILES
+    if "multi_sim_runner" in path.name or path.name.endswith("_sims_runner.py")
+)
 SINGLE_MARKET_RUNNER_FILES = sorted(
-    path for path in RUNNER_FILES if "optimizer" not in path.name
+    path
+    for path in RUNNER_FILES
+    if "optimizer" not in path.name and path not in MULTI_SIM_RUNNER_FILES
 )
 OPTIMIZER_RUNNER_FILES = sorted(
     path for path in RUNNER_FILES if "optimizer" in path.name
@@ -179,14 +187,37 @@ def test_quote_tick_runners_use_typed_manifest_contract(
     )
 
 
-def test_pmxt_multi_sim_runner_uses_summary_plot_contract() -> None:
-    module = ast.parse(
-        Path(__file__)
-        .resolve()
-        .parents[1]
-        .joinpath("backtests", "polymarket_quote_tick_pmxt_multi_sim_runner.py")
-        .read_text()
+@pytest.mark.parametrize(
+    "runner_path", MULTI_SIM_RUNNER_FILES, ids=lambda path: path.stem
+)
+def test_pmxt_multi_sim_runners_use_explicit_summary_plot_contract(
+    runner_path: Path,
+) -> None:
+    module = ast.parse(runner_path.read_text())
+
+    name_assign = _find_assignment(module, "NAME")
+    assert _literal_value(name_assign.value) == runner_path.stem
+
+    emit_html_assign = _find_assignment(module, "EMIT_HTML")
+    assert _literal_value(emit_html_assign.value) == EXPECTED_RUNNER_EMIT_HTML
+    chart_output_assign = _find_assignment(module, "CHART_OUTPUT_PATH")
+    assert _literal_value(chart_output_assign.value) == EXPECTED_CHART_OUTPUT_PATH
+
+    replays_assign = _find_assignment(module, "REPLAYS")
+    assert isinstance(replays_assign.value, ast.Tuple)
+    assert len(replays_assign.value.elts) > 1
+
+    assert (
+        _literal_value(_find_assignment(module, "DETAIL_PLOT_PANELS").value)
+        == EXPECTED_DETAIL_PLOT_PANELS
     )
+
+    summary_panels = _literal_value(
+        _find_assignment(module, "SUMMARY_PLOT_PANELS").value
+    )
+    assert isinstance(summary_panels, tuple)
+    assert summary_panels
+    assert set(summary_panels) <= SUPPORTED_SUMMARY_PLOT_PANELS
 
     report_assign = _find_assignment(module, "REPORT")
     assert isinstance(report_assign.value, ast.Call)
@@ -199,10 +230,22 @@ def test_pmxt_multi_sim_runner_uses_summary_plot_contract() -> None:
         _call_keyword_value(report_assign.value, "summary_plot_panels")
         == "SUMMARY_PLOT_PANELS"
     )
+
+    experiment_assign = _find_assignment(module, "EXPERIMENT")
+    assert isinstance(experiment_assign.value, ast.Call)
+    assert isinstance(experiment_assign.value.func, ast.Name)
+    assert experiment_assign.value.func.id == "build_replay_experiment"
+    assert _call_keyword_value(experiment_assign.value, "replays") == "REPLAYS"
+    assert _call_keyword_value(experiment_assign.value, "emit_html") == "EMIT_HTML"
     assert (
-        _literal_value(_find_assignment(module, "SUMMARY_PLOT_PANELS").value)
-        == EXPECTED_SUMMARY_PLOT_PANELS
+        _call_keyword_value(experiment_assign.value, "chart_output_path")
+        == "CHART_OUTPUT_PATH"
     )
+    assert (
+        _call_keyword_value(experiment_assign.value, "detail_plot_panels")
+        == "DETAIL_PLOT_PANELS"
+    )
+    assert _call_keyword_value(experiment_assign.value, "return_summary_series") is True
 
 
 @pytest.mark.parametrize(
