@@ -77,6 +77,21 @@ That distinction also applies inside the summary HTML itself:
   summary report
 - `brier_advantage` works on market slugs, not just individual sims
 
+Put briefly:
+Portfolio-wide panels
+- `total_equity`
+- `periodic_pnl`
+- `monthly_returns`
+
+Composite/comparison panels
+- `equity`
+- `allocation`
+- `drawdown`
+- `rolling_sharpe`
+- `cash_equity`
+- `brier_advantage`
+
+Beware that for summary/aggregate output charts, the composite panels will scale linearly with each market. Each trade or tick or market will get their own line. Perfect for up to 30 sims, but becomes much too noisy after that. For hundreds of sims, it's better to stick to portfiolio-wide panels. I plan on adding more portfolio-wide panels in the future.
 
 ## Output Types
 
@@ -197,12 +212,13 @@ one separate HTML artifact.
 
 ## Multi-Market References
 
-The clearest multi-market plotting references are the flat Polymarket trade-tick
-runner files:
+The clearest multi-market plotting runner files:
 
 - [`backtests/polymarket_trade_tick_sports_final_period_momentum.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_trade_tick_sports_final_period_momentum.py)
 - [`backtests/polymarket_trade_tick_sports_late_favorite_limit_hold.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_trade_tick_sports_late_favorite_limit_hold.py)
 - [`backtests/polymarket_trade_tick_sports_vwap_reversion.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_trade_tick_sports_vwap_reversion.py)
+- [`backtests/polymarket_quote_tick_pmxt_25_sims_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_quote_tick_pmxt_25_sims_runner.py)
+- [`/Users/evankolberg/prediction-market-backtesting/backtests/polymarket_quote_tick_pmxt_400_sims_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_quote_tick_pmxt_400_sims_runner.py)
 
 Those runners now write one per-market legacy chart per replay and one
 aggregate summary chart under `output/`, typically with names like:
