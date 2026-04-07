@@ -86,3 +86,30 @@ def test_root_readme_records_all_docs_and_subheaders() -> None:
             assert target in readme_text, (
                 f"missing docs heading link in root README: {target}"
             )
+
+
+def test_plotting_docs_distinguish_portfolio_and_comparison_summary_panels() -> None:
+    plotting_text = (DOCS_ROOT / "plotting.md").read_text()
+    normalized = re.sub(r"\s+", " ", plotting_text)
+
+    assert (
+        "portfolio-wide panels collapse the whole basket into one combined series"
+        in normalized
+    )
+    assert "comparison panels keep one line per market or per labeled sim" in normalized
+    assert (
+        "`total_equity`, `periodic_pnl`, and `monthly_returns` are portfolio-wide "
+        "summary panels"
+    ) in normalized
+    assert (
+        "`equity`, `allocation`, `drawdown`, `rolling_sharpe`, `cash_equity`, "
+        "and `brier_advantage` are comparison panels"
+    ) in normalized
+    assert (
+        "`brier_advantage` works on market slugs, not just individual sims"
+        in normalized
+    )
+    assert (
+        "`total_equity`, `periodic_pnl`, `drawdown`, and `monthly_returns`"
+        not in normalized
+    )

@@ -8,6 +8,13 @@ The repo-layer plotting contract is intentionally split into two surfaces:
 - one detailed HTML file per loaded replay or labeled sim
 - one aggregate summary HTML file for the whole basket when the runner asks for it
 
+Inside that aggregate summary surface, there is another important split:
+
+- portfolio-wide panels collapse the whole basket into one combined series, so
+  they stay one line even if you run hundreds or effectively unbounded sims
+- comparison panels keep one line per market or per labeled sim, so the point
+  is cross-sim comparison rather than one aggregate portfolio path
+
 That separation is what lets charting stay useful across very different run
 sizes. One market can still show execution markers, PnL ticks, and the rest of
 the dense legacy detail. A basket of 30, 400, or more sims can still open
@@ -56,6 +63,21 @@ approach keeps the dense information where it belongs, inside the individual
 run that produced it, and keeps the aggregate report focused on the panels that
 summarize across runs cleanly.
 
+On dense single-sim YES-price panels, fill markers are still preserved, but the
+adapter may sample them down to a readable marker budget instead of drawing
+every single fill point.
+
+That distinction also applies inside the summary HTML itself:
+
+- `total_equity`, `periodic_pnl`, and `monthly_returns` are portfolio-wide summary
+  panels built from the combined basket, so they stay one aggregate line or one
+  aggregate bar series
+- `equity`, `allocation`, `drawdown`, `rolling_sharpe`, `cash_equity`, and `brier_advantage`
+  are comparison panels, so they can draw one line per market or per sim inside the same
+  summary report
+- `brier_advantage` works on market slugs, not just individual sims
+
+
 ## Output Types
 
 There are two distinct HTML/report modes in the repo layer:
@@ -78,15 +100,16 @@ Typical public-runner combinations:
 This gives users the best of both worlds:
 
 - detail charts can stay rich and execution-focused for one market or one sim
-- the basket summary can stay fast because it plots summary-series panels such
-  as `total_equity`, `equity`, `periodic_pnl`, `drawdown`, and
-  `monthly_returns`
+- the basket summary can mix true portfolio-wide panels such as
+  `total_equity`, `periodic_pnl`, and `monthly_returns` with comparison panels
+  such as `equity`, `drawdown`, and `cash_equity`
 - large baskets do not have to give up drilldown, because each run still keeps
   its own full-detail HTML artifact
 
 The default summary panel set intentionally excludes panels such as
 `yes_price` and `market_pnl`, because those are most useful at the individual
-run level and do not scale cleanly across hundreds of sims.
+run level and do not scale cleanly once they would need one line or one marker
+stream per sim.
 
 Important runtime detail:
 

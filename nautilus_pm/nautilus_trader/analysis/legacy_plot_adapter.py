@@ -36,24 +36,38 @@ import numpy as np
 import pandas as pd
 
 from nautilus_trader.analysis.legacy_backtesting.models import DEFAULT_DETAIL_PLOT_PANELS
-from nautilus_trader.analysis.legacy_backtesting.models import DEFAULT_SUMMARY_PLOT_PANELS
-from nautilus_trader.analysis.legacy_backtesting.models import normalize_plot_panels
 from nautilus_trader.analysis.legacy_backtesting.models import PANEL_BRIER_ADVANTAGE
+from nautilus_trader.analysis.legacy_backtesting.models import normalize_plot_panels
 from nautilus_trader.analysis.reporter import ReportProvider
 
 
 LEGACY_BACKTESTING_ROOT = Path(__file__).resolve().parent / "legacy_backtesting"
 
 
-def _should_hide_yes_price_fill_markers(fill_count: int, max_points: int) -> bool:
+def _yes_price_fill_marker_budget(max_points: int) -> int:
     """
-    Hide YES-price fill markers when they exceed a readable marker budget.
+    Return the readable YES-price fill-marker budget for one chart.
     """
     if max_points <= 0:
-        marker_budget = 250
-    else:
-        marker_budget = max(50, min(250, max_points // 10))
-    return fill_count > marker_budget
+        return 250
+    return max(50, min(250, max_points // 10))
+
+
+def _yes_price_fill_marker_limit(fill_count: int, max_points: int) -> int | None:
+    """
+    Return the marker cap to apply on dense YES-price charts, if any.
+    """
+    marker_budget = _yes_price_fill_marker_budget(max_points)
+    if fill_count <= marker_budget:
+        return None
+    return marker_budget
+
+
+def _should_hide_yes_price_fill_markers(fill_count: int, max_points: int) -> bool:
+    """
+    Backward-compatible predicate for callers that still remove dense markers.
+    """
+    return _yes_price_fill_marker_limit(fill_count, max_points) is not None
 
 
 def _parse_float(value: Any, default: float = 0.0) -> float:
@@ -206,6 +220,7 @@ def _configure_legacy_downsampling(
         return
 
     if not adaptive:
+
         def _identity_downsample(
             eq,
             fills_df,
@@ -253,6 +268,7 @@ def _disable_legacy_downsampling(plotting_module: Any) -> None:
     """
     Backward-compatible helper for callers that explicitly want dense rendering.
     """
+
     def _identity_downsample(
         eq,
         fills_df,
@@ -1146,7 +1162,14 @@ def _legend_item_label_text(item: Any) -> str:
     label = getattr(item, "label", None)
     if isinstance(label, dict):
         return str(label.get("value", ""))
+    value = getattr(label, "value", None)
+    if value is not None:
+        return str(value)
     return str(label)
+
+
+def _set_legend_item_label_text(item: Any, text: str) -> None:
+    item.label = {"value": text}
 
 
 def _remove_yes_price_profitability_legend_items(fig: Any) -> set[Any]:
@@ -1192,7 +1215,7 @@ def _remove_yes_price_profitability_connectors(layout: Any) -> None:
         yes_fig.renderers = [r for r in yes_fig.renderers if r not in renderers_to_drop]
 
 
-def _remove_yes_price_fill_markers(layout: Any) -> None:
+def _remove_yes_price_fill_markers(layout: Any) -> None:  # noqa: C901
     """
     Remove synthetic fill marker overlays from the YES price panel.
     """
@@ -1226,7 +1249,9 @@ def _remove_yes_price_fill_markers(layout: Any) -> None:
             kept_items = []
             for item in list(getattr(legend, "items", [])):
                 lower = _legend_item_label_text(item).lower()
-                item_renderers = [r for r in getattr(item, "renderers", []) if r not in renderers_to_drop]
+                item_renderers = [
+                    r for r in getattr(item, "renderers", []) if r not in renderers_to_drop
+                ]
                 if "fills" in lower or not item_renderers:
                     continue
                 item.renderers = item_renderers
@@ -1238,7 +1263,65 @@ def _remove_yes_price_fill_markers(layout: Any) -> None:
                 tool.renderers = [r for r in renderers if r not in renderers_to_drop]
 
 
-def _standardize_periodic_pnl_panel(layout: Any) -> None:  # noqa: C901
+def _is_yes_price_fill_renderer(renderer: Any) -> bool:
+    glyph = getattr(renderer, "glyph", None)
+    source = getattr(renderer, "data_source", None)
+    data = getattr(source, "data", None)
+    if glyph is None or not isinstance(data, dict):
+        return False
+    if glyph.__class__.__name__ not in {"Scatter", "Circle"}:
+        return False
+    keys = set(data.keys())
+    return {"action", "side", "quantity", "price", "market_id"}.issubset(keys)
+
+
+def _limit_yes_price_fill_markers(layout: Any, *, max_markers: int) -> None:  # noqa: C901
+    """
+    Keep a readable sample of YES-price fill markers instead of dropping them.
+    """
+    if max_markers <= 0:
+        _remove_yes_price_fill_markers(layout)
+        return
+
+    yes_fig = _find_figure_with_yaxis_label(layout, lambda label: label == "YES Price")
+    if yes_fig is None:
+        return
+
+    for renderer in getattr(yes_fig, "renderers", []):
+        if not _is_yes_price_fill_renderer(renderer):
+            continue
+
+        source = getattr(renderer, "data_source", None)
+        data = getattr(source, "data", None)
+        if source is None or not isinstance(data, dict):
+            continue
+
+        frame = pd.DataFrame({key: list(value) for key, value in data.items()})
+        total = len(frame)
+        if total <= max_markers:
+            continue
+
+        limited = _downsample_frame_rows(
+            frame,
+            max_points=max_markers,
+            extrema_columns=("price", "index"),
+        )
+        source.data = {column: limited[column].tolist() for column in frame.columns}
+
+        shown = len(limited)
+        for legend in getattr(yes_fig, "legend", []):
+            for item in list(getattr(legend, "items", [])):
+                if renderer not in getattr(item, "renderers", []):
+                    continue
+                if "fills" not in _legend_item_label_text(item).lower():
+                    continue
+                _set_legend_item_label_text(
+                    item,
+                    f"Fills ({shown:,} shown of {total:,})",
+                )
+
+
+def _standardize_periodic_pnl_panel(layout: Any) -> None:
     try:
         from bokeh.models import ColumnDataSource
         from bokeh.models import HoverTool
@@ -1405,7 +1488,7 @@ def _downsample_frame_rows(
     return frame.iloc[sorted(keep)].copy()
 
 
-def _build_multi_market_brier_panel(
+def _build_multi_market_brier_panel(  # noqa: C901
     brier_frames: Mapping[str, pd.DataFrame],
     *,
     axis_label: str = "Cumulative Brier Advantage",
@@ -1479,7 +1562,9 @@ def _build_multi_market_brier_panel(
         source = ColumnDataSource(
             {
                 "datetime": frame.index,
-                "cumulative_brier_advantage": frame["cumulative_brier_advantage"].to_numpy(dtype=float),
+                "cumulative_brier_advantage": frame["cumulative_brier_advantage"].to_numpy(
+                    dtype=float
+                ),
                 "brier_advantage": frame["brier_advantage"].to_numpy(dtype=float),
             },
         )
@@ -1560,7 +1645,7 @@ def _append_multi_market_brier_panel(
     return _append_chart_panel(layout, panel)
 
 
-def _standardize_yes_price_hover(layout: Any) -> None:  # noqa: C901
+def _standardize_yes_price_hover(layout: Any) -> None:
     try:
         from bokeh.models import HoverTool
     except ImportError:
@@ -1636,6 +1721,7 @@ def _apply_layout_overrides(
     initial_cash: float,
     *,
     hide_yes_price_fill_markers: bool = False,
+    max_yes_price_fill_markers: int | None = None,
     relabel_market_pnl: bool = False,
 ) -> Any:
     _ = initial_cash  # Keep signature stable for callers and future layout transforms.
@@ -1644,6 +1730,11 @@ def _apply_layout_overrides(
     _remove_yes_price_profitability_connectors(layout)
     if hide_yes_price_fill_markers:
         _remove_yes_price_fill_markers(layout)
+    elif max_yes_price_fill_markers is not None:
+        _limit_yes_price_fill_markers(
+            layout,
+            max_markers=max_yes_price_fill_markers,
+        )
     _standardize_periodic_pnl_panel(layout)
     if relabel_market_pnl:
         _relabel_market_pnl_panel(layout)
@@ -1787,7 +1878,7 @@ def build_legacy_backtest_layout(
     layout = _apply_layout_overrides(
         layout,
         initial_cash=float(initial_cash),
-        hide_yes_price_fill_markers=_should_hide_yes_price_fill_markers(
+        max_yes_price_fill_markers=_yes_price_fill_marker_limit(
             fill_count=len(fills),
             max_points=max_downsample_points,
         ),

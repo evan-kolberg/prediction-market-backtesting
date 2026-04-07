@@ -8,7 +8,9 @@ from nautilus_trader.adapters.prediction_market.research import print_backtest_s
 from nautilus_trader.adapters.prediction_market.research import (
     save_aggregate_backtest_report,
 )
-from nautilus_trader.analysis.legacy_plot_adapter import DEFAULT_SUMMARY_PLOT_PANELS
+from nautilus_trader.analysis.legacy_backtesting.models import (
+    DEFAULT_SUMMARY_PLOT_PANELS,
+)
 
 from backtests._shared._backtest_runtime import print_backtest_result_warnings
 from backtests._shared.prediction_market.artifacts import resolve_repo_relative_path

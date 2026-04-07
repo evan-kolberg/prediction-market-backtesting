@@ -59,28 +59,91 @@ def test_build_portfolio_snapshots_truncates_nanoseconds_without_warning() -> No
     )
 
 
-def test_should_hide_yes_price_fill_markers_only_when_fill_count_exceeds_marker_budget() -> (
+def test_yes_price_fill_marker_limit_only_applies_when_fill_count_exceeds_marker_budget() -> (
     None
 ):
     assert (
-        adapter._should_hide_yes_price_fill_markers(fill_count=250, max_points=5_000)
-        is False
+        adapter._yes_price_fill_marker_limit(fill_count=250, max_points=5_000) is None
     )
+    assert adapter._yes_price_fill_marker_limit(fill_count=251, max_points=5_000) == 250
     assert (
-        adapter._should_hide_yes_price_fill_markers(fill_count=251, max_points=5_000)
-        is True
+        adapter._yes_price_fill_marker_limit(fill_count=1_667, max_points=5_000) == 250
     )
-    assert (
-        adapter._should_hide_yes_price_fill_markers(fill_count=1_667, max_points=5_000)
-        is True
+    assert adapter._yes_price_fill_marker_limit(fill_count=250, max_points=0) is None
+    assert adapter._yes_price_fill_marker_limit(fill_count=251, max_points=0) == 250
+
+
+def test_apply_layout_overrides_downsamples_yes_price_fill_markers_when_enabled() -> (
+    None
+):
+    bokeh_models = pytest.importorskip("bokeh.models")
+    bokeh_plotting = pytest.importorskip("bokeh.plotting")
+
+    fig = bokeh_plotting.figure(title="YES Price")
+    fig.yaxis.axis_label = "YES Price"
+    price_source = bokeh_models.ColumnDataSource(
+        {
+            "index": [0, 1, 2, 3],
+            "datetime": [
+                pd.Timestamp("2026-03-02T14:05:00Z"),
+                pd.Timestamp("2026-03-02T14:10:00Z"),
+                pd.Timestamp("2026-03-02T14:15:00Z"),
+                pd.Timestamp("2026-03-02T14:20:00Z"),
+            ],
+            "price_test_market": [0.48, 0.52, 0.51, 0.49],
+        },
     )
-    assert (
-        adapter._should_hide_yes_price_fill_markers(fill_count=250, max_points=0)
-        is False
+    price_renderer = fig.line(x="index", y="price_test_market", source=price_source)
+    fill_source = bokeh_models.ColumnDataSource(
+        {
+            "index": [0, 1, 2, 3],
+            "datetime": [
+                pd.Timestamp("2026-03-02T14:05:30Z"),
+                pd.Timestamp("2026-03-02T14:10:30Z"),
+                pd.Timestamp("2026-03-02T14:15:30Z"),
+                pd.Timestamp("2026-03-02T14:20:30Z"),
+            ],
+            "action": ["BUY", "SELL", "BUY", "SELL"],
+            "side": ["YES", "YES", "YES", "YES"],
+            "quantity": [1, 1, 1, 1],
+            "price": [0.47, 0.53, 0.50, 0.48],
+            "market_id": ["test-market"] * 4,
+        },
     )
-    assert (
-        adapter._should_hide_yes_price_fill_markers(fill_count=251, max_points=0)
-        is True
+    fill_renderer = fig.scatter(
+        x="index",
+        y="price",
+        source=fill_source,
+        size=8,
+        color="green",
+        legend_label="Fills (4)",
+    )
+    fig.add_tools(
+        bokeh_models.HoverTool(
+            renderers=[price_renderer, fill_renderer],
+            tooltips=[("Date", "@datetime{%F %T}")],
+            formatters={"@datetime": "datetime"},
+        ),
+    )
+
+    adapter._apply_layout_overrides(
+        _DummyLayout(children=[fig]),
+        initial_cash=1_000.0,
+        max_yes_price_fill_markers=3,
+    )
+
+    glyph_renderers = [
+        renderer for renderer in fig.renderers if hasattr(renderer, "data_source")
+    ]
+    assert price_renderer in glyph_renderers
+    assert fill_renderer in glyph_renderers
+    assert len(fill_renderer.data_source.data["index"]) == 3
+    assert fill_renderer.data_source.data["index"][0] == 0
+    assert fill_renderer.data_source.data["index"][-1] == 3
+    assert any(
+        adapter._legend_item_label_text(item) == "Fills (3 shown of 4)"
+        for legend in fig.legend
+        for item in legend.items
     )
 
 
@@ -147,22 +210,22 @@ def test_apply_layout_overrides_removes_yes_price_fill_markers_when_enabled() ->
 
 
 @pytest.mark.parametrize(
-    ("fill_count", "expected_hide_markers"),
+    ("fill_count", "expected_marker_limit"),
     [
-        (250, False),
-        (251, True),
-        (1_667, True),
+        (250, None),
+        (251, 250),
+        (1_667, 250),
     ],
 )
-def test_build_legacy_backtest_layout_auto_hides_yes_price_fill_markers_for_high_fill_counts(
+def test_build_legacy_backtest_layout_auto_limits_yes_price_fill_markers_for_high_fill_counts(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
     fill_count: int,
-    expected_hide_markers: bool,
+    expected_marker_limit: int | None,
 ) -> None:
     base_layout = _DummyLayout()
     plotting_module = SimpleNamespace(plot=lambda *args, **kwargs: base_layout)
-    apply_calls: list[bool] = []
+    apply_calls: list[int | None] = []
 
     class _BacktestResult:
         def __init__(self, **kwargs) -> None:
@@ -213,7 +276,7 @@ def test_build_legacy_backtest_layout_auto_hides_yes_price_fill_markers_for_high
         "_apply_layout_overrides",
         lambda layout, initial_cash, **kwargs: (
             apply_calls.append(
-                kwargs.get("hide_yes_price_fill_markers", False),
+                kwargs.get("max_yes_price_fill_markers"),
             )
             or layout
         ),
@@ -232,7 +295,7 @@ def test_build_legacy_backtest_layout_auto_hides_yes_price_fill_markers_for_high
 
     assert layout is base_layout
     assert title == "Test Strategy legacy chart"
-    assert apply_calls == [expected_hide_markers]
+    assert apply_calls == [expected_marker_limit]
 
 
 def test_build_legacy_backtest_layout_skips_brier_when_not_requested(
