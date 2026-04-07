@@ -118,8 +118,6 @@ Nautilus logs stay visible, the summary table is printed in-terminal, and the
 per-sim detail HTML paths plus the aggregate multi-market summary HTML path are
 printed after the run.
 
-![PMXT multi-run terminal output](assets/pmxt-multi-run-output.png)
-
 ## Timing And Cache Defaults
 
 - timing output is on by default in `make backtest`, `uv run python main.py`,
