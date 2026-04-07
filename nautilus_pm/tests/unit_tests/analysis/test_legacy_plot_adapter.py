@@ -28,6 +28,9 @@ import pandas as pd
 import pytest
 
 from nautilus_trader.analysis import legacy_plot_adapter as adapter
+from nautilus_trader.analysis.legacy_backtesting.models import PANEL_BRIER_ADVANTAGE
+from nautilus_trader.analysis.legacy_backtesting.models import PANEL_CASH_EQUITY
+from nautilus_trader.analysis.legacy_backtesting.models import PANEL_EQUITY
 from nautilus_trader.analysis.legacy_plot_adapter import prepare_cumulative_brier_advantage
 
 
@@ -327,10 +330,14 @@ def test_create_legacy_backtest_chart_saves_final_layout_without_requiring_brier
     with_brier_panel: bool,
 ) -> None:
     base_layout = _DummyLayout()
-    brier_layout = _DummyLayout()
-    plotting_module = SimpleNamespace(plot=lambda *args, **kwargs: base_layout)
+    built_brier_panel = object()
+    plotting_calls: list[dict[str, object]] = []
     downsampling_calls: list[tuple[object, bool, int]] = []
     save_calls: list[tuple[object, Path, str]] = []
+
+    def _fake_plot(*_args, **kwargs):  # type: ignore[no-untyped-def]
+        plotting_calls.append(kwargs)
+        return base_layout
 
     class _BacktestResult:
         def __init__(self, **kwargs) -> None:
@@ -345,7 +352,10 @@ def test_create_legacy_backtest_chart_saves_final_layout_without_requiring_brier
     monkeypatch.setattr(
         adapter,
         "_load_legacy_modules",
-        lambda *_: (SimpleNamespace(BacktestResult=_BacktestResult), plotting_module),
+        lambda *_: (
+            SimpleNamespace(BacktestResult=_BacktestResult),
+            SimpleNamespace(plot=_fake_plot),
+        ),
     )
     monkeypatch.setattr(
         adapter,
@@ -384,8 +394,8 @@ def test_create_legacy_backtest_chart_saves_final_layout_without_requiring_brier
     )
     monkeypatch.setattr(
         adapter,
-        "_append_brier_panel",
-        lambda layout, frame: brier_layout,
+        "_build_brier_panel",
+        lambda frame: built_brier_panel,
     )
     monkeypatch.setattr(
         adapter,
@@ -403,10 +413,23 @@ def test_create_legacy_backtest_chart_saves_final_layout_without_requiring_brier
     )
 
     assert result == str(output_path.resolve())
-    assert downsampling_calls == [(plotting_module, True, 5000)]
+    assert len(downsampling_calls) == 1
+    assert downsampling_calls[0][1:] == (True, 5000)
+    assert plotting_calls == [
+        {
+            "filename": str(output_path.resolve()),
+            "max_markets": 30,
+            "open_browser": False,
+            "progress": False,
+            "plot_panels": adapter.DEFAULT_DETAIL_PLOT_PANELS,
+            "extra_panels": (
+                {PANEL_BRIER_ADVANTAGE: built_brier_panel} if with_brier_panel else {}
+            ),
+        },
+    ]
     assert save_calls == [
         (
-            brier_layout if with_brier_panel else base_layout,
+            base_layout,
             output_path.resolve(),
             "Test Strategy legacy chart",
         ),
@@ -418,9 +441,13 @@ def test_create_legacy_backtest_chart_saves_placeholder_brier_panel_when_outcome
     tmp_path: Path,
 ) -> None:
     base_layout = _DummyLayout()
-    placeholder_layout = _DummyLayout()
-    plotting_module = SimpleNamespace(plot=lambda *args, **kwargs: base_layout)
+    placeholder_panel = object()
+    plotting_calls: list[dict[str, object]] = []
     save_calls: list[tuple[object, Path, str]] = []
+
+    def _fake_plot(*_args, **kwargs):  # type: ignore[no-untyped-def]
+        plotting_calls.append(kwargs)
+        return base_layout
 
     class _BacktestResult:
         def __init__(self, **kwargs) -> None:
@@ -435,7 +462,10 @@ def test_create_legacy_backtest_chart_saves_placeholder_brier_panel_when_outcome
     monkeypatch.setattr(
         adapter,
         "_load_legacy_modules",
-        lambda *_: (SimpleNamespace(BacktestResult=_BacktestResult), plotting_module),
+        lambda *_: (
+            SimpleNamespace(BacktestResult=_BacktestResult),
+            SimpleNamespace(plot=_fake_plot),
+        ),
     )
     monkeypatch.setattr(adapter, "_configure_legacy_downsampling", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(adapter, "_extract_account_report", lambda *_: object())
@@ -464,8 +494,8 @@ def test_create_legacy_backtest_chart_saves_placeholder_brier_panel_when_outcome
     )
     monkeypatch.setattr(
         adapter,
-        "_append_brier_placeholder_panel",
-        lambda layout, message: placeholder_layout,
+        "_build_brier_placeholder_panel",
+        lambda message: placeholder_panel,
     )
     monkeypatch.setattr(
         adapter,
@@ -489,10 +519,93 @@ def test_create_legacy_backtest_chart_saves_placeholder_brier_panel_when_outcome
         outcomes=pd.Series(dtype=float),
     )
 
+    assert plotting_calls == [
+        {
+            "filename": str(output_path.resolve()),
+            "max_markets": 30,
+            "open_browser": False,
+            "progress": False,
+            "plot_panels": adapter.DEFAULT_DETAIL_PLOT_PANELS,
+            "extra_panels": {PANEL_BRIER_ADVANTAGE: placeholder_panel},
+        },
+    ]
     assert save_calls == [
         (
-            placeholder_layout,
+            base_layout,
             output_path.resolve(),
             "Test Strategy legacy chart",
         ),
+    ]
+
+
+def test_build_legacy_backtest_layout_omits_brier_when_panel_not_requested(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    plotting_calls: list[dict[str, object]] = []
+
+    def _fake_plot(*_args, **kwargs):  # type: ignore[no-untyped-def]
+        plotting_calls.append(kwargs)
+        return _DummyLayout()
+
+    class _BacktestResult:
+        def __init__(self, **kwargs) -> None:
+            self.kwargs = kwargs
+
+    engine = SimpleNamespace(
+        trader=SimpleNamespace(generate_order_fills_report=list),
+    )
+
+    monkeypatch.setattr(
+        adapter,
+        "_load_legacy_modules",
+        lambda *_: (
+            SimpleNamespace(BacktestResult=_BacktestResult),
+            SimpleNamespace(plot=_fake_plot),
+        ),
+    )
+    monkeypatch.setattr(adapter, "_configure_legacy_downsampling", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(adapter, "_extract_account_report", lambda *_: object())
+    monkeypatch.setattr(adapter, "_convert_fills", lambda *_: [])
+    monkeypatch.setattr(adapter, "_build_portfolio_snapshots", lambda *args, **kwargs: [])
+    monkeypatch.setattr(adapter, "_market_prices_with_fill_points", lambda *args, **kwargs: {})
+    monkeypatch.setattr(
+        adapter,
+        "_build_dense_portfolio_snapshots",
+        lambda *args, **kwargs: [
+            SimpleNamespace(timestamp=datetime(2025, 1, 1, tzinfo=UTC), total_equity=100.0),
+            SimpleNamespace(timestamp=datetime(2025, 1, 2, tzinfo=UTC), total_equity=125.0),
+        ],
+    )
+    monkeypatch.setattr(adapter, "_build_metrics", lambda *args, **kwargs: {})
+    monkeypatch.setattr(adapter, "_platform_enum", lambda *args, **kwargs: "KALSHI")
+    monkeypatch.setattr(
+        adapter,
+        "_apply_layout_overrides",
+        lambda layout, initial_cash, **kwargs: layout,
+    )
+    monkeypatch.setattr(
+        adapter,
+        "prepare_cumulative_brier_advantage",
+        lambda **kwargs: pytest.fail("Brier data should not be prepared when the panel is omitted"),
+    )
+
+    adapter.build_legacy_backtest_layout(
+        engine=engine,
+        output_path=tmp_path / "legacy.html",
+        strategy_name="Test Strategy",
+        platform="kalshi",
+        initial_cash=100.0,
+        plot_panels=(PANEL_EQUITY, PANEL_CASH_EQUITY),
+    )
+
+    assert plotting_calls == [
+        {
+            "filename": str((tmp_path / "legacy.html").resolve()),
+            "max_markets": 30,
+            "open_browser": False,
+            "progress": False,
+            "plot_panels": (PANEL_EQUITY, PANEL_CASH_EQUITY),
+            "extra_panels": {},
+        },
     ]

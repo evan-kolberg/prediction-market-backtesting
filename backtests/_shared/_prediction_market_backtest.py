@@ -4,44 +4,19 @@ import asyncio
 from collections.abc import Callable
 from collections.abc import Mapping
 from collections.abc import Sequence
-from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
 
-from nautilus_trader.adapters.prediction_market import (
-    research as prediction_market_research,
-)
 from nautilus_trader.adapters.prediction_market import LoadedReplay
 from nautilus_trader.adapters.prediction_market import ReplayCoverageStats
 from nautilus_trader.adapters.prediction_market import ReplayLoadRequest
 from nautilus_trader.adapters.prediction_market import ReplayWindow
-from nautilus_trader.adapters.prediction_market.backtest_utils import (
-    build_brier_inputs,
-)
-from nautilus_trader.adapters.prediction_market.backtest_utils import (
-    build_market_prices,
-)
-from nautilus_trader.adapters.prediction_market.backtest_utils import (
-    extract_realized_pnl,
-)
-from nautilus_trader.adapters.prediction_market.backtest_utils import (
-    extract_price_points,
-)
 from nautilus_trader.adapters.prediction_market.fill_model import (
     PredictionMarketTakerFillModel,
 )
-from nautilus_trader.adapters.prediction_market.research import print_backtest_summary
-from nautilus_trader.adapters.prediction_market.research import (
-    save_aggregate_backtest_report,
-)
-from nautilus_trader.adapters.prediction_market.research import (
-    save_combined_backtest_report,
-)
-from nautilus_trader.analysis.legacy_plot_adapter import build_legacy_backtest_layout
-from nautilus_trader.analysis.legacy_plot_adapter import save_legacy_backtest_layout
 from nautilus_trader.backtest.config import BacktestEngineConfig
 from nautilus_trader.backtest.engine import BacktestEngine
 from nautilus_trader.common.component import is_backtest_force_stop
@@ -54,12 +29,9 @@ from nautilus_trader.model.objects import Money
 from nautilus_trader.risk.config import RiskEngineConfig
 from nautilus_trader.trading.strategy import Strategy
 
-from backtests._shared._backtest_runtime import apply_backtest_run_state
 from backtests._shared._backtest_runtime import build_backtest_run_state
-from backtests._shared._backtest_runtime import print_backtest_result_warnings
 from backtests._shared._execution_config import ExecutionModelConfig
 from backtests._shared._market_data_config import MarketDataConfig
-from backtests._shared._market_data_support import resolve_replay_adapter
 from backtests._shared._replay_specs import MarketSimConfig
 from backtests._shared._replay_specs import ReplaySpec
 from backtests._shared._replay_specs import coerce_legacy_market_sim_config
@@ -68,6 +40,12 @@ from backtests._shared._strategy_configs import StrategyConfigSpec
 from backtests._shared.data_sources.kalshi_native import RunnerKalshiDataLoader
 from backtests._shared.data_sources.pmxt import RunnerPolymarketPMXTDataLoader
 from backtests._shared.data_sources.polymarket_native import RunnerPolymarketDataLoader
+from backtests._shared.data_sources.registry import resolve_replay_adapter
+from backtests._shared.prediction_market import PredictionMarketArtifactBuilder
+from backtests._shared.prediction_market import MarketReportConfig
+from backtests._shared.prediction_market import finalize_market_results
+from backtests._shared.prediction_market import run_reported_backtest
+from nautilus_trader.analysis.legacy_plot_adapter import DEFAULT_DETAIL_PLOT_PANELS
 
 
 KalshiDataLoader = RunnerKalshiDataLoader
@@ -76,28 +54,6 @@ PolymarketPMXTDataLoader = RunnerPolymarketPMXTDataLoader
 
 
 type StrategyFactory = Callable[[InstrumentId], Strategy]
-
-
-REPO_ROOT = Path(__file__).resolve().parents[2]
-
-
-def _resolve_repo_relative_path(path_like: str | Path) -> Path:
-    path = Path(path_like).expanduser()
-    if not path.is_absolute():
-        path = REPO_ROOT / path
-    return path.resolve()
-
-
-@dataclass(frozen=True)
-class MarketReportConfig:
-    count_key: str
-    count_label: str
-    pnl_label: str
-    market_key: str = "slug"
-    combined_report: bool = False
-    combined_report_path: str | None = None
-    summary_report: bool = False
-    summary_report_path: str | None = None
 
 
 class PredictionMarketBacktest:
@@ -126,6 +82,7 @@ class PredictionMarketBacktest:
         chart_output_path: str | Path | None = None,
         return_chart_layout: bool = False,
         return_summary_series: bool = False,
+        detail_plot_panels: Sequence[str] | None = None,
     ) -> None:
         if strategy_factory is not None and strategy_configs:
             raise ValueError("Use strategy_factory or strategy_configs, not both.")
@@ -138,6 +95,7 @@ class PredictionMarketBacktest:
         raw_replays = replays if replays is not None else sims
         if raw_replays is None:
             raise ValueError("replays is required.")
+
         self.name = name
         self.data = data
         self._sims = tuple(raw_replays)
@@ -160,6 +118,11 @@ class PredictionMarketBacktest:
         self.chart_output_path = chart_output_path
         self.return_chart_layout = return_chart_layout
         self.return_summary_series = return_summary_series
+        self.detail_plot_panels = tuple(
+            DEFAULT_DETAIL_PLOT_PANELS
+            if detail_plot_panels is None
+            else detail_plot_panels
+        )
 
     @property
     def sims(self) -> tuple[ReplaySpec | MarketSimConfig, ...]:
@@ -237,6 +200,57 @@ class PredictionMarketBacktest:
 
     async def run_backtest_async(self) -> list[dict[str, Any]]:
         return await self.run_async()
+
+    def _create_artifact_builder(self) -> PredictionMarketArtifactBuilder:
+        return PredictionMarketArtifactBuilder(
+            name=self.name,
+            platform=self.data.platform,
+            data_type=self.data.data_type,
+            initial_cash=self.initial_cash,
+            probability_window=self.probability_window,
+            chart_resample_rule=self.chart_resample_rule,
+            emit_html=self.emit_html,
+            chart_output_path=self.chart_output_path,
+            return_chart_layout=self.return_chart_layout,
+            return_summary_series=self.return_summary_series,
+            detail_plot_panels=self.detail_plot_panels,
+            sim_count=len(self.sims),
+        )
+
+    def _build_result(
+        self,
+        *,
+        loaded_sim: LoadedReplay,
+        fills_report: pd.DataFrame,
+        positions_report: pd.DataFrame,
+        single_market_artifacts: Mapping[str, Any] | None = None,
+        run_state: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        return self._create_artifact_builder().build_result(
+            loaded_sim=loaded_sim,
+            fills_report=fills_report,
+            positions_report=positions_report,
+            single_market_artifacts=single_market_artifacts,
+            run_state=run_state,
+        )
+
+    def _build_single_market_artifacts(
+        self,
+        *,
+        engine: BacktestEngine,
+        loaded_sims: Sequence[LoadedReplay],
+        fills_report: pd.DataFrame,
+    ) -> dict[str, Any]:
+        return self._create_artifact_builder().build_single_market_artifacts(
+            engine=engine,
+            loaded_sims=loaded_sims,
+            fills_report=fills_report,
+        )
+
+    def _resolve_chart_output_path(self, *, market_id: str) -> Path:
+        return self._create_artifact_builder().resolve_chart_output_path(
+            market_id=market_id
+        )
 
     def _normalize_replays(
         self,
@@ -454,398 +468,6 @@ class PredictionMarketBacktest:
             return metadata[key]
         return value
 
-    def _build_result(
-        self,
-        *,
-        loaded_sim: LoadedReplay,
-        fills_report: pd.DataFrame,
-        positions_report: pd.DataFrame,
-        single_market_artifacts: Mapping[str, Any] | None = None,
-        run_state: dict[str, Any] | None = None,
-    ) -> dict[str, Any]:
-        instrument_id = str(loaded_sim.instrument.id)
-        instrument_fills = self._filter_report_rows(
-            fills_report, instrument_id=instrument_id
-        )
-        instrument_positions = self._filter_report_rows(
-            positions_report, instrument_id=instrument_id
-        )
-
-        pnl = extract_realized_pnl(instrument_positions)
-        result: dict[str, Any] = {
-            loaded_sim.market_key: loaded_sim.market_id,
-            loaded_sim.count_key: loaded_sim.count,
-            "fills": int(len(instrument_fills)),
-            "pnl": float(pnl),
-            "instrument_id": instrument_id,
-            "outcome": loaded_sim.outcome,
-            "realized_outcome": loaded_sim.realized_outcome,
-            "token_index": getattr(loaded_sim.spec, "token_index", 0),
-            "fill_events": self._serialize_fill_events(
-                market_id=loaded_sim.market_id, fills_report=instrument_fills
-            ),
-        }
-        market_slug = getattr(loaded_sim.spec, "market_slug", None)
-        market_ticker = getattr(loaded_sim.spec, "market_ticker", None)
-        if market_slug is not None:
-            result["slug"] = market_slug
-        if market_ticker is not None:
-            result["ticker"] = market_ticker
-        if loaded_sim.prices:
-            result["entry_min"] = min(loaded_sim.prices)
-            result["max"] = max(loaded_sim.prices)
-            result["last"] = loaded_sim.prices[-1]
-        if single_market_artifacts:
-            result.update(single_market_artifacts)
-        result.update(dict(loaded_sim.metadata))
-        return apply_backtest_run_state(result=result, run_state=run_state or {})
-
-    def _build_single_market_artifacts(
-        self,
-        *,
-        engine: BacktestEngine,
-        loaded_sims: Sequence[LoadedReplay],
-        fills_report: pd.DataFrame,
-    ) -> dict[str, Any]:
-        if len(loaded_sims) != 1:
-            return {}
-
-        return self._build_single_market_artifacts_for_loaded_sim(
-            engine=engine,
-            loaded_sim=loaded_sims[0],
-            fills_report=fills_report,
-        )
-
-    def _build_single_market_artifacts_for_loaded_sim(
-        self,
-        *,
-        engine: BacktestEngine,
-        loaded_sim: LoadedReplay,
-        fills_report: pd.DataFrame,
-    ) -> dict[str, Any]:
-        price_points = extract_price_points(
-            loaded_sim.records,
-            price_attr="mid_price" if self.data.data_type == "quote_tick" else "price",
-        )
-        market_prices = build_market_prices(
-            price_points,
-            resample_rule=self.chart_resample_rule,
-        )
-        user_probabilities, market_probabilities, outcomes = build_brier_inputs(
-            price_points,
-            window=self.probability_window,
-            realized_outcome=loaded_sim.realized_outcome,
-        )
-        artifacts: dict[str, Any] = {}
-
-        chart_layout = None
-        chart_title = f"{self.name}:{loaded_sim.market_id} legacy chart"
-        if self.emit_html or self.return_chart_layout:
-            output_path = self._resolve_chart_output_path(
-                market_id=loaded_sim.market_id
-            )
-            output_path.parent.mkdir(parents=True, exist_ok=True)
-            try:
-                chart_layout, chart_title = build_legacy_backtest_layout(
-                    engine=engine,
-                    output_path=str(output_path),
-                    strategy_name=f"{self.name}:{loaded_sim.market_id}",
-                    platform=self.data.platform,
-                    initial_cash=self.initial_cash,
-                    market_prices={str(loaded_sim.instrument.id): market_prices},
-                    user_probabilities=user_probabilities,
-                    market_probabilities=market_probabilities,
-                    outcomes=outcomes,
-                    open_browser=False,
-                )
-            except Exception as exc:
-                print(f"Unable to save legacy chart for {loaded_sim.market_id}: {exc}")
-            else:
-                if self.emit_html:
-                    artifacts["chart_path"] = save_legacy_backtest_layout(
-                        chart_layout,
-                        str(output_path),
-                        chart_title,
-                    )
-                if self.return_chart_layout:
-                    artifacts["chart_layout"] = chart_layout
-                    artifacts["chart_title"] = chart_title
-
-        if self.return_summary_series:
-            artifacts.update(
-                self._build_single_market_summary_series(
-                    engine=engine,
-                    loaded_sim=loaded_sim,
-                    fills_report=fills_report,
-                    market_prices=market_prices,
-                    user_probabilities=user_probabilities,
-                    market_probabilities=market_probabilities,
-                    outcomes=outcomes,
-                )
-            )
-
-        return artifacts
-
-    def _resolve_chart_output_path(self, *, market_id: str) -> Path:
-        default_filename = f"{self.name}_{market_id}_legacy.html"
-        configured_path = self.chart_output_path
-        if configured_path is None:
-            return _resolve_repo_relative_path(Path("output") / default_filename)
-
-        if isinstance(configured_path, Path):
-            raw_path = str(configured_path)
-        else:
-            raw_path = configured_path
-
-        if "{" in raw_path:
-            try:
-                resolved = raw_path.format(name=self.name, market_id=market_id)
-            except KeyError as exc:
-                raise ValueError(
-                    "chart_output_path may only reference {name} and {market_id}."
-                ) from exc
-            path = Path(resolved)
-            if not path.suffix:
-                path = path / default_filename
-            return _resolve_repo_relative_path(path)
-
-        path = Path(raw_path)
-        if path.suffix:
-            if len(self.sims) == 1:
-                return _resolve_repo_relative_path(path)
-            return _resolve_repo_relative_path(
-                path.with_name(f"{path.stem}_{market_id}{path.suffix}")
-            )
-        return _resolve_repo_relative_path(path / default_filename)
-
-    def _build_single_market_summary_series(
-        self,
-        *,
-        engine: BacktestEngine,
-        loaded_sim: LoadedReplay,
-        fills_report: pd.DataFrame,
-        market_prices: Any,
-        user_probabilities: pd.Series,
-        market_probabilities: pd.Series,
-        outcomes: pd.Series,
-    ) -> dict[str, Any]:
-        legacy_models, _ = (
-            prediction_market_research.legacy_plot_adapter._load_legacy_modules()
-        )
-        legacy_fills = prediction_market_research.legacy_plot_adapter._convert_fills(
-            fills_report,
-            legacy_models,
-        )
-        market_prices_with_fills = prediction_market_research.legacy_plot_adapter._market_prices_with_fill_points(
-            {loaded_sim.market_id: market_prices},
-            legacy_fills,
-        ).get(loaded_sim.market_id, market_prices)
-        dense_equity_series, dense_cash_series = (
-            prediction_market_research._dense_account_series_from_engine(
-                engine=engine,
-                market_id=loaded_sim.market_id,
-                market_prices=market_prices,
-                initial_cash=self.initial_cash,
-            )
-        )
-        pnl_series = (
-            dense_equity_series - float(dense_equity_series.iloc[0])
-            if not dense_equity_series.empty
-            else prediction_market_research._extract_account_pnl_series(engine)
-        )
-        return {
-            "price_series": prediction_market_research._series_to_iso_pairs(
-                prediction_market_research._pairs_to_series(market_prices_with_fills)
-            ),
-            "pnl_series": prediction_market_research._series_to_iso_pairs(pnl_series)
-            if not pnl_series.empty
-            else [],
-            "equity_series": prediction_market_research._series_to_iso_pairs(
-                dense_equity_series
-            )
-            if not dense_equity_series.empty
-            else [],
-            "cash_series": prediction_market_research._series_to_iso_pairs(
-                dense_cash_series
-            )
-            if not dense_cash_series.empty
-            else [],
-            "user_probability_series": prediction_market_research._series_to_iso_pairs(
-                user_probabilities
-            )
-            if not user_probabilities.empty
-            else [],
-            "market_probability_series": prediction_market_research._series_to_iso_pairs(
-                market_probabilities
-            )
-            if not market_probabilities.empty
-            else [],
-            "outcome_series": prediction_market_research._series_to_iso_pairs(outcomes)
-            if not outcomes.empty
-            else [],
-            "fill_events": prediction_market_research._serialize_fill_events(
-                market_id=loaded_sim.market_id,
-                fills_report=fills_report,
-            ),
-        }
-
-    def _filter_report_rows(
-        self, report: pd.DataFrame, *, instrument_id: str
-    ) -> pd.DataFrame:
-        if report.empty or "instrument_id" not in report.columns:
-            return pd.DataFrame()
-        return report.loc[report["instrument_id"] == instrument_id].copy()
-
-    def _serialize_fill_events(
-        self, *, market_id: str, fills_report: pd.DataFrame
-    ) -> list[dict[str, Any]]:
-        if fills_report.empty:
-            return []
-
-        frame = fills_report.copy()
-        if frame.index.name and frame.index.name not in frame.columns:
-            frame = frame.reset_index()
-
-        events: list[dict[str, Any]] = []
-        for idx, (_, row) in enumerate(frame.iterrows(), start=1):
-            quantity = self._parse_float_like(
-                row.get("filled_qty", row.get("last_qty", row.get("quantity")))
-            )
-            if quantity <= 0.0:
-                continue
-
-            timestamp = pd.to_datetime(
-                row.get("ts_last", row.get("ts_event", row.get("ts_init"))),
-                utc=True,
-                errors="coerce",
-            )
-            if pd.isna(timestamp):
-                continue
-            assert isinstance(timestamp, pd.Timestamp)
-
-            events.append(
-                {
-                    "order_id": str(
-                        row.get("client_order_id")
-                        or row.get("venue_order_id")
-                        or row.get("order_id")
-                        or f"fill-{idx}"
-                    ),
-                    "market_id": market_id,
-                    "action": str(row.get("side") or row.get("order_side") or "BUY")
-                    .strip()
-                    .lower(),
-                    "side": "yes",
-                    "price": self._parse_float_like(
-                        row.get("avg_px", row.get("last_px", row.get("price")))
-                    ),
-                    "quantity": quantity,
-                    "timestamp": timestamp.isoformat(),
-                    "commission": self._parse_float_like(
-                        row.get("commissions", row.get("commission", row.get("fees")))
-                    ),
-                },
-            )
-
-        events.sort(key=lambda event: event["timestamp"])
-        return events
-
-    def _parse_float_like(self, value: Any) -> float:
-        if value is None:
-            return 0.0
-        if isinstance(value, int | float):
-            return float(value)
-        text = str(value).strip().replace("_", "").replace("\u2212", "-")
-        if not text:
-            return 0.0
-        for token in text.split():
-            try:
-                return float(token)
-            except ValueError:
-                continue
-        return 0.0
-
-
-def finalize_market_results(
-    *,
-    name: str,
-    results: Sequence[dict[str, Any]],
-    report: MarketReportConfig,
-) -> None:
-    market_key = _resolve_report_market_key(
-        results=results, configured_key=report.market_key
-    )
-    print_backtest_summary(
-        results=list(results),
-        market_key=market_key,
-        count_key=report.count_key,
-        count_label=report.count_label,
-        pnl_label=report.pnl_label,
-    )
-    print_backtest_result_warnings(results=results, market_key=market_key)
-
-    if len(results) == 1:
-        chart_path = results[0].get("chart_path")
-        if chart_path is not None:
-            print(f"\nLegacy chart saved to {chart_path}")
-
-    if report.combined_report and report.combined_report_path is not None:
-        combined_path = save_combined_backtest_report(
-            results=list(results),
-            output_path=_resolve_repo_relative_path(report.combined_report_path),
-            title=f"{name} combined legacy chart",
-            market_key=market_key,
-            pnl_label=report.pnl_label,
-        )
-        if combined_path is not None:
-            print(f"\nCombined legacy chart saved to {combined_path}")
-
-    if report.summary_report and report.summary_report_path is not None:
-        summary_path = save_aggregate_backtest_report(
-            results=list(results),
-            output_path=_resolve_repo_relative_path(report.summary_report_path),
-            title=f"{name} legacy multi-market chart",
-            market_key=market_key,
-            pnl_label=report.pnl_label,
-        )
-        if summary_path is not None:
-            print(f"\nLegacy multi-market chart saved to {summary_path}")
-
-
-def _resolve_report_market_key(
-    *,
-    results: Sequence[dict[str, Any]],
-    configured_key: str,
-) -> str:
-    if not results:
-        return configured_key
-
-    first_result = results[0]
-    if configured_key in first_result:
-        return configured_key
-
-    for fallback_key in ("slug", "ticker"):
-        if fallback_key in first_result:
-            return fallback_key
-
-    return configured_key
-
-
-def run_reported_backtest(
-    *,
-    backtest: PredictionMarketBacktest,
-    report: MarketReportConfig,
-    empty_message: str | None = None,
-) -> list[dict[str, Any]]:
-    results = backtest.run()
-    if not results:
-        if empty_message:
-            print(empty_message)
-        return []
-
-    finalize_market_results(name=backtest.name, results=results, report=report)
-    return results
-
 
 def _LoadedMarketSim(
     *,
@@ -889,13 +511,13 @@ def _LoadedMarketSim(
 
 __all__ = [
     "KalshiDataLoader",
+    "LoadedReplay",
     "MarketReportConfig",
     "MarketSimConfig",
     "PolymarketDataLoader",
     "PolymarketPMXTDataLoader",
     "PredictionMarketBacktest",
     "QuoteTick",
-    "LoadedReplay",
     "_LoadedMarketSim",
     "finalize_market_results",
     "run_reported_backtest",

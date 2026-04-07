@@ -39,6 +39,18 @@ DESCRIPTION = (
 
 EMIT_HTML = True
 CHART_OUTPUT_PATH = "output"
+DETAIL_PLOT_PANELS = (
+    "equity",
+    "market_pnl",
+    "periodic_pnl",
+    "yes_price",
+    "allocation",
+    "drawdown",
+    "rolling_sharpe",
+    "cash_equity",
+    "monthly_returns",
+    "brier_advantage",
+)
 
 DATA = MarketDataConfig(
     platform=Polymarket,
@@ -107,6 +119,7 @@ EXPERIMENT = build_replay_experiment(
     empty_message="No PMXT VWAP-reversion sims met the quote-tick requirements.",
     emit_html=EMIT_HTML,
     chart_output_path=CHART_OUTPUT_PATH,
+    detail_plot_panels=DETAIL_PLOT_PANELS,
 )
 
 

@@ -11,6 +11,29 @@ EXPECTED_SINGLE_MARKET_LOOKBACK_DAYS = 30
 EXPECTED_FIXED_SPORTS_LOOKBACK_DAYS = 7
 EXPECTED_EMIT_HTML = True
 EXPECTED_CHART_OUTPUT_PATH = "output"
+EXPECTED_DETAIL_PLOT_PANELS = (
+    "equity",
+    "market_pnl",
+    "periodic_pnl",
+    "yes_price",
+    "allocation",
+    "drawdown",
+    "rolling_sharpe",
+    "cash_equity",
+    "monthly_returns",
+    "brier_advantage",
+)
+EXPECTED_SUMMARY_PLOT_PANELS = (
+    "total_equity",
+    "equity",
+    "periodic_pnl",
+    "allocation",
+    "drawdown",
+    "rolling_sharpe",
+    "cash_equity",
+    "monthly_returns",
+    "brier_advantage",
+)
 EXPECTED_KALSHI_TRADE_SOURCES = ("rest:https://api.elections.kalshi.com/trade-api/v2",)
 EXPECTED_KALSHI_MARKET_TICKER = "KXNEXTIRANLEADER-45JAN01-MKHA"
 EXPECTED_POLYMARKET_TRADE_SOURCES = (
@@ -123,8 +146,15 @@ def test_kalshi_trade_tick_runners_use_typed_manifest_contract(
         _top_level_literal_value(module, "CHART_OUTPUT_PATH")
         == EXPECTED_CHART_OUTPUT_PATH
     )
+    assert (
+        _top_level_literal_value(module, "DETAIL_PLOT_PANELS")
+        == EXPECTED_DETAIL_PLOT_PANELS
+    )
     assert _experiment_keyword_value(module, "emit_html") == "EMIT_HTML"
     assert _experiment_keyword_value(module, "chart_output_path") == "CHART_OUTPUT_PATH"
+    assert (
+        _experiment_keyword_value(module, "detail_plot_panels") == "DETAIL_PLOT_PANELS"
+    )
     assert (
         _literal_value(
             next(
@@ -160,8 +190,15 @@ def test_polymarket_trade_tick_single_market_runners_use_typed_manifest_contract
         _top_level_literal_value(module, "CHART_OUTPUT_PATH")
         == EXPECTED_CHART_OUTPUT_PATH
     )
+    assert (
+        _top_level_literal_value(module, "DETAIL_PLOT_PANELS")
+        == EXPECTED_DETAIL_PLOT_PANELS
+    )
     assert _experiment_keyword_value(module, "emit_html") == "EMIT_HTML"
     assert _experiment_keyword_value(module, "chart_output_path") == "CHART_OUTPUT_PATH"
+    assert (
+        _experiment_keyword_value(module, "detail_plot_panels") == "DETAIL_PLOT_PANELS"
+    )
 
     replay_values = _single_replay_keyword_values(
         module,
@@ -185,8 +222,19 @@ def test_polymarket_trade_tick_sports_runners_use_fixed_replay_windows(
         _top_level_literal_value(module, "CHART_OUTPUT_PATH")
         == EXPECTED_CHART_OUTPUT_PATH
     )
+    assert (
+        _top_level_literal_value(module, "DETAIL_PLOT_PANELS")
+        == EXPECTED_DETAIL_PLOT_PANELS
+    )
+    assert (
+        _top_level_literal_value(module, "SUMMARY_PLOT_PANELS")
+        == EXPECTED_SUMMARY_PLOT_PANELS
+    )
     assert _experiment_keyword_value(module, "emit_html") == "EMIT_HTML"
     assert _experiment_keyword_value(module, "chart_output_path") == "CHART_OUTPUT_PATH"
+    assert (
+        _experiment_keyword_value(module, "detail_plot_panels") == "DETAIL_PLOT_PANELS"
+    )
     assert _experiment_keyword_value(module, "return_summary_series") is True
     assert "output/" in ast.unparse(
         _find_assignment(module, "SUMMARY_REPORT_PATH").value
@@ -201,6 +249,10 @@ def test_polymarket_trade_tick_sports_runners_use_fixed_replay_windows(
     assert (
         _keyword_value(report_assign.value, "summary_report_path")
         == "SUMMARY_REPORT_PATH"
+    )
+    assert (
+        _keyword_value(report_assign.value, "summary_plot_panels")
+        == "SUMMARY_PLOT_PANELS"
     )
 
     fixed_lookback_assign = _find_assignment(module, "FIXED_LOOKBACK_DAYS")

@@ -147,12 +147,13 @@ Every public runner should expose:
 - `DESCRIPTION`
 - `EMIT_HTML`
 - `CHART_OUTPUT_PATH`
-- `COMBINED_REPORT_PATH` when the runner emits a concatenated legacy HTML page
+- `DETAIL_PLOT_PANELS` when the runner emits per-sim legacy HTML charts
 - `SUMMARY_REPORT_PATH` when the runner emits one aggregate multi-market HTML page
+- `SUMMARY_PLOT_PANELS` when the runner emits an aggregate multi-market HTML page
 - `DATA`
 - `REPLAYS`
 - `STRATEGY_CONFIGS`
-- `REPORT` when the runner prints a summary table or writes combined reports
+- `REPORT` when the runner prints a summary table or writes aggregate reports
 - `EXECUTION` when the runner models non-default queue position or exchange latency
 - `EXPERIMENT`
 - `run()`
@@ -163,79 +164,108 @@ under this repo's `output/` directory consistently.
 
 ## HTML And Report Modes
 
-The repo-layer runner contract distinguishes three different output shapes:
+The repo-layer runner contract distinguishes two different output shapes:
 
 - per-sim legacy chart:
-  controlled by `EMIT_HTML` and `CHART_OUTPUT_PATH`
-- combined legacy report:
-  controlled by `REPORT.combined_report=True` and `COMBINED_REPORT_PATH`
+  controlled by `EMIT_HTML`, `CHART_OUTPUT_PATH`, and `DETAIL_PLOT_PANELS`
 - aggregate multi-market report:
-  controlled by `REPORT.summary_report=True` and `SUMMARY_REPORT_PATH`
+  controlled by `REPORT.summary_report=True`, `SUMMARY_REPORT_PATH`, and
+  `SUMMARY_PLOT_PANELS`
 
 Those are not interchangeable:
 
 - per-sim legacy charts are one HTML file per loaded replay or labeled sim
-- a combined legacy report is a concatenation of the already-generated per-sim
-  HTML pages
 - an aggregate multi-market report is built from summary series and shows all
   markets or labeled sims in one shared report
 
 The corresponding runner patterns are:
 
 - single-market runner:
-  `EMIT_HTML = True` and `CHART_OUTPUT_PATH = "output"`
+  `EMIT_HTML = True`, `CHART_OUTPUT_PATH = "output"`, and
+  `DETAIL_PLOT_PANELS = (...)`
 - multi-market runner:
-  the single-market settings plus `SUMMARY_REPORT_PATH`, `REPORT.summary_report=True`,
-  and `return_summary_series=True`
-- PMXT multi-sim runner:
-  the single-market settings plus `COMBINED_REPORT_PATH`,
-  `SUMMARY_REPORT_PATH`, `REPORT.combined_report=True`,
+  the single-market settings plus `SUMMARY_REPORT_PATH`,
+  `SUMMARY_PLOT_PANELS = (...)`,
   `REPORT.summary_report=True`, and `return_summary_series=True`
+- PMXT multi-sim runner:
+  the single-market settings plus `SUMMARY_REPORT_PATH`,
+  `REPORT.summary_report=True`, and `return_summary_series=True`
+
+This split is deliberate. It lets one run keep the dense detail that matters
+for inspection, such as execution markers and per-market PnL structure, without
+forcing a basket run to inline every raw chart into one browser page.
+
+In practice:
+
+- single-market runs treat the detail HTML as the primary artifact
+- midsize baskets can rely on both the detail HTML files and the shared summary
+  report
+- large baskets, including 400+ sim sweeps, rely on the summary report for the
+  overview while the per-sim HTML files remain the drilldown surface
+
+That is why `SUMMARY_PLOT_PANELS` should focus on panels that summarize across
+runs cleanly, while `DETAIL_PLOT_PANELS` can stay richer and more execution
+oriented.
 
 Minimal shapes:
 
 ```python
 EMIT_HTML = True
 CHART_OUTPUT_PATH = "output"
+DETAIL_PLOT_PANELS = (
+    "equity",
+    "market_pnl",
+    "periodic_pnl",
+    "yes_price",
+    "allocation",
+    "drawdown",
+    "rolling_sharpe",
+    "cash_equity",
+    "monthly_returns",
+    "brier_advantage",
+)
 ```
 
 ```python
 SUMMARY_REPORT_PATH = f"output/{NAME}_multi_market.html"
+SUMMARY_PLOT_PANELS = (
+    "total_equity",
+    "equity",
+    "periodic_pnl",
+    "allocation",
+    "drawdown",
+    "rolling_sharpe",
+    "cash_equity",
+    "monthly_returns",
+    "brier_advantage",
+)
 
 REPORT = MarketReportConfig(
     ...,
     summary_report=True,
     summary_report_path=SUMMARY_REPORT_PATH,
+    summary_plot_panels=SUMMARY_PLOT_PANELS,
 )
 
 EXPERIMENT = build_replay_experiment(
     ...,
     emit_html=EMIT_HTML,
     chart_output_path=CHART_OUTPUT_PATH,
+    detail_plot_panels=DETAIL_PLOT_PANELS,
     return_summary_series=True,
-)
-```
-
-```python
-COMBINED_REPORT_PATH = f"output/{NAME}_combined_legacy.html"
-SUMMARY_REPORT_PATH = f"output/{NAME}_multi_market.html"
-
-REPORT = MarketReportConfig(
-    ...,
-    combined_report=True,
-    combined_report_path=COMBINED_REPORT_PATH,
-    summary_report=True,
-    summary_report_path=SUMMARY_REPORT_PATH,
 )
 ```
 
 Practical constraints:
 
-- `COMBINED_REPORT_PATH` depends on the individual HTML files already existing,
-  so keep `EMIT_HTML = True` when you enable it
 - `SUMMARY_REPORT_PATH` depends on summary-series data, so the experiment must
   opt into `return_summary_series=True`
 - `CHART_OUTPUT_PATH` templates may reference only `{name}` and `{market_id}`
+- panel lists are ordered tuples of stable ids, so inclusion and layout order
+  are explicit in the runner file
+- known-but-unavailable panels are skipped; unknown panel ids raise immediately
+- the shared summary report scales because it is built from summary-series data,
+  not by concatenating hundreds of per-sim legacy HTML files
 
 ## Optimization Runners
 
@@ -360,10 +390,10 @@ Use these top-level objects as the edit surface:
 - `EMIT_HTML` to skip per-run HTML output when you are sweeping many runners
 - `CHART_OUTPUT_PATH` for an explicit file, directory, or `{name}` /
   `{market_id}` template
-- `COMBINED_REPORT_PATH` for one concatenated legacy HTML page when the runner
-  should stitch individual chart pages together
+- `DETAIL_PLOT_PANELS` for explicit per-sim panel inclusion and ordering
 - `SUMMARY_REPORT_PATH` for one aggregate HTML report when the runner should
   show all markets or labeled sims in one shared report
+- `SUMMARY_PLOT_PANELS` for explicit aggregate panel inclusion and ordering
 - `DATA` for platform, modality, vendor, and source priority
 - `REPLAYS` for one market or a basket of markets
 - `STRATEGY_CONFIGS` for strategy paths and parameter payloads

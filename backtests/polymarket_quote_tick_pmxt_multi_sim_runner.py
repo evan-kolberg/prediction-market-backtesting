@@ -40,8 +40,30 @@ DESCRIPTION = "Example PMXT quote-tick multi-sim runner using fixed historical s
 
 EMIT_HTML = True
 CHART_OUTPUT_PATH = "output"
-COMBINED_REPORT_PATH = f"output/{NAME}_combined_legacy.html"
+DETAIL_PLOT_PANELS = (
+    "equity",
+    "market_pnl",
+    "periodic_pnl",
+    "yes_price",
+    "allocation",
+    "drawdown",
+    "rolling_sharpe",
+    "cash_equity",
+    "monthly_returns",
+    "brier_advantage",
+)
 SUMMARY_REPORT_PATH = f"output/{NAME}_multi_market.html"
+SUMMARY_PLOT_PANELS = (
+    "total_equity",
+    "equity",
+    "periodic_pnl",
+    "allocation",
+    "drawdown",
+    "rolling_sharpe",
+    "cash_equity",
+    "monthly_returns",
+    "brier_advantage",
+)
 EMPTY_MESSAGE = "No PMXT multi-sim example windows met the quote-tick requirements."
 PARTIAL_MESSAGE = "Completed {completed} of {total} fixed example sims."
 
@@ -108,10 +130,9 @@ REPORT = MarketReportConfig(
     count_label="Quotes",
     pnl_label="PnL (USDC)",
     market_key="sim_label",
-    combined_report=True,
-    combined_report_path=COMBINED_REPORT_PATH,
     summary_report=True,
     summary_report_path=SUMMARY_REPORT_PATH,
+    summary_plot_panels=SUMMARY_PLOT_PANELS,
 )
 
 EXECUTION = ExecutionModelConfig(
@@ -140,6 +161,7 @@ EXPERIMENT = build_replay_experiment(
     partial_message=PARTIAL_MESSAGE,
     emit_html=EMIT_HTML,
     chart_output_path=CHART_OUTPUT_PATH,
+    detail_plot_panels=DETAIL_PLOT_PANELS,
     return_summary_series=True,
 )
 

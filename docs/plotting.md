@@ -3,14 +3,29 @@
 Single-market plotting is built into the shared runner flow used by the public
 prediction-market backtests.
 
+The repo-layer plotting contract is intentionally split into two surfaces:
+
+- one detailed HTML file per loaded replay or labeled sim
+- one aggregate summary HTML file for the whole basket when the runner asks for it
+
+That separation is what lets charting stay useful across very different run
+sizes. One market can still show execution markers, PnL ticks, and the rest of
+the dense legacy detail. A basket of 30, 400, or more sims can still open
+quickly because the shared summary report is built from aggregated summary
+series instead of trying to inline every raw tick, fill, and panel from every
+run into one browser page.
+
 Optimizer runners write search artifacts to `output/` as CSV and JSON. They do
 not emit one HTML chart per trial by default.
 
-Every public runner now exposes two explicit plotting controls at top level:
+Every public runner now exposes explicit plotting controls at top level:
 
 - `EMIT_HTML` keeps per-run HTML generation on or off in the file itself
 - `CHART_OUTPUT_PATH` keeps the destination explicit instead of hiding it in
   shared defaults
+- `DETAIL_PLOT_PANELS` chooses which per-sim panels render and in what order
+- `SUMMARY_PLOT_PANELS` chooses which aggregate multi-market panels render and
+  in what order when a runner emits a summary report
 
 Good examples:
 
@@ -19,15 +34,34 @@ Good examples:
 - [`backtests/polymarket_quote_tick_pmxt_panic_fade.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_quote_tick_pmxt_panic_fade.py)
 - [`backtests/polymarket_quote_tick_pmxt_vwap_reversion.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_quote_tick_pmxt_vwap_reversion.py)
 
+## Scaling Model
+
+Think about plotting in terms of overview versus drilldown:
+
+- single-market run:
+  one detail HTML file is the whole story, so showing fills, execution, price,
+  and market-level PnL on that one run is reasonable
+- midsize basket, such as 10 to 30 sims:
+  one detail HTML per sim still works well, and one aggregate summary chart is
+  still a useful shared overview
+- large basket, such as 400+ sims:
+  the same contract still holds, but the summary report becomes the primary
+  overview surface while detailed inspection happens by opening the individual
+  per-sim HTML files on demand
+
+The important constraint is that the repo no longer promises one mega-page with
+every chart inlined. Trying to concatenate hundreds of Bokeh documents or plot
+every fill across every sim in one page does not scale honestly. The current
+approach keeps the dense information where it belongs, inside the individual
+run that produced it, and keeps the aggregate report focused on the panels that
+summarize across runs cleanly.
+
 ## Output Types
 
-There are three distinct HTML/report modes in the repo layer:
+There are two distinct HTML/report modes in the repo layer:
 
 - per-sim legacy chart:
   enabled by `EMIT_HTML = True` and written under `CHART_OUTPUT_PATH`
-- combined legacy report:
-  enabled by `REPORT.combined_report=True` plus `COMBINED_REPORT_PATH`; this is
-  a concatenation of already-generated per-sim HTML pages
 - aggregate multi-market report:
   enabled by `REPORT.summary_report=True` plus `SUMMARY_REPORT_PATH`; this is a
   true aggregate report built from summary series, not a pasted-together page
@@ -35,20 +69,32 @@ There are three distinct HTML/report modes in the repo layer:
 Typical public-runner combinations:
 
 - single-market runner:
-  only `EMIT_HTML` and `CHART_OUTPUT_PATH`
+  `EMIT_HTML`, `CHART_OUTPUT_PATH`, and `DETAIL_PLOT_PANELS`
 - fixed-basket multi-market runner:
   per-market legacy charts plus `SUMMARY_REPORT_PATH`
 - PMXT multi-sim runner:
-  per-sim legacy charts plus both `COMBINED_REPORT_PATH` and
-  `SUMMARY_REPORT_PATH`
+  per-sim legacy charts plus `SUMMARY_REPORT_PATH`
+
+This gives users the best of both worlds:
+
+- detail charts can stay rich and execution-focused for one market or one sim
+- the basket summary can stay fast because it plots summary-series panels such
+  as `total_equity`, `equity`, `periodic_pnl`, `drawdown`, and
+  `monthly_returns`
+- large baskets do not have to give up drilldown, because each run still keeps
+  its own full-detail HTML artifact
+
+The default summary panel set intentionally excludes panels such as
+`yes_price` and `market_pnl`, because those are most useful at the individual
+run level and do not scale cleanly across hundreds of sims.
 
 Important runtime detail:
 
-- `COMBINED_REPORT_PATH` depends on the individual per-sim HTML files already
-  existing, so public runners that use it also keep `EMIT_HTML = True`
 - `SUMMARY_REPORT_PATH` depends on summary-series data being returned from the
   backtest, so runners that use it also set `return_summary_series=True` in the
   experiment config
+- `DETAIL_PLOT_PANELS` and `SUMMARY_PLOT_PANELS` are ordered tuples of stable
+  panel ids, so the runner chooses both inclusion and vertical stacking order
 
 ## Output Paths
 
@@ -92,7 +138,6 @@ Charts are written to `output/`, typically with names like:
 - `output/polymarket_quote_tick_pmxt_breakout_<market>_legacy.html`
 - `output/polymarket_quote_tick_pmxt_rsi_reversion_<market>_legacy.html`
 - `output/polymarket_quote_tick_pmxt_spread_capture_<market>_legacy.html`
-- `output/polymarket_quote_tick_pmxt_multi_sim_runner_combined_legacy.html`
 - `output/polymarket_quote_tick_pmxt_multi_sim_runner_multi_market.html`
 - `output/polymarket_quote_tick_pmxt_ema_optimizer_leaderboard.csv`
 - `output/polymarket_quote_tick_pmxt_ema_optimizer_summary.json`
@@ -101,10 +146,31 @@ The default naming rules are:
 
 - `CHART_OUTPUT_PATH="output"`:
   `output/<runner_name>_<market_or_sim_label>_legacy.html`
-- `COMBINED_REPORT_PATH="output/<runner_name>_combined_legacy.html"`:
-  one concatenated page for all per-sim HTML reports
 - `SUMMARY_REPORT_PATH="output/<runner_name>_multi_market.html"`:
   one aggregate report spanning all markets or all labeled sims
+
+The supported panel ids are:
+
+- `total_equity`
+- `equity`
+- `market_pnl`
+- `periodic_pnl`
+- `yes_price`
+- `allocation`
+- `drawdown`
+- `rolling_sharpe`
+- `cash_equity`
+- `monthly_returns`
+- `brier_advantage`
+
+## Example Summary Output
+
+The PMXT multi-sim runner output below is a good example of the intended large
+basket workflow: the terminal prints the per-sim summary table, each sim can
+still emit its own detail chart, and the aggregate summary report is written as
+one separate HTML artifact.
+
+![PMXT multi-sim summary output](assets/pmxt-multi-sim-summary-example.png)
 
 ## Multi-Market References
 
@@ -126,15 +192,23 @@ aggregate summary chart under `output/`, typically with names like:
 - `output/polymarket_trade_tick_sports_late_favorite_limit_hold_multi_market.html`
 - `output/polymarket_trade_tick_sports_vwap_reversion_multi_market.html`
 
-The PMXT multi-sim example runner also writes an optional combined
-concatenation page in addition to the aggregate chart:
+The PMXT multi-sim example runner writes per-sim detail charts plus one
+aggregate summary chart:
 
-- `output/polymarket_quote_tick_pmxt_multi_sim_runner_combined_legacy.html`
 - `output/polymarket_quote_tick_pmxt_multi_sim_runner_multi_market.html`
 
-`COMBINED_REPORT_PATH` is a concatenation of already-generated individual chart
-pages. `SUMMARY_REPORT_PATH` is the true aggregate report with shared panels
-across runs.
+`SUMMARY_REPORT_PATH` is the true aggregate report with shared panels across
+runs. Large baskets should rely on that summary surface plus on-demand per-sim
+detail charts instead of one concatenated mega-page.
+
+That means the scaling story is stable across run sizes:
+
+- if you run one market, the detail chart is the main artifact
+- if you run a few dozen markets or labeled sims, the summary report remains a
+  convenient shared overview
+- if you run hundreds of sims, the summary report still scales because it is
+  built from summary series, while the detailed execution view stays available
+  one sim at a time
 
 In the fixed sports runners, "multi-market" is literal: one report spans
 multiple different market slugs. In the PMXT multi-sim runner, "multi-market"

@@ -50,6 +50,7 @@ class ReplayExperiment:
     chart_output_path: str | Path | None = None
     return_chart_layout: bool = False
     return_summary_series: bool = False
+    detail_plot_panels: Sequence[str] | None = None
     report: MarketReportConfig | None = None
     empty_message: str | None = None
     partial_message: str | None = None
@@ -91,6 +92,7 @@ def build_backtest_for_experiment(
         chart_output_path=experiment.chart_output_path,
         return_chart_layout=experiment.return_chart_layout,
         return_summary_series=experiment.return_summary_series,
+        detail_plot_panels=experiment.detail_plot_panels,
     )
 
 
@@ -118,6 +120,7 @@ def build_replay_experiment(
     chart_output_path: str | Path | None = None,
     return_chart_layout: bool = False,
     return_summary_series: bool = False,
+    detail_plot_panels: Sequence[str] | None = None,
     report: MarketReportConfig | None = None,
     empty_message: str | None = None,
     partial_message: str | None = None,
@@ -146,6 +149,7 @@ def build_replay_experiment(
         chart_output_path=chart_output_path,
         return_chart_layout=return_chart_layout,
         return_summary_series=return_summary_series,
+        detail_plot_panels=detail_plot_panels,
         report=report,
         empty_message=empty_message,
         partial_message=partial_message,
@@ -185,6 +189,7 @@ def replay_experiment_from_backtest(
         chart_output_path=backtest.chart_output_path,
         return_chart_layout=backtest.return_chart_layout,
         return_summary_series=backtest.return_summary_series,
+        detail_plot_panels=backtest.detail_plot_panels,
         report=report,
         empty_message=empty_message,
         partial_message=partial_message,

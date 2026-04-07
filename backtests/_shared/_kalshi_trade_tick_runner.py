@@ -52,6 +52,7 @@ async def run_single_market_trade_backtest(
     emit_html: bool = True,
     chart_output_path: str | Path | None = None,
     return_chart_layout: bool = False,
+    detail_plot_panels: Sequence[str] | None = None,
     end_time: pd.Timestamp | datetime | None = None,
     data_sources: tuple[str, ...] = (),
     execution: ExecutionModelConfig | None = None,
@@ -96,6 +97,7 @@ async def run_single_market_trade_backtest(
         emit_html=emit_html,
         chart_output_path=chart_output_path,
         return_chart_layout=return_chart_layout,
+        detail_plot_panels=detail_plot_panels,
         report=report,
     )
 

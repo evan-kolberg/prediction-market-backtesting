@@ -14,6 +14,8 @@ import pandas as pd
 import pytest
 
 from nautilus_trader.analysis import legacy_plot_adapter as adapter
+from nautilus_trader.analysis.legacy_backtesting.models import PANEL_BRIER_ADVANTAGE
+from nautilus_trader.analysis.legacy_backtesting.models import PANEL_EQUITY
 
 
 class _DummyLayout:
@@ -231,3 +233,145 @@ def test_build_legacy_backtest_layout_auto_hides_yes_price_fill_markers_for_high
     assert layout is base_layout
     assert title == "Test Strategy legacy chart"
     assert apply_calls == [expected_hide_markers]
+
+
+def test_build_legacy_backtest_layout_skips_brier_when_not_requested(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    plotting_calls: list[dict[str, object]] = []
+
+    class _BacktestResult:
+        def __init__(self, **kwargs) -> None:
+            self.kwargs = kwargs
+
+    def _fake_plot(*_args, **kwargs):  # type: ignore[no-untyped-def]
+        plotting_calls.append(kwargs)
+        return _DummyLayout()
+
+    engine = SimpleNamespace(
+        trader=SimpleNamespace(generate_order_fills_report=list),
+    )
+
+    monkeypatch.setattr(
+        adapter,
+        "_load_legacy_modules",
+        lambda *_: (
+            SimpleNamespace(BacktestResult=_BacktestResult),
+            SimpleNamespace(plot=_fake_plot),
+        ),
+    )
+    monkeypatch.setattr(
+        adapter, "_configure_legacy_downsampling", lambda *_args, **_kwargs: None
+    )
+    monkeypatch.setattr(adapter, "_extract_account_report", lambda *_: object())
+    monkeypatch.setattr(adapter, "_convert_fills", lambda *_: [])
+    monkeypatch.setattr(
+        adapter, "_build_portfolio_snapshots", lambda *args, **kwargs: []
+    )
+    monkeypatch.setattr(
+        adapter, "_market_prices_with_fill_points", lambda *args, **kwargs: {}
+    )
+    monkeypatch.setattr(
+        adapter,
+        "_build_dense_portfolio_snapshots",
+        lambda *args, **kwargs: [
+            SimpleNamespace(
+                timestamp=datetime(2025, 1, 1, tzinfo=UTC), total_equity=100.0
+            ),
+            SimpleNamespace(
+                timestamp=datetime(2025, 1, 2, tzinfo=UTC), total_equity=125.0
+            ),
+        ],
+    )
+    monkeypatch.setattr(adapter, "_build_metrics", lambda *args, **kwargs: {})
+    monkeypatch.setattr(adapter, "_platform_enum", lambda *args, **kwargs: "KALSHI")
+    monkeypatch.setattr(
+        adapter,
+        "_apply_layout_overrides",
+        lambda layout, initial_cash, **kwargs: layout,
+    )
+    monkeypatch.setattr(
+        adapter,
+        "prepare_cumulative_brier_advantage",
+        lambda **kwargs: pytest.fail(
+            "Brier inputs should not be prepared when the panel is not requested"
+        ),
+    )
+
+    adapter.build_legacy_backtest_layout(
+        engine=engine,
+        output_path=tmp_path / "legacy.html",
+        strategy_name="Test Strategy",
+        platform="kalshi",
+        initial_cash=100.0,
+        plot_panels=(PANEL_EQUITY,),
+    )
+
+    assert plotting_calls == [
+        {
+            "filename": str((tmp_path / "legacy.html").resolve()),
+            "max_markets": 30,
+            "open_browser": False,
+            "progress": False,
+            "plot_panels": (PANEL_EQUITY,),
+            "extra_panels": {},
+        },
+    ]
+
+
+def test_build_legacy_backtest_layout_rejects_unknown_plot_panels(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    class _BacktestResult:
+        def __init__(self, **kwargs) -> None:
+            self.kwargs = kwargs
+
+    engine = SimpleNamespace(
+        trader=SimpleNamespace(generate_order_fills_report=list),
+    )
+
+    monkeypatch.setattr(
+        adapter,
+        "_load_legacy_modules",
+        lambda *_: (
+            SimpleNamespace(BacktestResult=_BacktestResult),
+            SimpleNamespace(plot=lambda *args, **kwargs: None),
+        ),
+    )
+    monkeypatch.setattr(
+        adapter, "_configure_legacy_downsampling", lambda *_args, **_kwargs: None
+    )
+    monkeypatch.setattr(adapter, "_extract_account_report", lambda *_: object())
+    monkeypatch.setattr(adapter, "_convert_fills", lambda *_: [])
+    monkeypatch.setattr(
+        adapter, "_build_portfolio_snapshots", lambda *args, **kwargs: []
+    )
+    monkeypatch.setattr(
+        adapter, "_market_prices_with_fill_points", lambda *args, **kwargs: {}
+    )
+    monkeypatch.setattr(
+        adapter,
+        "_build_dense_portfolio_snapshots",
+        lambda *args, **kwargs: [
+            SimpleNamespace(
+                timestamp=datetime(2025, 1, 1, tzinfo=UTC), total_equity=100.0
+            ),
+            SimpleNamespace(
+                timestamp=datetime(2025, 1, 2, tzinfo=UTC), total_equity=125.0
+            ),
+        ],
+    )
+    monkeypatch.setattr(adapter, "_build_metrics", lambda *args, **kwargs: {})
+    monkeypatch.setattr(adapter, "_platform_enum", lambda *args, **kwargs: "KALSHI")
+
+    with pytest.raises(ValueError, match="Unknown plot panel"):
+        adapter.build_legacy_backtest_layout(
+            engine=engine,
+            output_path=tmp_path / "legacy.html",
+            strategy_name="Test Strategy",
+            platform="kalshi",
+            initial_cash=100.0,
+            plot_panels=(PANEL_BRIER_ADVANTAGE, "not_a_panel"),
+        )

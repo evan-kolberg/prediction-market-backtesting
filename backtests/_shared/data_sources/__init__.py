@@ -66,6 +66,24 @@ from backtests._shared.data_sources.platforms import MarketPlatform
 from backtests._shared.data_sources.platforms import Polymarket
 from backtests._shared.data_sources.platforms import POLYMARKET_PLATFORM
 from backtests._shared.data_sources.pmxt import resolve_pmxt_data_source_selection
+from backtests._shared.data_sources.registry import MarketDataKey
+from backtests._shared.data_sources.registry import MarketDataSupport
+from backtests._shared.data_sources.registry import build_single_market_replay
+from backtests._shared.data_sources.registry import register_market_data_support
+from backtests._shared.data_sources.registry import resolve_market_data_support
+from backtests._shared.data_sources.registry import resolve_replay_adapter
+from backtests._shared.data_sources.registry import supported_market_data_keys
+from backtests._shared.data_sources.registry import unregister_market_data_support
+from backtests._shared.data_sources.replay_adapters import BUILTIN_REPLAY_ADAPTERS
+from backtests._shared.data_sources.replay_adapters import (
+    KalshiTradeTickReplayAdapter,
+)
+from backtests._shared.data_sources.replay_adapters import (
+    PolymarketPMXTQuoteReplayAdapter,
+)
+from backtests._shared.data_sources.replay_adapters import (
+    PolymarketTradeTickReplayAdapter,
+)
 from backtests._shared.data_sources.vendors import MarketDataVendor
 from backtests._shared.data_sources.vendors import Native
 from backtests._shared.data_sources.vendors import NATIVE_VENDOR
@@ -80,8 +98,11 @@ __all__ = [
     "Kalshi",
     "KalshiNativeDataSourceSelection",
     "KalshiNativeLoaderConfig",
+    "KalshiTradeTickReplayAdapter",
+    "MarketDataKey",
     "MarketDataType",
     "MarketPlatform",
+    "MarketDataSupport",
     "MarketDataVendor",
     "Native",
     "NATIVE_VENDOR",
@@ -104,6 +125,8 @@ __all__ = [
     "Polymarket",
     "PolymarketNativeDataSourceSelection",
     "PolymarketNativeLoaderConfig",
+    "PolymarketPMXTQuoteReplayAdapter",
+    "PolymarketTradeTickReplayAdapter",
     "QuoteTick",
     "QUOTE_TICK_DATA",
     "RunnerKalshiDataLoader",
@@ -111,13 +134,20 @@ __all__ = [
     "RunnerPolymarketPMXTDataLoader",
     "TradeTick",
     "TRADE_TICK_DATA",
+    "BUILTIN_REPLAY_ADAPTERS",
+    "build_single_market_replay",
     "configured_kalshi_native_data_source",
     "configured_polymarket_native_data_source",
     "configured_pmxt_data_source",
+    "register_market_data_support",
     "resolve_kalshi_native_loader_config",
     "resolve_kalshi_native_data_source_selection",
+    "resolve_market_data_support",
     "resolve_polymarket_native_loader_config",
     "resolve_polymarket_native_data_source_selection",
     "resolve_pmxt_loader_config",
     "resolve_pmxt_data_source_selection",
+    "resolve_replay_adapter",
+    "supported_market_data_keys",
+    "unregister_market_data_support",
 ]

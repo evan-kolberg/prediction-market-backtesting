@@ -36,6 +36,9 @@ from nautilus_trader.adapters.prediction_market.backtest_utils import extract_re
 from nautilus_trader.adapters.prediction_market.backtest_utils import infer_realized_outcome
 from nautilus_trader.adapters.prediction_market.fill_model import PredictionMarketTakerFillModel
 from nautilus_trader.analysis import legacy_plot_adapter as legacy_plot_adapter
+from nautilus_trader.analysis.legacy_backtesting.models import DEFAULT_SUMMARY_PLOT_PANELS
+from nautilus_trader.analysis.legacy_backtesting.models import normalize_plot_panels
+from nautilus_trader.analysis.legacy_backtesting.models import PANEL_BRIER_ADVANTAGE
 from nautilus_trader.analysis.legacy_plot_adapter import build_legacy_backtest_layout
 from nautilus_trader.analysis.legacy_plot_adapter import save_legacy_backtest_layout
 from nautilus_trader.analysis.reporter import ReportProvider
@@ -551,6 +554,7 @@ def save_aggregate_backtest_report(
     market_key: str,
     pnl_label: str,
     max_points_per_market: int = 400,
+    plot_panels: Sequence[str] | None = None,
 ) -> str | None:
     """
     Save one legacy Bokeh report spanning multiple markets in shared panels.
@@ -560,6 +564,10 @@ def save_aggregate_backtest_report(
 
     models_module, plotting_module = legacy_plot_adapter._load_legacy_modules()
     downsample_point_limit = max(5000, max_points_per_market * 12)
+    resolved_plot_panels = normalize_plot_panels(
+        plot_panels,
+        default=DEFAULT_SUMMARY_PLOT_PANELS,
+    )
     legacy_plot_adapter._configure_legacy_downsampling(
         plotting_module,
         adaptive=True,
@@ -754,17 +762,30 @@ def save_aggregate_backtest_report(
         prepend_total_equity_panel=True,
         total_equity_panel_label="Total Equity",
         plot_monthly_returns=True,
+        plot_panels=resolved_plot_panels,
     )
 
     output_abs = Path(output_path).expanduser().resolve()
     output_abs.parent.mkdir(parents=True, exist_ok=True)
+    extra_panels: dict[str, Any] = {}
+    if PANEL_BRIER_ADVANTAGE in resolved_plot_panels:
+        brier_frames = _aggregate_brier_frames(results)
+        if brier_frames:
+            panel = legacy_plot_adapter._build_multi_market_brier_panel(
+                brier_frames,
+                axis_label="Cumulative Brier Advantage",
+                max_points_per_market=max_points_per_market,
+            )
+            if panel is not None:
+                extra_panels[PANEL_BRIER_ADVANTAGE] = panel
     layout = plotting_module.plot(
         result,
         filename=str(output_abs),
         max_markets=max(len(market_prices), 30),
         open_browser=False,
         progress=False,
-        plot_monthly_returns=True,
+        plot_panels=resolved_plot_panels,
+        extra_panels=extra_panels,
     )
     layout = legacy_plot_adapter._apply_layout_overrides(
         layout,
@@ -774,16 +795,6 @@ def save_aggregate_backtest_report(
             max_points=downsample_point_limit,
         ),
     )
-
-    brier_frames = _aggregate_brier_frames(results)
-    if brier_frames:
-        layout = legacy_plot_adapter._append_multi_market_brier_panel(
-            layout,
-            brier_frames,
-            axis_label="Cumulative Brier Advantage",
-            color_by_market=legacy_plot_adapter._extract_yes_price_colors(layout),
-            max_points_per_market=max_points_per_market,
-        )
     return save_legacy_backtest_layout(layout, output_abs, title)
 
 

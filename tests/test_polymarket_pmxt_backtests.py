@@ -49,6 +49,29 @@ TIME_BASED_SINGLE_MARKET_MODULES = {
     "backtests.polymarket_quote_tick_pmxt_late_favorite_limit_hold",
     "backtests.polymarket_quote_tick_pmxt_threshold_momentum",
 }
+EXPECTED_DETAIL_PLOT_PANELS = (
+    "equity",
+    "market_pnl",
+    "periodic_pnl",
+    "yes_price",
+    "allocation",
+    "drawdown",
+    "rolling_sharpe",
+    "cash_equity",
+    "monthly_returns",
+    "brier_advantage",
+)
+EXPECTED_SUMMARY_PLOT_PANELS = (
+    "total_equity",
+    "equity",
+    "periodic_pnl",
+    "allocation",
+    "drawdown",
+    "rolling_sharpe",
+    "cash_equity",
+    "monthly_returns",
+    "brier_advantage",
+)
 
 
 @pytest.mark.parametrize(
@@ -136,6 +159,7 @@ def test_pmxt_backtests_build_expected_quote_tick_strategy(
     assert module.EXPERIMENT.probability_window > 0
     assert module.DATA.sources == EXPECTED_PMXT_SOURCES
     assert len(module.REPLAYS) == 1
+    assert module.EXPERIMENT.detail_plot_panels == module.DETAIL_PLOT_PANELS
     sim = module.REPLAYS[0]
     assert sim.market_slug == EXPECTED_MARKET_SLUG
     assert sim.token_index == 0
@@ -252,14 +276,17 @@ def test_pmxt_multi_sim_example_runner_uses_fixed_windows(
     assert module.EXPERIMENT.probability_window == 30
     assert module.DATA.sources == EXPECTED_PMXT_SOURCES
     assert module.REPORT.market_key == "sim_label"
-    assert module.REPORT.combined_report is True
-    assert module.REPORT.combined_report_path == (
-        f"output/{module.NAME}_combined_legacy.html"
-    )
     assert module.REPORT.summary_report is True
     assert module.REPORT.summary_report_path == (
         f"output/{module.NAME}_multi_market.html"
     )
+    assert module.DETAIL_PLOT_PANELS == EXPECTED_DETAIL_PLOT_PANELS
+    assert module.SUMMARY_PLOT_PANELS == EXPECTED_SUMMARY_PLOT_PANELS
+    assert module.EXPERIMENT.detail_plot_panels == module.DETAIL_PLOT_PANELS
+    assert captured["backtest"].detail_plot_panels == module.DETAIL_PLOT_PANELS
+    assert module.REPORT.summary_plot_panels == module.SUMMARY_PLOT_PANELS
+    assert not hasattr(module.REPORT, "combined_report")
+    assert not hasattr(module.REPORT, "combined_report_path")
     assert captured["report"] == module.REPORT
     assert captured["empty_message"] == module.EMPTY_MESSAGE
     assert captured["partial_message"] == module.PARTIAL_MESSAGE

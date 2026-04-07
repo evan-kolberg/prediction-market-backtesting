@@ -15,9 +15,9 @@ from backtests._shared._execution_config import ExecutionModelConfig
 from backtests._shared._experiments import ReplayExperiment
 from backtests._shared._experiments import run_replay_experiment_async
 from backtests._shared._market_data_config import MarketDataConfig
-from backtests._shared._market_data_support import build_single_market_replay
-from backtests._shared._market_data_support import resolve_market_data_support
 from backtests._shared._strategy_configs import StrategyConfigSpec
+from backtests._shared.data_sources.registry import build_single_market_replay
+from backtests._shared.data_sources.registry import resolve_market_data_support
 
 
 type StrategyFactory = Callable[[InstrumentId], Strategy]
@@ -45,6 +45,7 @@ async def run_single_market_backtest(
     chart_output_path: str | Path | None = None,
     return_chart_layout: bool = False,
     return_summary_series: bool = False,
+    detail_plot_panels: Sequence[str] | None = None,
     start_time: pd.Timestamp | datetime | str | None = None,
     end_time: pd.Timestamp | datetime | str | None = None,
     execution: ExecutionModelConfig | None = None,
@@ -85,6 +86,7 @@ async def run_single_market_backtest(
             chart_output_path=chart_output_path,
             return_chart_layout=return_chart_layout,
             return_summary_series=return_summary_series,
+            detail_plot_panels=detail_plot_panels,
         )
     )
     return results[0] if results else None

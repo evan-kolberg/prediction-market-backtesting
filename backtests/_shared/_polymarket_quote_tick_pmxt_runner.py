@@ -50,6 +50,7 @@ async def run_single_market_pmxt_backtest(
     chart_output_path: str | Path | None = None,
     return_chart_layout: bool = False,
     return_summary_series: bool = False,
+    detail_plot_panels: Sequence[str] | None = None,
     start_time: str | None = None,
     end_time: str | None = None,
     data_sources: Sequence[str] = (),
@@ -96,6 +97,7 @@ async def run_single_market_pmxt_backtest(
         chart_output_path=chart_output_path,
         return_chart_layout=return_chart_layout,
         return_summary_series=return_summary_series,
+        detail_plot_panels=detail_plot_panels,
         report=report,
     )
     if not emit_summary:

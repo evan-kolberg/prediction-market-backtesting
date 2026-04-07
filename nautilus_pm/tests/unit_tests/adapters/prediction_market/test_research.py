@@ -13,6 +13,9 @@ import pytest
 from nautilus_trader.adapters.prediction_market import research
 from nautilus_trader.adapters.prediction_market.fill_model import PredictionMarketTakerFillModel
 from nautilus_trader.adapters.prediction_market.research import save_aggregate_backtest_report
+from nautilus_trader.analysis.legacy_backtesting.models import PANEL_BRIER_ADVANTAGE
+from nautilus_trader.analysis.legacy_backtesting.models import PANEL_CASH_EQUITY
+from nautilus_trader.analysis.legacy_backtesting.models import PANEL_TOTAL_EQUITY
 from nautilus_trader.model.currencies import USDC_POS
 from nautilus_trader.model.identifiers import Venue
 
@@ -158,19 +161,109 @@ def test_save_aggregate_backtest_report_writes_legacy_bokeh_html(tmp_path) -> No
     assert "custom multi-market chart" in html
     assert "Total Equity" in html
     assert "Equity" in html
-    assert "Profit / Loss" in html
+    assert "Profit / Loss" not in html
     assert "P&amp;L (periodic)" in html
     assert "Allocation" in html
-    assert "YES Price" in html
+    assert "YES Price" not in html
     assert "Drawdown" in html
     assert "Rolling Sharpe" in html
     assert "Cash / Equity" in html
     assert "Cumulative Brier Advantage" in html
     assert "market-a" in html
     assert "market-b" in html
-    assert "Fills (" in html
+    assert "Fills (" not in html
     assert "Monthly Returns" in html
     assert "plotly" not in html.lower()
+
+
+def test_save_aggregate_backtest_report_passes_requested_plot_panels_to_plotter(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    plotting_calls: list[dict[str, object]] = []
+
+    class _BacktestResult:
+        def __init__(self, **kwargs) -> None:
+            self.kwargs = kwargs
+
+    def _fake_plot(*_args, **kwargs):  # type: ignore[no-untyped-def]
+        plotting_calls.append(kwargs)
+        return object()
+
+    monkeypatch.setattr(
+        research.legacy_plot_adapter,
+        "_load_legacy_modules",
+        lambda *_: (
+            SimpleNamespace(
+                BacktestResult=_BacktestResult,
+                PortfolioSnapshot=lambda **kwargs: SimpleNamespace(**kwargs),
+                Platform=SimpleNamespace(POLYMARKET="POLYMARKET"),
+            ),
+            SimpleNamespace(plot=_fake_plot),
+        ),
+    )
+    monkeypatch.setattr(
+        research.legacy_plot_adapter,
+        "_configure_legacy_downsampling",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        research.legacy_plot_adapter,
+        "_apply_layout_overrides",
+        lambda layout, initial_cash, **kwargs: layout,
+    )
+    monkeypatch.setattr(
+        research,
+        "save_legacy_backtest_layout",
+        lambda layout, output_path, title: str(output_path),
+    )
+    monkeypatch.setattr(research, "_aggregate_brier_frames", lambda results: {})
+    monkeypatch.setattr(
+        research,
+        "_deserialize_fill_events",
+        lambda **kwargs: [],
+    )
+
+    output_path = tmp_path / "aggregate.html"
+    report_path = save_aggregate_backtest_report(
+        results=[
+            {
+                "slug": "market-a",
+                "trades": 120,
+                "fills": 0,
+                "pnl": 12.5,
+                "equity_series": [
+                    ("2025-01-01T00:00:00+00:00", 100.0),
+                    ("2025-01-01T01:00:00+00:00", 112.5),
+                ],
+                "cash_series": [
+                    ("2025-01-01T00:00:00+00:00", 100.0),
+                    ("2025-01-01T01:00:00+00:00", 112.5),
+                ],
+            },
+        ],
+        output_path=output_path,
+        title="custom multi-market chart",
+        market_key="slug",
+        pnl_label="PnL (USDC)",
+        plot_panels=(PANEL_CASH_EQUITY, PANEL_TOTAL_EQUITY, PANEL_BRIER_ADVANTAGE),
+    )
+
+    assert report_path == str(output_path)
+    assert plotting_calls == [
+        {
+            "filename": str(output_path.resolve()),
+            "max_markets": 30,
+            "open_browser": False,
+            "progress": False,
+            "plot_panels": (
+                PANEL_CASH_EQUITY,
+                PANEL_TOTAL_EQUITY,
+                PANEL_BRIER_ADVANTAGE,
+            ),
+            "extra_panels": {},
+        },
+    ]
 
 
 def test_run_market_backtest_uses_prediction_market_fill_model_by_default(

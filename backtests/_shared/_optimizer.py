@@ -18,10 +18,10 @@ from typing import Any
 
 from backtests._shared._execution_config import ExecutionModelConfig
 from backtests._shared._market_data_config import MarketDataConfig
-from backtests._shared._market_data_support import resolve_market_data_support
 from backtests._shared._prediction_market_backtest import PredictionMarketBacktest
 from backtests._shared._replay_specs import ReplaySpec
 from backtests._shared._strategy_configs import StrategyConfigSpec
+from backtests._shared.data_sources.registry import resolve_market_data_support
 
 
 SEARCH_PLACEHOLDER_PREFIX = "__SEARCH__:"

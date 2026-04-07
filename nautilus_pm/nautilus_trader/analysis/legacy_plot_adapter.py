@@ -35,6 +35,10 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from nautilus_trader.analysis.legacy_backtesting.models import DEFAULT_DETAIL_PLOT_PANELS
+from nautilus_trader.analysis.legacy_backtesting.models import DEFAULT_SUMMARY_PLOT_PANELS
+from nautilus_trader.analysis.legacy_backtesting.models import normalize_plot_panels
+from nautilus_trader.analysis.legacy_backtesting.models import PANEL_BRIER_ADVANTAGE
 from nautilus_trader.analysis.reporter import ReportProvider
 
 
@@ -760,6 +764,14 @@ def _append_chart_panel(layout: Any, panel: Any) -> Any:
     return column(layout, panel, sizing_mode="stretch_width")
 
 
+def _mark_panel_figure(fig: Any, panel_id: str) -> Any:
+    fig.name = panel_id
+    tags = list(getattr(fig, "tags", []))
+    tags.append(f"panel:{panel_id}")
+    fig.tags = tags
+    return fig
+
+
 def _brier_unavailable_reason(
     *,
     user_probabilities: pd.Series | None,
@@ -779,7 +791,7 @@ def _brier_unavailable_reason(
     return "Unavailable for the selected probability window."
 
 
-def _append_brier_placeholder_panel(layout: Any, message: str) -> Any:
+def _build_brier_placeholder_panel(message: str) -> Any:
     try:
         from bokeh.models import Label
         from bokeh.models import Span
@@ -818,7 +830,7 @@ def _append_brier_placeholder_panel(layout: Any, message: str) -> Any:
     fig.xaxis.axis_label = "Date"
     fig.yaxis.axis_label = "Cumulative Brier Advantage"
 
-    return _append_chart_panel(layout, fig)
+    return _mark_panel_figure(fig, PANEL_BRIER_ADVANTAGE)
 
 
 def _style_panel_legend(fig: Any) -> None:
@@ -833,9 +845,9 @@ def _style_panel_legend(fig: Any) -> None:
         legend.click_policy = "hide"
 
 
-def _append_brier_panel(layout: Any, brier_frame: pd.DataFrame) -> Any:
+def _build_brier_panel(brier_frame: pd.DataFrame) -> Any | None:
     if brier_frame.empty:
-        return layout
+        return None
 
     try:
         from bokeh.models import ColumnDataSource
@@ -852,7 +864,7 @@ def _append_brier_panel(layout: Any, brier_frame: pd.DataFrame) -> Any:
     frame.index = pd.to_datetime(frame.index, utc=True, errors="coerce")
     frame = frame[~frame.index.isna()].sort_index()
     if frame.empty:
-        return layout
+        return None
 
     frame.index = frame.index.tz_convert("UTC").tz_localize(None)
     frame = frame.drop_duplicates(keep="last")
@@ -924,7 +936,18 @@ def _append_brier_panel(layout: Any, brier_frame: pd.DataFrame) -> Any:
     if wheel_zoom is not None:
         wheel_zoom.maintain_focus = False  # type: ignore[attr-defined]
 
-    return _append_chart_panel(layout, fig)
+    return _mark_panel_figure(fig, PANEL_BRIER_ADVANTAGE)
+
+
+def _append_brier_placeholder_panel(layout: Any, message: str) -> Any:
+    return _append_chart_panel(layout, _build_brier_placeholder_panel(message))
+
+
+def _append_brier_panel(layout: Any, brier_frame: pd.DataFrame) -> Any:
+    panel = _build_brier_panel(brier_frame)
+    if panel is None:
+        return layout
+    return _append_chart_panel(layout, panel)
 
 
 def _iter_layout_nodes(node: Any):
@@ -1382,21 +1405,20 @@ def _downsample_frame_rows(
     return frame.iloc[sorted(keep)].copy()
 
 
-def _append_multi_market_brier_panel(
-    layout: Any,
+def _build_multi_market_brier_panel(
     brier_frames: Mapping[str, pd.DataFrame],
     *,
     axis_label: str = "Cumulative Brier Advantage",
     color_by_market: Mapping[str, Any] | None = None,
     max_points_per_market: int = 400,
-) -> Any:
+) -> Any | None:
     valid_frames = {
         market_id: frame.copy()
         for market_id, frame in brier_frames.items()
         if frame is not None and not frame.empty
     }
     if not valid_frames:
-        return layout
+        return None
 
     try:
         from bokeh.models import ColumnDataSource
@@ -1484,7 +1506,7 @@ def _append_multi_market_brier_panel(
         renderers.append(renderer)
 
     if not renderers:
-        return layout
+        return None
 
     fig.add_layout(
         Span(
@@ -1516,7 +1538,26 @@ def _append_multi_market_brier_panel(
     if wheel_zoom is not None:
         wheel_zoom.maintain_focus = False  # type: ignore[attr-defined]
 
-    return _append_chart_panel(layout, fig)
+    return _mark_panel_figure(fig, PANEL_BRIER_ADVANTAGE)
+
+
+def _append_multi_market_brier_panel(
+    layout: Any,
+    brier_frames: Mapping[str, pd.DataFrame],
+    *,
+    axis_label: str = "Cumulative Brier Advantage",
+    color_by_market: Mapping[str, Any] | None = None,
+    max_points_per_market: int = 400,
+) -> Any:
+    panel = _build_multi_market_brier_panel(
+        brier_frames,
+        axis_label=axis_label,
+        color_by_market=color_by_market,
+        max_points_per_market=max_points_per_market,
+    )
+    if panel is None:
+        return layout
+    return _append_chart_panel(layout, panel)
 
 
 def _standardize_yes_price_hover(layout: Any) -> None:  # noqa: C901
@@ -1654,6 +1695,7 @@ def build_legacy_backtest_layout(
     progress: bool = False,
     adaptive_downsampling: bool = True,
     max_downsample_points: int = 5000,
+    plot_panels: Sequence[str] | None = None,
 ) -> tuple[Any, str]:
     """
     Build the final legacy-style Bokeh layout for a Nautilus backtest engine.
@@ -1684,6 +1726,10 @@ def build_legacy_backtest_layout(
         raise ValueError("No portfolio snapshots were built from the account report.")
 
     metrics = _build_metrics(snapshots, initial_cash)
+    resolved_plot_panels = normalize_plot_panels(
+        plot_panels,
+        default=DEFAULT_DETAIL_PLOT_PANELS,
+    )
 
     result = models_module.BacktestResult(
         equity_curve=snapshots,
@@ -1701,10 +1747,33 @@ def build_legacy_backtest_layout(
         # Leave this empty so the legacy P/L panel falls back to per-fill
         # markers instead of one terminal point per market.
         market_pnls={},
+        plot_panels=resolved_plot_panels,
     )
 
     output_abs = Path(output_path).expanduser().resolve()
     chart_title = f"{strategy_name} legacy chart"
+
+    extra_panels: dict[str, Any] = {}
+    if PANEL_BRIER_ADVANTAGE in resolved_plot_panels:
+        brier_frame = prepare_cumulative_brier_advantage(
+            user_probabilities=user_probabilities,
+            market_probabilities=market_probabilities,
+            outcomes=outcomes,
+        )
+        if not brier_frame.empty:
+            panel = _build_brier_panel(brier_frame)
+            if panel is not None:
+                extra_panels[PANEL_BRIER_ADVANTAGE] = panel
+        else:
+            unavailable_reason = _brier_unavailable_reason(
+                user_probabilities=user_probabilities,
+                market_probabilities=market_probabilities,
+                outcomes=outcomes,
+            )
+            if unavailable_reason is not None:
+                extra_panels[PANEL_BRIER_ADVANTAGE] = _build_brier_placeholder_panel(
+                    unavailable_reason,
+                )
 
     layout = plotting_module.plot(
         result,
@@ -1712,6 +1781,8 @@ def build_legacy_backtest_layout(
         max_markets=max_markets,
         open_browser=open_browser,
         progress=progress,
+        plot_panels=resolved_plot_panels,
+        extra_panels=extra_panels,
     )
     layout = _apply_layout_overrides(
         layout,
@@ -1721,23 +1792,6 @@ def build_legacy_backtest_layout(
             max_points=max_downsample_points,
         ),
     )
-
-    brier_frame = prepare_cumulative_brier_advantage(
-        user_probabilities=user_probabilities,
-        market_probabilities=market_probabilities,
-        outcomes=outcomes,
-    )
-
-    if not brier_frame.empty:
-        layout = _append_brier_panel(layout, brier_frame)
-    else:
-        unavailable_reason = _brier_unavailable_reason(
-            user_probabilities=user_probabilities,
-            market_probabilities=market_probabilities,
-            outcomes=outcomes,
-        )
-        if unavailable_reason is not None:
-            layout = _append_brier_placeholder_panel(layout, unavailable_reason)
 
     return layout, chart_title
 
@@ -1758,6 +1812,7 @@ def create_legacy_backtest_chart(
     progress: bool = False,
     adaptive_downsampling: bool = True,
     max_downsample_points: int = 5000,
+    plot_panels: Sequence[str] | None = None,
 ) -> str:
     """
     Render a legacy-style interactive chart from a Nautilus backtest engine.
@@ -1778,6 +1833,7 @@ def create_legacy_backtest_chart(
         progress=progress,
         adaptive_downsampling=adaptive_downsampling,
         max_downsample_points=max_downsample_points,
+        plot_panels=plot_panels,
     )
 
     return save_legacy_backtest_layout(layout, output_path, chart_title)

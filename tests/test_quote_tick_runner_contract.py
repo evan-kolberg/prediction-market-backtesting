@@ -20,6 +20,29 @@ EXPECTED_PMXT_LATENCY = {
 EXPECTED_RUNNER_EMIT_HTML = True
 EXPECTED_OPTIMIZER_EMIT_HTML = False
 EXPECTED_CHART_OUTPUT_PATH = "output"
+EXPECTED_DETAIL_PLOT_PANELS = (
+    "equity",
+    "market_pnl",
+    "periodic_pnl",
+    "yes_price",
+    "allocation",
+    "drawdown",
+    "rolling_sharpe",
+    "cash_equity",
+    "monthly_returns",
+    "brier_advantage",
+)
+EXPECTED_SUMMARY_PLOT_PANELS = (
+    "total_equity",
+    "equity",
+    "periodic_pnl",
+    "allocation",
+    "drawdown",
+    "rolling_sharpe",
+    "cash_equity",
+    "monthly_returns",
+    "brier_advantage",
+)
 
 RUNNER_FILES = sorted(
     Path(__file__)
@@ -145,6 +168,40 @@ def test_quote_tick_runners_use_typed_manifest_contract(
     assert (
         _call_keyword_value(experiment_assign.value, "chart_output_path")
         == "CHART_OUTPUT_PATH"
+    )
+    assert (
+        _literal_value(_find_assignment(module, "DETAIL_PLOT_PANELS").value)
+        == EXPECTED_DETAIL_PLOT_PANELS
+    )
+    assert (
+        _call_keyword_value(experiment_assign.value, "detail_plot_panels")
+        == "DETAIL_PLOT_PANELS"
+    )
+
+
+def test_pmxt_multi_sim_runner_uses_summary_plot_contract() -> None:
+    module = ast.parse(
+        Path(__file__)
+        .resolve()
+        .parents[1]
+        .joinpath("backtests", "polymarket_quote_tick_pmxt_multi_sim_runner.py")
+        .read_text()
+    )
+
+    report_assign = _find_assignment(module, "REPORT")
+    assert isinstance(report_assign.value, ast.Call)
+    assert _call_keyword_value(report_assign.value, "summary_report") is True
+    assert (
+        _call_keyword_value(report_assign.value, "summary_report_path")
+        == "SUMMARY_REPORT_PATH"
+    )
+    assert (
+        _call_keyword_value(report_assign.value, "summary_plot_panels")
+        == "SUMMARY_PLOT_PANELS"
+    )
+    assert (
+        _literal_value(_find_assignment(module, "SUMMARY_PLOT_PANELS").value)
+        == EXPECTED_SUMMARY_PLOT_PANELS
     )
 
 

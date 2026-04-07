@@ -41,7 +41,30 @@ DESCRIPTION = "Late-favorite limit holds on a fixed Polymarket sports basket pin
 
 EMIT_HTML = True
 CHART_OUTPUT_PATH = "output"
+DETAIL_PLOT_PANELS = (
+    "equity",
+    "market_pnl",
+    "periodic_pnl",
+    "yes_price",
+    "allocation",
+    "drawdown",
+    "rolling_sharpe",
+    "cash_equity",
+    "monthly_returns",
+    "brier_advantage",
+)
 SUMMARY_REPORT_PATH = f"output/{NAME}_multi_market.html"
+SUMMARY_PLOT_PANELS = (
+    "total_equity",
+    "equity",
+    "periodic_pnl",
+    "allocation",
+    "drawdown",
+    "rolling_sharpe",
+    "cash_equity",
+    "monthly_returns",
+    "brier_advantage",
+)
 
 DATA = MarketDataConfig(
     platform=Polymarket,
@@ -130,6 +153,7 @@ REPORT = MarketReportConfig(
     pnl_label="Settlement PnL (USDC)",
     summary_report=True,
     summary_report_path=SUMMARY_REPORT_PATH,
+    summary_plot_panels=SUMMARY_PLOT_PANELS,
 )
 
 EXECUTION = ExecutionModelConfig(
@@ -162,6 +186,7 @@ EXPERIMENT = build_replay_experiment(
     result_policy=RESULT_POLICY,
     emit_html=EMIT_HTML,
     chart_output_path=CHART_OUTPUT_PATH,
+    detail_plot_panels=DETAIL_PLOT_PANELS,
     return_summary_series=True,
 )
 

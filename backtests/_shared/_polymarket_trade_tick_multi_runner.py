@@ -1,23 +1,14 @@
 from __future__ import annotations
 
 import asyncio
-from pathlib import Path
-import re
 from typing import Any
 
+from backtests._shared._artifact_paths import resolve_multi_sim_detail_chart_output_path
+from backtests._shared._artifact_paths import sanitize_chart_label
 from backtests._shared._prediction_market_backtest import MarketReportConfig
 from backtests._shared._prediction_market_backtest import PredictionMarketBacktest
 from backtests._shared._prediction_market_backtest import finalize_market_results
 from backtests._shared._result_policies import ResultPolicy
-
-
-def _sanitize_chart_label(value: object, *, default: str) -> str:
-    text = str(value or "").strip()
-    if not text:
-        return default
-
-    sanitized = re.sub(r"[^A-Za-z0-9._-]+", "-", text).strip("-")
-    return sanitized or default
 
 
 def _resolve_multi_market_chart_output_path(
@@ -25,56 +16,35 @@ def _resolve_multi_market_chart_output_path(
     backtest: PredictionMarketBacktest,
     sim: Any,
     sim_index: int,
-) -> str | Path | None:
-    configured_path = backtest.chart_output_path
-    if not backtest.emit_html and configured_path is None:
-        return None
-
+) -> str | None:
     raw_market_id = getattr(sim, "market_slug", None) or getattr(
         sim,
         "market_ticker",
         None,
     )
     market_id = str(raw_market_id or f"market-{sim_index + 1}")
-    market_label = _sanitize_chart_label(
+    market_label = sanitize_chart_label(
         market_id,
         default=f"market-{sim_index + 1}",
     )
-    sim_label = _sanitize_chart_label(
+    sim_label = sanitize_chart_label(
         (getattr(sim, "metadata", None) or {}).get("sim_label"),
         default=market_label,
     )
     filename_label = (
         market_label if sim_label == market_label else f"{sim_label}_{market_label}"
     )
-    default_filename = f"{backtest.name}_{filename_label}_legacy.html"
-
-    if configured_path is None:
-        return str(Path("output") / default_filename)
-
-    raw_path = str(configured_path)
-    if "{" in raw_path:
-        try:
-            resolved = raw_path.format(
-                name=backtest.name,
-                market_id=market_id,
-                sim_label=sim_label,
-            )
-        except KeyError as exc:
-            raise ValueError(
-                "chart_output_path may only reference {name}, {market_id}, and {sim_label}."
-            ) from exc
-
-        path = Path(resolved)
-        if not path.suffix:
-            path = path / default_filename
-        return str(path)
-
-    path = Path(raw_path)
-    if path.suffix:
-        unique_label = market_label if sim_label == market_label else sim_label
-        return str(path.with_name(f"{path.stem}_{unique_label}{path.suffix}"))
-    return str(path / default_filename)
+    return resolve_multi_sim_detail_chart_output_path(
+        backtest_name=backtest.name,
+        configured_path=backtest.chart_output_path,
+        emit_html=backtest.emit_html,
+        market_id=market_id,
+        sim_label=sim_label,
+        default_filename_label=filename_label,
+        configured_suffix_label=market_label
+        if sim_label == market_label
+        else sim_label,
+    )
 
 
 async def run_multi_market_trade_backtest_async(
@@ -121,6 +91,7 @@ async def run_multi_market_trade_backtest_async(
             ),
             return_chart_layout=backtest.return_chart_layout,
             return_summary_series=backtest.return_summary_series,
+            detail_plot_panels=backtest.detail_plot_panels,
         )
         isolated_results = await isolated_backtest.run_async()
         result = isolated_results[0] if isolated_results else None

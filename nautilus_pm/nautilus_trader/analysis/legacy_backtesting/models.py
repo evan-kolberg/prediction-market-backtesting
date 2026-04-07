@@ -12,6 +12,7 @@ by 100 during feed normalization. Polymarket prices are already in this range.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
@@ -44,6 +45,83 @@ class MarketStatus(str, Enum):
     CLOSED = "closed"
     RESOLVED_YES = "resolved_yes"
     RESOLVED_NO = "resolved_no"
+
+
+PANEL_TOTAL_EQUITY = "total_equity"
+PANEL_EQUITY = "equity"
+PANEL_MARKET_PNL = "market_pnl"
+PANEL_PERIODIC_PNL = "periodic_pnl"
+PANEL_YES_PRICE = "yes_price"
+PANEL_ALLOCATION = "allocation"
+PANEL_DRAWDOWN = "drawdown"
+PANEL_ROLLING_SHARPE = "rolling_sharpe"
+PANEL_CASH_EQUITY = "cash_equity"
+PANEL_MONTHLY_RETURNS = "monthly_returns"
+PANEL_BRIER_ADVANTAGE = "brier_advantage"
+
+ALL_PLOT_PANELS = (
+    PANEL_TOTAL_EQUITY,
+    PANEL_EQUITY,
+    PANEL_MARKET_PNL,
+    PANEL_PERIODIC_PNL,
+    PANEL_YES_PRICE,
+    PANEL_ALLOCATION,
+    PANEL_DRAWDOWN,
+    PANEL_ROLLING_SHARPE,
+    PANEL_CASH_EQUITY,
+    PANEL_MONTHLY_RETURNS,
+    PANEL_BRIER_ADVANTAGE,
+)
+
+DEFAULT_DETAIL_PLOT_PANELS = (
+    PANEL_EQUITY,
+    PANEL_MARKET_PNL,
+    PANEL_PERIODIC_PNL,
+    PANEL_YES_PRICE,
+    PANEL_ALLOCATION,
+    PANEL_DRAWDOWN,
+    PANEL_ROLLING_SHARPE,
+    PANEL_CASH_EQUITY,
+    PANEL_MONTHLY_RETURNS,
+    PANEL_BRIER_ADVANTAGE,
+)
+
+DEFAULT_SUMMARY_PLOT_PANELS = (
+    PANEL_TOTAL_EQUITY,
+    PANEL_EQUITY,
+    PANEL_PERIODIC_PNL,
+    PANEL_ALLOCATION,
+    PANEL_DRAWDOWN,
+    PANEL_ROLLING_SHARPE,
+    PANEL_CASH_EQUITY,
+    PANEL_MONTHLY_RETURNS,
+    PANEL_BRIER_ADVANTAGE,
+)
+
+
+def normalize_plot_panels(
+    panels: Sequence[str] | None,
+    *,
+    default: Sequence[str],
+) -> tuple[str, ...]:
+    requested = tuple(default if panels is None else panels)
+    normalized: list[str] = []
+    seen: set[str] = set()
+
+    for panel in requested:
+        panel_id = str(panel).strip()
+        if not panel_id:
+            continue
+        if panel_id not in ALL_PLOT_PANELS:
+            raise ValueError(
+                f"Unknown plot panel {panel_id!r}. Valid panels: {', '.join(ALL_PLOT_PANELS)}."
+            )
+        if panel_id in seen:
+            continue
+        normalized.append(panel_id)
+        seen.add(panel_id)
+
+    return tuple(normalized)
 
 
 @dataclass
@@ -156,6 +234,7 @@ class BacktestResult:
     prepend_total_equity_panel: bool = False
     total_equity_panel_label: str = "Total Equity"
     plot_monthly_returns: bool = True
+    plot_panels: tuple[str, ...] = field(default_factory=tuple)
 
     def plot(self, **kwargs: Any) -> Any:
         """Render an interactive Bokeh chart of this backtest.

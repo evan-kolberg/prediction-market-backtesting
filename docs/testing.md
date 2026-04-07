@@ -47,7 +47,7 @@ If you are specifically validating HTML/report behavior, include at least:
 - one fixed-basket multi-market runner that should emit per-market
   `*_legacy.html` files plus one `*_multi_market.html`
 - the PMXT multi-sim runner, which should emit per-sim `*_legacy.html` files
-  plus both `*_combined_legacy.html` and `*_multi_market.html`
+  plus one `*_multi_market.html`
 
 ## Docs Validation
 

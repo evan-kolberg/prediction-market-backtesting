@@ -115,7 +115,8 @@ archive and the window you are mirroring.
 If you want to see the full loader and reporting flow in one place, the PMXT
 multi-sim output below is representative of the current repo-layer behavior:
 Nautilus logs stay visible, the summary table is printed in-terminal, and the
-combined/multi-market legacy HTML output paths are printed after the run.
+per-sim detail HTML paths plus the aggregate multi-market summary HTML path are
+printed after the run.
 
 ![PMXT multi-run terminal output](assets/pmxt-multi-run-output.png)
 

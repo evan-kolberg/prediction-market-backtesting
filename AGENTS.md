@@ -8,8 +8,8 @@ Do not add extra things to the root README. When I say to update docs, I mean to
 
 ## Keep Scope Tight
 
-- Treat subtree updates in `nautilus_pm/` as separate work. Do not mix an upstream subtree pull with normal bugfix/docs PRs.
-- Keep repo-specific fixes in this repo layer unless there is a clear reason to update the vendored subtree.
+- It's okay to edit the adapters. Make sure that files are properly sorted and organized.
+- Vendored `nautilus_pm/` changes are allowed when they are the clearest fix, especially for shared plotting, adapter, or backtesting behavior.
 
 ## Local Verification
 

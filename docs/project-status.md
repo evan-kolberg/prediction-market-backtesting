@@ -20,7 +20,7 @@ No repo-level open issues are tracked here right now.
 ## Recently Fixed
 
 - [x] public runners now use typed `REPLAYS` plus one `EXPERIMENT`, adapter-owned replay loading, and a repo-layer optimizer surface instead of the older shared `SIMS` / `BACKTEST` contract [PR#67](https://github.com/evan-kolberg/prediction-market-backtesting/pull/67)
-- [x] direct script HTML outputs now resolve from the repo root, fixed-basket multi-market runners emit aggregate reports again, and the PMXT multi-sim runner again writes combined plus multi-market legacy reports [PR#68](https://github.com/evan-kolberg/prediction-market-backtesting/pull/68)
+- [x] direct script HTML outputs now resolve from the repo root, fixed-basket multi-market runners emit aggregate reports again, and the repo runner/report surface stays explicit about per-sim detail charts versus aggregate multi-market reports [PR#68](https://github.com/evan-kolberg/prediction-market-backtesting/pull/68)
 - [x] setup/backtest/fetch-source docs and screenshots now match the unified `main.py` launcher and current PMXT terminal/reporting output, and the orphaned `_trade_tick_ui.py` helper is gone [PR#69](https://github.com/evan-kolberg/prediction-market-backtesting/pull/69)
 - [x] root README scope and agent guidance now keep detailed operational docs out of the README body and in `docs/` instead [PR#70](https://github.com/evan-kolberg/prediction-market-backtesting/pull/70), [PR#71](https://github.com/evan-kolberg/prediction-market-backtesting/pull/71)
 - [x] PMXT L2 replay now orders book updates ahead of quote ticks so longer windows do not lose book state [PR#26](https://github.com/evan-kolberg/prediction-market-backtesting/pull/26)
