@@ -19,6 +19,8 @@ No repo-level open issues are tracked here right now.
 
 ## Recently Fixed
 
+- [x] public Kalshi trade-tick runners now pin `end_time` to a known-good close
+  window so direct script paths and the repo pytest gate stay deterministic
 - [x] public runners now use typed `REPLAYS` plus one `EXPERIMENT`, adapter-owned replay loading, and a repo-layer optimizer surface instead of the older shared `SIMS` / `BACKTEST` contract [PR#67](https://github.com/evan-kolberg/prediction-market-backtesting/pull/67)
 - [x] plotting now scales as one detailed HTML per loaded sim plus one aggregate summary HTML per basket, the repo no longer relies on concatenated mega-pages, and the prediction-market runner internals are split into clearer execution, artifact, reporting, and data-source seams [Issue #73](https://github.com/evan-kolberg/prediction-market-backtesting/issues/73), [PR#74](https://github.com/evan-kolberg/prediction-market-backtesting/pull/74)
 - [x] direct script HTML outputs now resolve from the repo root, fixed-basket multi-market runners emit aggregate reports again, and the repo runner/report surface stays explicit about per-sim detail charts versus aggregate multi-market reports [PR#68](https://github.com/evan-kolberg/prediction-market-backtesting/pull/68)

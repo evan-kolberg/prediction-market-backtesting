@@ -82,6 +82,7 @@ def test_kalshi_backtests_build_expected_trade_tick_strategy(
     assert len(module.REPLAYS) == 1
     assert module.REPLAYS[0].market_ticker == "KXNEXTIRANLEADER-45JAN01-MKHA"
     assert module.REPLAYS[0].lookback_days == 30
+    assert str(module.REPLAYS[0].end_time) == "2026-03-08T21:44:24Z"
     assert module.EXPERIMENT.name == module.NAME
     assert module.EXPERIMENT.data == module.DATA
     assert module.EXPERIMENT.replays == module.REPLAYS
