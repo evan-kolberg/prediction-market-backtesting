@@ -37,6 +37,7 @@ make backtest
 uv run python main.py
 
 Running: polymarket_quote_tick_pmxt_panic_fade
+Running: polymarket_quote_tick_pmxt_ema_crossover
 
 PMXT source: explicit priority (cache -> local /Volumes/LaCie/pmxt_raws -> archive https://r2.pmxt.dev -> relay https://209-209-10-83.sslip.io)
 Loading PMXT Polymarket market will-openai-launch-a-new-consumer-hardware-product-by-march-31-2026 (token_index=0, window_start=2026-02-21T16:00:00+00:00, window_end=2026-02-23T10:00:00+00:00)...
@@ -106,4 +107,6 @@ uv run python backtests/_shared/_timing_test.py backtests/polymarket_quote_tick_
 Public PMXT examples are pinned to known-good sample windows in code so the
 direct script paths stay runnable without editing the file first. If your local
 raw mirror or relay lives somewhere else, update `DATA.sources` in the runner
-file.
+file. Public Kalshi trade-tick examples similarly pin `end_time` to a known-good
+close window, while native trade-tick runners that omit `end_time` still use
+rolling lookbacks.

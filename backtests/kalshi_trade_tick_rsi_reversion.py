@@ -7,7 +7,7 @@
 RSI-reversion strategy on one Kalshi market.
 
 Defaults to KXNEXTIRANLEADER-45JAN01-MKHA
-and uses a 30-day trade-tick lookback.
+and replays the 30 days ending at 2026-03-08T21:44:24Z.
 """
 
 # ruff: noqa: E402
@@ -62,6 +62,7 @@ REPLAYS = (
     KalshiTradeTickReplay(
         market_ticker="KXNEXTIRANLEADER-45JAN01-MKHA",
         lookback_days=30,
+        end_time="2026-03-08T21:44:24Z",
     ),
 )
 

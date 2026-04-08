@@ -20,14 +20,14 @@ Good public examples:
 - reusable late-favorite limit-hold logic:
   [`strategies/late_favorite_limit_hold.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/strategies/late_favorite_limit_hold.py)
 - Kalshi native trade-tick runner:
-  [`backtests/kalshi_trade_tick_breakout.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/kalshi_trade_tick_breakout.py)
+  [`backtests/kalshi_trade_tick_ema_crossover.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/kalshi_trade_tick_ema_crossover.py)
 - Polymarket native trade-tick runner:
   [`backtests/polymarket_trade_tick_vwap_reversion.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_trade_tick_vwap_reversion.py)
 - Polymarket quote-tick runner with PMXT vendor data:
   [`backtests/polymarket_quote_tick_pmxt_ema_crossover.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_quote_tick_pmxt_ema_crossover.py)
-- PMXT quote-tick EMA optimization runner with train/holdout windows:
-  [`backtests/polymarket_quote_tick_pmxt_ema_optimizer.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_quote_tick_pmxt_ema_optimizer.py)
-- fixed-basket multi-market runner:
+- PMXT labeled multi-sim runner:
+  [`backtests/polymarket_quote_tick_pmxt_multi_sim_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_quote_tick_pmxt_multi_sim_runner.py)
+- fixed-basket multi-market runner pattern:
   [`backtests/polymarket_trade_tick_sports_vwap_reversion.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_trade_tick_sports_vwap_reversion.py)
 
 Those public runners are intended as readable research demos, not profitability
@@ -35,6 +35,11 @@ claims. Result payloads now separate the requested replay window from the data
 window that actually loaded, including `planned_start`, `planned_end`,
 `loaded_start`, `loaded_end`, `coverage_ratio` for loaded-data coverage, and
 `requested_coverage_ratio` for requested-window coverage.
+
+Public Kalshi trade-tick runners use the same flat manifest pattern, but pin
+`end_time` to a known-good close window so the direct script path stays
+deterministic. If you adapt one for fresh research and remove that pin, the
+replay falls back to rolling-lookback behavior again.
 
 ## Runner Contract
 
@@ -292,7 +297,10 @@ Good reference:
 
 These files are research tooling, not profitability claims. The selected config
 is only the best config under the declared windows, execution assumptions, and
-scoring function in that runner file.
+scoring function in that runner file. They are also not quick smoke checks: the
+optimizer can take minutes, sweep multiple train and holdout windows, and
+intentionally explore configurations that stop early under
+`AccountBalanceNegative`.
 
 ## Designing Good Runner Files
 
@@ -358,9 +366,10 @@ uv run python main.py
 Direct script execution is usually better once you know the runner you want:
 
 ```bash
-uv run python backtests/kalshi_trade_tick_breakout.py
+uv run python backtests/kalshi_trade_tick_ema_crossover.py
 uv run python backtests/polymarket_trade_tick_vwap_reversion.py
 uv run python backtests/polymarket_quote_tick_pmxt_ema_crossover.py
+uv run python backtests/polymarket_quote_tick_pmxt_multi_sim_runner.py
 ```
 
 When a runner keeps `CHART_OUTPUT_PATH="output"`, those direct commands still
@@ -369,12 +378,17 @@ that relative path from the repo root rather than from your shell's current
 working directory.
 
 Public runners keep their experiment inputs in code. PMXT quote-tick runners
-pin absolute sample windows; native trade-tick runners pin market/source
-selection and use rolling lookbacks unless you also set `end_time`. If you want
-a different market, window, cash value, vendor source priority, or chart
-behavior, edit `DATA`, `REPLAYS`, `STRATEGY_CONFIGS`, `EMIT_HTML`, or
-`CHART_OUTPUT_PATH` in the runner file, or copy the file into
+pin absolute sample windows; public Kalshi trade-tick runners also pin
+`end_time` so the bundled market stays directly runnable. Native trade-tick
+runners without that pin still use rolling lookbacks. If you want a different
+market, window, cash value, vendor source priority, or chart behavior, edit
+`DATA`, `REPLAYS`, `STRATEGY_CONFIGS`, `EMIT_HTML`, or `CHART_OUTPUT_PATH` in
+the runner file, or copy the file into
 `backtests/private/` and customize it there.
+
+That distinction matters for examples: runners with explicit `start_time` or
+`end_time` are the most durable direct-script demos, while rolling native
+runners can drift with venue activity and may need a refreshed market or window.
 
 Optimizer runners follow the same rule: the file itself should carry the train
 windows, holdout windows, parameter grid, chart-emission toggle, chart output

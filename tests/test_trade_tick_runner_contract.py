@@ -36,6 +36,7 @@ EXPECTED_SUMMARY_PLOT_PANELS = (
 )
 EXPECTED_KALSHI_TRADE_SOURCES = ("rest:https://api.elections.kalshi.com/trade-api/v2",)
 EXPECTED_KALSHI_MARKET_TICKER = "KXNEXTIRANLEADER-45JAN01-MKHA"
+EXPECTED_KALSHI_REPLAY_END_TIME = "2026-03-08T21:44:24Z"
 EXPECTED_POLYMARKET_TRADE_SOURCES = (
     "gamma:https://gamma-api.polymarket.com",
     "trades:https://data-api.polymarket.com",
@@ -172,6 +173,7 @@ def test_kalshi_trade_tick_runners_use_typed_manifest_contract(
     )
     assert replay_values["market_ticker"] == EXPECTED_KALSHI_MARKET_TICKER
     assert replay_values["lookback_days"] == EXPECTED_SINGLE_MARKET_LOOKBACK_DAYS
+    assert replay_values["end_time"] == EXPECTED_KALSHI_REPLAY_END_TIME
 
 
 @pytest.mark.parametrize(

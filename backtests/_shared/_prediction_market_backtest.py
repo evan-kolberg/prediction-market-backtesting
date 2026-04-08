@@ -128,6 +128,13 @@ class PredictionMarketBacktest:
     def sims(self) -> tuple[ReplaySpec | MarketSimConfig, ...]:
         return self._sims
 
+    def _strategy_summary_label(self) -> str:
+        if self.strategy_configs:
+            return f"{len(self.strategy_configs)} strategy config(s)"
+        if self.strategy_factory is not None:
+            return "a strategy factory"
+        return "0 strategy config(s)"
+
     def run(self) -> list[dict[str, Any]]:
         try:
             asyncio.get_running_loop()
@@ -165,7 +172,7 @@ class PredictionMarketBacktest:
 
             print(
                 f"Starting {self.name} with {len(loaded_sims)} sims "
-                f"and {len(self.strategy_configs)} strategy config(s)..."
+                f"and {self._strategy_summary_label()}..."
             )
             engine.run()
             engine_result = engine.get_result()

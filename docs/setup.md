@@ -69,9 +69,9 @@ uv run python main.py
 Direct runner files also work:
 
 ```bash
-uv run python backtests/kalshi_trade_tick_breakout.py
+uv run python backtests/kalshi_trade_tick_ema_crossover.py
+uv run python backtests/polymarket_trade_tick_vwap_reversion.py
 uv run python backtests/polymarket_quote_tick_pmxt_ema_crossover.py
-uv run python backtests/polymarket_trade_tick_sports_vwap_reversion.py
 uv run python backtests/polymarket_quote_tick_pmxt_multi_sim_runner.py
 ```
 
@@ -79,10 +79,12 @@ Those direct runs write HTML artifacts into the repo-local `output/` directory
 when the runner keeps `CHART_OUTPUT_PATH="output"`.
 
 Public runner files carry their market, source, and execution assumptions in
-code. PMXT quote-tick runners also pin absolute sample windows; native
-trade-tick runners use rolling lookbacks unless you set `end_time` in
-`REPLAYS` or `default_end_time` in the experiment. To use a different local PMXT mirror
-path or a different market, edit the runner file directly or copy it into
+code. PMXT quote-tick runners pin absolute sample windows, and the public
+Kalshi trade-tick runners pin `end_time` to a known-good close window so the
+direct script path stays deterministic. Native trade-tick runners without an
+explicit `end_time` still use rolling lookbacks unless you set
+`default_end_time` in the experiment. To use a different local PMXT mirror path
+or a different market, edit the runner file directly or copy it into
 `backtests/private/`. If you already have mirrored PMXT raw hours locally, add
 `local:/path/to/raw-hours` to the runner's `DATA.sources`.
 
