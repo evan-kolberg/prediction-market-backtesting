@@ -65,10 +65,10 @@ DATA = MarketDataConfig(
 
 REPLAYS = (
     PolymarketPMXTQuoteReplay(
-        market_slug="will-openai-launch-a-new-consumer-hardware-product-by-march-31-2026",
+        market_slug="will-ethan-agarwal-get-the-first-or-second-most-votes-in-the-2026-california-governor-primary-election",
         token_index=0,
-        start_time="2026-02-21T16:00:00Z",
-        end_time="2026-02-23T10:00:00Z",
+        start_time="2026-04-07T00:00:00Z",
+        end_time="2026-04-07T23:59:59Z",
     ),
 )
 
@@ -77,7 +77,7 @@ STRATEGY_CONFIGS = [
         "strategy_path": "strategies:QuoteTickRSIReversionStrategy",
         "config_path": "strategies:QuoteTickRSIReversionConfig",
         "config": {
-            "trade_size": Decimal("100"),
+            "trade_size": Decimal("5"),
             "period": 40,
             "entry_rsi": 25.0,
             "exit_rsi": 52.0,

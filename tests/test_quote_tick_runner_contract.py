@@ -1,9 +1,12 @@
 from __future__ import annotations
 
-import ast
+import importlib
 from pathlib import Path
 
 import pytest
+
+from backtests._shared._optimizer import OptimizationWindow
+from backtests._shared._replay_specs import PolymarketPMXTQuoteReplay
 
 
 EXPECTED_PMXT_SOURCES = (
@@ -66,125 +69,201 @@ OPTIMIZER_RUNNER_FILES = sorted(
     path for path in RUNNER_FILES if "optimizer" in path.name
 )
 
+EXPECTED_SINGLE_MARKET_REPLAYS = {
+    "polymarket_quote_tick_pmxt_breakout": PolymarketPMXTQuoteReplay(
+        market_slug="will-ludvig-aberg-win-the-2026-masters-tournament",
+        token_index=0,
+        start_time="2026-04-05T00:00:00Z",
+        end_time="2026-04-07T23:59:59Z",
+    ),
+    "polymarket_quote_tick_pmxt_deep_value_hold": PolymarketPMXTQuoteReplay(
+        market_slug="will-the-tennessee-titans-draft-a-quarterback-in-the-first-round-of-the-2026-nfl-draft",
+        token_index=0,
+        start_time="2026-04-06T00:00:00Z",
+        end_time="2026-04-07T23:59:59Z",
+    ),
+    "polymarket_quote_tick_pmxt_ema_crossover": PolymarketPMXTQuoteReplay(
+        market_slug="will-ludvig-aberg-win-the-2026-masters-tournament",
+        token_index=0,
+        start_time="2026-04-05T00:00:00Z",
+        end_time="2026-04-07T23:59:59Z",
+    ),
+    "polymarket_quote_tick_pmxt_final_period_momentum": PolymarketPMXTQuoteReplay(
+        market_slug="will-openai-launch-a-new-consumer-hardware-product-by-march-31-2026",
+        token_index=0,
+        start_time="2026-03-24T03:00:00Z",
+        end_time="2026-03-24T08:00:00Z",
+    ),
+    "polymarket_quote_tick_pmxt_late_favorite_limit_hold": PolymarketPMXTQuoteReplay(
+        market_slug="will-openai-launch-a-new-consumer-hardware-product-by-march-31-2026",
+        token_index=0,
+        start_time="2026-03-24T03:00:00Z",
+        end_time="2026-03-24T08:00:00Z",
+    ),
+    "polymarket_quote_tick_pmxt_panic_fade": PolymarketPMXTQuoteReplay(
+        market_slug="will-fc-heidenheim-be-relegated-from-the-bundesliga-after-the-202526-season-382",
+        token_index=0,
+        start_time="2026-04-06T00:00:00Z",
+        end_time="2026-04-07T12:00:00Z",
+    ),
+    "polymarket_quote_tick_pmxt_rsi_reversion": PolymarketPMXTQuoteReplay(
+        market_slug="will-ethan-agarwal-get-the-first-or-second-most-votes-in-the-2026-california-governor-primary-election",
+        token_index=0,
+        start_time="2026-04-07T00:00:00Z",
+        end_time="2026-04-07T23:59:59Z",
+    ),
+    "polymarket_quote_tick_pmxt_spread_capture": PolymarketPMXTQuoteReplay(
+        market_slug="will-drake-release-an-album-in-2026",
+        token_index=0,
+        start_time="2026-04-05T12:00:00Z",
+        end_time="2026-04-07T23:59:59Z",
+    ),
+    "polymarket_quote_tick_pmxt_threshold_momentum": PolymarketPMXTQuoteReplay(
+        market_slug="will-openai-launch-a-new-consumer-hardware-product-by-march-31-2026",
+        token_index=0,
+        start_time="2026-03-24T03:00:00Z",
+        end_time="2026-03-24T08:00:00Z",
+    ),
+    "polymarket_quote_tick_pmxt_vwap_reversion": PolymarketPMXTQuoteReplay(
+        market_slug="will-nana-araba-wilmot-win-top-chef-season-23",
+        token_index=0,
+        start_time="2026-04-06T06:00:00Z",
+        end_time="2026-04-07T18:00:00Z",
+    ),
+}
 
-def _find_assignment(module: ast.Module, name: str) -> ast.Assign:
-    for node in module.body:
-        if not isinstance(node, ast.Assign):
-            continue
-        for target in node.targets:
-            if isinstance(target, ast.Name) and target.id == name:
-                return node
-    raise AssertionError(f"missing top-level assignment for {name}")
+EXPECTED_MULTI_SIM_REPLAYS = {
+    "polymarket_quote_tick_pmxt_multi_sim_runner": (
+        PolymarketPMXTQuoteReplay(
+            market_slug="will-openai-launch-a-new-consumer-hardware-product-by-march-31-2026",
+            token_index=0,
+            start_time="2026-03-23T00:00:00Z",
+            end_time="2026-03-24T23:59:59Z",
+            metadata={"sim_label": "openai-launch-mar-23-24"},
+        ),
+        PolymarketPMXTQuoteReplay(
+            market_slug="will-ludvig-aberg-win-the-2026-masters-tournament",
+            token_index=0,
+            start_time="2026-04-05T00:00:00Z",
+            end_time="2026-04-07T23:59:59Z",
+            metadata={"sim_label": "aberg-masters-full-window"},
+        ),
+        PolymarketPMXTQuoteReplay(
+            market_slug="will-the-tennessee-titans-draft-a-quarterback-in-the-first-round-of-the-2026-nfl-draft",
+            token_index=0,
+            start_time="2026-04-06T00:00:00Z",
+            end_time="2026-04-07T23:59:59Z",
+            metadata={"sim_label": "titans-draft-two-day-window"},
+        ),
+        PolymarketPMXTQuoteReplay(
+            market_slug="will-fc-heidenheim-be-relegated-from-the-bundesliga-after-the-202526-season-382",
+            token_index=0,
+            start_time="2026-04-07T12:00:00Z",
+            end_time="2026-04-07T23:59:59Z",
+            metadata={"sim_label": "heidenheim-late-session"},
+        ),
+        PolymarketPMXTQuoteReplay(
+            market_slug="will-the-south-african-reserve-bank-decrease-the-repo-rate-after-the-may-meeting",
+            token_index=0,
+            start_time="2026-04-06T12:00:00Z",
+            end_time="2026-04-07T23:59:59Z",
+            metadata={"sim_label": "sarb-rate-watch-window"},
+        ),
+        PolymarketPMXTQuoteReplay(
+            market_slug="will-nana-araba-wilmot-win-top-chef-season-23",
+            token_index=0,
+            start_time="2026-04-06T06:00:00Z",
+            end_time="2026-04-07T18:00:00Z",
+            metadata={"sim_label": "top-chef-finale-runup"},
+        ),
+        PolymarketPMXTQuoteReplay(
+            market_slug="will-drake-release-an-album-in-2026",
+            token_index=0,
+            start_time="2026-04-05T12:00:00Z",
+            end_time="2026-04-07T23:59:59Z",
+            metadata={"sim_label": "drake-weekend-window"},
+        ),
+        PolymarketPMXTQuoteReplay(
+            market_slug="will-ethan-agarwal-get-the-first-or-second-most-votes-in-the-2026-california-governor-primary-election",
+            token_index=0,
+            start_time="2026-04-07T00:00:00Z",
+            end_time="2026-04-07T23:59:59Z",
+            metadata={"sim_label": "agarwal-election-day"},
+        ),
+    ),
+}
+EXPECTED_MULTI_SIM_COUNTS = {
+    "polymarket_quote_tick_pmxt_multi_sim_runner": 8,
+    "polymarket_quote_tick_pmxt_25_sims_runner": 25,
+}
+EXPECTED_MULTI_SIM_MIN_DISTINCT_MARKETS = {
+    "polymarket_quote_tick_pmxt_multi_sim_runner": 8,
+    "polymarket_quote_tick_pmxt_25_sims_runner": 8,
+}
+
+EXPECTED_OPTIMIZER_BASE_REPLAY = PolymarketPMXTQuoteReplay(
+    market_slug="will-ludvig-aberg-win-the-2026-masters-tournament",
+    token_index=0,
+)
+EXPECTED_OPTIMIZER_TRAIN_WINDOWS = (
+    OptimizationWindow(
+        name="sample-a-full-window",
+        start_time="2026-04-05T00:00:00Z",
+        end_time="2026-04-07T23:59:59Z",
+    ),
+    OptimizationWindow(
+        name="sample-b-2026-04-06-day",
+        start_time="2026-04-06T00:00:00Z",
+        end_time="2026-04-06T23:59:59Z",
+    ),
+    OptimizationWindow(
+        name="sample-c-2026-04-07-late",
+        start_time="2026-04-07T12:00:00Z",
+        end_time="2026-04-07T23:59:59Z",
+    ),
+)
+EXPECTED_OPTIMIZER_HOLDOUT_WINDOWS = (
+    OptimizationWindow(
+        name="sample-d-close-window",
+        start_time="2026-04-07T00:00:00Z",
+        end_time="2026-04-07T11:59:59Z",
+    ),
+)
 
 
-def _literal_value(value: ast.AST) -> object:
-    try:
-        return ast.literal_eval(value)
-    except ValueError as exc:
-        raise AssertionError(
-            f"expected a literal-compatible AST node, got {type(value).__name__}"
-        ) from exc
+def _import_runner(runner_path: Path):
+    return importlib.import_module(f"backtests.{runner_path.stem}")
 
 
-def _constant_or_name(value: ast.AST) -> object:
-    if isinstance(value, ast.Constant):
-        return value.value
-    if isinstance(value, ast.Name):
-        return value.id
-    raise AssertionError(
-        f"expected ast.Constant or ast.Name, got {type(value).__name__}"
-    )
-
-
-def _call_keyword_value(call: ast.Call, name: str) -> object:
-    for keyword in call.keywords:
-        if keyword.arg == name:
-            return _constant_or_name(keyword.value)
-    raise AssertionError(f"missing keyword argument {name}")
+def _assert_latency_model(latency_model) -> None:
+    assert {
+        "base_latency_ms": latency_model.base_latency_ms,
+        "insert_latency_ms": latency_model.insert_latency_ms,
+        "update_latency_ms": latency_model.update_latency_ms,
+        "cancel_latency_ms": latency_model.cancel_latency_ms,
+    } == EXPECTED_PMXT_LATENCY
 
 
 @pytest.mark.parametrize(
     "runner_path", SINGLE_MARKET_RUNNER_FILES, ids=lambda path: path.stem
 )
-def test_quote_tick_runners_use_typed_manifest_contract(
+def test_quote_tick_runners_use_expected_runtime_contract(
     runner_path: Path,
 ) -> None:
-    module = ast.parse(runner_path.read_text())
-    emit_html_assign = _find_assignment(module, "EMIT_HTML")
-    assert _literal_value(emit_html_assign.value) == EXPECTED_RUNNER_EMIT_HTML
-    chart_output_assign = _find_assignment(module, "CHART_OUTPUT_PATH")
-    assert _literal_value(chart_output_assign.value) == EXPECTED_CHART_OUTPUT_PATH
+    module = _import_runner(runner_path)
 
-    execution_assign = _find_assignment(module, "EXECUTION")
-    assert isinstance(execution_assign.value, ast.Call)
-    assert isinstance(execution_assign.value.func, ast.Name)
-    assert execution_assign.value.func.id == "ExecutionModelConfig"
-
-    execution_keywords = {keyword.arg for keyword in execution_assign.value.keywords}
-    assert execution_keywords >= {"queue_position", "latency_model"}
-    queue_keyword = next(
-        keyword
-        for keyword in execution_assign.value.keywords
-        if keyword.arg == "queue_position"
-    )
-    assert isinstance(queue_keyword.value, ast.Constant)
-    assert queue_keyword.value.value is True
-
-    latency_keyword = next(
-        keyword
-        for keyword in execution_assign.value.keywords
-        if keyword.arg == "latency_model"
-    )
-    assert isinstance(latency_keyword.value, ast.Call)
-    assert isinstance(latency_keyword.value.func, ast.Name)
-    assert latency_keyword.value.func.id == "StaticLatencyConfig"
-    assert {
-        keyword.arg: _literal_value(keyword.value)
-        for keyword in latency_keyword.value.keywords
-    } == EXPECTED_PMXT_LATENCY
-
-    data_assign = _find_assignment(module, "DATA")
-    assert isinstance(data_assign.value, ast.Call)
-    sources_keyword = next(
-        keyword for keyword in data_assign.value.keywords if keyword.arg == "sources"
-    )
-    assert isinstance(sources_keyword.value, ast.Tuple)
-    assert _literal_value(sources_keyword.value) == EXPECTED_PMXT_SOURCES
-
-    replays_assign = _find_assignment(module, "REPLAYS")
-    assert isinstance(replays_assign.value, ast.Tuple)
-    assert len(replays_assign.value.elts) >= 1
-    for replay_call in replays_assign.value.elts:
-        assert isinstance(replay_call, ast.Call)
-        assert isinstance(replay_call.func, ast.Name)
-        assert replay_call.func.id == "PolymarketPMXTQuoteReplay"
-
-    experiment_assign = _find_assignment(module, "EXPERIMENT")
-    assert isinstance(experiment_assign.value, ast.Call)
-    assert isinstance(experiment_assign.value.func, ast.Name)
-    assert experiment_assign.value.func.id == "build_replay_experiment"
-
-    execution_keyword = next(
-        keyword
-        for keyword in experiment_assign.value.keywords
-        if keyword.arg == "execution"
-    )
-    assert isinstance(execution_keyword.value, ast.Name)
-    assert execution_keyword.value.id == "EXECUTION"
-    assert _call_keyword_value(experiment_assign.value, "replays") == "REPLAYS"
-    assert _call_keyword_value(experiment_assign.value, "emit_html") == "EMIT_HTML"
-    assert (
-        _call_keyword_value(experiment_assign.value, "chart_output_path")
-        == "CHART_OUTPUT_PATH"
-    )
-    assert (
-        _literal_value(_find_assignment(module, "DETAIL_PLOT_PANELS").value)
-        == EXPECTED_DETAIL_PLOT_PANELS
-    )
-    assert (
-        _call_keyword_value(experiment_assign.value, "detail_plot_panels")
-        == "DETAIL_PLOT_PANELS"
-    )
+    assert module.EMIT_HTML is EXPECTED_RUNNER_EMIT_HTML
+    assert module.CHART_OUTPUT_PATH == EXPECTED_CHART_OUTPUT_PATH
+    assert module.DATA.sources == EXPECTED_PMXT_SOURCES
+    assert module.EXECUTION.queue_position is True
+    _assert_latency_model(module.EXECUTION.latency_model)
+    assert module.REPLAYS == (EXPECTED_SINGLE_MARKET_REPLAYS[module.NAME],)
+    assert module.EXPERIMENT.replays == module.REPLAYS
+    assert module.EXPERIMENT.execution == module.EXECUTION
+    assert module.EXPERIMENT.emit_html is EXPECTED_RUNNER_EMIT_HTML
+    assert module.EXPERIMENT.chart_output_path == EXPECTED_CHART_OUTPUT_PATH
+    assert module.DETAIL_PLOT_PANELS == EXPECTED_DETAIL_PLOT_PANELS
+    assert module.EXPERIMENT.detail_plot_panels == EXPECTED_DETAIL_PLOT_PANELS
 
 
 @pytest.mark.parametrize(
@@ -193,59 +272,47 @@ def test_quote_tick_runners_use_typed_manifest_contract(
 def test_pmxt_multi_sim_runners_use_explicit_summary_plot_contract(
     runner_path: Path,
 ) -> None:
-    module = ast.parse(runner_path.read_text())
+    module = _import_runner(runner_path)
 
-    name_assign = _find_assignment(module, "NAME")
-    assert _literal_value(name_assign.value) == runner_path.stem
+    assert module.NAME == runner_path.stem
+    assert module.EMIT_HTML is EXPECTED_RUNNER_EMIT_HTML
+    assert module.CHART_OUTPUT_PATH == EXPECTED_CHART_OUTPUT_PATH
+    assert module.DATA.sources == EXPECTED_PMXT_SOURCES
+    assert module.DETAIL_PLOT_PANELS == EXPECTED_DETAIL_PLOT_PANELS
+    assert len(module.REPLAYS) == EXPECTED_MULTI_SIM_COUNTS[module.NAME]
 
-    emit_html_assign = _find_assignment(module, "EMIT_HTML")
-    assert _literal_value(emit_html_assign.value) == EXPECTED_RUNNER_EMIT_HTML
-    chart_output_assign = _find_assignment(module, "CHART_OUTPUT_PATH")
-    assert _literal_value(chart_output_assign.value) == EXPECTED_CHART_OUTPUT_PATH
-
-    replays_assign = _find_assignment(module, "REPLAYS")
-    assert isinstance(replays_assign.value, ast.Tuple)
-    assert len(replays_assign.value.elts) > 1
-
-    assert (
-        _literal_value(_find_assignment(module, "DETAIL_PLOT_PANELS").value)
-        == EXPECTED_DETAIL_PLOT_PANELS
-    )
-
-    summary_panels = _literal_value(
-        _find_assignment(module, "SUMMARY_PLOT_PANELS").value
-    )
+    summary_panels = module.SUMMARY_PLOT_PANELS
     assert isinstance(summary_panels, tuple)
     assert summary_panels
     assert set(summary_panels) <= SUPPORTED_SUMMARY_PLOT_PANELS
 
-    report_assign = _find_assignment(module, "REPORT")
-    assert isinstance(report_assign.value, ast.Call)
-    assert _call_keyword_value(report_assign.value, "summary_report") is True
+    assert module.REPORT.summary_report is True
+    assert module.REPORT.summary_report_path == module.SUMMARY_REPORT_PATH
+    assert module.REPORT.summary_plot_panels == summary_panels
+    assert module.EXPERIMENT.return_summary_series is True
+    assert module.EXPERIMENT.replays == module.REPLAYS
     assert (
-        _call_keyword_value(report_assign.value, "summary_report_path")
-        == "SUMMARY_REPORT_PATH"
+        len({replay.market_slug for replay in module.REPLAYS})
+        >= (EXPECTED_MULTI_SIM_MIN_DISTINCT_MARKETS[module.NAME])
     )
-    assert (
-        _call_keyword_value(report_assign.value, "summary_plot_panels")
-        == "SUMMARY_PLOT_PANELS"
-    )
+    assert len(
+        {
+            (replay.market_slug, replay.start_time, replay.end_time)
+            for replay in module.REPLAYS
+        }
+    ) == len(module.REPLAYS)
+    assert len(
+        {str((replay.metadata or {}).get("sim_label")) for replay in module.REPLAYS}
+    ) == len(module.REPLAYS)
 
-    experiment_assign = _find_assignment(module, "EXPERIMENT")
-    assert isinstance(experiment_assign.value, ast.Call)
-    assert isinstance(experiment_assign.value.func, ast.Name)
-    assert experiment_assign.value.func.id == "build_replay_experiment"
-    assert _call_keyword_value(experiment_assign.value, "replays") == "REPLAYS"
-    assert _call_keyword_value(experiment_assign.value, "emit_html") == "EMIT_HTML"
-    assert (
-        _call_keyword_value(experiment_assign.value, "chart_output_path")
-        == "CHART_OUTPUT_PATH"
-    )
-    assert (
-        _call_keyword_value(experiment_assign.value, "detail_plot_panels")
-        == "DETAIL_PLOT_PANELS"
-    )
-    assert _call_keyword_value(experiment_assign.value, "return_summary_series") is True
+    if module.NAME in EXPECTED_MULTI_SIM_REPLAYS:
+        assert module.REPLAYS == EXPECTED_MULTI_SIM_REPLAYS[module.NAME]
+
+    for replay in module.REPLAYS:
+        assert replay.market_slug
+        assert replay.token_index == 0
+        assert isinstance(replay.start_time, str) and replay.start_time
+        assert isinstance(replay.end_time, str) and replay.end_time
 
 
 @pytest.mark.parametrize(
@@ -254,64 +321,18 @@ def test_pmxt_multi_sim_runners_use_explicit_summary_plot_contract(
 def test_quote_tick_optimizer_runners_inline_explicit_search_controls(
     runner_path: Path,
 ) -> None:
-    module = ast.parse(runner_path.read_text())
-    emit_html_assign = _find_assignment(module, "EMIT_HTML")
-    assert _literal_value(emit_html_assign.value) == EXPECTED_OPTIMIZER_EMIT_HTML
-    chart_output_assign = _find_assignment(module, "CHART_OUTPUT_PATH")
-    assert _literal_value(chart_output_assign.value) == EXPECTED_CHART_OUTPUT_PATH
+    module = _import_runner(runner_path)
 
-    data_assign = _find_assignment(module, "DATA")
-    assert isinstance(data_assign.value, ast.Call)
-    sources_keyword = next(
-        keyword for keyword in data_assign.value.keywords if keyword.arg == "sources"
-    )
-    assert isinstance(sources_keyword.value, ast.Tuple)
-    assert _literal_value(sources_keyword.value) == EXPECTED_PMXT_SOURCES
+    assert module.EMIT_HTML is EXPECTED_OPTIMIZER_EMIT_HTML
+    assert module.CHART_OUTPUT_PATH == EXPECTED_CHART_OUTPUT_PATH
+    assert module.DATA.sources == EXPECTED_PMXT_SOURCES
+    assert module.EXECUTION.queue_position is True
+    _assert_latency_model(module.EXECUTION.latency_model)
 
-    execution_assign = _find_assignment(module, "EXECUTION")
-    assert isinstance(execution_assign.value, ast.Call)
-    assert isinstance(execution_assign.value.func, ast.Name)
-    assert execution_assign.value.func.id == "ExecutionModelConfig"
-    optimizer_execution_keywords = {
-        keyword.arg: keyword.value for keyword in execution_assign.value.keywords
-    }
-    assert isinstance(optimizer_execution_keywords["queue_position"], ast.Constant)
-    assert optimizer_execution_keywords["queue_position"].value is True
-    assert isinstance(optimizer_execution_keywords["latency_model"], ast.Call)
-    assert isinstance(optimizer_execution_keywords["latency_model"].func, ast.Name)
-    assert (
-        optimizer_execution_keywords["latency_model"].func.id == "StaticLatencyConfig"
-    )
-    assert {
-        keyword.arg: _literal_value(keyword.value)
-        for keyword in optimizer_execution_keywords["latency_model"].keywords
-    } == EXPECTED_PMXT_LATENCY
-
-    base_replay_assign = _find_assignment(module, "BASE_REPLAY")
-    assert isinstance(base_replay_assign.value, ast.Call)
-    assert isinstance(base_replay_assign.value.func, ast.Name)
-    assert base_replay_assign.value.func.id == "PolymarketPMXTQuoteReplay"
-
-    market_slug_keyword = next(
-        keyword
-        for keyword in base_replay_assign.value.keywords
-        if keyword.arg == "market_slug"
-    )
-    token_index_keyword = next(
-        keyword
-        for keyword in base_replay_assign.value.keywords
-        if keyword.arg == "token_index"
-    )
-    assert isinstance(market_slug_keyword.value, ast.Constant)
-    assert (
-        market_slug_keyword.value.value
-        == "will-openai-launch-a-new-consumer-hardware-product-by-march-31-2026"
-    )
-    assert _literal_value(token_index_keyword.value) == 0
-
-    parameter_grid_assign = _find_assignment(module, "PARAMETER_GRID")
-    parameter_grid = _literal_value(parameter_grid_assign.value)
-    assert parameter_grid == {
+    assert module.BASE_REPLAY == EXPECTED_OPTIMIZER_BASE_REPLAY
+    assert module.TRAIN_WINDOWS == EXPECTED_OPTIMIZER_TRAIN_WINDOWS
+    assert module.HOLDOUT_WINDOWS == EXPECTED_OPTIMIZER_HOLDOUT_WINDOWS
+    assert module.PARAMETER_GRID == {
         "fast_period": (32, 64, 96),
         "slow_period": (128, 256, 384),
         "entry_buffer": (0.00025, 0.0005),
@@ -319,41 +340,7 @@ def test_quote_tick_optimizer_runners_inline_explicit_search_controls(
         "stop_loss": (0.005, 0.01),
     }
 
-    train_windows_assign = _find_assignment(module, "TRAIN_WINDOWS")
-    assert isinstance(train_windows_assign.value, ast.Tuple)
-    assert len(train_windows_assign.value.elts) == 3
-    for window in train_windows_assign.value.elts:
-        assert isinstance(window, ast.Call)
-        assert isinstance(window.func, ast.Name)
-        assert window.func.id == "OptimizationWindow"
-
-    holdout_windows_assign = _find_assignment(module, "HOLDOUT_WINDOWS")
-    assert isinstance(holdout_windows_assign.value, ast.Tuple)
-    assert len(holdout_windows_assign.value.elts) == 1
-    holdout_window = holdout_windows_assign.value.elts[0]
-    assert isinstance(holdout_window, ast.Call)
-    assert isinstance(holdout_window.func, ast.Name)
-    assert holdout_window.func.id == "OptimizationWindow"
-
-    optimization_assign = _find_assignment(module, "OPTIMIZATION")
-    assert isinstance(optimization_assign.value, ast.Call)
-    assert isinstance(optimization_assign.value.func, ast.Name)
-    assert optimization_assign.value.func.id == "OptimizationConfig"
-
-    optimization_values = {
-        keyword.arg: keyword.value.id
-        for keyword in optimization_assign.value.keywords
-        if isinstance(keyword.value, ast.Name)
-    }
-    assert optimization_values["data"] == "DATA"
-    assert optimization_values["base_replay"] == "BASE_REPLAY"
-    assert optimization_values["strategy_spec"] == "STRATEGY_SPEC"
-    assert optimization_values["parameter_grid"] == "PARAMETER_GRID"
-    assert optimization_values["train_windows"] == "TRAIN_WINDOWS"
-    assert optimization_values["holdout_windows"] == "HOLDOUT_WINDOWS"
-    assert optimization_values["execution"] == "EXECUTION"
-    assert _call_keyword_value(optimization_assign.value, "emit_html") == "EMIT_HTML"
-    assert (
-        _call_keyword_value(optimization_assign.value, "chart_output_path")
-        == "CHART_OUTPUT_PATH"
-    )
+    assert module.OPTIMIZATION.base_replay == module.BASE_REPLAY
+    assert module.OPTIMIZATION.train_windows == module.TRAIN_WINDOWS
+    assert module.OPTIMIZATION.holdout_windows == module.HOLDOUT_WINDOWS
+    assert module.OPTIMIZATION.execution == module.EXECUTION

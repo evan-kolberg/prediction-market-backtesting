@@ -63,10 +63,10 @@ DATA = MarketDataConfig(
 
 REPLAYS = (
     PolymarketPMXTQuoteReplay(
-        market_slug="will-openai-launch-a-new-consumer-hardware-product-by-march-31-2026",
+        market_slug="will-ludvig-aberg-win-the-2026-masters-tournament",
         token_index=0,
-        start_time="2026-02-21T16:00:00Z",
-        end_time="2026-02-23T10:00:00Z",
+        start_time="2026-04-05T00:00:00Z",
+        end_time="2026-04-07T23:59:59Z",
     ),
 )
 
@@ -75,7 +75,7 @@ STRATEGY_CONFIGS = [
         "strategy_path": "strategies:QuoteTickEMACrossoverStrategy",
         "config_path": "strategies:QuoteTickEMACrossoverConfig",
         "config": {
-            "trade_size": Decimal("100"),
+            "trade_size": Decimal("5"),
             "fast_period": 64,
             "slow_period": 256,
             "entry_buffer": 0.0005,

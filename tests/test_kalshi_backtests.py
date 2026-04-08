@@ -4,6 +4,7 @@ import importlib
 
 import pytest
 
+from backtests._shared._replay_specs import KalshiTradeTickReplay
 from backtests._shared._strategy_configs import build_strategies_from_configs
 from strategies import TradeTickBreakoutConfig
 from strategies import TradeTickBreakoutStrategy
@@ -21,6 +22,34 @@ from nautilus_trader.model.identifiers import Venue
 
 
 INSTRUMENT_ID = InstrumentId(Symbol("KALSHI-TEST"), Venue("KALSHI"))
+
+EXPECTED_REPLAYS = {
+    "backtests.kalshi_trade_tick_breakout": KalshiTradeTickReplay(
+        market_ticker="KXLAYOFFSYINFO-26-494000",
+        start_time="2026-03-15T00:00:00Z",
+        end_time="2026-04-08T23:59:59Z",
+    ),
+    "backtests.kalshi_trade_tick_ema_crossover": KalshiTradeTickReplay(
+        market_ticker="KXCITRINI-28JUL01",
+        start_time="2026-03-18T00:00:00Z",
+        end_time="2026-04-08T23:59:59Z",
+    ),
+    "backtests.kalshi_trade_tick_panic_fade": KalshiTradeTickReplay(
+        market_ticker="KXGREENLAND-29",
+        start_time="2026-03-20T00:00:00Z",
+        end_time="2026-04-08T23:59:59Z",
+    ),
+    "backtests.kalshi_trade_tick_rsi_reversion": KalshiTradeTickReplay(
+        market_ticker="CONTROLH-2026-R",
+        start_time="2026-03-22T00:00:00Z",
+        end_time="2026-04-08T23:59:59Z",
+    ),
+    "backtests.kalshi_trade_tick_spread_capture": KalshiTradeTickReplay(
+        market_ticker="KXPRESNOMR-28-MR",
+        start_time="2026-03-24T00:00:00Z",
+        end_time="2026-04-08T23:59:59Z",
+    ),
+}
 
 
 @pytest.mark.parametrize(
@@ -79,10 +108,7 @@ def test_kalshi_backtests_build_expected_trade_tick_strategy(
 
     assert isinstance(strategy, strategy_cls)
     assert isinstance(strategy.config, config_cls)
-    assert len(module.REPLAYS) == 1
-    assert module.REPLAYS[0].market_ticker == "KXNEXTIRANLEADER-45JAN01-MKHA"
-    assert module.REPLAYS[0].lookback_days == 30
-    assert str(module.REPLAYS[0].end_time) == "2026-03-08T21:44:24Z"
+    assert module.REPLAYS == (EXPECTED_REPLAYS[module_name],)
     assert module.EXPERIMENT.name == module.NAME
     assert module.EXPERIMENT.data == module.DATA
     assert module.EXPERIMENT.replays == module.REPLAYS

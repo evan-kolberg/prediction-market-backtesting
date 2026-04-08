@@ -51,33 +51,33 @@ DATA = MarketDataConfig(
 )
 
 BASE_REPLAY = PolymarketPMXTQuoteReplay(
-    market_slug="will-openai-launch-a-new-consumer-hardware-product-by-march-31-2026",
+    market_slug="will-ludvig-aberg-win-the-2026-masters-tournament",
     token_index=0,
 )
 
 TRAIN_WINDOWS = (
     OptimizationWindow(
         name="sample-a-full-window",
-        start_time="2026-02-21T16:00:00Z",
-        end_time="2026-02-23T10:00:00Z",
+        start_time="2026-04-05T00:00:00Z",
+        end_time="2026-04-07T23:59:59Z",
     ),
     OptimizationWindow(
-        name="sample-b-2026-02-22-day",
-        start_time="2026-02-22T10:00:00Z",
-        end_time="2026-02-22T22:00:00Z",
+        name="sample-b-2026-04-06-day",
+        start_time="2026-04-06T00:00:00Z",
+        end_time="2026-04-06T23:59:59Z",
     ),
     OptimizationWindow(
-        name="sample-c-2026-02-22-late",
-        start_time="2026-02-22T22:00:00Z",
-        end_time="2026-02-23T10:00:00Z",
+        name="sample-c-2026-04-07-late",
+        start_time="2026-04-07T12:00:00Z",
+        end_time="2026-04-07T23:59:59Z",
     ),
 )
 
 HOLDOUT_WINDOWS = (
     OptimizationWindow(
         name="sample-d-close-window",
-        start_time="2026-03-24T03:00:00Z",
-        end_time="2026-03-24T08:00:00Z",
+        start_time="2026-04-07T00:00:00Z",
+        end_time="2026-04-07T11:59:59Z",
     ),
 )
 
@@ -85,7 +85,7 @@ STRATEGY_SPEC = {
     "strategy_path": "strategies:QuoteTickEMACrossoverStrategy",
     "config_path": "strategies:QuoteTickEMACrossoverConfig",
     "config": {
-        "trade_size": Decimal("100"),
+        "trade_size": Decimal("5"),
         "fast_period": "__SEARCH__:fast_period",
         "slow_period": "__SEARCH__:slow_period",
         "entry_buffer": "__SEARCH__:entry_buffer",

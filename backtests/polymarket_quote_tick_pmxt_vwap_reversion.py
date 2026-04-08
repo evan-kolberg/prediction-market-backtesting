@@ -65,10 +65,10 @@ DATA = MarketDataConfig(
 
 REPLAYS = (
     PolymarketPMXTQuoteReplay(
-        market_slug="will-openai-launch-a-new-consumer-hardware-product-by-march-31-2026",
+        market_slug="will-nana-araba-wilmot-win-top-chef-season-23",
         token_index=0,
-        start_time="2026-02-21T16:00:00Z",
-        end_time="2026-02-23T10:00:00Z",
+        start_time="2026-04-06T06:00:00Z",
+        end_time="2026-04-07T18:00:00Z",
     ),
 )
 
@@ -77,7 +77,7 @@ STRATEGY_CONFIGS = [
         "strategy_path": "strategies:QuoteTickVWAPReversionStrategy",
         "config_path": "strategies:QuoteTickVWAPReversionConfig",
         "config": {
-            "trade_size": Decimal("100"),
+            "trade_size": Decimal("5"),
             "vwap_window": 30,
             "entry_threshold": 0.0015,
             "exit_threshold": 0.0003,

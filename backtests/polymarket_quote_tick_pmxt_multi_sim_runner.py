@@ -36,7 +36,7 @@ from backtests._shared.data_sources import PMXT, Polymarket, QuoteTick
 
 NAME = "polymarket_quote_tick_pmxt_multi_sim_runner"
 
-DESCRIPTION = "Example PMXT quote-tick multi-sim runner using fixed historical sims"
+DESCRIPTION = "Example PMXT quote-tick multi-sim runner using varied historical sims"
 
 EMIT_HTML = True
 CHART_OUTPUT_PATH = "output"
@@ -82,30 +82,58 @@ REPLAYS = (
     PolymarketPMXTQuoteReplay(
         market_slug="will-openai-launch-a-new-consumer-hardware-product-by-march-31-2026",
         token_index=0,
-        start_time="2026-02-21T16:00:00Z",
-        end_time="2026-02-23T10:00:00Z",
-        metadata={"sim_label": "sample-a-full-window"},
+        start_time="2026-03-23T00:00:00Z",
+        end_time="2026-03-24T23:59:59Z",
+        metadata={"sim_label": "openai-launch-mar-23-24"},
     ),
     PolymarketPMXTQuoteReplay(
-        market_slug="will-openai-launch-a-new-consumer-hardware-product-by-march-31-2026",
+        market_slug="will-ludvig-aberg-win-the-2026-masters-tournament",
         token_index=0,
-        start_time="2026-02-22T10:00:00Z",
-        end_time="2026-02-22T22:00:00Z",
-        metadata={"sim_label": "sample-b-2026-02-22-day"},
+        start_time="2026-04-05T00:00:00Z",
+        end_time="2026-04-07T23:59:59Z",
+        metadata={"sim_label": "aberg-masters-full-window"},
     ),
     PolymarketPMXTQuoteReplay(
-        market_slug="will-openai-launch-a-new-consumer-hardware-product-by-march-31-2026",
+        market_slug="will-the-tennessee-titans-draft-a-quarterback-in-the-first-round-of-the-2026-nfl-draft",
         token_index=0,
-        start_time="2026-02-22T22:00:00Z",
-        end_time="2026-02-23T10:00:00Z",
-        metadata={"sim_label": "sample-c-2026-02-22-late"},
+        start_time="2026-04-06T00:00:00Z",
+        end_time="2026-04-07T23:59:59Z",
+        metadata={"sim_label": "titans-draft-two-day-window"},
     ),
     PolymarketPMXTQuoteReplay(
-        market_slug="will-openai-launch-a-new-consumer-hardware-product-by-march-31-2026",
+        market_slug="will-fc-heidenheim-be-relegated-from-the-bundesliga-after-the-202526-season-382",
         token_index=0,
-        start_time="2026-03-24T03:00:00Z",
-        end_time="2026-03-24T08:00:00Z",
-        metadata={"sim_label": "sample-d-close-window"},
+        start_time="2026-04-07T12:00:00Z",
+        end_time="2026-04-07T23:59:59Z",
+        metadata={"sim_label": "heidenheim-late-session"},
+    ),
+    PolymarketPMXTQuoteReplay(
+        market_slug="will-the-south-african-reserve-bank-decrease-the-repo-rate-after-the-may-meeting",
+        token_index=0,
+        start_time="2026-04-06T12:00:00Z",
+        end_time="2026-04-07T23:59:59Z",
+        metadata={"sim_label": "sarb-rate-watch-window"},
+    ),
+    PolymarketPMXTQuoteReplay(
+        market_slug="will-nana-araba-wilmot-win-top-chef-season-23",
+        token_index=0,
+        start_time="2026-04-06T06:00:00Z",
+        end_time="2026-04-07T18:00:00Z",
+        metadata={"sim_label": "top-chef-finale-runup"},
+    ),
+    PolymarketPMXTQuoteReplay(
+        market_slug="will-drake-release-an-album-in-2026",
+        token_index=0,
+        start_time="2026-04-05T12:00:00Z",
+        end_time="2026-04-07T23:59:59Z",
+        metadata={"sim_label": "drake-weekend-window"},
+    ),
+    PolymarketPMXTQuoteReplay(
+        market_slug="will-ethan-agarwal-get-the-first-or-second-most-votes-in-the-2026-california-governor-primary-election",
+        token_index=0,
+        start_time="2026-04-07T00:00:00Z",
+        end_time="2026-04-07T23:59:59Z",
+        metadata={"sim_label": "agarwal-election-day"},
     ),
 )
 
@@ -114,7 +142,7 @@ STRATEGY_CONFIGS = [
         "strategy_path": "strategies:QuoteTickVWAPReversionStrategy",
         "config_path": "strategies:QuoteTickVWAPReversionConfig",
         "config": {
-            "trade_size": Decimal("100"),
+            "trade_size": Decimal("5"),
             "vwap_window": 30,
             "entry_threshold": 0.0015,
             "exit_threshold": 0.0003,

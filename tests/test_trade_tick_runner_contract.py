@@ -1,13 +1,15 @@
 from __future__ import annotations
 
-import ast
+import importlib
 from pathlib import Path
 
 import pytest
 
+from backtests._shared._replay_specs import KalshiTradeTickReplay
+from backtests._shared._replay_specs import PolymarketTradeTickReplay
+
 
 EXPECTED_INITIAL_CASH = 100.0
-EXPECTED_SINGLE_MARKET_LOOKBACK_DAYS = 30
 EXPECTED_FIXED_SPORTS_LOOKBACK_DAYS = 7
 EXPECTED_EMIT_HTML = True
 EXPECTED_CHART_OUTPUT_PATH = "output"
@@ -35,16 +37,67 @@ EXPECTED_SUMMARY_PLOT_PANELS = (
     "brier_advantage",
 )
 EXPECTED_KALSHI_TRADE_SOURCES = ("rest:https://api.elections.kalshi.com/trade-api/v2",)
-EXPECTED_KALSHI_MARKET_TICKER = "KXNEXTIRANLEADER-45JAN01-MKHA"
-EXPECTED_KALSHI_REPLAY_END_TIME = "2026-03-08T21:44:24Z"
 EXPECTED_POLYMARKET_TRADE_SOURCES = (
     "gamma:https://gamma-api.polymarket.com",
     "trades:https://data-api.polymarket.com",
     "clob:https://clob.polymarket.com",
 )
-EXPECTED_POLYMARKET_MARKET_SLUG = (
-    "will-openai-launch-a-new-consumer-hardware-product-by-march-31-2026"
-)
+
+EXPECTED_KALSHI_REPLAYS = {
+    "kalshi_trade_tick_breakout": KalshiTradeTickReplay(
+        market_ticker="KXLAYOFFSYINFO-26-494000",
+        start_time="2026-03-15T00:00:00Z",
+        end_time="2026-04-08T23:59:59Z",
+    ),
+    "kalshi_trade_tick_ema_crossover": KalshiTradeTickReplay(
+        market_ticker="KXCITRINI-28JUL01",
+        start_time="2026-03-18T00:00:00Z",
+        end_time="2026-04-08T23:59:59Z",
+    ),
+    "kalshi_trade_tick_panic_fade": KalshiTradeTickReplay(
+        market_ticker="KXGREENLAND-29",
+        start_time="2026-03-20T00:00:00Z",
+        end_time="2026-04-08T23:59:59Z",
+    ),
+    "kalshi_trade_tick_rsi_reversion": KalshiTradeTickReplay(
+        market_ticker="CONTROLH-2026-R",
+        start_time="2026-03-22T00:00:00Z",
+        end_time="2026-04-08T23:59:59Z",
+    ),
+    "kalshi_trade_tick_spread_capture": KalshiTradeTickReplay(
+        market_ticker="KXPRESNOMR-28-MR",
+        start_time="2026-03-24T00:00:00Z",
+        end_time="2026-04-08T23:59:59Z",
+    ),
+}
+
+EXPECTED_POLYMARKET_REPLAYS = {
+    "polymarket_trade_tick_ema_crossover": PolymarketTradeTickReplay(
+        market_slug="will-ukraine-qualify-for-the-2026-fifa-world-cup",
+        start_time="2026-03-20T00:00:00Z",
+        end_time="2026-03-26T23:53:59Z",
+    ),
+    "polymarket_trade_tick_panic_fade": PolymarketTradeTickReplay(
+        market_slug="will-newcastle-win-the-202526-champions-league",
+        start_time="2026-03-11T00:00:00Z",
+        end_time="2026-03-18T22:56:01Z",
+    ),
+    "polymarket_trade_tick_rsi_reversion": PolymarketTradeTickReplay(
+        market_slug="will-man-city-win-the-202526-champions-league",
+        start_time="2026-03-11T00:00:00Z",
+        end_time="2026-03-18T01:28:17Z",
+    ),
+    "polymarket_trade_tick_spread_capture": PolymarketTradeTickReplay(
+        market_slug="will-chelsea-win-the-202526-champions-league",
+        start_time="2026-03-11T00:00:00Z",
+        end_time="2026-03-18T01:22:09Z",
+    ),
+    "polymarket_trade_tick_vwap_reversion": PolymarketTradeTickReplay(
+        market_slug="will-openai-launch-a-new-consumer-hardware-product-by-march-31-2026",
+        start_time="2026-02-21T16:00:00Z",
+        end_time="2026-03-31T23:59:59Z",
+    ),
+}
 
 BACKTESTS_ROOT = Path(__file__).resolve().parents[1] / "backtests"
 KALSHI_SINGLE_MARKET_RUNNERS = sorted(BACKTESTS_ROOT.glob("kalshi_trade_tick_*.py"))
@@ -58,122 +111,27 @@ POLYMARKET_SPORTS_RUNNERS = sorted(
 )
 
 
-def _find_assignment(module: ast.Module, name: str) -> ast.Assign:
-    for node in module.body:
-        if not isinstance(node, ast.Assign):
-            continue
-        for target in node.targets:
-            if isinstance(target, ast.Name) and target.id == name:
-                return node
-    raise AssertionError(f"missing top-level assignment for {name}")
-
-
-def _constant_or_name(value: ast.AST) -> object:
-    if isinstance(value, ast.Constant):
-        return value.value
-    if isinstance(value, ast.Name):
-        return value.id
-    raise AssertionError(
-        f"expected ast.Constant or ast.Name, got {type(value).__name__}"
-    )
-
-
-def _literal_value(value: ast.AST) -> object:
-    try:
-        return ast.literal_eval(value)
-    except ValueError as exc:
-        raise AssertionError(
-            f"expected a literal-compatible AST node, got {type(value).__name__}"
-        ) from exc
-
-
-def _call_literal_keyword_values(call: ast.Call) -> dict[str, object]:
-    return {keyword.arg: _literal_value(keyword.value) for keyword in call.keywords}
-
-
-def _keyword_value(call: ast.Call, name: str) -> object:
-    for keyword in call.keywords:
-        if keyword.arg == name:
-            return _constant_or_name(keyword.value)
-    raise AssertionError(f"missing keyword argument {name}")
-
-
-def _single_replay_keyword_values(
-    module: ast.Module,
-    *,
-    constructor_name: str,
-) -> dict[str, object]:
-    replays_assign = _find_assignment(module, "REPLAYS")
-    assert isinstance(replays_assign.value, ast.Tuple)
-    assert len(replays_assign.value.elts) == 1
-    replay_call = replays_assign.value.elts[0]
-    assert isinstance(replay_call, ast.Call)
-    assert isinstance(replay_call.func, ast.Name)
-    assert replay_call.func.id == constructor_name
-    return _call_literal_keyword_values(replay_call)
-
-
-def _data_sources_value(module: ast.Module) -> object:
-    data_assign = _find_assignment(module, "DATA")
-    assert isinstance(data_assign.value, ast.Call)
-    return next(
-        _literal_value(keyword.value)
-        for keyword in data_assign.value.keywords
-        if keyword.arg == "sources"
-    )
-
-
-def _experiment_keyword_value(module: ast.Module, name: str) -> object:
-    experiment_assign = _find_assignment(module, "EXPERIMENT")
-    assert isinstance(experiment_assign.value, ast.Call)
-    return _keyword_value(experiment_assign.value, name)
-
-
-def _top_level_literal_value(module: ast.Module, name: str) -> object:
-    return _literal_value(_find_assignment(module, name).value)
+def _import_runner(runner_path: Path):
+    return importlib.import_module(f"backtests.{runner_path.stem}")
 
 
 @pytest.mark.parametrize(
     "runner_path", KALSHI_SINGLE_MARKET_RUNNERS, ids=lambda path: path.stem
 )
-def test_kalshi_trade_tick_runners_use_typed_manifest_contract(
+def test_kalshi_trade_tick_runners_use_expected_runtime_contract(
     runner_path: Path,
 ) -> None:
-    module = ast.parse(runner_path.read_text())
+    module = _import_runner(runner_path)
 
-    assert _data_sources_value(module) == EXPECTED_KALSHI_TRADE_SOURCES
-    assert _top_level_literal_value(module, "EMIT_HTML") == EXPECTED_EMIT_HTML
-    assert (
-        _top_level_literal_value(module, "CHART_OUTPUT_PATH")
-        == EXPECTED_CHART_OUTPUT_PATH
-    )
-    assert (
-        _top_level_literal_value(module, "DETAIL_PLOT_PANELS")
-        == EXPECTED_DETAIL_PLOT_PANELS
-    )
-    assert _experiment_keyword_value(module, "emit_html") == "EMIT_HTML"
-    assert _experiment_keyword_value(module, "chart_output_path") == "CHART_OUTPUT_PATH"
-    assert (
-        _experiment_keyword_value(module, "detail_plot_panels") == "DETAIL_PLOT_PANELS"
-    )
-    assert (
-        _literal_value(
-            next(
-                keyword.value
-                for keyword in _find_assignment(module, "EXPERIMENT").value.keywords
-                if keyword.arg == "initial_cash"
-            )
-        )
-        == EXPECTED_INITIAL_CASH
-    )
-
-    replay_values = _single_replay_keyword_values(
-        module,
-        constructor_name="KalshiTradeTickReplay",
-    )
-    assert replay_values["market_ticker"] == EXPECTED_KALSHI_MARKET_TICKER
-    assert replay_values["lookback_days"] == EXPECTED_SINGLE_MARKET_LOOKBACK_DAYS
-    assert replay_values["end_time"] == EXPECTED_KALSHI_REPLAY_END_TIME
+    assert module.DATA.sources == EXPECTED_KALSHI_TRADE_SOURCES
+    assert module.EMIT_HTML is EXPECTED_EMIT_HTML
+    assert module.CHART_OUTPUT_PATH == EXPECTED_CHART_OUTPUT_PATH
+    assert module.DETAIL_PLOT_PANELS == EXPECTED_DETAIL_PLOT_PANELS
+    assert module.EXPERIMENT.emit_html is EXPECTED_EMIT_HTML
+    assert module.EXPERIMENT.chart_output_path == EXPECTED_CHART_OUTPUT_PATH
+    assert module.EXPERIMENT.detail_plot_panels == EXPECTED_DETAIL_PLOT_PANELS
+    assert module.EXPERIMENT.initial_cash == EXPECTED_INITIAL_CASH
+    assert module.REPLAYS == (EXPECTED_KALSHI_REPLAYS[module.NAME],)
 
 
 @pytest.mark.parametrize(
@@ -181,33 +139,19 @@ def test_kalshi_trade_tick_runners_use_typed_manifest_contract(
     POLYMARKET_SINGLE_MARKET_RUNNERS,
     ids=lambda path: path.stem,
 )
-def test_polymarket_trade_tick_single_market_runners_use_typed_manifest_contract(
+def test_polymarket_trade_tick_single_market_runners_use_expected_runtime_contract(
     runner_path: Path,
 ) -> None:
-    module = ast.parse(runner_path.read_text())
+    module = _import_runner(runner_path)
 
-    assert _data_sources_value(module) == EXPECTED_POLYMARKET_TRADE_SOURCES
-    assert _top_level_literal_value(module, "EMIT_HTML") == EXPECTED_EMIT_HTML
-    assert (
-        _top_level_literal_value(module, "CHART_OUTPUT_PATH")
-        == EXPECTED_CHART_OUTPUT_PATH
-    )
-    assert (
-        _top_level_literal_value(module, "DETAIL_PLOT_PANELS")
-        == EXPECTED_DETAIL_PLOT_PANELS
-    )
-    assert _experiment_keyword_value(module, "emit_html") == "EMIT_HTML"
-    assert _experiment_keyword_value(module, "chart_output_path") == "CHART_OUTPUT_PATH"
-    assert (
-        _experiment_keyword_value(module, "detail_plot_panels") == "DETAIL_PLOT_PANELS"
-    )
-
-    replay_values = _single_replay_keyword_values(
-        module,
-        constructor_name="PolymarketTradeTickReplay",
-    )
-    assert replay_values["market_slug"] == EXPECTED_POLYMARKET_MARKET_SLUG
-    assert replay_values["lookback_days"] == EXPECTED_SINGLE_MARKET_LOOKBACK_DAYS
+    assert module.DATA.sources == EXPECTED_POLYMARKET_TRADE_SOURCES
+    assert module.EMIT_HTML is EXPECTED_EMIT_HTML
+    assert module.CHART_OUTPUT_PATH == EXPECTED_CHART_OUTPUT_PATH
+    assert module.DETAIL_PLOT_PANELS == EXPECTED_DETAIL_PLOT_PANELS
+    assert module.EXPERIMENT.emit_html is EXPECTED_EMIT_HTML
+    assert module.EXPERIMENT.chart_output_path == EXPECTED_CHART_OUTPUT_PATH
+    assert module.EXPERIMENT.detail_plot_panels == EXPECTED_DETAIL_PLOT_PANELS
+    assert module.REPLAYS == (EXPECTED_POLYMARKET_REPLAYS[module.NAME],)
 
 
 @pytest.mark.parametrize(
@@ -216,58 +160,25 @@ def test_polymarket_trade_tick_single_market_runners_use_typed_manifest_contract
 def test_polymarket_trade_tick_sports_runners_use_fixed_replay_windows(
     runner_path: Path,
 ) -> None:
-    module = ast.parse(runner_path.read_text())
+    module = _import_runner(runner_path)
 
-    assert _data_sources_value(module) == EXPECTED_POLYMARKET_TRADE_SOURCES
-    assert _top_level_literal_value(module, "EMIT_HTML") == EXPECTED_EMIT_HTML
-    assert (
-        _top_level_literal_value(module, "CHART_OUTPUT_PATH")
-        == EXPECTED_CHART_OUTPUT_PATH
-    )
-    assert (
-        _top_level_literal_value(module, "DETAIL_PLOT_PANELS")
-        == EXPECTED_DETAIL_PLOT_PANELS
-    )
-    assert (
-        _top_level_literal_value(module, "SUMMARY_PLOT_PANELS")
-        == EXPECTED_SUMMARY_PLOT_PANELS
-    )
-    assert _experiment_keyword_value(module, "emit_html") == "EMIT_HTML"
-    assert _experiment_keyword_value(module, "chart_output_path") == "CHART_OUTPUT_PATH"
-    assert (
-        _experiment_keyword_value(module, "detail_plot_panels") == "DETAIL_PLOT_PANELS"
-    )
-    assert _experiment_keyword_value(module, "return_summary_series") is True
-    assert "output/" in ast.unparse(
-        _find_assignment(module, "SUMMARY_REPORT_PATH").value
-    )
-    assert "_multi_market.html" in ast.unparse(
-        _find_assignment(module, "SUMMARY_REPORT_PATH").value
-    )
+    assert module.DATA.sources == EXPECTED_POLYMARKET_TRADE_SOURCES
+    assert module.EMIT_HTML is EXPECTED_EMIT_HTML
+    assert module.CHART_OUTPUT_PATH == EXPECTED_CHART_OUTPUT_PATH
+    assert module.DETAIL_PLOT_PANELS == EXPECTED_DETAIL_PLOT_PANELS
+    assert module.SUMMARY_PLOT_PANELS == EXPECTED_SUMMARY_PLOT_PANELS
+    assert module.EXPERIMENT.emit_html is EXPECTED_EMIT_HTML
+    assert module.EXPERIMENT.chart_output_path == EXPECTED_CHART_OUTPUT_PATH
+    assert module.EXPERIMENT.detail_plot_panels == EXPECTED_DETAIL_PLOT_PANELS
+    assert module.EXPERIMENT.return_summary_series is True
+    assert "output/" in module.SUMMARY_REPORT_PATH
+    assert module.SUMMARY_REPORT_PATH.endswith("_multi_market.html")
 
-    report_assign = _find_assignment(module, "REPORT")
-    assert isinstance(report_assign.value, ast.Call)
-    assert _keyword_value(report_assign.value, "summary_report") is True
-    assert (
-        _keyword_value(report_assign.value, "summary_report_path")
-        == "SUMMARY_REPORT_PATH"
-    )
-    assert (
-        _keyword_value(report_assign.value, "summary_plot_panels")
-        == "SUMMARY_PLOT_PANELS"
-    )
+    assert module.REPORT.summary_report is True
+    assert module.REPORT.summary_report_path == module.SUMMARY_REPORT_PATH
+    assert module.REPORT.summary_plot_panels == EXPECTED_SUMMARY_PLOT_PANELS
 
-    fixed_lookback_assign = _find_assignment(module, "FIXED_LOOKBACK_DAYS")
-    assert (
-        _literal_value(fixed_lookback_assign.value)
-        == EXPECTED_FIXED_SPORTS_LOOKBACK_DAYS
-    )
-
-    replays_assign = _find_assignment(module, "REPLAYS")
-    assert isinstance(replays_assign.value, ast.Tuple)
-    assert len(replays_assign.value.elts) >= 2
-    for replay_call in replays_assign.value.elts:
-        assert isinstance(replay_call, ast.Call)
-        assert isinstance(replay_call.func, ast.Name)
-        assert replay_call.func.id == "PolymarketTradeTickReplay"
-        assert _keyword_value(replay_call, "lookback_days") == "FIXED_LOOKBACK_DAYS"
+    assert module.FIXED_LOOKBACK_DAYS == EXPECTED_FIXED_SPORTS_LOOKBACK_DAYS
+    assert len(module.REPLAYS) >= 2
+    for replay in module.REPLAYS:
+        assert replay.lookback_days == module.FIXED_LOOKBACK_DAYS

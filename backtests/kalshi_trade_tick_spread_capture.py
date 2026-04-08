@@ -6,8 +6,8 @@
 """
 Trade-tick mean-reversion (spread capture) on one Kalshi market.
 
-Defaults to KXNEXTIRANLEADER-45JAN01-MKHA
-and replays the 30 days ending at 2026-03-08T21:44:24Z.
+Defaults to KXPRESNOMR-28-MR
+and replays 2026-03-24T00:00:00Z through 2026-04-08T23:59:59Z.
 """
 
 # ruff: noqa: E402
@@ -63,9 +63,9 @@ DATA = MarketDataConfig(
 
 REPLAYS = (
     KalshiTradeTickReplay(
-        market_ticker="KXNEXTIRANLEADER-45JAN01-MKHA",
-        lookback_days=30,
-        end_time="2026-03-08T21:44:24Z",
+        market_ticker="KXPRESNOMR-28-MR",
+        start_time="2026-03-24T00:00:00Z",
+        end_time="2026-04-08T23:59:59Z",
     ),
 )
 

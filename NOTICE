@@ -37,7 +37,6 @@ notices with file-specific change dates:
 - `backtests/polymarket_quote_tick_pmxt_ema_optimizer.py`
 - `backtests/polymarket_quote_tick_pmxt_final_period_momentum.py`
 - `backtests/polymarket_quote_tick_pmxt_25_sims_runner.py`
-- `backtests/polymarket_quote_tick_pmxt_400_sims_runner.py`
 - `backtests/polymarket_quote_tick_pmxt_late_favorite_limit_hold.py`
 - `backtests/polymarket_quote_tick_pmxt_panic_fade.py`
 - `backtests/polymarket_quote_tick_pmxt_rsi_reversion.py`

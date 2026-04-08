@@ -61,8 +61,9 @@ DATA = MarketDataConfig(
 
 REPLAYS = (
     PolymarketTradeTickReplay(
-        market_slug="will-openai-launch-a-new-consumer-hardware-product-by-march-31-2026",
-        lookback_days=30,
+        market_slug="will-chelsea-win-the-202526-champions-league",
+        start_time="2026-03-11T00:00:00Z",
+        end_time="2026-03-18T01:22:09Z",
     ),
 )
 

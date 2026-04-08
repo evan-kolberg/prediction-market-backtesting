@@ -63,10 +63,10 @@ DATA = MarketDataConfig(
 
 REPLAYS = (
     PolymarketPMXTQuoteReplay(
-        market_slug="will-openai-launch-a-new-consumer-hardware-product-by-march-31-2026",
+        market_slug="will-fc-heidenheim-be-relegated-from-the-bundesliga-after-the-202526-season-382",
         token_index=0,
-        start_time="2026-02-21T16:00:00Z",
-        end_time="2026-02-23T10:00:00Z",
+        start_time="2026-04-06T00:00:00Z",
+        end_time="2026-04-07T12:00:00Z",
     ),
 )
 
@@ -75,7 +75,7 @@ STRATEGY_CONFIGS = [
         "strategy_path": "strategies:QuoteTickPanicFadeStrategy",
         "config_path": "strategies:QuoteTickPanicFadeConfig",
         "config": {
-            "trade_size": Decimal("100"),
+            "trade_size": Decimal("5"),
             "drop_window": 80,
             "min_drop": 0.06,
             "panic_price": 0.3,

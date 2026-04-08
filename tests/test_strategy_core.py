@@ -1,70 +1,103 @@
 from __future__ import annotations
 
 from decimal import Decimal
+from decimal import ROUND_DOWN
 
-from strategies.core import _cap_entry_size_to_free_balance
-from strategies.core import _cap_entry_size_to_visible_liquidity
-from strategies.core import _effective_entry_reference_price
-from strategies.core import _estimate_entry_unit_cost
+from strategies import QuoteTickVWAPReversionConfig
+from strategies.core import LongOnlyPredictionMarketStrategy
+from nautilus_trader.model.identifiers import InstrumentId
+from nautilus_trader.model.identifiers import Symbol
+from nautilus_trader.model.identifiers import Venue
 
 
-def test_estimate_entry_unit_cost_includes_polymarket_taker_fee() -> None:
-    unit_cost = _estimate_entry_unit_cost(
-        reference_price=Decimal("0.95"),
-        taker_fee=Decimal("0.0035"),
+INSTRUMENT_ID = InstrumentId(Symbol("PM-TEST-YES"), Venue("POLYMARKET"))
+
+
+class _FakeQuantity:
+    def __init__(self, value: Decimal) -> None:
+        self._value = value
+
+    def as_double(self) -> float:
+        return float(self._value)
+
+
+class _FakeInstrument:
+    def __init__(self, *, min_quantity: Decimal | None) -> None:
+        self.quote_currency = "USDC.e"
+        self.taker_fee = Decimal("0")
+        self.lot_size = None
+        self.min_quantity = (
+            None if min_quantity is None else _FakeQuantity(min_quantity)
+        )
+
+    def make_qty(
+        self,
+        value: float,
+        round_down: bool = True,
+    ) -> _FakeQuantity:
+        quantity = Decimal(str(value)).quantize(
+            Decimal("0.000001"),
+            rounding=ROUND_DOWN if round_down else ROUND_DOWN,
+        )
+        return _FakeQuantity(quantity)
+
+
+class _EntryQuantityHarness(LongOnlyPredictionMarketStrategy):
+    def __init__(
+        self,
+        *,
+        trade_size: Decimal,
+        free_balance: Decimal,
+        min_quantity: Decimal | None,
+    ) -> None:
+        super().__init__(
+            QuoteTickVWAPReversionConfig(
+                instrument_id=INSTRUMENT_ID,
+                trade_size=trade_size,
+            ),
+        )
+        self._free_balance = free_balance
+        self._instrument = _FakeInstrument(min_quantity=min_quantity)
+
+    def _subscribe(self) -> None:
+        return None
+
+    def _free_quote_balance(self) -> Decimal | None:
+        return self._free_balance
+
+
+def test_entry_quantity_skips_clipped_size_below_min_quantity() -> None:
+    strategy = _EntryQuantityHarness(
+        trade_size=Decimal("25"),
+        free_balance=Decimal("0.35"),
+        min_quantity=Decimal("5"),
     )
 
-    assert unit_cost == Decimal("0.95016625")
+    quantity = strategy._entry_quantity(reference_price=0.074, visible_size=100.0)
+
+    assert quantity is None
 
 
-def test_cap_entry_size_to_free_balance_reserves_fee_headroom() -> None:
-    capped_size = _cap_entry_size_to_free_balance(
-        desired_size=Decimal("100"),
-        reference_price=Decimal("0.95"),
-        taker_fee=Decimal("0.0035"),
-        free_balance=Decimal("95.0"),
+def test_entry_quantity_keeps_clipped_size_when_no_min_quantity_exists() -> None:
+    strategy = _EntryQuantityHarness(
+        trade_size=Decimal("25"),
+        free_balance=Decimal("0.35"),
+        min_quantity=None,
     )
 
-    assert capped_size < Decimal("100")
-    assert capped_size > Decimal("99")
+    quantity = strategy._entry_quantity(reference_price=0.074, visible_size=100.0)
+
+    assert quantity is not None
+    assert quantity.as_double() < 5.0
 
 
-def test_cap_entry_size_to_free_balance_leaves_size_when_balance_unknown() -> None:
-    capped_size = _cap_entry_size_to_free_balance(
-        desired_size=Decimal("100"),
-        reference_price=Decimal("0.95"),
-        taker_fee=Decimal("0.0035"),
-        free_balance=None,
+def test_entry_quantity_leaves_cash_headroom_before_min_quantity_boundary() -> None:
+    strategy = _EntryQuantityHarness(
+        trade_size=Decimal("5"),
+        free_balance=Decimal("1"),
+        min_quantity=Decimal("5"),
     )
 
-    assert capped_size == Decimal("100")
+    quantity = strategy._entry_quantity(reference_price=0.2, visible_size=100.0)
 
-
-def test_cap_entry_size_to_visible_liquidity_limits_quote_tick_sweeps() -> None:
-    capped_size = _cap_entry_size_to_visible_liquidity(
-        desired_size=Decimal("100"),
-        visible_size=Decimal("18.2"),
-    )
-
-    assert capped_size == Decimal("18.2")
-
-
-def test_effective_entry_reference_price_uses_worst_case_without_visible_ask() -> None:
-    assert _effective_entry_reference_price(
-        reference_price=Decimal("0.005"),
-        visible_size=None,
-    ) == Decimal("1")
-
-
-def test_trade_tick_cash_cap_uses_worst_case_binary_price() -> None:
-    capped_size = _cap_entry_size_to_free_balance(
-        desired_size=Decimal("100"),
-        reference_price=_effective_entry_reference_price(
-            reference_price=Decimal("0.005"),
-            visible_size=None,
-        ),
-        taker_fee=Decimal("0"),
-        free_balance=Decimal("0.3"),
-    )
-
-    assert capped_size == Decimal("0.3")
+    assert quantity is None

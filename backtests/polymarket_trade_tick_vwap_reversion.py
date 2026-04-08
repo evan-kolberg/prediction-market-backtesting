@@ -62,7 +62,8 @@ DATA = MarketDataConfig(
 REPLAYS = (
     PolymarketTradeTickReplay(
         market_slug="will-openai-launch-a-new-consumer-hardware-product-by-march-31-2026",
-        lookback_days=30,
+        start_time="2026-02-21T16:00:00Z",
+        end_time="2026-03-31T23:59:59Z",
     ),
 )
 

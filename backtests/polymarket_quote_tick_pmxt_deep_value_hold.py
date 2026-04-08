@@ -63,10 +63,10 @@ DATA = MarketDataConfig(
 
 REPLAYS = (
     PolymarketPMXTQuoteReplay(
-        market_slug="will-openai-launch-a-new-consumer-hardware-product-by-march-31-2026",
+        market_slug="will-the-tennessee-titans-draft-a-quarterback-in-the-first-round-of-the-2026-nfl-draft",
         token_index=0,
-        start_time="2026-02-21T16:00:00Z",
-        end_time="2026-02-23T10:00:00Z",
+        start_time="2026-04-06T00:00:00Z",
+        end_time="2026-04-07T23:59:59Z",
     ),
 )
 
@@ -75,7 +75,7 @@ STRATEGY_CONFIGS = [
         "strategy_path": "strategies:QuoteTickDeepValueHoldStrategy",
         "config_path": "strategies:QuoteTickDeepValueHoldConfig",
         "config": {
-            "trade_size": Decimal("100"),
+            "trade_size": Decimal("5"),
             "entry_price_max": 0.247,
             "single_entry": True,
         },

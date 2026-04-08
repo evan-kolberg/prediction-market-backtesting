@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib
 import pytest
 
+from backtests._shared._replay_specs import PolymarketPMXTQuoteReplay
 from backtests._shared._strategy_configs import build_strategies_from_configs
 from strategies import QuoteTickBreakoutConfig
 from strategies import QuoteTickBreakoutStrategy
@@ -30,11 +31,6 @@ from nautilus_trader.model.identifiers import Venue
 
 
 INSTRUMENT_ID = InstrumentId(Symbol("PM-TEST-YES"), Venue("POLYMARKET"))
-EXPECTED_MARKET_SLUG = (
-    "will-openai-launch-a-new-consumer-hardware-product-by-march-31-2026"
-)
-EXPECTED_START_TIME = "2026-02-21T16:00:00Z"
-EXPECTED_END_TIME = "2026-02-23T10:00:00Z"
 EXPECTED_CLOSE_WINDOW_START_TIME = "2026-03-24T03:00:00Z"
 EXPECTED_CLOSE_WINDOW_END_TIME = "2026-03-24T08:00:00Z"
 EXPECTED_MARKET_ACTIVATION_START_NS = 1774326957277659000
@@ -48,6 +44,68 @@ TIME_BASED_SINGLE_MARKET_MODULES = {
     "backtests.polymarket_quote_tick_pmxt_final_period_momentum",
     "backtests.polymarket_quote_tick_pmxt_late_favorite_limit_hold",
     "backtests.polymarket_quote_tick_pmxt_threshold_momentum",
+}
+EXPECTED_SINGLE_MARKET_REPLAYS = {
+    "backtests.polymarket_quote_tick_pmxt_breakout": PolymarketPMXTQuoteReplay(
+        market_slug="will-ludvig-aberg-win-the-2026-masters-tournament",
+        token_index=0,
+        start_time="2026-04-05T00:00:00Z",
+        end_time="2026-04-07T23:59:59Z",
+    ),
+    "backtests.polymarket_quote_tick_pmxt_deep_value_hold": PolymarketPMXTQuoteReplay(
+        market_slug="will-the-tennessee-titans-draft-a-quarterback-in-the-first-round-of-the-2026-nfl-draft",
+        token_index=0,
+        start_time="2026-04-06T00:00:00Z",
+        end_time="2026-04-07T23:59:59Z",
+    ),
+    "backtests.polymarket_quote_tick_pmxt_ema_crossover": PolymarketPMXTQuoteReplay(
+        market_slug="will-ludvig-aberg-win-the-2026-masters-tournament",
+        token_index=0,
+        start_time="2026-04-05T00:00:00Z",
+        end_time="2026-04-07T23:59:59Z",
+    ),
+    "backtests.polymarket_quote_tick_pmxt_final_period_momentum": PolymarketPMXTQuoteReplay(
+        market_slug="will-openai-launch-a-new-consumer-hardware-product-by-march-31-2026",
+        token_index=0,
+        start_time=EXPECTED_CLOSE_WINDOW_START_TIME,
+        end_time=EXPECTED_CLOSE_WINDOW_END_TIME,
+    ),
+    "backtests.polymarket_quote_tick_pmxt_late_favorite_limit_hold": PolymarketPMXTQuoteReplay(
+        market_slug="will-openai-launch-a-new-consumer-hardware-product-by-march-31-2026",
+        token_index=0,
+        start_time=EXPECTED_CLOSE_WINDOW_START_TIME,
+        end_time=EXPECTED_CLOSE_WINDOW_END_TIME,
+    ),
+    "backtests.polymarket_quote_tick_pmxt_panic_fade": PolymarketPMXTQuoteReplay(
+        market_slug="will-fc-heidenheim-be-relegated-from-the-bundesliga-after-the-202526-season-382",
+        token_index=0,
+        start_time="2026-04-06T00:00:00Z",
+        end_time="2026-04-07T12:00:00Z",
+    ),
+    "backtests.polymarket_quote_tick_pmxt_rsi_reversion": PolymarketPMXTQuoteReplay(
+        market_slug="will-ethan-agarwal-get-the-first-or-second-most-votes-in-the-2026-california-governor-primary-election",
+        token_index=0,
+        start_time="2026-04-07T00:00:00Z",
+        end_time="2026-04-07T23:59:59Z",
+    ),
+    "backtests.polymarket_quote_tick_pmxt_spread_capture": PolymarketPMXTQuoteReplay(
+        market_slug="will-drake-release-an-album-in-2026",
+        token_index=0,
+        start_time="2026-04-05T12:00:00Z",
+        end_time="2026-04-07T23:59:59Z",
+    ),
+    "backtests.polymarket_quote_tick_pmxt_threshold_momentum": PolymarketPMXTQuoteReplay(
+        market_slug="will-openai-launch-a-new-consumer-hardware-product-by-march-31-2026",
+        token_index=0,
+        start_time=EXPECTED_CLOSE_WINDOW_START_TIME,
+        end_time=EXPECTED_CLOSE_WINDOW_END_TIME,
+    ),
+    "backtests.polymarket_quote_tick_pmxt_vwap_reversion": PolymarketPMXTQuoteReplay(
+        market_slug="will-nana-araba-wilmot-win-top-chef-season-23",
+        token_index=0,
+        start_time="2026-04-06T06:00:00Z",
+        end_time="2026-04-07T18:00:00Z",
+    ),
 }
 EXPECTED_DETAIL_PLOT_PANELS = (
     "equity",
@@ -71,6 +129,64 @@ EXPECTED_SUMMARY_PLOT_PANELS = (
     "cash_equity",
     "monthly_returns",
     "brier_advantage",
+)
+EXPECTED_MULTI_SIM_RUNNER_REPLAYS = (
+    PolymarketPMXTQuoteReplay(
+        market_slug="will-openai-launch-a-new-consumer-hardware-product-by-march-31-2026",
+        token_index=0,
+        start_time="2026-03-23T00:00:00Z",
+        end_time="2026-03-24T23:59:59Z",
+        metadata={"sim_label": "openai-launch-mar-23-24"},
+    ),
+    PolymarketPMXTQuoteReplay(
+        market_slug="will-ludvig-aberg-win-the-2026-masters-tournament",
+        token_index=0,
+        start_time="2026-04-05T00:00:00Z",
+        end_time="2026-04-07T23:59:59Z",
+        metadata={"sim_label": "aberg-masters-full-window"},
+    ),
+    PolymarketPMXTQuoteReplay(
+        market_slug="will-the-tennessee-titans-draft-a-quarterback-in-the-first-round-of-the-2026-nfl-draft",
+        token_index=0,
+        start_time="2026-04-06T00:00:00Z",
+        end_time="2026-04-07T23:59:59Z",
+        metadata={"sim_label": "titans-draft-two-day-window"},
+    ),
+    PolymarketPMXTQuoteReplay(
+        market_slug="will-fc-heidenheim-be-relegated-from-the-bundesliga-after-the-202526-season-382",
+        token_index=0,
+        start_time="2026-04-07T12:00:00Z",
+        end_time="2026-04-07T23:59:59Z",
+        metadata={"sim_label": "heidenheim-late-session"},
+    ),
+    PolymarketPMXTQuoteReplay(
+        market_slug="will-the-south-african-reserve-bank-decrease-the-repo-rate-after-the-may-meeting",
+        token_index=0,
+        start_time="2026-04-06T12:00:00Z",
+        end_time="2026-04-07T23:59:59Z",
+        metadata={"sim_label": "sarb-rate-watch-window"},
+    ),
+    PolymarketPMXTQuoteReplay(
+        market_slug="will-nana-araba-wilmot-win-top-chef-season-23",
+        token_index=0,
+        start_time="2026-04-06T06:00:00Z",
+        end_time="2026-04-07T18:00:00Z",
+        metadata={"sim_label": "top-chef-finale-runup"},
+    ),
+    PolymarketPMXTQuoteReplay(
+        market_slug="will-drake-release-an-album-in-2026",
+        token_index=0,
+        start_time="2026-04-05T12:00:00Z",
+        end_time="2026-04-07T23:59:59Z",
+        metadata={"sim_label": "drake-weekend-window"},
+    ),
+    PolymarketPMXTQuoteReplay(
+        market_slug="will-ethan-agarwal-get-the-first-or-second-most-votes-in-the-2026-california-governor-primary-election",
+        token_index=0,
+        start_time="2026-04-07T00:00:00Z",
+        end_time="2026-04-07T23:59:59Z",
+        metadata={"sim_label": "agarwal-election-day"},
+    ),
 )
 
 
@@ -161,14 +277,7 @@ def test_pmxt_backtests_build_expected_quote_tick_strategy(
     assert len(module.REPLAYS) == 1
     assert module.EXPERIMENT.detail_plot_panels == module.DETAIL_PLOT_PANELS
     sim = module.REPLAYS[0]
-    assert sim.market_slug == EXPECTED_MARKET_SLUG
-    assert sim.token_index == 0
-    if module_name in TIME_BASED_SINGLE_MARKET_MODULES:
-        assert sim.start_time == EXPECTED_CLOSE_WINDOW_START_TIME
-        assert sim.end_time == EXPECTED_CLOSE_WINDOW_END_TIME
-    else:
-        assert sim.start_time == EXPECTED_START_TIME
-        assert sim.end_time == EXPECTED_END_TIME
+    assert sim == EXPECTED_SINGLE_MARKET_REPLAYS[module_name]
     assert captured["experiment"] is module.EXPERIMENT
     assert module.EXPERIMENT.report == module.REPORT
 
@@ -293,30 +402,7 @@ def test_pmxt_multi_sim_example_runner_uses_fixed_windows(
     assert captured["backtest"].name == module.NAME
     assert captured["backtest"].data == module.DATA
     assert captured["backtest"].replays == module.REPLAYS
-    assert [sim.market_slug for sim in module.REPLAYS] == [
-        EXPECTED_MARKET_SLUG,
-        EXPECTED_MARKET_SLUG,
-        EXPECTED_MARKET_SLUG,
-        EXPECTED_MARKET_SLUG,
-    ]
-    assert [sim.start_time for sim in module.REPLAYS] == [
-        "2026-02-21T16:00:00Z",
-        "2026-02-22T10:00:00Z",
-        "2026-02-22T22:00:00Z",
-        "2026-03-24T03:00:00Z",
-    ]
-    assert [sim.end_time for sim in module.REPLAYS] == [
-        "2026-02-23T10:00:00Z",
-        "2026-02-22T22:00:00Z",
-        "2026-02-23T10:00:00Z",
-        "2026-03-24T08:00:00Z",
-    ]
-    assert [sim.metadata for sim in module.REPLAYS] == [
-        {"sim_label": "sample-a-full-window"},
-        {"sim_label": "sample-b-2026-02-22-day"},
-        {"sim_label": "sample-c-2026-02-22-late"},
-        {"sim_label": "sample-d-close-window"},
-    ]
+    assert module.REPLAYS == EXPECTED_MULTI_SIM_RUNNER_REPLAYS
 
     for sim in module.REPLAYS:
         assert sim.market_slug

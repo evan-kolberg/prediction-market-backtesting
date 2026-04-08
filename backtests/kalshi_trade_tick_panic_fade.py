@@ -6,8 +6,8 @@
 """
 Panic-fade strategy on one Kalshi market.
 
-Defaults to KXNEXTIRANLEADER-45JAN01-MKHA
-and replays the 30 days ending at 2026-03-08T21:44:24Z.
+Defaults to KXGREENLAND-29
+and replays 2026-03-20T00:00:00Z through 2026-04-08T23:59:59Z.
 """
 
 # ruff: noqa: E402
@@ -60,9 +60,9 @@ DATA = MarketDataConfig(
 
 REPLAYS = (
     KalshiTradeTickReplay(
-        market_ticker="KXNEXTIRANLEADER-45JAN01-MKHA",
-        lookback_days=30,
-        end_time="2026-03-08T21:44:24Z",
+        market_ticker="KXGREENLAND-29",
+        start_time="2026-03-20T00:00:00Z",
+        end_time="2026-04-08T23:59:59Z",
     ),
 )
 

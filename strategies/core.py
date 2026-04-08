@@ -28,6 +28,9 @@ from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.trading.strategy import Strategy
 
 
+ENTRY_AFFORDABILITY_BUFFER = Decimal("0.97")
+
+
 class LongOnlyConfig(Protocol):
     instrument_id: InstrumentId
     trade_size: Decimal
@@ -70,7 +73,9 @@ def _cap_entry_size_to_free_balance(
     if unit_cost <= 0:
         return desired_size
 
-    affordable_size = free_balance / unit_cost
+    # Leave a small cash buffer so marketable entries do not spend exactly to
+    # the displayed top-of-book estimate on thin books.
+    affordable_size = (free_balance * ENTRY_AFFORDABILITY_BUFFER) / unit_cost
     return max(Decimal("0"), min(desired_size, affordable_size))
 
 
@@ -175,6 +180,13 @@ class LongOnlyPredictionMarketStrategy(Strategy):
 
         lot_size = self._instrument.lot_size
         if lot_size is not None and quantity.as_double() + 1e-12 < lot_size.as_double():
+            return None
+
+        min_quantity = getattr(self._instrument, "min_quantity", None)
+        if (
+            min_quantity is not None
+            and quantity.as_double() + 1e-12 < min_quantity.as_double()
+        ):
             return None
 
         if quantity.as_double() + 1e-12 < float(desired_size):
