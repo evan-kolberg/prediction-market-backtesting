@@ -27,6 +27,8 @@
 [![Hours Mirrored](https://209-209-10-83.sslip.io/v1/badge/mirrored.svg)](https://209-209-10-83.sslip.io/v1/stats)
 [![Latest File](https://209-209-10-83.sslip.io/v1/badge/latest-file.svg)](https://209-209-10-83.sslip.io/v1/stats)
 
+**Thanks to [PMXT](https://github.com/pmxt-dev/pmxt) for providing this data for free!**
+
 Backtesting framework for prediction market strategies on
 [Kalshi](https://kalshi.com) and [Polymarket](https://polymarket.com), built on
 top of [NautilusTrader](https://github.com/nautechsystems/nautilus_trader) with

@@ -78,6 +78,7 @@ def calculate_commission(
     price: Decimal,
     fee_rate_bps: Decimal,
     fee_exponent: int = 1,
+    **_kwargs: object,
 ) -> float:
     """
     Calculate commission from trade parameters and fee rate.
@@ -109,7 +110,7 @@ def calculate_commission(
     fee_rate_bps : Decimal
         The fee rate in basis points.
     fee_exponent : int, default 1
-        Retained for backward compatibility and ignored.
+        Retained for backward compatibility with <= 1.225.0 and ignored.
 
     Returns
     -------
