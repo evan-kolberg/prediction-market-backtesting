@@ -57,7 +57,6 @@ nav:
       - Mirror And Relay Ops: pmxt-relay.md
       - Active Mirror Service: /prediction-market-backtesting/pmxt-relay/#active-mirror-service
       - PC-Side Alternative: /prediction-market-backtesting/pmxt-relay/#pc-side-alternative
-      - Archived Relay Snapshot: /prediction-market-backtesting/pmxt-relay/#archived-relay-snapshot
   - Vendor Fetch Sources And Timing:
       - Vendor Fetch Sources And Timing: pmxt-fetch-sources.md
       - PMXT: /prediction-market-backtesting/pmxt-fetch-sources/#pmxt

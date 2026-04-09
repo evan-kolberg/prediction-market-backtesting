@@ -11,8 +11,6 @@ Current direction:
 - optionally expose those mirrored raw files over `/v1/raw/*`
 - keep the active relay scoped to raw mirroring and raw file serving
 
-Older relay code has been archived under `archive/pmxt_relay_legacy/`.
-
 ## Active Commands
 
 Mirror worker:
@@ -129,8 +127,3 @@ The public badges separate relay health from `r2.pmxt.dev` availability:
   has active API/worker services.
 - `/v1/badge/upstream(.svg)` reports whether `r2.pmxt.dev` is healthy,
   lagging, or erroring.
-
-## Legacy Archive
-
-Use `archive/pmxt_relay_legacy/` only if you need historical context for the
-older relay implementation.
