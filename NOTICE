@@ -1,16 +1,12 @@
 Repository Notice
 =================
 
-This repository now runs against upstream NautilusTrader plus a local override
-layer under `_nautilus_overrides/`, while keeping `nautilus_pm/` as a temporary
-reference/provenance tree during the migration away from the vendored runtime.
+This repository runs against upstream NautilusTrader from PyPI and keeps local
+Nautilus-derived runtime extensions under `_nautilus_overrides/`.
 
 Licensing scope
 ---------------
 
-- `nautilus_pm/` remains under the GNU Lesser General Public License Version
-  3.0 or later. Upstream license text and notices are preserved in
-  `nautilus_pm/LICENSE`.
 - `_nautilus_overrides/` and other root files that carry a Nautilus-derived
   notice are also distributed under LGPL-3.0-or-later.
 - Root files without that notice remain under the MIT License unless they say
@@ -98,50 +94,12 @@ provenance notices with file-specific change dates:
 - `tests/test_legacy_plot_fill_markers.py`
 - `tests/test_quote_tick_strategy_configs.py`
 
-Local modifications inside the vendored NautilusTrader subtree
---------------------------------------------------------------
-
-`nautilus_pm/` is no longer the supported runtime install target, but it remains
-in this repository temporarily as the vendored NautilusTrader reference tree for
-provenance checks and migration comparisons.
-
-Python files changed in this repository since the original subtree import now
-carry dated file-level notices. That includes modified upstream files and local
-additions under:
-
-- `nautilus_pm/examples/backtest/prediction_markets/`
-- `nautilus_pm/nautilus_trader/adapters/kalshi/`
-- `nautilus_pm/nautilus_trader/adapters/polymarket/`
-- `nautilus_pm/nautilus_trader/adapters/prediction_market/`
-- `nautilus_pm/nautilus_trader/analysis/`
-- `nautilus_pm/nautilus_trader/examples/strategies/prediction_market/`
-- `nautilus_pm/tests/integration_tests/adapters/polymarket/`
-- `nautilus_pm/tests/unit_tests/adapters/kalshi/`
-- `nautilus_pm/tests/unit_tests/adapters/prediction_market/`
-- `nautilus_pm/tests/unit_tests/analysis/`
-- `nautilus_pm/tests/unit_tests/examples/strategies/`
-
-Examples:
-
-- `nautilus_pm/nautilus_trader/adapters/polymarket/__init__.py`
-  Modified on 2026-03-11 and 2026-03-15.
-- `nautilus_pm/nautilus_trader/adapters/polymarket/pmxt.py`
-  Added locally on 2026-03-15 and modified on 2026-03-19 and 2026-04-02 within the
-  LGPL-covered reference tree.
-- `nautilus_pm/nautilus_trader/adapters/prediction_market/research.py`
-  Modified on 2026-03-11, 2026-03-15, and 2026-03-16.
-- `nautilus_pm/nautilus_trader/examples/strategies/prediction_market/core.py`
-  Modified on 2026-03-11.
-- `nautilus_pm/examples/backtest/prediction_markets/polymarket_ema_crossover.py`
-  Modified on 2026-03-11.
-
 Upstream lineage
 ----------------
 
 - NautilusTrader upstream project: `https://github.com/nautechsystems/nautilus_trader`
-- This repository keeps the upstream NautilusTrader license text in
-  `nautilus_pm/LICENSE` and uses upstream `nautilus_trader` as the active
-  runtime dependency.
+- This repository uses upstream `nautilus_trader` as the active runtime
+  dependency.
 - Active local runtime overrides now live under `_nautilus_overrides/`.
-- The most recent subtree sync recorded in this repository references upstream
-  split commit `f51c805c9f`.
+- The earlier vendored NautilusTrader tree was removed from the worktree on this
+  branch; provenance for that prior import remains available in git history.

@@ -133,16 +133,17 @@ printed after the run.
   `archive:`, `relay:`
 - normal Nautilus logs are still printed; the timing harness is additive
 
-## Updating The Vendored Subtree
+## Nautilus Overlay Layout
 
-Phase 1 now runs against upstream `nautilus_trader==1.225.0` plus the local
-runtime overlay under `_nautilus_overrides/`.
+This repo no longer vendors NautilusTrader in-tree. Runtime code comes from
+upstream `nautilus_trader==1.225.0`, and local Nautilus-derived extensions live
+under `_nautilus_overrides/`.
 
-`nautilus_pm/` remains in the repo temporarily as a reference/provenance tree
-while the migration is in progress, but it is no longer the supported runtime
-install target. Do not use `uv pip install -e nautilus_pm/` for normal repo
-setup.
+Do not try to install a local Nautilus fork from this repo. Normal setup is the
+upstream PyPI package plus this checkout.
 
-When you need to inspect provenance or compare old vendored behavior, diff the
-active overlay files under `_nautilus_overrides/` against their counterparts in
-`nautilus_pm/`.
+When you need to inspect provenance or compare earlier vendored behavior, use
+git history from commits before vendored-tree removal. When you need to port a
+new upstream Nautilus release, diff the active overlay files under
+`_nautilus_overrides/` against the new upstream package and keep validation on
+the repo-side runners.

@@ -117,9 +117,7 @@ def test_backtests_tree_keeps_public_runners_flat() -> None:
 
 def test_repo_keeps_script_bootstrap_helpers_only_next_to_entrypoints() -> None:
     helpers = {
-        path.relative_to(REPO_ROOT)
-        for path in REPO_ROOT.rglob("_script_helpers.py")
-        if "nautilus_pm" not in path.parts
+        path.relative_to(REPO_ROOT) for path in REPO_ROOT.rglob("_script_helpers.py")
     }
     assert helpers == REPO_BOOTSTRAP_HELPERS
 

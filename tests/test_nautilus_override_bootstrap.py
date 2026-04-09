@@ -21,6 +21,10 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 OVERLAY_ROOT = REPO_ROOT / "_nautilus_overrides"
 
 
+def test_repo_tree_no_longer_keeps_vendored_nautilus_checkout() -> None:
+    assert not (REPO_ROOT / "nautilus_pm").exists()
+
+
 def test_nautilus_runtime_uses_upstream_package_with_local_overrides() -> None:
     nautilus_file = Path(nautilus_trader.__file__).resolve()
     assert ".venv" in nautilus_file.parts

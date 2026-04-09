@@ -22,7 +22,7 @@ nav:
       - Install: /prediction-market-backtesting/setup/#install
       - First Run: /prediction-market-backtesting/setup/#first-run
       - Timing And Cache Defaults: /prediction-market-backtesting/setup/#timing-and-cache-defaults
-      - Updating The Vendored Subtree: /prediction-market-backtesting/setup/#updating-the-vendored-subtree
+      - Nautilus Overlay Layout: /prediction-market-backtesting/setup/#nautilus-overlay-layout
   - Backtests And Runners:
       - Backtests And Runners: backtests.md
       - Repo Layout: /prediction-market-backtesting/backtests/#repo-layout

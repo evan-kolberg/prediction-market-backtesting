@@ -2,9 +2,6 @@ name: CI
 
 on:
   push:
-    branches: [main]
-  pull_request:
-    branches: [main]
 
 jobs:
   repo-gate:
@@ -18,6 +15,6 @@ jobs:
       - uses: astral-sh/setup-uv@v5
       - run: uv venv --python 3.13
       - run: uv pip install "nautilus_trader[polymarket,visualization]==1.225.0" aiohttp bokeh duckdb textual pytest ruff
-      - run: uv run ruff check --exclude nautilus_pm .
-      - run: uv run ruff format --check --exclude nautilus_pm .
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
       - run: uv run pytest tests/ -q

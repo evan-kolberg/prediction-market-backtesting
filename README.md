@@ -10,7 +10,7 @@
 ![Python](https://img.shields.io/badge/python-3.12%2B-3776AB?logo=python&logoColor=white)
 ![Rust](https://img.shields.io/badge/rust-1.93.1-CE422B?logo=rust&logoColor=white)
 ![Rust Edition](https://img.shields.io/badge/edition-2024-CE422B?logo=rust&logoColor=white)
-![NautilusTrader](https://img.shields.io/badge/NautilusTrader-1.224.0-1E3A5F)
+![NautilusTrader](https://img.shields.io/badge/NautilusTrader-1.225.0-1E3A5F)
 ![GitHub last commit](https://img.shields.io/github/last-commit/evan-kolberg/prediction-market-backtesting)
 ![GitHub commit activity](https://img.shields.io/github/commit-activity/m/evan-kolberg/prediction-market-backtesting)
 ![GitHub code size](https://img.shields.io/github/languages/code-size/evan-kolberg/prediction-market-backtesting)
@@ -35,7 +35,7 @@ custom exchange adapters. Plotting inspired by [minitrade](https://github.com/do
 
 Fantastic single & multi-market charting. Featuring: equity (total & individual markets), profit / loss ticks, P&L periodic bars, market allocation, YES price (with green buy and red sell fills), drawdown, sharpe (with above/below shading), cash / equity, monthly returns, and cumulative brier advantage.
 ![Charting preview](https://raw.githubusercontent.com/evan-kolberg/prediction-market-backtesting/main/docs/assets/charting-preview.jpeg)
-[```/nautilus_pm/nautilus_trader/analysis/legacy_backtesting/plotting.py```](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/nautilus_pm/nautilus_trader/analysis/legacy_backtesting/plotting.py)
+[Plotting docs](https://evan-kolberg.github.io/prediction-market-backtesting/plotting/)
 
 **If you find any bugs, unexpected behavior, or missing simulation features, PLEASE post an [issue](https://github.com/evan-kolberg/prediction-market-backtesting/issues/new) or [discussion](https://github.com/evan-kolberg/prediction-market-backtesting/discussions/new/choose).**
 
@@ -49,7 +49,7 @@ Detailed guides have been filed away in the [docs index](https://evan-kolberg.gi
   - [Install](https://evan-kolberg.github.io/prediction-market-backtesting/setup/#install)
   - [First Run](https://evan-kolberg.github.io/prediction-market-backtesting/setup/#first-run)
   - [Timing And Cache Defaults](https://evan-kolberg.github.io/prediction-market-backtesting/setup/#timing-and-cache-defaults)
-  - [Updating The Vendored Subtree](https://evan-kolberg.github.io/prediction-market-backtesting/setup/#updating-the-vendored-subtree)
+  - [Nautilus Overlay Layout](https://evan-kolberg.github.io/prediction-market-backtesting/setup/#nautilus-overlay-layout)
 - [Backtests And Runners](https://evan-kolberg.github.io/prediction-market-backtesting/backtests/)
   - [Repo Layout](https://evan-kolberg.github.io/prediction-market-backtesting/backtests/#repo-layout)
   - [Runner Contract](https://evan-kolberg.github.io/prediction-market-backtesting/backtests/#runner-contract)

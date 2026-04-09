@@ -2,11 +2,11 @@
 
 ## Standard Repo Gate
 
-Run these before opening or merging a PR:
+Run these before cutting a commit you want to keep on the next-version branch:
 
 ```bash
-uv run ruff check --exclude nautilus_pm .
-uv run ruff format --check --exclude nautilus_pm .
+uv run ruff check .
+uv run ruff format --check .
 uv run pytest tests/ -q
 ```
 

@@ -7,7 +7,8 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 NOTICE_PATH = REPO_ROOT / "NOTICE"
-ROOT_NOTICE_SPLIT = "Local modifications inside the vendored NautilusTrader subtree"
+ROOT_NOTICE_START = "LGPL-covered root files"
+ROOT_NOTICE_END = "Upstream lineage"
 LGPL_HEADER_MARKERS = (
     "Derived from NautilusTrader",
     "Modified by Evan Kolberg in this repository",
@@ -25,9 +26,6 @@ def _tracked_files() -> list[str]:
 
 
 def _has_root_lgpl_header(relative_path: str) -> bool:
-    if relative_path.startswith("nautilus_pm/"):
-        return False
-
     path = REPO_ROOT / relative_path
     try:
         header_lines = path.read_text(errors="ignore").splitlines()[:30]
@@ -45,11 +43,13 @@ def _has_root_lgpl_header(relative_path: str) -> bool:
 
 def _root_notice_paths() -> set[str]:
     notice_text = NOTICE_PATH.read_text()
-    root_section = notice_text.split(ROOT_NOTICE_SPLIT, maxsplit=1)[0]
+    start = notice_text.index(ROOT_NOTICE_START)
+    end = notice_text.index(ROOT_NOTICE_END)
+    root_section = notice_text[start:end]
     return {
         path
         for path in re.findall(r"- `([^`]+)`", root_section)
-        if not path.endswith("/") and not path.startswith("nautilus_pm/")
+        if not path.endswith("/")
     }
 
 

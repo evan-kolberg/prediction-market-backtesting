@@ -11,8 +11,8 @@ install:
 	unset CONDA_PREFIX && uv venv --python 3.13 && uv pip install "nautilus_trader[polymarket,visualization]==1.225.0" bokeh plotly numpy py-clob-client duckdb textual
 
 check:
-	uv run ruff check --exclude nautilus_pm .
-	uv run ruff format --check --exclude nautilus_pm .
+	uv run ruff check .
+	uv run ruff format --check .
 	uv run pytest tests/ -q
 
 test: check
@@ -29,4 +29,5 @@ download-pmxt-raws:
 		$(PMXT_RAW_DOWNLOAD_FLAGS)
 
 update:
-	git subtree pull --prefix=nautilus_pm https://github.com/ben-gramling/nautilus_pm.git charting --squash
+	@echo "No vendored Nautilus subtree remains in this branch."
+	@echo "Bump the upstream nautilus_trader version and port _nautilus_overrides/ as needed."
