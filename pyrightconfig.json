@@ -1,7 +1,7 @@
 {
   "typeCheckingMode": "off",
   "exclude": ["nautilus_pm/**"],
-  "extraPaths": ["nautilus_pm"],
+  "extraPaths": ["_nautilus_overrides"],
   "reportMissingImports": false,
   "reportMissingModuleSource": false,
   "reportMissingTypeStubs": false,
