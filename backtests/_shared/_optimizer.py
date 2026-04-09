@@ -283,6 +283,47 @@ def _build_backtest(
     )
 
 
+def _coerce_parameter_values(
+    *,
+    config: OptimizationConfig,
+    params: ParameterValues | Mapping[str, Any],
+) -> ParameterValues:
+    if isinstance(params, Mapping):
+        return tuple((name, params[name]) for name in config.parameter_grid)
+    return params
+
+
+def build_optimization_window_backtest(
+    *,
+    config: OptimizationConfig,
+    window: OptimizationWindow,
+    params: ParameterValues | Mapping[str, Any],
+    trial_id: int = 1,
+    name: str | None = None,
+    emit_html: bool | None = None,
+    chart_output_path: str | Path | None = None,
+    return_summary_series: bool | None = None,
+) -> PredictionMarketBacktest:
+    from backtests._shared._prediction_market_backtest import PredictionMarketBacktest
+
+    normalized_params = _coerce_parameter_values(config=config, params=params)
+    kwargs = _build_backtest_kwargs(
+        config=config,
+        trial_id=trial_id,
+        window=window,
+        params=normalized_params,
+    )
+    if name is not None:
+        kwargs["name"] = name
+    if emit_html is not None:
+        kwargs["emit_html"] = emit_html
+    if chart_output_path is not None:
+        kwargs["chart_output_path"] = chart_output_path
+    if return_summary_series is not None:
+        kwargs["return_summary_series"] = return_summary_series
+    return PredictionMarketBacktest(**kwargs)
+
+
 def _build_backtest_kwargs(
     *,
     config: OptimizationConfig,
@@ -928,5 +969,6 @@ __all__ = [
     "OptimizationSummary",
     "OptimizationWindow",
     "SEARCH_PLACEHOLDER_PREFIX",
+    "build_optimization_window_backtest",
     "run_parameter_optimization",
 ]

@@ -84,10 +84,10 @@ Those direct runs write HTML artifacts into the repo-local `output/` directory
 when the runner keeps `CHART_OUTPUT_PATH="output"`.
 
 For a research-oriented notebook example, select
-`backtests/polymarket_quote_tick_pmxt_ema_optimizer_research.ipynb` from the
-menu. It runs the public optimizer first, then replays the first holdout window
-with the selected parameters and embeds the generated HTML back into the
-notebook.
+`backtests/generic_optimizer_research.ipynb` from the menu. It targets any
+optimizer runner exposing `OPTIMIZATION`: set `OPTIMIZER_MODULE`, run the
+compact search, then it replays one selected window with the winning parameters
+and embeds the generated HTML back into the notebook.
 
 Public runner files carry their market, source, and execution assumptions in
 code. PMXT quote-tick runners pin absolute sample windows, and the public

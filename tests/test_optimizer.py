@@ -242,6 +242,36 @@ def test_optimizer_builds_repo_layer_backtest_with_summary_series_enabled(
     assert backtest.strategy_configs[0]["config"]["edge"] == 5
 
 
+def test_build_optimization_window_backtest_supports_generic_holdout_replays(
+    tmp_path: Path,
+) -> None:
+    config = _make_config(tmp_path)
+    window = config.holdout_windows[0]
+
+    backtest = optimizer.build_optimization_window_backtest(
+        config=config,
+        window=window,
+        params={"edge": 2},
+        trial_id=11,
+        name="generic_optimizer_research",
+        emit_html=True,
+        chart_output_path="output/generic_optimizer_research.html",
+        return_summary_series=False,
+    )
+
+    assert isinstance(backtest, PredictionMarketBacktest)
+    assert backtest.name == "generic_optimizer_research"
+    assert backtest.emit_html is True
+    assert backtest.chart_output_path == "output/generic_optimizer_research.html"
+    assert backtest.return_summary_series is False
+    assert len(backtest.sims) == 1
+    assert backtest.sims[0].start_time == window.start_time
+    assert backtest.sims[0].end_time == window.end_time
+    assert backtest.strategy_configs[0]["strategy_path"] == "strategies:DemoStrategy"
+    assert backtest.strategy_configs[0]["config_path"] == "strategies:DemoConfig"
+    assert backtest.strategy_configs[0]["config"]["edge"] == 2
+
+
 def test_optimizer_reruns_only_top_k_train_candidates_on_holdout_and_selects_by_holdout(
     tmp_path: Path,
 ) -> None:
