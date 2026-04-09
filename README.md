@@ -58,6 +58,7 @@ Detailed guides have been filed away in the [docs index](https://evan-kolberg.gi
   - [Designing Good Runner Files](https://evan-kolberg.github.io/prediction-market-backtesting/backtests/#designing-good-runner-files)
   - [Multi-Market Strategy Configs](https://evan-kolberg.github.io/prediction-market-backtesting/backtests/#multi-market-strategy-configs)
   - [Running Backtests](https://evan-kolberg.github.io/prediction-market-backtesting/backtests/#running-backtests)
+  - [Notebook Runners](https://evan-kolberg.github.io/prediction-market-backtesting/backtests/#notebook-runners)
   - [Editing Runner Inputs](https://evan-kolberg.github.io/prediction-market-backtesting/backtests/#editing-runner-inputs)
   - [Data Vendor Notes](https://evan-kolberg.github.io/prediction-market-backtesting/backtests/#data-vendor-notes)
     - [Native Vendors](https://evan-kolberg.github.io/prediction-market-backtesting/backtests/#native-vendors)

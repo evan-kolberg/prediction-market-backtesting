@@ -209,7 +209,12 @@ def test_discoverable_backtest_paths_stay_flat(tmp_path: Path) -> None:
     (backtests_root / "__init__.py").write_text("")
     (backtests_root / "_script_helpers.py").write_text("")
     (backtests_root / "kalshi_trade_tick_breakout.py").write_text("")
+    (backtests_root / "notebook_runner.ipynb").write_text("{}", encoding="utf-8")
     (backtests_root / "private" / "local_runner.py").write_text("")
+    (backtests_root / "private" / "local_notebook.ipynb").write_text(
+        "{}",
+        encoding="utf-8",
+    )
     (backtests_root / "private" / "_helper.py").write_text("")
     (backtests_root / "nested" / "should_not_show.py").write_text("")
 
@@ -220,6 +225,8 @@ def test_discoverable_backtest_paths_stay_flat(tmp_path: Path) -> None:
 
     assert discovered == [
         Path("kalshi_trade_tick_breakout.py"),
+        Path("notebook_runner.ipynb"),
+        Path("private/local_notebook.ipynb"),
         Path("private/local_runner.py"),
     ]
 
@@ -259,6 +266,42 @@ def test_discover_reads_metadata_without_importing_modules(
             "description": "Demo runner",
             "module_name": "backtests.demo_runner",
             "relative_parts": ("demo_runner.py",),
+        }
+    ]
+
+
+def test_discover_reads_notebook_metadata_without_execution(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    import nbformat
+
+    project_root = tmp_path
+    backtests_root = project_root / "backtests"
+    backtests_root.mkdir()
+    (backtests_root / "__init__.py").write_text("", encoding="utf-8")
+    notebook = nbformat.v4.new_notebook(
+        metadata={
+            "prediction_market_backtest": {
+                "name": "custom_notebook",
+                "description": "Notebook runner",
+            }
+        },
+        cells=[nbformat.v4.new_code_cell("raise RuntimeError('should not execute')")],
+    )
+    nbformat.write(notebook, backtests_root / "demo_notebook.ipynb")
+
+    monkeypatch.setattr(main_module, "PROJECT_ROOT", project_root)
+    monkeypatch.setattr(main_module, "BACKTESTS_ROOT", backtests_root)
+
+    discovered = main_module.discover()
+
+    assert discovered == [
+        {
+            "name": "custom_notebook",
+            "description": "Notebook runner",
+            "module_name": "backtests.demo_notebook",
+            "relative_parts": ("demo_notebook.ipynb",),
         }
     ]
 
@@ -336,6 +379,55 @@ def test_load_runner_supports_runner_local_script_helpers(
             sys.modules.pop("_script_helpers", None)
         else:
             sys.modules["_script_helpers"] = prior_helper_module
+
+
+def test_load_runner_executes_notebook_runner(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    import nbformat
+
+    project_root = tmp_path
+    backtests_root = project_root / "backtests"
+    backtests_root.mkdir()
+    (backtests_root / "__init__.py").write_text("", encoding="utf-8")
+    notebook = nbformat.v4.new_notebook(
+        metadata={
+            "prediction_market_backtest": {
+                "name": "demo_notebook",
+                "description": "Notebook runner",
+            }
+        },
+        cells=[nbformat.v4.new_code_cell("x = 1")],
+    )
+    notebook_path = backtests_root / "demo_notebook.ipynb"
+    nbformat.write(notebook, notebook_path)
+
+    monkeypatch.setattr(main_module, "PROJECT_ROOT", project_root)
+    monkeypatch.setattr(main_module, "BACKTESTS_ROOT", backtests_root)
+
+    from backtests._shared import _notebook_runner as notebook_runner
+
+    captured: dict[str, object] = {}
+
+    def _fake_execute_notebook_runner(path: Path, *, project_root: Path) -> None:
+        captured["path"] = path
+        captured["project_root"] = project_root
+
+    monkeypatch.setattr(
+        notebook_runner,
+        "execute_notebook_runner",
+        _fake_execute_notebook_runner,
+    )
+
+    discovered = main_module.discover()
+    runner = main_module._load_runner(discovered[0])
+    runner()
+
+    assert captured == {
+        "path": notebook_path,
+        "project_root": project_root,
+    }
 
 
 def test_filter_backtests_matches_name_description_and_path() -> None:

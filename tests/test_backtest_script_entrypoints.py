@@ -14,6 +14,13 @@ BACKTESTS_ROOT = REPO_ROOT / "backtests"
 
 PUBLIC_RUNNER_PATHS = sorted(
     path.relative_to(REPO_ROOT)
+    for path in (*BACKTESTS_ROOT.glob("*.py"), *BACKTESTS_ROOT.glob("*.ipynb"))
+    if path.name not in {"__init__.py", "_script_helpers.py", "sitecustomize.py"}
+    and not path.name.startswith("_")
+)
+
+PUBLIC_SCRIPT_RUNNER_PATHS = sorted(
+    path.relative_to(REPO_ROOT)
     for path in BACKTESTS_ROOT.glob("*.py")
     if path.name not in {"__init__.py", "_script_helpers.py", "sitecustomize.py"}
     and not path.name.startswith("_")
@@ -25,6 +32,7 @@ EXPECTED_PUBLIC_RUNNER_PATHS = [
     Path("backtests/polymarket_quote_tick_pmxt_25_sims_runner.py"),
     Path("backtests/polymarket_quote_tick_pmxt_ema_crossover.py"),
     Path("backtests/polymarket_quote_tick_pmxt_ema_optimizer.py"),
+    Path("backtests/polymarket_quote_tick_pmxt_ema_optimizer_research.ipynb"),
     Path("backtests/polymarket_quote_tick_pmxt_multi_sim_runner.py"),
     Path("backtests/polymarket_trade_tick_multi_sim_runner.py"),
     Path("backtests/polymarket_trade_tick_vwap_reversion.py"),
@@ -55,7 +63,16 @@ REPO_BOOTSTRAP_HELPERS = {
 }
 
 
-@pytest.mark.parametrize("relative_path", EXPECTED_PUBLIC_RUNNER_PATHS)
+PUBLIC_NOTEBOOK_RUNNER_PATHS = [
+    path for path in EXPECTED_PUBLIC_RUNNER_PATHS if path.suffix == ".ipynb"
+]
+
+EXPECTED_PUBLIC_SCRIPT_RUNNER_PATHS = [
+    path for path in EXPECTED_PUBLIC_RUNNER_PATHS if path.suffix == ".py"
+]
+
+
+@pytest.mark.parametrize("relative_path", EXPECTED_PUBLIC_SCRIPT_RUNNER_PATHS)
 def test_direct_script_entrypoints_import_without_repo_root_on_sys_path(
     monkeypatch: pytest.MonkeyPatch,
     relative_path: Path,
@@ -100,7 +117,7 @@ def test_backtests_tree_keeps_public_runners_flat() -> None:
 
     unexpected_nested_runners = [
         path.relative_to(BACKTESTS_ROOT)
-        for path in BACKTESTS_ROOT.rglob("*.py")
+        for path in (*BACKTESTS_ROOT.rglob("*.py"), *BACKTESTS_ROOT.rglob("*.ipynb"))
         if len(path.relative_to(BACKTESTS_ROOT).parts) > 1
         and path.relative_to(BACKTESTS_ROOT).parts[0]
         not in {"_shared", "private", "__pycache__"}
@@ -112,6 +129,10 @@ def test_public_runner_set_matches_curated_examples() -> None:
     assert PUBLIC_RUNNER_PATHS == EXPECTED_PUBLIC_RUNNER_PATHS
 
 
+def test_public_script_runner_set_matches_curated_examples() -> None:
+    assert PUBLIC_SCRIPT_RUNNER_PATHS == EXPECTED_PUBLIC_SCRIPT_RUNNER_PATHS
+
+
 def test_repo_keeps_script_bootstrap_helpers_only_next_to_entrypoints() -> None:
     helpers = {
         path.relative_to(REPO_ROOT) for path in REPO_ROOT.rglob("_script_helpers.py")
@@ -119,7 +140,7 @@ def test_repo_keeps_script_bootstrap_helpers_only_next_to_entrypoints() -> None:
     assert helpers == REPO_BOOTSTRAP_HELPERS
 
 
-@pytest.mark.parametrize("relative_path", PUBLIC_RUNNER_PATHS)
+@pytest.mark.parametrize("relative_path", PUBLIC_SCRIPT_RUNNER_PATHS)
 def test_public_runner_modules_expose_metadata_contract(
     monkeypatch: pytest.MonkeyPatch,
     relative_path: Path,
@@ -169,6 +190,22 @@ def test_public_runner_modules_expose_metadata_contract(
             == globals_dict["CHART_OUTPUT_PATH"]
         )
     assert callable(globals_dict.get("run"))
+
+
+@pytest.mark.parametrize("relative_path", PUBLIC_NOTEBOOK_RUNNER_PATHS)
+def test_public_notebook_runners_expose_metadata_contract(relative_path: Path) -> None:
+    from backtests._shared._notebook_runner import load_notebook_metadata
+
+    metadata = load_notebook_metadata(
+        REPO_ROOT / relative_path,
+        project_root=REPO_ROOT,
+    )
+
+    assert metadata is not None
+    assert metadata["name"] == relative_path.stem
+    assert isinstance(metadata["description"], str) and metadata["description"]
+    assert metadata["module_name"] == ".".join(relative_path.with_suffix("").parts)
+    assert metadata["relative_parts"] == (relative_path.name,)
 
 
 @pytest.mark.parametrize(

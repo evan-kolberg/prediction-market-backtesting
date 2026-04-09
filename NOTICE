@@ -11,6 +11,9 @@ Licensing scope
   notice are also distributed under LGPL-3.0-or-later.
 - Root files without that notice remain under the MIT License unless they say
   otherwise.
+- Flat notebook runners under `backtests/` are not LGPL-covered just because
+  they import repo code; only files listed below or carrying Nautilus-derived
+  provenance notices fall under the LGPL scope here.
 
 LGPL-covered root files
 -----------------------

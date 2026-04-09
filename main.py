@@ -78,7 +78,9 @@ def _discoverable_backtest_paths(backtests_root: Path) -> list[Path]:
 
     candidates = [
         *backtests_root.glob("*.py"),
+        *backtests_root.glob("*.ipynb"),
         *backtests_root.glob("private/*.py"),
+        *backtests_root.glob("private/*.ipynb"),
     ]
     return sorted(
         path
@@ -133,6 +135,11 @@ def _has_run_entrypoint(module_ast: ast.Module) -> bool:
 
 
 def _load_runner_metadata(path: Path) -> dict[str, Any] | None:
+    if path.suffix == ".ipynb":
+        from backtests._shared._notebook_runner import load_notebook_metadata
+
+        return load_notebook_metadata(path, project_root=PROJECT_ROOT)
+
     relative_path = path.relative_to(PROJECT_ROOT)
 
     try:
@@ -568,8 +575,16 @@ if TEXTUAL_AVAILABLE:
 
 def _load_runner(backtest: dict[str, Any]) -> Any:
     relative_path = _relative_runner_path(backtest)
-    module_name = backtest["module_name"]
     runner_path = PROJECT_ROOT / relative_path
+    if runner_path.suffix == ".ipynb":
+        from backtests._shared._notebook_runner import execute_notebook_runner
+
+        def _run_notebook() -> None:
+            execute_notebook_runner(runner_path, project_root=PROJECT_ROOT)
+
+        return _run_notebook
+
+    module_name = backtest["module_name"]
     spec = importlib.util.spec_from_file_location(module_name, runner_path)
     if spec is None or spec.loader is None:
         raise RuntimeError(f"could not import {relative_path}: no module spec")
@@ -725,8 +740,7 @@ def main() -> None:
     if not backtests:
         print(
             f"No backtests found in {BACKTESTS_ROOT}\n"
-            "Create a .py file in backtests/ or backtests/private/ that exposes "
-            "NAME, DESCRIPTION, and a run() entrypoint."
+            "Create a flat .py or .ipynb file in backtests/ or backtests/private/."
         )
         sys.exit(1)
 

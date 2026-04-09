@@ -20,6 +20,11 @@ The [`NOTICE`](https://github.com/evan-kolberg/prediction-market-backtesting/blo
 LGPL-covered file in the active tree, along with
 modification dates and upstream lineage.
 
+Notebook runner files under `backtests/` follow the same rule as `.py` runners:
+license scope depends on file-level provenance, not on the file suffix. A
+notebook that simply orchestrates repo runners is not automatically LGPL-covered
+unless it also carries Nautilus-derived provenance.
+
 ## NautilusTrader Attribution
 
 Local extensions live under `prediction_market_extensions/` in their own
