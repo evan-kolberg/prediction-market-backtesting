@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import Any
 from typing import Protocol
 
-from nautilus_trader.adapters.prediction_market.backtest_utils import (
+from prediction_market_extensions.adapters.prediction_market.backtest_utils import (
     compute_binary_settlement_pnl,
 )
 

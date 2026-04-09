@@ -133,17 +133,22 @@ printed after the run.
   `archive:`, `relay:`
 - normal Nautilus logs are still printed; the timing harness is additive
 
-## Nautilus Overlay Layout
+## Extension Architecture
 
 This repo no longer vendors NautilusTrader in-tree. Runtime code comes from
 upstream `nautilus_trader==1.225.0`, and local Nautilus-derived extensions live
-under `_nautilus_overrides/`.
+under `prediction_market_extensions/` in their own namespace.
+
+Extensions import from and subclass upstream base classes (`FeeModel`,
+`InstrumentProvider`, `LiveMarketDataClient`, etc.) rather than shadowing
+upstream modules. The only startup hook is `install_commission_patch()` which
+monkey-patches a corrected fee formula into the upstream parsing module.
 
 Do not try to install a local Nautilus fork from this repo. Normal setup is the
 upstream PyPI package plus this checkout.
 
 When you need to inspect provenance or compare earlier vendored behavior, use
 git history from commits before vendored-tree removal. When you need to port a
-new upstream Nautilus release, diff the active overlay files under
-`_nautilus_overrides/` against the new upstream package and keep validation on
-the repo-side runners.
+new upstream Nautilus release, diff the extension files under
+`prediction_market_extensions/` against the new upstream package and keep
+validation on the repo-side runners.

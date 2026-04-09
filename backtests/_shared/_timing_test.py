@@ -214,7 +214,9 @@ def install_timing() -> None:
     _installed = True
 
     from tqdm import tqdm
-    from nautilus_trader.adapters.polymarket.pmxt import PolymarketPMXTDataLoader
+    from prediction_market_extensions.adapters.polymarket.pmxt import (
+        PolymarketPMXTDataLoader,
+    )
 
     try:
         from backtests._shared.data_sources.pmxt import (

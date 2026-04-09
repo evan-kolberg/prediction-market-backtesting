@@ -26,33 +26,45 @@ from typing import Any
 
 import pandas as pd
 
-from nautilus_trader.adapters.prediction_market.backtest_utils import (
+from prediction_market_extensions.adapters.prediction_market.backtest_utils import (
     _timestamp_to_naive_utc_datetime,
 )
-from nautilus_trader.adapters.prediction_market.backtest_utils import build_brier_inputs
-from nautilus_trader.adapters.prediction_market.backtest_utils import (
+from prediction_market_extensions.adapters.prediction_market.backtest_utils import (
+    build_brier_inputs,
+)
+from prediction_market_extensions.adapters.prediction_market.backtest_utils import (
     build_market_prices,
 )
-from nautilus_trader.adapters.prediction_market.backtest_utils import (
+from prediction_market_extensions.adapters.prediction_market.backtest_utils import (
     extract_price_points,
 )
-from nautilus_trader.adapters.prediction_market.backtest_utils import (
+from prediction_market_extensions.adapters.prediction_market.backtest_utils import (
     extract_realized_pnl,
 )
-from nautilus_trader.adapters.prediction_market.backtest_utils import (
+from prediction_market_extensions.adapters.prediction_market.backtest_utils import (
     infer_realized_outcome,
 )
-from nautilus_trader.adapters.prediction_market.fill_model import (
+from prediction_market_extensions.adapters.prediction_market.fill_model import (
     PredictionMarketTakerFillModel,
 )
-from nautilus_trader.analysis import legacy_plot_adapter as legacy_plot_adapter
-from nautilus_trader.analysis.legacy_backtesting.models import (
+from prediction_market_extensions.analysis import (
+    legacy_plot_adapter as legacy_plot_adapter,
+)
+from prediction_market_extensions.analysis.legacy_backtesting.models import (
     DEFAULT_SUMMARY_PLOT_PANELS,
 )
-from nautilus_trader.analysis.legacy_backtesting.models import normalize_plot_panels
-from nautilus_trader.analysis.legacy_backtesting.models import PANEL_BRIER_ADVANTAGE
-from nautilus_trader.analysis.legacy_plot_adapter import build_legacy_backtest_layout
-from nautilus_trader.analysis.legacy_plot_adapter import save_legacy_backtest_layout
+from prediction_market_extensions.analysis.legacy_backtesting.models import (
+    normalize_plot_panels,
+)
+from prediction_market_extensions.analysis.legacy_backtesting.models import (
+    PANEL_BRIER_ADVANTAGE,
+)
+from prediction_market_extensions.analysis.legacy_plot_adapter import (
+    build_legacy_backtest_layout,
+)
+from prediction_market_extensions.analysis.legacy_plot_adapter import (
+    save_legacy_backtest_layout,
+)
 from nautilus_trader.analysis.reporter import ReportProvider
 from nautilus_trader.backtest.config import BacktestEngineConfig
 from nautilus_trader.backtest.engine import BacktestEngine

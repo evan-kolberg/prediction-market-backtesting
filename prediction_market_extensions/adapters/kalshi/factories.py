@@ -17,9 +17,11 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING
 
-from nautilus_trader.adapters.kalshi.config import KalshiDataClientConfig
-from nautilus_trader.adapters.kalshi.data import KalshiDataClient
-from nautilus_trader.adapters.kalshi.providers import KalshiInstrumentProvider
+from prediction_market_extensions.adapters.kalshi.config import KalshiDataClientConfig
+from prediction_market_extensions.adapters.kalshi.data import KalshiDataClient
+from prediction_market_extensions.adapters.kalshi.providers import (
+    KalshiInstrumentProvider,
+)
 from nautilus_trader.live.factories import LiveDataClientFactory
 
 

@@ -49,7 +49,7 @@ Detailed guides have been filed away in the [docs index](https://evan-kolberg.gi
   - [Install](https://evan-kolberg.github.io/prediction-market-backtesting/setup/#install)
   - [First Run](https://evan-kolberg.github.io/prediction-market-backtesting/setup/#first-run)
   - [Timing And Cache Defaults](https://evan-kolberg.github.io/prediction-market-backtesting/setup/#timing-and-cache-defaults)
-  - [Nautilus Overlay Layout](https://evan-kolberg.github.io/prediction-market-backtesting/setup/#nautilus-overlay-layout)
+  - [Extension Architecture](https://evan-kolberg.github.io/prediction-market-backtesting/setup/#extension-architecture)
 - [Backtests And Runners](https://evan-kolberg.github.io/prediction-market-backtesting/backtests/)
   - [Repo Layout](https://evan-kolberg.github.io/prediction-market-backtesting/backtests/#repo-layout)
   - [Runner Contract](https://evan-kolberg.github.io/prediction-market-backtesting/backtests/#runner-contract)

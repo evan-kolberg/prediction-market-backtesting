@@ -2,12 +2,12 @@ Repository Notice
 =================
 
 This repository runs against upstream NautilusTrader from PyPI and keeps local
-Nautilus-derived runtime extensions under `_nautilus_overrides/`.
+Nautilus-derived runtime extensions under `prediction_market_extensions/`.
 
 Licensing scope
 ---------------
 
-- `_nautilus_overrides/` and other root files that carry a Nautilus-derived
+- `prediction_market_extensions/` and other files that carry a Nautilus-derived
   notice are also distributed under LGPL-3.0-or-later.
 - Root files without that notice remain under the MIT License unless they say
   otherwise.
@@ -19,35 +19,31 @@ The following root files were copied or adapted from NautilusTrader
 prediction-market example, adapter, or plotting code and carry file-level LGPL
 provenance notices with file-specific change dates:
 
-- `_nautilus_overrides/nautilus_trader/adapters/kalshi/data.py`
-- `_nautilus_overrides/nautilus_trader/adapters/kalshi/fee_model.py`
-- `_nautilus_overrides/nautilus_trader/adapters/kalshi/loaders.py`
-- `_nautilus_overrides/nautilus_trader/adapters/kalshi/market_selection.py`
-- `_nautilus_overrides/nautilus_trader/adapters/kalshi/providers.py`
-- `_nautilus_overrides/nautilus_trader/adapters/kalshi/research.py`
-- `_nautilus_overrides/nautilus_trader/adapters/polymarket/__init__.py`
-- `_nautilus_overrides/nautilus_trader/adapters/polymarket/common/gamma_markets.py`
-- `_nautilus_overrides/nautilus_trader/adapters/polymarket/common/market_selection.py`
-- `_nautilus_overrides/nautilus_trader/adapters/polymarket/common/parsing.py`
-- `_nautilus_overrides/nautilus_trader/adapters/polymarket/execution.py`
-- `_nautilus_overrides/nautilus_trader/adapters/polymarket/fee_model.py`
-- `_nautilus_overrides/nautilus_trader/adapters/polymarket/loaders.py`
-- `_nautilus_overrides/nautilus_trader/adapters/polymarket/pmxt.py`
-- `_nautilus_overrides/nautilus_trader/adapters/polymarket/research.py`
-- `_nautilus_overrides/nautilus_trader/adapters/polymarket/schemas/trade.py`
-- `_nautilus_overrides/nautilus_trader/adapters/polymarket/schemas/user.py`
-- `_nautilus_overrides/nautilus_trader/adapters/prediction_market/__init__.py`
-- `_nautilus_overrides/nautilus_trader/adapters/prediction_market/backtest_utils.py`
-- `_nautilus_overrides/nautilus_trader/adapters/prediction_market/fill_model.py`
-- `_nautilus_overrides/nautilus_trader/adapters/prediction_market/research.py`
-- `_nautilus_overrides/nautilus_trader/analysis/__init__.py`
-- `_nautilus_overrides/nautilus_trader/analysis/config.py`
-- `_nautilus_overrides/nautilus_trader/analysis/legacy_backtesting/__init__.py`
-- `_nautilus_overrides/nautilus_trader/analysis/legacy_backtesting/models.py`
-- `_nautilus_overrides/nautilus_trader/analysis/legacy_backtesting/plotting.py`
-- `_nautilus_overrides/nautilus_trader/analysis/legacy_backtesting/progress.py`
-- `_nautilus_overrides/nautilus_trader/analysis/legacy_plot_adapter.py`
-- `_nautilus_overrides/nautilus_trader/analysis/tearsheet.py`
+- `prediction_market_extensions/adapters/kalshi/data.py`
+- `prediction_market_extensions/adapters/kalshi/fee_model.py`
+- `prediction_market_extensions/adapters/kalshi/loaders.py`
+- `prediction_market_extensions/adapters/kalshi/market_selection.py`
+- `prediction_market_extensions/adapters/kalshi/providers.py`
+- `prediction_market_extensions/adapters/kalshi/research.py`
+- `prediction_market_extensions/adapters/polymarket/execution.py`
+- `prediction_market_extensions/adapters/polymarket/fee_model.py`
+- `prediction_market_extensions/adapters/polymarket/gamma_markets.py`
+- `prediction_market_extensions/adapters/polymarket/loaders.py`
+- `prediction_market_extensions/adapters/polymarket/market_selection.py`
+- `prediction_market_extensions/adapters/polymarket/parsing.py`
+- `prediction_market_extensions/adapters/polymarket/pmxt.py`
+- `prediction_market_extensions/adapters/polymarket/research.py`
+- `prediction_market_extensions/adapters/prediction_market/__init__.py`
+- `prediction_market_extensions/adapters/prediction_market/backtest_utils.py`
+- `prediction_market_extensions/adapters/prediction_market/fill_model.py`
+- `prediction_market_extensions/adapters/prediction_market/research.py`
+- `prediction_market_extensions/analysis/config.py`
+- `prediction_market_extensions/analysis/legacy_backtesting/__init__.py`
+- `prediction_market_extensions/analysis/legacy_backtesting/models.py`
+- `prediction_market_extensions/analysis/legacy_backtesting/plotting.py`
+- `prediction_market_extensions/analysis/legacy_backtesting/progress.py`
+- `prediction_market_extensions/analysis/legacy_plot_adapter.py`
+- `prediction_market_extensions/analysis/tearsheet.py`
 - `backtests/_shared/_kalshi_trade_tick_runner.py`
 - `backtests/_shared/_polymarket_quote_tick_pmxt_runner.py`
 - `backtests/_shared/_polymarket_trade_tick_runner.py`
@@ -100,6 +96,7 @@ Upstream lineage
 - NautilusTrader upstream project: `https://github.com/nautechsystems/nautilus_trader`
 - This repository uses upstream `nautilus_trader` as the active runtime
   dependency.
-- Active local runtime overrides now live under `_nautilus_overrides/`.
+- Local extensions live under `prediction_market_extensions/` in their own
+  namespace, importing from and subclassing upstream base classes.
 - The earlier vendored NautilusTrader tree was removed from the worktree on this
   branch; provenance for that prior import remains available in git history.

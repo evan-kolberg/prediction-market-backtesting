@@ -11,17 +11,23 @@ from typing import Any
 
 import pandas as pd
 
-from nautilus_trader.adapters.kalshi.fee_model import KalshiProportionalFeeModel
+from prediction_market_extensions.adapters.kalshi.fee_model import (
+    KalshiProportionalFeeModel,
+)
 from nautilus_trader.adapters.polymarket import POLYMARKET_VENUE
-from nautilus_trader.adapters.polymarket.fee_model import PolymarketFeeModel
-from nautilus_trader.adapters.prediction_market import HistoricalReplayAdapter
-from nautilus_trader.adapters.prediction_market import LoadedReplay
-from nautilus_trader.adapters.prediction_market import ReplayAdapterKey
-from nautilus_trader.adapters.prediction_market import ReplayCoverageStats
-from nautilus_trader.adapters.prediction_market import ReplayEngineProfile
-from nautilus_trader.adapters.prediction_market import ReplayLoadRequest
-from nautilus_trader.adapters.prediction_market import ReplayWindow
-from nautilus_trader.adapters.prediction_market.backtest_utils import (
+from prediction_market_extensions.adapters.polymarket.fee_model import (
+    PolymarketFeeModel,
+)
+from prediction_market_extensions.adapters.prediction_market import (
+    HistoricalReplayAdapter,
+)
+from prediction_market_extensions.adapters.prediction_market import LoadedReplay
+from prediction_market_extensions.adapters.prediction_market import ReplayAdapterKey
+from prediction_market_extensions.adapters.prediction_market import ReplayCoverageStats
+from prediction_market_extensions.adapters.prediction_market import ReplayEngineProfile
+from prediction_market_extensions.adapters.prediction_market import ReplayLoadRequest
+from prediction_market_extensions.adapters.prediction_market import ReplayWindow
+from prediction_market_extensions.adapters.prediction_market.backtest_utils import (
     infer_realized_outcome,
 )
 from nautilus_trader.model.currencies import USD

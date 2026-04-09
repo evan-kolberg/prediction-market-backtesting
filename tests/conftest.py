@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from _nautilus_bootstrap import install_local_nautilus_overrides
+from prediction_market_extensions import install_commission_patch
 
 
-install_local_nautilus_overrides()
+install_commission_patch()

@@ -29,15 +29,21 @@ from typing import Any
 import msgspec
 import pandas as pd
 
-from nautilus_trader.adapters.kalshi.loaders import KalshiDataLoader
-from nautilus_trader.adapters.kalshi.market_selection import end_date_utc
-from nautilus_trader.adapters.kalshi.market_selection import is_game_market
-from nautilus_trader.adapters.kalshi.market_selection import is_resolved_sports_market
-from nautilus_trader.adapters.kalshi.market_selection import is_sports_market
-from nautilus_trader.adapters.kalshi.market_selection import volume_24h
-from nautilus_trader.adapters.kalshi.market_selection import yes_price
-from nautilus_trader.adapters.kalshi.providers import KALSHI_REST_BASE
-from nautilus_trader.adapters.kalshi.providers import market_dict_to_instrument
+from prediction_market_extensions.adapters.kalshi.loaders import KalshiDataLoader
+from prediction_market_extensions.adapters.kalshi.market_selection import end_date_utc
+from prediction_market_extensions.adapters.kalshi.market_selection import is_game_market
+from prediction_market_extensions.adapters.kalshi.market_selection import (
+    is_resolved_sports_market,
+)
+from prediction_market_extensions.adapters.kalshi.market_selection import (
+    is_sports_market,
+)
+from prediction_market_extensions.adapters.kalshi.market_selection import volume_24h
+from prediction_market_extensions.adapters.kalshi.market_selection import yes_price
+from prediction_market_extensions.adapters.kalshi.providers import KALSHI_REST_BASE
+from prediction_market_extensions.adapters.kalshi.providers import (
+    market_dict_to_instrument,
+)
 from nautilus_trader.core import nautilus_pyo3
 from nautilus_trader.model.data import Bar
 

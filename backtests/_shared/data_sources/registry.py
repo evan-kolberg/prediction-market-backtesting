@@ -3,7 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from nautilus_trader.adapters.prediction_market import HistoricalReplayAdapter
+from prediction_market_extensions.adapters.prediction_market import (
+    HistoricalReplayAdapter,
+)
 
 from backtests._shared._replay_specs import ReplaySpec
 from backtests._shared.data_sources.replay_adapters import BUILTIN_REPLAY_ADAPTERS

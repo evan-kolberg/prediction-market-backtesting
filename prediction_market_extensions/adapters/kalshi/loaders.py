@@ -26,8 +26,10 @@ from typing import Any
 import msgspec
 import pandas as pd
 
-from nautilus_trader.adapters.kalshi.providers import KALSHI_REST_BASE
-from nautilus_trader.adapters.kalshi.providers import market_dict_to_instrument
+from prediction_market_extensions.adapters.kalshi.providers import KALSHI_REST_BASE
+from prediction_market_extensions.adapters.kalshi.providers import (
+    market_dict_to_instrument,
+)
 from nautilus_trader.core import nautilus_pyo3
 from nautilus_trader.core.datetime import secs_to_nanos
 from nautilus_trader.model.data import Bar

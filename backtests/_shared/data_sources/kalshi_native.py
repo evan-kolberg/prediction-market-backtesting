@@ -8,8 +8,10 @@ from typing import Any, Iterator, Sequence
 
 import msgspec
 
-from nautilus_trader.adapters.kalshi.loaders import KalshiDataLoader
-from nautilus_trader.adapters.kalshi.providers import market_dict_to_instrument
+from prediction_market_extensions.adapters.kalshi.loaders import KalshiDataLoader
+from prediction_market_extensions.adapters.kalshi.providers import (
+    market_dict_to_instrument,
+)
 
 from backtests._shared.data_sources._common import env_value
 from backtests._shared.data_sources._common import is_disabled

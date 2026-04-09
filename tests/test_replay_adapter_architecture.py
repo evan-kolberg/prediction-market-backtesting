@@ -13,10 +13,12 @@ from backtests._shared._market_data_support import build_single_market_replay
 from backtests._shared._market_data_support import register_market_data_support
 from backtests._shared._market_data_support import unregister_market_data_support
 from backtests._shared._prediction_market_runner import MarketDataConfig
-from nautilus_trader.adapters.prediction_market import HistoricalReplayAdapter
-from nautilus_trader.adapters.prediction_market import ReplayAdapterKey
-from nautilus_trader.adapters.prediction_market import ReplayEngineProfile
-from nautilus_trader.adapters.prediction_market import ReplayLoadRequest
+from prediction_market_extensions.adapters.prediction_market import (
+    HistoricalReplayAdapter,
+)
+from prediction_market_extensions.adapters.prediction_market import ReplayAdapterKey
+from prediction_market_extensions.adapters.prediction_market import ReplayEngineProfile
+from prediction_market_extensions.adapters.prediction_market import ReplayLoadRequest
 from nautilus_trader.model.currencies import USD
 from nautilus_trader.model.enums import AccountType
 from nautilus_trader.model.enums import OmsType

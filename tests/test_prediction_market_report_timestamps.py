@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from nautilus_trader.adapters.prediction_market.research import (
+from prediction_market_extensions.adapters.prediction_market.research import (
     save_aggregate_backtest_report,
 )
 

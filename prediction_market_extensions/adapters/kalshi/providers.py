@@ -22,7 +22,7 @@ import logging
 import math
 from datetime import datetime
 
-from nautilus_trader.adapters.kalshi.config import KalshiDataClientConfig
+from prediction_market_extensions.adapters.kalshi.config import KalshiDataClientConfig
 from nautilus_trader.common.providers import InstrumentProvider
 from nautilus_trader.core.datetime import dt_to_unix_nanos
 from nautilus_trader.model.enums import AssetClass

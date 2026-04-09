@@ -10,8 +10,10 @@ import pyarrow as pa
 import pyarrow.dataset as ds
 import pyarrow.parquet as pq
 
-from nautilus_trader.adapters.polymarket import pmxt as pmxt_module
-from nautilus_trader.adapters.polymarket.pmxt import PolymarketPMXTDataLoader
+from prediction_market_extensions.adapters.polymarket import pmxt as pmxt_module
+from prediction_market_extensions.adapters.polymarket.pmxt import (
+    PolymarketPMXTDataLoader,
+)
 
 
 def _make_loader(

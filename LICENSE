@@ -3,7 +3,7 @@ Repository Licensing
 This repository is not MIT-only.
 
 1. GNU LGPL v3.0 or later applies to:
-   - all files under `_nautilus_overrides/`
+   - all files under `prediction_market_extensions/`
    - root files that carry a `Derived from NautilusTrader` or
      `Modified by Evan Kolberg in this repository` notice
 
@@ -22,7 +22,7 @@ This repository is not MIT-only.
    See `LICENSE-MIT`.
 
 3. When in doubt:
-   - treat `_nautilus_overrides/` as the active LGPL-3.0-or-later runtime overlay
+   - treat `prediction_market_extensions/` as the active LGPL-3.0-or-later extension package
    - treat any root file with a Nautilus-derived notice as LGPL-3.0-or-later
    - treat git history as the provenance source for the removed vendored tree
    - consult `NOTICE` for provenance and change dates

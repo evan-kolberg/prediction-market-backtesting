@@ -240,8 +240,10 @@ class BacktestResult:
         """Render an interactive Bokeh chart of this backtest.
 
         Accepts all keyword arguments supported by
-        :func:`nautilus_trader.analysis.legacy_backtesting.plotting.plot`.
+        :func:`prediction_market_extensions.analysis.legacy_backtesting.plotting.plot`.
         """
-        from nautilus_trader.analysis.legacy_backtesting.plotting import plot as _plot
+        from prediction_market_extensions.analysis.legacy_backtesting.plotting import (
+            plot as _plot,
+        )
 
         return _plot(self, **kwargs)

@@ -28,16 +28,26 @@ import pandas as pd
 import msgspec
 
 from nautilus_trader.adapters.polymarket.common.gamma_markets import list_markets
-from nautilus_trader.adapters.polymarket.common.market_selection import closed_time_utc
-from nautilus_trader.adapters.polymarket.common.market_selection import end_date_utc
-from nautilus_trader.adapters.polymarket.common.market_selection import event_start_utc
-from nautilus_trader.adapters.polymarket.common.market_selection import is_game_market
-from nautilus_trader.adapters.polymarket.common.market_selection import (
+from prediction_market_extensions.adapters.polymarket.market_selection import (
+    closed_time_utc,
+)
+from prediction_market_extensions.adapters.polymarket.market_selection import (
+    end_date_utc,
+)
+from prediction_market_extensions.adapters.polymarket.market_selection import (
+    event_start_utc,
+)
+from prediction_market_extensions.adapters.polymarket.market_selection import (
+    is_game_market,
+)
+from prediction_market_extensions.adapters.polymarket.market_selection import (
     is_resolved_sports_market,
 )
-from nautilus_trader.adapters.polymarket.common.market_selection import is_sports_market
-from nautilus_trader.adapters.polymarket.common.market_selection import volume_24h
-from nautilus_trader.adapters.polymarket.common.market_selection import yes_price
+from prediction_market_extensions.adapters.polymarket.market_selection import (
+    is_sports_market,
+)
+from prediction_market_extensions.adapters.polymarket.market_selection import volume_24h
+from prediction_market_extensions.adapters.polymarket.market_selection import yes_price
 from nautilus_trader.adapters.polymarket.loaders import PolymarketDataLoader
 from nautilus_trader.core import nautilus_pyo3
 from nautilus_trader.model.data import TradeTick

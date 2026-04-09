@@ -13,9 +13,11 @@ from types import SimpleNamespace
 import pandas as pd
 import pytest
 
-from nautilus_trader.analysis import legacy_plot_adapter as adapter
-from nautilus_trader.analysis.legacy_backtesting.models import PANEL_BRIER_ADVANTAGE
-from nautilus_trader.analysis.legacy_backtesting.models import PANEL_EQUITY
+from prediction_market_extensions.analysis import legacy_plot_adapter as adapter
+from prediction_market_extensions.analysis.legacy_backtesting.models import (
+    PANEL_BRIER_ADVANTAGE,
+)
+from prediction_market_extensions.analysis.legacy_backtesting.models import PANEL_EQUITY
 
 
 class _DummyLayout:

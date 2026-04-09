@@ -35,11 +35,15 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from nautilus_trader.analysis.legacy_backtesting.models import (
+from prediction_market_extensions.analysis.legacy_backtesting.models import (
     DEFAULT_DETAIL_PLOT_PANELS,
 )
-from nautilus_trader.analysis.legacy_backtesting.models import PANEL_BRIER_ADVANTAGE
-from nautilus_trader.analysis.legacy_backtesting.models import normalize_plot_panels
+from prediction_market_extensions.analysis.legacy_backtesting.models import (
+    PANEL_BRIER_ADVANTAGE,
+)
+from prediction_market_extensions.analysis.legacy_backtesting.models import (
+    normalize_plot_panels,
+)
 from nautilus_trader.analysis.reporter import ReportProvider
 
 
@@ -206,10 +210,10 @@ def _load_legacy_modules(repo_path: Path | None = None) -> tuple[Any, Any]:
     _ = repo_path
     importlib.invalidate_caches()
     models = importlib.import_module(
-        "nautilus_trader.analysis.legacy_backtesting.models"
+        "prediction_market_extensions.analysis.legacy_backtesting.models"
     )
     plotting = importlib.import_module(
-        "nautilus_trader.analysis.legacy_backtesting.plotting"
+        "prediction_market_extensions.analysis.legacy_backtesting.plotting"
     )
     return models, plotting
 

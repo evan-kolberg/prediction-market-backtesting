@@ -55,7 +55,7 @@ from nautilus_trader.adapters.polymarket.common.credentials import (
 from nautilus_trader.adapters.polymarket.common.enums import PolymarketEventType
 from nautilus_trader.adapters.polymarket.common.enums import PolymarketTradeStatus
 from nautilus_trader.adapters.polymarket.common.parsing import calculate_commission
-from nautilus_trader.adapters.polymarket.common.parsing import infer_fee_exponent
+from prediction_market_extensions.adapters.polymarket.parsing import infer_fee_exponent
 from nautilus_trader.adapters.polymarket.common.parsing import make_composite_trade_id
 from nautilus_trader.adapters.polymarket.common.parsing import validate_ethereum_address
 from nautilus_trader.adapters.polymarket.common.symbol import (

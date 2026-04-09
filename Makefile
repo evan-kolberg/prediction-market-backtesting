@@ -30,4 +30,4 @@ download-pmxt-raws:
 
 update:
 	@echo "No vendored Nautilus subtree remains in this branch."
-	@echo "Bump the upstream nautilus_trader version and port _nautilus_overrides/ as needed."
+	@echo "Bump the upstream nautilus_trader version and port prediction_market_extensions/ as needed."

@@ -32,7 +32,7 @@ from string import ascii_lowercase
 from string import ascii_uppercase
 from typing import Any
 
-from _nautilus_bootstrap import install_local_nautilus_overrides
+from prediction_market_extensions import install_commission_patch
 
 try:
     from textual.app import App, ComposeResult
@@ -51,7 +51,7 @@ except ImportError:  # pragma: no cover - fallback is covered through non-TTY te
     Key = None  # type: ignore[assignment]
     TEXTUAL_AVAILABLE = False
 
-install_local_nautilus_overrides()
+install_commission_patch()
 
 PROJECT_ROOT = Path(__file__).parent
 BACKTESTS_ROOT = PROJECT_ROOT / "backtests"

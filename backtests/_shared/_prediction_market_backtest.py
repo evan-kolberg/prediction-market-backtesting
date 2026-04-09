@@ -10,11 +10,11 @@ from typing import Any
 
 import pandas as pd
 
-from nautilus_trader.adapters.prediction_market import LoadedReplay
-from nautilus_trader.adapters.prediction_market import ReplayCoverageStats
-from nautilus_trader.adapters.prediction_market import ReplayLoadRequest
-from nautilus_trader.adapters.prediction_market import ReplayWindow
-from nautilus_trader.adapters.prediction_market.fill_model import (
+from prediction_market_extensions.adapters.prediction_market import LoadedReplay
+from prediction_market_extensions.adapters.prediction_market import ReplayCoverageStats
+from prediction_market_extensions.adapters.prediction_market import ReplayLoadRequest
+from prediction_market_extensions.adapters.prediction_market import ReplayWindow
+from prediction_market_extensions.adapters.prediction_market.fill_model import (
     PredictionMarketTakerFillModel,
 )
 from nautilus_trader.backtest.config import BacktestEngineConfig
@@ -45,7 +45,9 @@ from backtests._shared.prediction_market import PredictionMarketArtifactBuilder
 from backtests._shared.prediction_market import MarketReportConfig
 from backtests._shared.prediction_market import finalize_market_results
 from backtests._shared.prediction_market import run_reported_backtest
-from nautilus_trader.analysis.legacy_plot_adapter import DEFAULT_DETAIL_PLOT_PANELS
+from prediction_market_extensions.analysis.legacy_plot_adapter import (
+    DEFAULT_DETAIL_PLOT_PANELS,
+)
 
 
 KalshiDataLoader = RunnerKalshiDataLoader

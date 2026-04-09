@@ -186,7 +186,9 @@ def test_active_transfer_progress_dedupes_by_hour() -> None:
 def test_install_timing_patches_runner_loader_override() -> None:
     from backtests._shared import _timing_test as timing_module
     from backtests._shared.data_sources.pmxt import RunnerPolymarketPMXTDataLoader
-    from nautilus_trader.adapters.polymarket.pmxt import PolymarketPMXTDataLoader
+    from prediction_market_extensions.adapters.polymarket.pmxt import (
+        PolymarketPMXTDataLoader,
+    )
 
     timing_module = importlib.reload(timing_module)
 

@@ -31,7 +31,7 @@ import pandas as pd
 from nautilus_trader.adapters.polymarket.common.constants import (
     POLYMARKET_HTTP_RATE_LIMIT,
 )
-from nautilus_trader.adapters.polymarket.common.gamma_markets import (
+from prediction_market_extensions.adapters.polymarket.gamma_markets import (
     infer_gamma_token_winners,
 )
 from nautilus_trader.adapters.polymarket.common.parsing import (

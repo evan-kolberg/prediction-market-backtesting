@@ -6,13 +6,15 @@
 from datetime import datetime
 import warnings
 
-from nautilus_trader.adapters.prediction_market.backtest_utils import (
+from prediction_market_extensions.adapters.prediction_market.backtest_utils import (
     compute_binary_settlement_pnl,
 )
-from nautilus_trader.adapters.prediction_market.backtest_utils import (
+from prediction_market_extensions.adapters.prediction_market.backtest_utils import (
     extract_price_points,
 )
-from nautilus_trader.adapters.prediction_market.backtest_utils import to_naive_utc
+from prediction_market_extensions.adapters.prediction_market.backtest_utils import (
+    to_naive_utc,
+)
 
 
 def test_compute_binary_settlement_pnl_marks_open_position_to_resolution():

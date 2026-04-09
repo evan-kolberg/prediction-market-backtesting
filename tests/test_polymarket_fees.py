@@ -3,9 +3,13 @@ from __future__ import annotations
 import asyncio
 from decimal import Decimal
 
-from nautilus_trader.adapters.polymarket.common.parsing import calculate_commission
-from nautilus_trader.adapters.polymarket.common.parsing import infer_fee_exponent
-from nautilus_trader.adapters.polymarket.loaders import PolymarketDataLoader
+from prediction_market_extensions.adapters.polymarket.parsing import (
+    calculate_commission,
+)
+from prediction_market_extensions.adapters.polymarket.parsing import infer_fee_exponent
+from prediction_market_extensions.adapters.polymarket.loaders import (
+    PolymarketDataLoader,
+)
 
 
 def test_calculate_commission_matches_current_polymarket_formula() -> None:

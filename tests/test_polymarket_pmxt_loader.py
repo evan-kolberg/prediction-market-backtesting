@@ -17,7 +17,9 @@ EXPECTED_MARKET_SLUG = (
     reason="Set RUN_PMXT_INTEGRATION=1 to exercise the live PMXT archive",
 )
 def test_pmxt_loader_returns_quotes_and_book_deltas():
-    from nautilus_trader.adapters.polymarket import PolymarketPMXTDataLoader
+    from prediction_market_extensions.adapters.polymarket.pmxt import (
+        PolymarketPMXTDataLoader,
+    )
     from nautilus_trader.model.data import OrderBookDeltas
     from nautilus_trader.model.data import QuoteTick
 

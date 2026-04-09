@@ -14,7 +14,9 @@ from urllib.request import urlopen
 import pyarrow.dataset as ds
 import pyarrow as pa
 
-from nautilus_trader.adapters.polymarket import PolymarketPMXTDataLoader
+from prediction_market_extensions.adapters.polymarket.pmxt import (
+    PolymarketPMXTDataLoader,
+)
 
 from backtests._shared.data_sources._common import DISABLED_ENV_VALUES
 from backtests._shared.data_sources._common import env_value

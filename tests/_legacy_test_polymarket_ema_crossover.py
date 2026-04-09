@@ -15,7 +15,9 @@ def _isolate_output(tmp_path, monkeypatch):
 
 def test_loader_returns_trades():
     """Polymarket loader fetches at least one trade tick for the configured market."""
-    from nautilus_trader.adapters.polymarket import PolymarketDataLoader
+    from prediction_market_extensions.adapters.polymarket.loaders import (
+        PolymarketDataLoader,
+    )
 
     async def _load():
         loader = await PolymarketDataLoader.from_market_slug(strat.MARKET_SLUG)

@@ -12,10 +12,10 @@ def ensure_repo_root(script_path: str | Path) -> Path:
             repo_root = parent
             if str(repo_root) not in sys.path:
                 sys.path.insert(0, str(repo_root))
-            install_local_nautilus_overrides = importlib.import_module(
-                "_nautilus_bootstrap",
-            ).install_local_nautilus_overrides
-            install_local_nautilus_overrides()
+            install_commission_patch = importlib.import_module(
+                "prediction_market_extensions",
+            ).install_commission_patch
+            install_commission_patch()
             return repo_root
     raise RuntimeError(f"Could not determine repository root for {path}")
 

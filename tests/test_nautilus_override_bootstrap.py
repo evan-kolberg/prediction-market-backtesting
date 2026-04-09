@@ -1,109 +1,82 @@
 from __future__ import annotations
 
 from pathlib import Path
-import importlib
-import sys
 
 import nautilus_trader
-import nautilus_trader.adapters as nautilus_adapters
-from nautilus_trader.adapters.polymarket.execution import PolymarketExecutionClient
-from nautilus_trader.adapters.polymarket import PolymarketPMXTDataLoader
-from nautilus_trader.adapters.prediction_market import HistoricalReplayAdapter
-from nautilus_trader.analysis import config as analysis_config
-from nautilus_trader.analysis import legacy_plot_adapter
-from nautilus_trader.analysis import tearsheet
-
-from _nautilus_bootstrap import LOCAL_ADAPTERS
-from _nautilus_bootstrap import install_local_nautilus_overrides
+from prediction_market_extensions.adapters.polymarket.execution import (
+    PolymarketExecutionClient,
+)
+from prediction_market_extensions.adapters.polymarket.pmxt import (
+    PolymarketPMXTDataLoader,
+)
+from prediction_market_extensions.adapters.prediction_market import (
+    HistoricalReplayAdapter,
+)
+from prediction_market_extensions.analysis import config as analysis_config
+from prediction_market_extensions.analysis import legacy_plot_adapter
+from prediction_market_extensions.analysis import tearsheet
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-OVERLAY_ROOT = REPO_ROOT / "_nautilus_overrides"
+EXTENSIONS_ROOT = REPO_ROOT / "prediction_market_extensions"
 
 
 def test_repo_tree_no_longer_keeps_vendored_nautilus_checkout() -> None:
     assert not (REPO_ROOT / "nautilus_pm").exists()
 
 
-def test_nautilus_runtime_uses_upstream_package_with_local_overrides() -> None:
+def test_overlay_directory_removed() -> None:
+    assert not (REPO_ROOT / "_nautilus_overrides").exists()
+
+
+def test_bootstrap_file_removed() -> None:
+    assert not (REPO_ROOT / "_nautilus_bootstrap.py").exists()
+
+
+def test_nautilus_runtime_uses_upstream_package() -> None:
     nautilus_file = Path(nautilus_trader.__file__).resolve()
     assert ".venv" in nautilus_file.parts
     assert "site-packages" in nautilus_file.parts
-    assert "nautilus_pm" not in nautilus_file.parts
 
-    prediction_market_module = sys.modules[HistoricalReplayAdapter.__module__]
-    prediction_market_path = Path(prediction_market_module.__file__).resolve()
-    assert OVERLAY_ROOT in prediction_market_path.parents
-    assert (
-        prediction_market_path.relative_to(OVERLAY_ROOT)
-        .as_posix()
-        .startswith("nautilus_trader/adapters/prediction_market/")
-    )
 
-    pmxt_module = sys.modules[PolymarketPMXTDataLoader.__module__]
-    pmxt_path = Path(pmxt_module.__file__).resolve()
-    assert OVERLAY_ROOT in pmxt_path.parents
-    assert (
-        pmxt_path.relative_to(OVERLAY_ROOT).as_posix()
-        == "nautilus_trader/adapters/polymarket/pmxt.py"
-    )
+def test_extensions_resolve_to_own_namespace() -> None:
+    replay_path = Path(HistoricalReplayAdapter.__module__.replace(".", "/")).parts
+    assert "prediction_market_extensions" in replay_path
 
-    legacy_plot_path = Path(legacy_plot_adapter.__file__).resolve()
-    assert OVERLAY_ROOT in legacy_plot_path.parents
+    pmxt_path = Path(PolymarketPMXTDataLoader.__module__.replace(".", "/")).parts
+    assert "prediction_market_extensions" in pmxt_path
 
-    execution_module = sys.modules[PolymarketExecutionClient.__module__]
-    execution_path = Path(execution_module.__file__).resolve()
-    assert OVERLAY_ROOT in execution_path.parents
-    assert (
-        execution_path.relative_to(OVERLAY_ROOT).as_posix()
-        == "nautilus_trader/adapters/polymarket/execution.py"
-    )
+    legacy_path = Path(legacy_plot_adapter.__file__).resolve()
+    assert EXTENSIONS_ROOT in legacy_path.parents
 
-    analysis_config_path = Path(analysis_config.__file__).resolve()
-    assert OVERLAY_ROOT in analysis_config_path.parents
-    assert (
-        analysis_config_path.relative_to(OVERLAY_ROOT).as_posix()
-        == "nautilus_trader/analysis/config.py"
-    )
+    execution_path = Path(PolymarketExecutionClient.__module__.replace(".", "/")).parts
+    assert "prediction_market_extensions" in execution_path
+
+    config_path = Path(analysis_config.__file__).resolve()
+    assert EXTENSIONS_ROOT in config_path.parents
 
     tearsheet_path = Path(tearsheet.__file__).resolve()
-    assert OVERLAY_ROOT in tearsheet_path.parents
-    assert (
-        tearsheet_path.relative_to(OVERLAY_ROOT).as_posix()
-        == "nautilus_trader/analysis/tearsheet.py"
+    assert EXTENSIONS_ROOT in tearsheet_path.parents
+
+
+def test_commission_patch_installed() -> None:
+    """Verify that the corrected calculate_commission is installed via monkey-patch."""
+    from decimal import Decimal
+
+    from nautilus_trader.adapters.polymarket.common.parsing import calculate_commission
+    from prediction_market_extensions.adapters.polymarket.parsing import (
+        calculate_commission as pm_calculate_commission,
     )
 
+    # After conftest.py runs install_commission_patch(), the upstream function
+    # should be our corrected version.
+    assert calculate_commission is pm_calculate_commission
 
-def test_direct_runner_bootstrap_reinstalls_adapter_overrides(
-    monkeypatch,
-) -> None:
-    script_path = REPO_ROOT / "backtests/kalshi_trade_tick_breakout.py"
-    overlay_adapters = str(LOCAL_ADAPTERS.resolve())
-
-    while overlay_adapters in nautilus_adapters.__path__:
-        nautilus_adapters.__path__.remove(overlay_adapters)
-
-    prior_helper = sys.modules.pop("_script_helpers", None)
-    prior_kalshi = sys.modules.pop("nautilus_trader.adapters.kalshi", None)
-    normalized_sys_path = [
-        entry for entry in sys.path if Path(entry or ".").resolve() != REPO_ROOT
-    ]
-    monkeypatch.setattr(sys, "path", [str(script_path.parent), *normalized_sys_path])
-
-    try:
-        helper = importlib.import_module("_script_helpers")
-        helper.ensure_repo_root(script_path)
-
-        assert list(nautilus_adapters.__path__)[0] == overlay_adapters
-
-        kalshi_module = importlib.import_module("nautilus_trader.adapters.kalshi")
-        kalshi_path = Path(kalshi_module.__file__).resolve()
-        assert OVERLAY_ROOT in kalshi_path.parents
-    finally:
-        install_local_nautilus_overrides()
-        sys.modules.pop("_script_helpers", None)
-        if prior_helper is not None:
-            sys.modules["_script_helpers"] = prior_helper
-        sys.modules.pop("nautilus_trader.adapters.kalshi", None)
-        if prior_kalshi is not None:
-            sys.modules["nautilus_trader.adapters.kalshi"] = prior_kalshi
+    # Verify the fee curve: at p=0.50, fee = qty * feeRate * 0.50 * 0.50
+    fee = calculate_commission(
+        quantity=Decimal("100"),
+        price=Decimal("0.50"),
+        fee_rate_bps=Decimal("200"),  # 2% = 200 bps
+    )
+    expected = 100 * 0.02 * 0.50 * 0.50  # = 0.50
+    assert abs(fee - expected) < 0.001

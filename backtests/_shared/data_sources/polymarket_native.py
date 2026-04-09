@@ -9,7 +9,9 @@ from urllib.parse import urlparse
 
 import msgspec
 
-from nautilus_trader.adapters.polymarket.loaders import PolymarketDataLoader
+from prediction_market_extensions.adapters.polymarket.loaders import (
+    PolymarketDataLoader,
+)
 
 from backtests._shared.data_sources._common import env_value
 from backtests._shared.data_sources._common import is_disabled

@@ -318,9 +318,9 @@ def _default_evaluation_worker(
     send_conn: Any,
 ) -> None:
     try:
-        from _nautilus_bootstrap import install_local_nautilus_overrides
+        from prediction_market_extensions import install_commission_patch
 
-        install_local_nautilus_overrides()
+        install_commission_patch()
 
         from backtests._shared._prediction_market_backtest import (
             PredictionMarketBacktest,

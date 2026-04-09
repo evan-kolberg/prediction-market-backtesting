@@ -99,9 +99,9 @@ def _single_sim_worker(
     send_conn: Any,
 ) -> None:
     try:
-        from _nautilus_bootstrap import install_local_nautilus_overrides
+        from prediction_market_extensions import install_commission_patch
 
-        install_local_nautilus_overrides()
+        install_commission_patch()
 
         result = asyncio.run(run_single_market_pmxt_backtest(**worker_kwargs))
         with open(result_path, "wb") as result_file:

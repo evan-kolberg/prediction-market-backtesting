@@ -56,22 +56,46 @@ from bokeh.palettes import Category10
 from bokeh.plotting import figure as _figure
 from bokeh.transform import factor_cmap
 
-from nautilus_trader.analysis.legacy_backtesting.models import (
+from prediction_market_extensions.analysis.legacy_backtesting.models import (
     DEFAULT_DETAIL_PLOT_PANELS,
 )
-from nautilus_trader.analysis.legacy_backtesting.models import normalize_plot_panels
-from nautilus_trader.analysis.legacy_backtesting.models import PANEL_ALLOCATION
-from nautilus_trader.analysis.legacy_backtesting.models import PANEL_BRIER_ADVANTAGE
-from nautilus_trader.analysis.legacy_backtesting.models import PANEL_CASH_EQUITY
-from nautilus_trader.analysis.legacy_backtesting.models import PANEL_DRAWDOWN
-from nautilus_trader.analysis.legacy_backtesting.models import PANEL_EQUITY
-from nautilus_trader.analysis.legacy_backtesting.models import PANEL_MARKET_PNL
-from nautilus_trader.analysis.legacy_backtesting.models import PANEL_MONTHLY_RETURNS
-from nautilus_trader.analysis.legacy_backtesting.models import PANEL_PERIODIC_PNL
-from nautilus_trader.analysis.legacy_backtesting.models import PANEL_ROLLING_SHARPE
-from nautilus_trader.analysis.legacy_backtesting.models import PANEL_TOTAL_EQUITY
-from nautilus_trader.analysis.legacy_backtesting.models import PANEL_YES_PRICE
-from nautilus_trader.analysis.legacy_backtesting.progress import PinnedProgress
+from prediction_market_extensions.analysis.legacy_backtesting.models import (
+    normalize_plot_panels,
+)
+from prediction_market_extensions.analysis.legacy_backtesting.models import (
+    PANEL_ALLOCATION,
+)
+from prediction_market_extensions.analysis.legacy_backtesting.models import (
+    PANEL_BRIER_ADVANTAGE,
+)
+from prediction_market_extensions.analysis.legacy_backtesting.models import (
+    PANEL_CASH_EQUITY,
+)
+from prediction_market_extensions.analysis.legacy_backtesting.models import (
+    PANEL_DRAWDOWN,
+)
+from prediction_market_extensions.analysis.legacy_backtesting.models import PANEL_EQUITY
+from prediction_market_extensions.analysis.legacy_backtesting.models import (
+    PANEL_MARKET_PNL,
+)
+from prediction_market_extensions.analysis.legacy_backtesting.models import (
+    PANEL_MONTHLY_RETURNS,
+)
+from prediction_market_extensions.analysis.legacy_backtesting.models import (
+    PANEL_PERIODIC_PNL,
+)
+from prediction_market_extensions.analysis.legacy_backtesting.models import (
+    PANEL_ROLLING_SHARPE,
+)
+from prediction_market_extensions.analysis.legacy_backtesting.models import (
+    PANEL_TOTAL_EQUITY,
+)
+from prediction_market_extensions.analysis.legacy_backtesting.models import (
+    PANEL_YES_PRICE,
+)
+from prediction_market_extensions.analysis.legacy_backtesting.progress import (
+    PinnedProgress,
+)
 
 try:
     from bokeh.models import CustomJSTickFormatter
@@ -79,7 +103,9 @@ except ImportError:
     from bokeh.models import FuncTickFormatter as CustomJSTickFormatter  # type: ignore[no-redef, attr-defined]
 
 if TYPE_CHECKING:
-    from nautilus_trader.analysis.legacy_backtesting.models import BacktestResult
+    from prediction_market_extensions.analysis.legacy_backtesting.models import (
+        BacktestResult,
+    )
 
 IS_JUPYTER_NOTEBOOK = "ipykernel" in sys.modules
 if IS_JUPYTER_NOTEBOOK:

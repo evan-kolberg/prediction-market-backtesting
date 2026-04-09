@@ -1,6 +1,6 @@
 {
   "typeCheckingMode": "off",
-  "extraPaths": ["_nautilus_overrides"],
+  "extraPaths": [],
   "reportMissingImports": false,
   "reportMissingModuleSource": false,
   "reportMissingTypeStubs": false,

@@ -7,27 +7,33 @@ from typing import Any
 
 import pandas as pd
 
-from nautilus_trader.adapters.prediction_market import (
+from prediction_market_extensions.adapters.prediction_market import (
     research as prediction_market_research,
 )
-from nautilus_trader.adapters.prediction_market.backtest_utils import build_brier_inputs
-from nautilus_trader.adapters.prediction_market.backtest_utils import (
+from prediction_market_extensions.adapters.prediction_market.backtest_utils import (
+    build_brier_inputs,
+)
+from prediction_market_extensions.adapters.prediction_market.backtest_utils import (
     build_market_prices,
 )
-from nautilus_trader.adapters.prediction_market.backtest_utils import (
+from prediction_market_extensions.adapters.prediction_market.backtest_utils import (
     extract_price_points,
 )
-from nautilus_trader.adapters.prediction_market.backtest_utils import (
+from prediction_market_extensions.adapters.prediction_market.backtest_utils import (
     extract_realized_pnl,
 )
-from nautilus_trader.adapters.prediction_market.backtest_utils import (
+from prediction_market_extensions.adapters.prediction_market.backtest_utils import (
     infer_realized_outcome,
 )
-from nautilus_trader.adapters.prediction_market.fill_model import (
+from prediction_market_extensions.adapters.prediction_market.fill_model import (
     PredictionMarketTakerFillModel,
 )
-from nautilus_trader.analysis.legacy_plot_adapter import build_legacy_backtest_layout
-from nautilus_trader.analysis.legacy_plot_adapter import save_legacy_backtest_layout
+from prediction_market_extensions.analysis.legacy_plot_adapter import (
+    build_legacy_backtest_layout,
+)
+from prediction_market_extensions.analysis.legacy_plot_adapter import (
+    save_legacy_backtest_layout,
+)
 from nautilus_trader.backtest.config import BacktestEngineConfig
 from nautilus_trader.backtest.engine import BacktestEngine
 from nautilus_trader.common.component import is_backtest_force_stop

@@ -4,11 +4,13 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from nautilus_trader.adapters.prediction_market.research import print_backtest_summary
-from nautilus_trader.adapters.prediction_market.research import (
+from prediction_market_extensions.adapters.prediction_market.research import (
+    print_backtest_summary,
+)
+from prediction_market_extensions.adapters.prediction_market.research import (
     save_aggregate_backtest_report,
 )
-from nautilus_trader.analysis.legacy_backtesting.models import (
+from prediction_market_extensions.analysis.legacy_backtesting.models import (
     DEFAULT_SUMMARY_PLOT_PANELS,
 )
 

@@ -20,7 +20,7 @@ from __future__ import annotations
 import math
 from decimal import Decimal
 
-from nautilus_trader.adapters.kalshi.providers import KALSHI_TAKER_FEE_RATE
+from prediction_market_extensions.adapters.kalshi.providers import KALSHI_TAKER_FEE_RATE
 from nautilus_trader.backtest.config import FeeModelConfig
 from nautilus_trader.backtest.models import FeeModel
 from nautilus_trader.model.objects import Money
@@ -69,7 +69,7 @@ class KalshiProportionalFeeModel(FeeModel):
     --------
     Direct use with ``BacktestEngine.add_venue``::
 
-        from nautilus_trader.adapters.kalshi.fee_model import KalshiProportionalFeeModel
+        from prediction_market_extensions.adapters.kalshi.fee_model import KalshiProportionalFeeModel
 
         engine.add_venue(
             venue=Venue("KALSHI"),
