@@ -32,7 +32,9 @@ from prediction_market_extensions.analysis.legacy_plot_adapter import (
 )
 from nautilus_trader.backtest.engine import BacktestEngine
 
-from backtests._shared._backtest_runtime import apply_backtest_run_state
+from prediction_market_extensions.backtesting._backtest_runtime import (
+    apply_backtest_run_state,
+)
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]

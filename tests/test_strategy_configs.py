@@ -3,11 +3,21 @@ from __future__ import annotations
 from decimal import Decimal
 from types import SimpleNamespace
 
-from backtests._shared._prediction_market_backtest import MarketSimConfig
-from backtests._shared._prediction_market_backtest import PredictionMarketBacktest
-from backtests._shared._prediction_market_backtest import _LoadedMarketSim
-from backtests._shared._prediction_market_runner import MarketDataConfig
-from backtests._shared._strategy_configs import build_strategies_from_configs
+from prediction_market_extensions.backtesting._prediction_market_backtest import (
+    MarketSimConfig,
+)
+from prediction_market_extensions.backtesting._prediction_market_backtest import (
+    PredictionMarketBacktest,
+)
+from prediction_market_extensions.backtesting._prediction_market_backtest import (
+    _LoadedMarketSim,
+)
+from prediction_market_extensions.backtesting._prediction_market_runner import (
+    MarketDataConfig,
+)
+from prediction_market_extensions.backtesting._strategy_configs import (
+    build_strategies_from_configs,
+)
 from strategies import QuoteTickBreakoutConfig
 from strategies import QuoteTickBreakoutStrategy
 from nautilus_trader.model.identifiers import InstrumentId

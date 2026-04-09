@@ -38,31 +38,41 @@ from nautilus_trader.model.enums import BookType
 from nautilus_trader.model.enums import OmsType
 from nautilus_trader.model.identifiers import Venue
 
-from backtests._shared._backtest_runtime import _record_timestamp_ns
-from backtests._shared._replay_specs import KalshiTradeTickReplay
-from backtests._shared._replay_specs import PolymarketPMXTQuoteReplay
-from backtests._shared._replay_specs import PolymarketTradeTickReplay
-from backtests._shared.data_sources.kalshi_native import (
+from prediction_market_extensions.backtesting._backtest_runtime import (
+    _record_timestamp_ns,
+)
+from prediction_market_extensions.backtesting._replay_specs import KalshiTradeTickReplay
+from prediction_market_extensions.backtesting._replay_specs import (
+    PolymarketPMXTQuoteReplay,
+)
+from prediction_market_extensions.backtesting._replay_specs import (
+    PolymarketTradeTickReplay,
+)
+from prediction_market_extensions.backtesting.data_sources.kalshi_native import (
     RunnerKalshiDataLoader as KalshiDataLoader,
 )
-from backtests._shared.data_sources.kalshi_native import (
+from prediction_market_extensions.backtesting.data_sources.kalshi_native import (
     configured_kalshi_native_data_source,
 )
-from backtests._shared.data_sources.pmxt import (
+from prediction_market_extensions.backtesting.data_sources.pmxt import (
     RunnerPolymarketPMXTDataLoader as PolymarketPMXTDataLoader,
 )
-from backtests._shared.data_sources.pmxt import configured_pmxt_data_source
-from backtests._shared.data_sources.polymarket_native import (
+from prediction_market_extensions.backtesting.data_sources.pmxt import (
+    configured_pmxt_data_source,
+)
+from prediction_market_extensions.backtesting.data_sources.polymarket_native import (
     RunnerPolymarketDataLoader as PolymarketDataLoader,
 )
-from backtests._shared.data_sources.polymarket_native import (
+from prediction_market_extensions.backtesting.data_sources.polymarket_native import (
     configured_polymarket_native_data_source,
 )
 
 
 def _resolve_backtest_compat_symbol(name: str, default: Any) -> Any:
     try:
-        module = import_module("backtests._shared._prediction_market_backtest")
+        module = import_module(
+            "prediction_market_extensions.backtesting._prediction_market_backtest"
+        )
     except Exception:
         return default
     return getattr(module, name, default)

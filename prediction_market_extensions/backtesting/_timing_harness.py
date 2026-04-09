@@ -27,7 +27,7 @@ def install_timing_harness() -> None:
     if not _timing_enabled():
         return
 
-    from backtests._shared._timing_test import install_timing
+    from prediction_market_extensions.backtesting._timing_test import install_timing
 
     install_timing()
 

@@ -4,8 +4,10 @@ import importlib
 
 import pytest
 
-from backtests._shared._replay_specs import KalshiTradeTickReplay
-from backtests._shared._strategy_configs import build_strategies_from_configs
+from prediction_market_extensions.backtesting._replay_specs import KalshiTradeTickReplay
+from prediction_market_extensions.backtesting._strategy_configs import (
+    build_strategies_from_configs,
+)
 from strategies import TradeTickBreakoutConfig
 from strategies import TradeTickBreakoutStrategy
 from nautilus_trader.model.identifiers import InstrumentId

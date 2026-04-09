@@ -3,8 +3,10 @@ from __future__ import annotations
 import importlib
 from pathlib import Path
 
-from backtests._shared._optimizer import OptimizationWindow
-from backtests._shared._replay_specs import PolymarketPMXTQuoteReplay
+from prediction_market_extensions.backtesting._replay_specs import (
+    PolymarketPMXTQuoteReplay,
+)
+from prediction_market_extensions.backtesting.optimizers import ParameterSearchWindow
 
 
 EXPECTED_PMXT_SOURCES = (
@@ -68,24 +70,24 @@ EXPECTED_OPTIMIZER_BASE_REPLAY = PolymarketPMXTQuoteReplay(
     token_index=0,
 )
 EXPECTED_OPTIMIZER_TRAIN_WINDOWS = (
-    OptimizationWindow(
+    ParameterSearchWindow(
         name="sample-a-full-window",
         start_time="2026-04-05T00:00:00Z",
         end_time="2026-04-07T23:59:59Z",
     ),
-    OptimizationWindow(
+    ParameterSearchWindow(
         name="sample-b-2026-04-06-day",
         start_time="2026-04-06T00:00:00Z",
         end_time="2026-04-06T23:59:59Z",
     ),
-    OptimizationWindow(
+    ParameterSearchWindow(
         name="sample-c-2026-04-07-late",
         start_time="2026-04-07T12:00:00Z",
         end_time="2026-04-07T23:59:59Z",
     ),
 )
 EXPECTED_OPTIMIZER_HOLDOUT_WINDOWS = (
-    OptimizationWindow(
+    ParameterSearchWindow(
         name="sample-d-close-window",
         start_time="2026-04-07T00:00:00Z",
         end_time="2026-04-07T11:59:59Z",
@@ -191,7 +193,10 @@ def test_quote_tick_optimizer_runner_inline_explicit_search_controls() -> None:
         "stop_loss": (0.005, 0.01),
     }
 
-    assert module.OPTIMIZATION.base_replay == module.BASE_REPLAY
-    assert module.OPTIMIZATION.train_windows == module.TRAIN_WINDOWS
-    assert module.OPTIMIZATION.holdout_windows == module.HOLDOUT_WINDOWS
-    assert module.OPTIMIZATION.execution == module.EXECUTION
+    assert module.OPTIMIZER is module.PARAMETER_SEARCH
+    assert module.PARAMETER_SEARCH is module.OPTIMIZATION
+    assert module.PARAMETER_SEARCH.optimizer_type == "parameter_search"
+    assert module.PARAMETER_SEARCH.base_replay == module.BASE_REPLAY
+    assert module.PARAMETER_SEARCH.train_windows == module.TRAIN_WINDOWS
+    assert module.PARAMETER_SEARCH.holdout_windows == module.HOLDOUT_WINDOWS
+    assert module.PARAMETER_SEARCH.execution == module.EXECUTION

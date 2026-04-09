@@ -5,13 +5,27 @@ from types import SimpleNamespace
 
 import pandas as pd
 
-from backtests._shared import _kalshi_trade_tick_runner as kalshi_runner
-from backtests._shared import _polymarket_quote_tick_pmxt_runner as pmxt_runner
-from backtests._shared import _polymarket_trade_tick_runner as polymarket_trade_runner
-from backtests._shared import _prediction_market_backtest as backtest_module
-from backtests._shared._prediction_market_backtest import MarketSimConfig
-from backtests._shared._prediction_market_backtest import PredictionMarketBacktest
-from backtests._shared._prediction_market_runner import MarketDataConfig
+from prediction_market_extensions.backtesting import (
+    _kalshi_trade_tick_runner as kalshi_runner,
+)
+from prediction_market_extensions.backtesting import (
+    _polymarket_quote_tick_pmxt_runner as pmxt_runner,
+)
+from prediction_market_extensions.backtesting import (
+    _polymarket_trade_tick_runner as polymarket_trade_runner,
+)
+from prediction_market_extensions.backtesting import (
+    _prediction_market_backtest as backtest_module,
+)
+from prediction_market_extensions.backtesting._prediction_market_backtest import (
+    MarketSimConfig,
+)
+from prediction_market_extensions.backtesting._prediction_market_backtest import (
+    PredictionMarketBacktest,
+)
+from prediction_market_extensions.backtesting._prediction_market_runner import (
+    MarketDataConfig,
+)
 
 
 class _EngineStub:

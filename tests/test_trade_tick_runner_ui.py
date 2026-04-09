@@ -3,8 +3,12 @@ from __future__ import annotations
 import asyncio
 from types import SimpleNamespace
 
-from backtests._shared import _kalshi_trade_tick_runner as kalshi_runner
-from backtests._shared import _polymarket_trade_tick_runner as polymarket_runner
+from prediction_market_extensions.backtesting import (
+    _kalshi_trade_tick_runner as kalshi_runner,
+)
+from prediction_market_extensions.backtesting import (
+    _polymarket_trade_tick_runner as polymarket_runner,
+)
 
 
 def test_kalshi_trade_tick_runner_uses_unified_summary(monkeypatch, capsys):

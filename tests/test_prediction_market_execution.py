@@ -3,14 +3,30 @@ from __future__ import annotations
 import importlib
 from types import SimpleNamespace
 
-from backtests._shared._backtest_runtime import build_backtest_run_state
-from backtests._shared._backtest_runtime import print_backtest_result_warnings
-from backtests._shared import _prediction_market_backtest as backtest_module
-from backtests._shared._execution_config import ExecutionModelConfig
-from backtests._shared._execution_config import StaticLatencyConfig
-from backtests._shared._prediction_market_backtest import MarketSimConfig
-from backtests._shared._prediction_market_backtest import PredictionMarketBacktest
-from backtests._shared._prediction_market_runner import MarketDataConfig
+from prediction_market_extensions.backtesting._backtest_runtime import (
+    build_backtest_run_state,
+)
+from prediction_market_extensions.backtesting._backtest_runtime import (
+    print_backtest_result_warnings,
+)
+from prediction_market_extensions.backtesting import (
+    _prediction_market_backtest as backtest_module,
+)
+from prediction_market_extensions.backtesting._execution_config import (
+    ExecutionModelConfig,
+)
+from prediction_market_extensions.backtesting._execution_config import (
+    StaticLatencyConfig,
+)
+from prediction_market_extensions.backtesting._prediction_market_backtest import (
+    MarketSimConfig,
+)
+from prediction_market_extensions.backtesting._prediction_market_backtest import (
+    PredictionMarketBacktest,
+)
+from prediction_market_extensions.backtesting._prediction_market_runner import (
+    MarketDataConfig,
+)
 
 
 class _EngineStub:

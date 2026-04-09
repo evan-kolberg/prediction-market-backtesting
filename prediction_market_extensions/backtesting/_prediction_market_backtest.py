@@ -29,22 +29,50 @@ from nautilus_trader.model.objects import Money
 from nautilus_trader.risk.config import RiskEngineConfig
 from nautilus_trader.trading.strategy import Strategy
 
-from backtests._shared._backtest_runtime import build_backtest_run_state
-from backtests._shared._execution_config import ExecutionModelConfig
-from backtests._shared._market_data_config import MarketDataConfig
-from backtests._shared._replay_specs import MarketSimConfig
-from backtests._shared._replay_specs import ReplaySpec
-from backtests._shared._replay_specs import coerce_legacy_market_sim_config
-from backtests._shared._strategy_configs import build_importable_strategy_configs
-from backtests._shared._strategy_configs import StrategyConfigSpec
-from backtests._shared.data_sources.kalshi_native import RunnerKalshiDataLoader
-from backtests._shared.data_sources.pmxt import RunnerPolymarketPMXTDataLoader
-from backtests._shared.data_sources.polymarket_native import RunnerPolymarketDataLoader
-from backtests._shared.data_sources.registry import resolve_replay_adapter
-from backtests._shared.prediction_market import PredictionMarketArtifactBuilder
-from backtests._shared.prediction_market import MarketReportConfig
-from backtests._shared.prediction_market import finalize_market_results
-from backtests._shared.prediction_market import run_reported_backtest
+from prediction_market_extensions.backtesting._backtest_runtime import (
+    build_backtest_run_state,
+)
+from prediction_market_extensions.backtesting._execution_config import (
+    ExecutionModelConfig,
+)
+from prediction_market_extensions.backtesting._market_data_config import (
+    MarketDataConfig,
+)
+from prediction_market_extensions.backtesting._replay_specs import MarketSimConfig
+from prediction_market_extensions.backtesting._replay_specs import ReplaySpec
+from prediction_market_extensions.backtesting._replay_specs import (
+    coerce_legacy_market_sim_config,
+)
+from prediction_market_extensions.backtesting._strategy_configs import (
+    build_importable_strategy_configs,
+)
+from prediction_market_extensions.backtesting._strategy_configs import (
+    StrategyConfigSpec,
+)
+from prediction_market_extensions.backtesting.data_sources.kalshi_native import (
+    RunnerKalshiDataLoader,
+)
+from prediction_market_extensions.backtesting.data_sources.pmxt import (
+    RunnerPolymarketPMXTDataLoader,
+)
+from prediction_market_extensions.backtesting.data_sources.polymarket_native import (
+    RunnerPolymarketDataLoader,
+)
+from prediction_market_extensions.backtesting.data_sources.registry import (
+    resolve_replay_adapter,
+)
+from prediction_market_extensions.backtesting.prediction_market import (
+    PredictionMarketArtifactBuilder,
+)
+from prediction_market_extensions.backtesting.prediction_market import (
+    MarketReportConfig,
+)
+from prediction_market_extensions.backtesting.prediction_market import (
+    finalize_market_results,
+)
+from prediction_market_extensions.backtesting.prediction_market import (
+    run_reported_backtest,
+)
 from prediction_market_extensions.analysis.legacy_plot_adapter import (
     DEFAULT_DETAIL_PLOT_PANELS,
 )

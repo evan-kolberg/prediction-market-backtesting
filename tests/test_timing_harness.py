@@ -4,7 +4,7 @@ import asyncio
 import sys
 from types import SimpleNamespace
 
-from backtests._shared._timing_harness import timing_harness
+from prediction_market_extensions.backtesting._timing_harness import timing_harness
 
 
 def test_timing_harness_installs_pmxt_timing_by_default(monkeypatch) -> None:
@@ -17,7 +17,7 @@ def test_timing_harness_installs_pmxt_timing_by_default(monkeypatch) -> None:
     monkeypatch.delenv("BACKTEST_ENABLE_TIMING", raising=False)
     monkeypatch.setitem(
         sys.modules,
-        "backtests._shared._timing_test",
+        "prediction_market_extensions.backtesting._timing_test",
         SimpleNamespace(install_timing=lambda: calls.__setitem__("timing", 1)),
     )
 
@@ -37,7 +37,7 @@ def test_timing_harness_skips_install_when_disabled(monkeypatch) -> None:
     monkeypatch.setenv("BACKTEST_ENABLE_TIMING", "0")
     monkeypatch.setitem(
         sys.modules,
-        "backtests._shared._timing_test",
+        "prediction_market_extensions.backtesting._timing_test",
         SimpleNamespace(install_timing=lambda: calls.__setitem__("timing", 1)),
     )
 

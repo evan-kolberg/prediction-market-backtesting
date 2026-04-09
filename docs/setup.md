@@ -85,9 +85,11 @@ when the runner keeps `CHART_OUTPUT_PATH="output"`.
 
 For a research-oriented notebook example, select
 `backtests/generic_optimizer_research.ipynb` from the menu. It targets any
-optimizer runner exposing `OPTIMIZATION`: set `OPTIMIZER_MODULE`, run the
-compact search, then it replays one selected window with the winning parameters
-and embeds the generated HTML back into the notebook.
+optimizer runner exposing `OPTIMIZER`; today's public parameter-search runners
+also publish `PARAMETER_SEARCH` and the older `OPTIMIZATION` alias for
+compatibility. Set `OPTIMIZER_MODULE`, run the compact search, then it replays
+one selected window with the winning parameters and embeds the generated HTML
+back into the notebook.
 
 Public runner files carry their market, source, and execution assumptions in
 code. PMXT quote-tick runners pin absolute sample windows, and the public

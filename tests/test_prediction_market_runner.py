@@ -3,17 +3,25 @@ from __future__ import annotations
 import asyncio
 from types import SimpleNamespace
 
-from backtests._shared import _prediction_market_runner as runner
-from backtests._shared._execution_config import ExecutionModelConfig
-from backtests._shared._execution_config import StaticLatencyConfig
-from backtests._shared._prediction_market_backtest import PredictionMarketBacktest
-from backtests._shared.data_sources import Native
-from backtests._shared.data_sources import PMXT
-from backtests._shared.data_sources import PMXT_VENDOR
-from backtests._shared.data_sources import Polymarket
-from backtests._shared.data_sources import QuoteTick
-from backtests._shared.data_sources import TradeTick
-from backtests._shared._replay_specs import PolymarketPMXTQuoteReplay
+from prediction_market_extensions.backtesting import _prediction_market_runner as runner
+from prediction_market_extensions.backtesting._execution_config import (
+    ExecutionModelConfig,
+)
+from prediction_market_extensions.backtesting._execution_config import (
+    StaticLatencyConfig,
+)
+from prediction_market_extensions.backtesting._prediction_market_backtest import (
+    PredictionMarketBacktest,
+)
+from prediction_market_extensions.backtesting.data_sources import Native
+from prediction_market_extensions.backtesting.data_sources import PMXT
+from prediction_market_extensions.backtesting.data_sources import PMXT_VENDOR
+from prediction_market_extensions.backtesting.data_sources import Polymarket
+from prediction_market_extensions.backtesting.data_sources import QuoteTick
+from prediction_market_extensions.backtesting.data_sources import TradeTick
+from prediction_market_extensions.backtesting._replay_specs import (
+    PolymarketPMXTQuoteReplay,
+)
 
 
 def test_market_data_config_normalizes_values() -> None:

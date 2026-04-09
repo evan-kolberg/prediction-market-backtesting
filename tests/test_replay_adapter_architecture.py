@@ -5,14 +5,30 @@ from dataclasses import dataclass
 from types import SimpleNamespace
 from typing import Any
 
-from backtests._shared import _prediction_market_backtest as backtest_module
-from backtests._shared._experiments import build_backtest_for_experiment
-from backtests._shared._experiments import build_replay_experiment
-from backtests._shared._market_data_support import MarketDataSupport
-from backtests._shared._market_data_support import build_single_market_replay
-from backtests._shared._market_data_support import register_market_data_support
-from backtests._shared._market_data_support import unregister_market_data_support
-from backtests._shared._prediction_market_runner import MarketDataConfig
+from prediction_market_extensions.backtesting import (
+    _prediction_market_backtest as backtest_module,
+)
+from prediction_market_extensions.backtesting._experiments import (
+    build_backtest_for_experiment,
+)
+from prediction_market_extensions.backtesting._experiments import (
+    build_replay_experiment,
+)
+from prediction_market_extensions.backtesting._market_data_support import (
+    MarketDataSupport,
+)
+from prediction_market_extensions.backtesting._market_data_support import (
+    build_single_market_replay,
+)
+from prediction_market_extensions.backtesting._market_data_support import (
+    register_market_data_support,
+)
+from prediction_market_extensions.backtesting._market_data_support import (
+    unregister_market_data_support,
+)
+from prediction_market_extensions.backtesting._prediction_market_runner import (
+    MarketDataConfig,
+)
 from prediction_market_extensions.adapters.prediction_market import (
     HistoricalReplayAdapter,
 )

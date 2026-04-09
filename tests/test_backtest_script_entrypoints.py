@@ -113,14 +113,13 @@ def test_backtests_tree_keeps_public_runners_flat() -> None:
         for path in BACKTESTS_ROOT.iterdir()
         if path.is_dir() and path.name != "__pycache__"
     }
-    assert top_level_dirs <= {"_shared", "private"}
+    assert top_level_dirs <= {"private"}
 
     unexpected_nested_runners = [
         path.relative_to(BACKTESTS_ROOT)
         for path in (*BACKTESTS_ROOT.rglob("*.py"), *BACKTESTS_ROOT.rglob("*.ipynb"))
         if len(path.relative_to(BACKTESTS_ROOT).parts) > 1
-        and path.relative_to(BACKTESTS_ROOT).parts[0]
-        not in {"_shared", "private", "__pycache__"}
+        and path.relative_to(BACKTESTS_ROOT).parts[0] not in {"private", "__pycache__"}
     ]
     assert unexpected_nested_runners == []
 
@@ -182,11 +181,14 @@ def test_public_runner_modules_expose_metadata_contract(
                 getattr(experiment, "chart_output_path", object())
                 == globals_dict["CHART_OUTPUT_PATH"]
             )
-    if "OPTIMIZATION" in globals_dict:
-        optimization = globals_dict["OPTIMIZATION"]
-        assert getattr(optimization, "emit_html", None) == globals_dict["EMIT_HTML"]
+    parameter_search = globals_dict.get(
+        "PARAMETER_SEARCH",
+        globals_dict.get("OPTIMIZER", globals_dict.get("OPTIMIZATION")),
+    )
+    if parameter_search is not None:
+        assert getattr(parameter_search, "emit_html", None) == globals_dict["EMIT_HTML"]
         assert (
-            getattr(optimization, "chart_output_path", object())
+            getattr(parameter_search, "chart_output_path", object())
             == globals_dict["CHART_OUTPUT_PATH"]
         )
     assert callable(globals_dict.get("run"))
@@ -194,7 +196,9 @@ def test_public_runner_modules_expose_metadata_contract(
 
 @pytest.mark.parametrize("relative_path", PUBLIC_NOTEBOOK_RUNNER_PATHS)
 def test_public_notebook_runners_expose_metadata_contract(relative_path: Path) -> None:
-    from backtests._shared._notebook_runner import load_notebook_metadata
+    from prediction_market_extensions.backtesting._notebook_runner import (
+        load_notebook_metadata,
+    )
 
     metadata = load_notebook_metadata(
         REPO_ROOT / relative_path,
@@ -330,7 +334,8 @@ def test_pmxt_quote_tick_optimizer_runners_expose_explicit_search_configuration(
     train_windows = globals_dict["TRAIN_WINDOWS"]
     holdout_windows = globals_dict["HOLDOUT_WINDOWS"]
     parameter_grid = globals_dict["PARAMETER_GRID"]
-    optimization = globals_dict["OPTIMIZATION"]
+    optimizer = globals_dict["OPTIMIZER"]
+    parameter_search = globals_dict["PARAMETER_SEARCH"]
 
     assert data.platform == "polymarket"
     assert data.data_type == "quote_tick"
@@ -346,20 +351,23 @@ def test_pmxt_quote_tick_optimizer_runners_expose_explicit_search_configuration(
         "take_profit",
         "stop_loss",
     }
-    assert optimization.data is data
-    assert optimization.base_replay is base_replay
-    assert optimization.strategy_spec is globals_dict["STRATEGY_SPEC"]
+    assert optimizer is parameter_search
+    assert globals_dict["OPTIMIZATION"] is parameter_search
+    assert parameter_search.optimizer_type == "parameter_search"
+    assert parameter_search.data is data
+    assert parameter_search.base_replay is base_replay
+    assert parameter_search.strategy_spec is globals_dict["STRATEGY_SPEC"]
     assert globals_dict["EMIT_HTML"] is False
     assert globals_dict["CHART_OUTPUT_PATH"] == "output"
-    assert optimization.emit_html is False
-    assert optimization.chart_output_path == "output"
-    assert dict(optimization.parameter_grid) == parameter_grid
-    assert optimization.train_windows == train_windows
-    assert optimization.holdout_windows == holdout_windows
-    assert optimization.execution is globals_dict["EXECUTION"]
-    assert optimization.initial_cash == 100.0
-    assert optimization.min_quotes == 500
-    assert optimization.min_price_range == 0.005
+    assert parameter_search.emit_html is False
+    assert parameter_search.chart_output_path == "output"
+    assert dict(parameter_search.parameter_grid) == parameter_grid
+    assert parameter_search.train_windows == train_windows
+    assert parameter_search.holdout_windows == holdout_windows
+    assert parameter_search.execution is globals_dict["EXECUTION"]
+    assert parameter_search.initial_cash == 100.0
+    assert parameter_search.min_quotes == 500
+    assert parameter_search.min_price_range == 0.005
 
 
 @pytest.mark.parametrize("relative_path", TRADE_TICK_MULTI_RUNNERS)

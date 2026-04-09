@@ -3,9 +3,13 @@ from __future__ import annotations
 import asyncio
 import os
 
-from backtests._shared.data_sources.kalshi_native import KALSHI_REST_BASE_URL_ENV
-from backtests._shared.data_sources.kalshi_native import RunnerKalshiDataLoader
-from backtests._shared.data_sources.kalshi_native import (
+from prediction_market_extensions.backtesting.data_sources.kalshi_native import (
+    KALSHI_REST_BASE_URL_ENV,
+)
+from prediction_market_extensions.backtesting.data_sources.kalshi_native import (
+    RunnerKalshiDataLoader,
+)
+from prediction_market_extensions.backtesting.data_sources.kalshi_native import (
     configured_kalshi_native_data_source,
 )
 

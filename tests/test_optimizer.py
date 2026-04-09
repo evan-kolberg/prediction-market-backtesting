@@ -6,17 +6,38 @@ from pathlib import Path
 
 import pytest
 
-from backtests._shared import _optimizer as optimizer
-from backtests._shared._execution_config import ExecutionModelConfig
-from backtests._shared._execution_config import StaticLatencyConfig
-from backtests._shared._prediction_market_backtest import PredictionMarketBacktest
-from backtests._shared._prediction_market_runner import MarketDataConfig
-from backtests._shared._replay_specs import PolymarketPMXTQuoteReplay
-from backtests._shared.data_sources import PMXT, Polymarket, QuoteTick
+from prediction_market_extensions.backtesting import _optimizer as optimizer
+from prediction_market_extensions.backtesting._execution_config import (
+    ExecutionModelConfig,
+)
+from prediction_market_extensions.backtesting._execution_config import (
+    StaticLatencyConfig,
+)
+from prediction_market_extensions.backtesting._prediction_market_backtest import (
+    PredictionMarketBacktest,
+)
+from prediction_market_extensions.backtesting._prediction_market_runner import (
+    MarketDataConfig,
+)
+from prediction_market_extensions.backtesting._replay_specs import (
+    PolymarketPMXTQuoteReplay,
+)
+from prediction_market_extensions.backtesting.data_sources import (
+    PMXT,
+    Polymarket,
+    QuoteTick,
+)
+from prediction_market_extensions.backtesting.optimizers import (
+    OPTIMIZER_TYPE_PARAMETER_SEARCH,
+)
 
 
-def _window(name: str, start_time: str, end_time: str) -> optimizer.OptimizationWindow:
-    return optimizer.OptimizationWindow(
+def _window(
+    name: str,
+    start_time: str,
+    end_time: str,
+) -> optimizer.ParameterSearchWindow:
+    return optimizer.ParameterSearchWindow(
         name=name,
         start_time=start_time,
         end_time=end_time,
@@ -39,13 +60,13 @@ def _make_config(
     name: str = "optimizer_test",
     strategy_spec: dict[str, object] | None = None,
     parameter_grid: dict[str, tuple[object, ...]] | None = None,
-    train_windows: tuple[optimizer.OptimizationWindow, ...] | None = None,
-    holdout_windows: tuple[optimizer.OptimizationWindow, ...] | None = None,
+    train_windows: tuple[optimizer.ParameterSearchWindow, ...] | None = None,
+    holdout_windows: tuple[optimizer.ParameterSearchWindow, ...] | None = None,
     max_trials: int = 3,
     random_seed: int = 7,
     holdout_top_k: int = 2,
     min_fills_per_window: int = 1,
-) -> optimizer.OptimizationConfig:
+) -> optimizer.ParameterSearchConfig:
     resolved_strategy_spec = (
         strategy_spec
         if strategy_spec is not None
@@ -72,7 +93,7 @@ def _make_config(
         else (_window("holdout-a", "2026-01-03T00:00:00Z", "2026-01-03T02:00:00Z"),)
     )
 
-    return optimizer.OptimizationConfig(
+    return optimizer.ParameterSearchConfig(
         name=name,
         data=MarketDataConfig(
             platform=Polymarket,
@@ -106,6 +127,14 @@ def _make_config(
         ),
         artifact_root=tmp_path,
     )
+
+
+def test_parameter_search_config_carries_explicit_optimizer_type(
+    tmp_path: Path,
+) -> None:
+    config = _make_config(tmp_path)
+
+    assert config.optimizer_type == OPTIMIZER_TYPE_PARAMETER_SEARCH
 
 
 def test_sample_parameter_sets_is_deterministic_and_unique(tmp_path: Path) -> None:
@@ -296,6 +325,7 @@ def test_optimizer_reruns_only_top_k_train_candidates_on_holdout_and_selects_by_
 
     summary = optimizer.run_parameter_optimization(config, evaluator=_evaluator)
 
+    assert summary.optimizer_type == OPTIMIZER_TYPE_PARAMETER_SEARCH
     assert dict(summary.selected_params) == {"edge": 2}
     assert len(summary.leaderboard) == 3
     assert (3, "holdout-a") not in calls
@@ -384,6 +414,7 @@ def test_run_parameter_optimization_writes_artifacts(
 
     payload = json.loads(summary_path.read_text())
     assert payload["name"] == summary.name
+    assert payload["optimizer_type"] == OPTIMIZER_TYPE_PARAMETER_SEARCH
     assert payload["evaluated_trials"] == 2
     assert payload["train_windows"] == [window.name for window in config.train_windows]
     assert payload["holdout_windows"] == [

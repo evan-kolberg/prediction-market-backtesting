@@ -4,8 +4,12 @@ import importlib
 
 import pytest
 
-from backtests._shared._replay_specs import PolymarketPMXTQuoteReplay
-from backtests._shared._strategy_configs import build_strategies_from_configs
+from prediction_market_extensions.backtesting._replay_specs import (
+    PolymarketPMXTQuoteReplay,
+)
+from prediction_market_extensions.backtesting._strategy_configs import (
+    build_strategies_from_configs,
+)
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.model.identifiers import Symbol
 from nautilus_trader.model.identifiers import Venue

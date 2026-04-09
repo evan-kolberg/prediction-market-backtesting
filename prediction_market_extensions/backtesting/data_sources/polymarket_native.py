@@ -13,11 +13,17 @@ from prediction_market_extensions.adapters.polymarket.loaders import (
     PolymarketDataLoader,
 )
 
-from backtests._shared.data_sources._common import env_value
-from backtests._shared.data_sources._common import is_disabled
-from backtests._shared.data_sources._common import looks_like_local_path
-from backtests._shared.data_sources._common import normalize_urlish
-from backtests._shared.data_sources._common import trim_url_suffix
+from prediction_market_extensions.backtesting.data_sources._common import env_value
+from prediction_market_extensions.backtesting.data_sources._common import is_disabled
+from prediction_market_extensions.backtesting.data_sources._common import (
+    looks_like_local_path,
+)
+from prediction_market_extensions.backtesting.data_sources._common import (
+    normalize_urlish,
+)
+from prediction_market_extensions.backtesting.data_sources._common import (
+    trim_url_suffix,
+)
 
 
 POLYMARKET_GAMMA_BASE_URL_ENV = "POLYMARKET_GAMMA_BASE_URL"

@@ -20,16 +20,28 @@ else:
 
 ensure_repo_root(__file__)
 
-from backtests._shared._experiments import build_backtest_for_experiment
-from backtests._shared._experiments import build_replay_experiment
-from backtests._shared._kalshi_trade_tick_multi_runner import (
+from prediction_market_extensions.backtesting._experiments import (
+    build_backtest_for_experiment,
+)
+from prediction_market_extensions.backtesting._experiments import (
+    build_replay_experiment,
+)
+from prediction_market_extensions.backtesting._kalshi_trade_tick_multi_runner import (
     run_reported_multi_market_trade_backtest,
 )
-from backtests._shared._prediction_market_backtest import MarketReportConfig
-from backtests._shared._prediction_market_runner import MarketDataConfig
-from backtests._shared._replay_specs import KalshiTradeTickReplay
-from backtests._shared._timing_harness import timing_harness
-from backtests._shared.data_sources import Kalshi, Native, TradeTick
+from prediction_market_extensions.backtesting._prediction_market_backtest import (
+    MarketReportConfig,
+)
+from prediction_market_extensions.backtesting._prediction_market_runner import (
+    MarketDataConfig,
+)
+from prediction_market_extensions.backtesting._replay_specs import KalshiTradeTickReplay
+from prediction_market_extensions.backtesting._timing_harness import timing_harness
+from prediction_market_extensions.backtesting.data_sources import (
+    Kalshi,
+    Native,
+    TradeTick,
+)
 
 
 NAME = "kalshi_trade_tick_multi_sim_runner"

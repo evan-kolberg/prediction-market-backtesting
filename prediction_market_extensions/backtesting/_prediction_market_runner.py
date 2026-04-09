@@ -11,13 +11,25 @@ import pandas as pd
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.trading.strategy import Strategy
 
-from backtests._shared._execution_config import ExecutionModelConfig
-from backtests._shared._experiments import ReplayExperiment
-from backtests._shared._experiments import run_replay_experiment_async
-from backtests._shared._market_data_config import MarketDataConfig
-from backtests._shared._strategy_configs import StrategyConfigSpec
-from backtests._shared.data_sources.registry import build_single_market_replay
-from backtests._shared.data_sources.registry import resolve_market_data_support
+from prediction_market_extensions.backtesting._execution_config import (
+    ExecutionModelConfig,
+)
+from prediction_market_extensions.backtesting._experiments import ReplayExperiment
+from prediction_market_extensions.backtesting._experiments import (
+    run_replay_experiment_async,
+)
+from prediction_market_extensions.backtesting._market_data_config import (
+    MarketDataConfig,
+)
+from prediction_market_extensions.backtesting._strategy_configs import (
+    StrategyConfigSpec,
+)
+from prediction_market_extensions.backtesting.data_sources.registry import (
+    build_single_market_replay,
+)
+from prediction_market_extensions.backtesting.data_sources.registry import (
+    resolve_market_data_support,
+)
 
 
 type StrategyFactory = Callable[[InstrumentId], Strategy]

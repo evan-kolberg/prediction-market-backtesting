@@ -6,11 +6,21 @@ from types import SimpleNamespace
 
 import pytest
 
-from backtests._shared import _polymarket_trade_tick_multi_runner as multi_runner
-from backtests._shared._prediction_market_backtest import MarketReportConfig
-from backtests._shared._prediction_market_backtest import MarketSimConfig
-from backtests._shared._prediction_market_backtest import PredictionMarketBacktest
-from backtests._shared._prediction_market_runner import MarketDataConfig
+from prediction_market_extensions.backtesting import (
+    _polymarket_trade_tick_multi_runner as multi_runner,
+)
+from prediction_market_extensions.backtesting._prediction_market_backtest import (
+    MarketReportConfig,
+)
+from prediction_market_extensions.backtesting._prediction_market_backtest import (
+    MarketSimConfig,
+)
+from prediction_market_extensions.backtesting._prediction_market_backtest import (
+    PredictionMarketBacktest,
+)
+from prediction_market_extensions.backtesting._prediction_market_runner import (
+    MarketDataConfig,
+)
 
 
 def test_multi_market_trade_runner_forwards_explicit_output_paths(

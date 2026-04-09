@@ -3,8 +3,10 @@ from __future__ import annotations
 import importlib
 from pathlib import Path
 
-from backtests._shared._replay_specs import KalshiTradeTickReplay
-from backtests._shared._replay_specs import PolymarketTradeTickReplay
+from prediction_market_extensions.backtesting._replay_specs import KalshiTradeTickReplay
+from prediction_market_extensions.backtesting._replay_specs import (
+    PolymarketTradeTickReplay,
+)
 
 
 EXPECTED_INITIAL_CASH = 100.0

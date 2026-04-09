@@ -1,8 +1,12 @@
 from __future__ import annotations
 
-from backtests._shared._prediction_market_backtest import PredictionMarketBacktest
-from backtests._shared._prediction_market_runner import MarketDataConfig
-from backtests._shared._replay_specs import MarketSimConfig
+from prediction_market_extensions.backtesting._prediction_market_backtest import (
+    PredictionMarketBacktest,
+)
+from prediction_market_extensions.backtesting._prediction_market_runner import (
+    MarketDataConfig,
+)
+from prediction_market_extensions.backtesting._replay_specs import MarketSimConfig
 
 
 def _build_backtest(**kwargs) -> PredictionMarketBacktest:

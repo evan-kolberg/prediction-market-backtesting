@@ -3,10 +3,18 @@ from __future__ import annotations
 import asyncio
 from types import SimpleNamespace
 
-from backtests._shared import _polymarket_quote_tick_pmxt_multi_runner as multi_runner
-from backtests._shared._prediction_market_backtest import MarketSimConfig
-from backtests._shared._prediction_market_backtest import PredictionMarketBacktest
-from backtests._shared._prediction_market_runner import MarketDataConfig
+from prediction_market_extensions.backtesting import (
+    _polymarket_quote_tick_pmxt_multi_runner as multi_runner,
+)
+from prediction_market_extensions.backtesting._prediction_market_backtest import (
+    MarketSimConfig,
+)
+from prediction_market_extensions.backtesting._prediction_market_backtest import (
+    PredictionMarketBacktest,
+)
+from prediction_market_extensions.backtesting._prediction_market_runner import (
+    MarketDataConfig,
+)
 
 
 def test_multi_sim_pmxt_runner_forwards_nautilus_log_level(

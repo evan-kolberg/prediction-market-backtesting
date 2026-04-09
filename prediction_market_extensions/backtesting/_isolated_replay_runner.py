@@ -20,7 +20,7 @@ def _single_replay_worker(
 
         install_commission_patch()
 
-        from backtests._shared._prediction_market_backtest import (
+        from prediction_market_extensions.backtesting._prediction_market_backtest import (
             PredictionMarketBacktest,
         )
 

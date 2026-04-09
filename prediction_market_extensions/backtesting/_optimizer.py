@@ -22,17 +22,28 @@ from types import MappingProxyType
 from typing import Any
 from typing import TYPE_CHECKING
 
-from backtests._shared._execution_config import ExecutionModelConfig
-from backtests._shared._market_data_config import MarketDataConfig
-from backtests._shared._replay_specs import ReplaySpec
-from backtests._shared._strategy_configs import StrategyConfigSpec
-from backtests._shared.data_sources.registry import resolve_market_data_support
+from prediction_market_extensions.backtesting._execution_config import (
+    ExecutionModelConfig,
+)
+from prediction_market_extensions.backtesting._market_data_config import (
+    MarketDataConfig,
+)
+from prediction_market_extensions.backtesting._replay_specs import ReplaySpec
+from prediction_market_extensions.backtesting._strategy_configs import (
+    StrategyConfigSpec,
+)
+from prediction_market_extensions.backtesting.data_sources.registry import (
+    resolve_market_data_support,
+)
 
 if TYPE_CHECKING:
-    from backtests._shared._prediction_market_backtest import PredictionMarketBacktest
+    from prediction_market_extensions.backtesting._prediction_market_backtest import (
+        PredictionMarketBacktest,
+    )
 
 
 SEARCH_PLACEHOLDER_PREFIX = "__SEARCH__:"
+OPTIMIZER_TYPE_PARAMETER_SEARCH = "parameter_search"
 DEFAULT_INVALID_SCORE = -1_000_000_000.0
 _TOP_CANDIDATE_COUNT = 5
 
@@ -44,21 +55,21 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 @dataclass(frozen=True)
-class OptimizationWindow:
+class ParameterSearchWindow:
     name: str
     start_time: str
     end_time: str
 
 
 @dataclass(frozen=True)
-class OptimizationConfig:
+class ParameterSearchConfig:
     name: str
     data: MarketDataConfig
     base_replay: ReplaySpec
     strategy_spec: StrategyConfigSpec
     parameter_grid: Mapping[str, Sequence[Any]]
-    train_windows: Sequence[OptimizationWindow]
-    holdout_windows: Sequence[OptimizationWindow] = ()
+    train_windows: Sequence[ParameterSearchWindow]
+    holdout_windows: Sequence[ParameterSearchWindow] = ()
     max_trials: int = 16
     random_seed: int = 0
     holdout_top_k: int = 5
@@ -76,6 +87,10 @@ class OptimizationConfig:
     artifact_root: Path | str = Path("output")
     invalid_score: float = DEFAULT_INVALID_SCORE
 
+    @property
+    def optimizer_type(self) -> str:
+        return OPTIMIZER_TYPE_PARAMETER_SEARCH
+
     def __post_init__(self) -> None:
         resolve_market_data_support(
             platform=self.data.platform,
@@ -87,7 +102,7 @@ class OptimizationConfig:
         market_ticker = getattr(self.base_replay, "market_ticker", None)
         if market_slug is None and market_ticker is None:
             raise ValueError(
-                "OptimizationConfig.base_replay must define market_slug or market_ticker."
+                "ParameterSearchConfig.base_replay must define market_slug or market_ticker."
             )
         if self.max_trials <= 0:
             raise ValueError("max_trials must be positive.")
@@ -137,7 +152,7 @@ class OptimizationConfig:
 
 
 @dataclass(frozen=True)
-class OptimizationLeaderboardRow:
+class ParameterSearchLeaderboardRow:
     trial_id: int
     params: ParameterValues
     train_scores: tuple[float, ...]
@@ -155,18 +170,22 @@ class OptimizationLeaderboardRow:
 
 
 @dataclass(frozen=True)
-class OptimizationSummary:
+class ParameterSearchSummary:
     name: str
     objective_name: str
     candidate_pool_size: int
     evaluated_trials: int
     train_window_names: tuple[str, ...]
     holdout_window_names: tuple[str, ...]
-    best_row: OptimizationLeaderboardRow
+    best_row: ParameterSearchLeaderboardRow
     selected_params: ParameterValues
-    leaderboard: tuple[OptimizationLeaderboardRow, ...]
+    leaderboard: tuple[ParameterSearchLeaderboardRow, ...]
     leaderboard_csv_path: str
     summary_json_path: str
+
+    @property
+    def optimizer_type(self) -> str:
+        return OPTIMIZER_TYPE_PARAMETER_SEARCH
 
 
 @dataclass(frozen=True)
@@ -231,7 +250,7 @@ def _parameter_candidates(
     return candidates
 
 
-def _sample_parameter_sets(config: OptimizationConfig) -> list[ParameterValues]:
+def _sample_parameter_sets(config: ParameterSearchConfig) -> list[ParameterValues]:
     candidates = _parameter_candidates(config.parameter_grid)
     if len(candidates) <= config.max_trials:
         return candidates
@@ -244,7 +263,7 @@ def _sample_parameter_sets(config: OptimizationConfig) -> list[ParameterValues]:
 def _windowed_replay(
     *,
     base_replay: ReplaySpec,
-    window: OptimizationWindow,
+    window: ParameterSearchWindow,
 ) -> ReplaySpec:
     metadata = dict(getattr(base_replay, "metadata", None) or {})
     metadata["optimization_window"] = window.name
@@ -266,12 +285,14 @@ def _windowed_replay(
 
 def _build_backtest(
     *,
-    config: OptimizationConfig,
+    config: ParameterSearchConfig,
     trial_id: int,
-    window: OptimizationWindow,
+    window: ParameterSearchWindow,
     params: ParameterValues,
 ) -> PredictionMarketBacktest:
-    from backtests._shared._prediction_market_backtest import PredictionMarketBacktest
+    from prediction_market_extensions.backtesting._prediction_market_backtest import (
+        PredictionMarketBacktest,
+    )
 
     return PredictionMarketBacktest(
         **_build_backtest_kwargs(
@@ -285,7 +306,7 @@ def _build_backtest(
 
 def _coerce_parameter_values(
     *,
-    config: OptimizationConfig,
+    config: ParameterSearchConfig,
     params: ParameterValues | Mapping[str, Any],
 ) -> ParameterValues:
     if isinstance(params, Mapping):
@@ -293,10 +314,10 @@ def _coerce_parameter_values(
     return params
 
 
-def build_optimization_window_backtest(
+def build_parameter_search_window_backtest(
     *,
-    config: OptimizationConfig,
-    window: OptimizationWindow,
+    config: ParameterSearchConfig,
+    window: ParameterSearchWindow,
     params: ParameterValues | Mapping[str, Any],
     trial_id: int = 1,
     name: str | None = None,
@@ -304,7 +325,9 @@ def build_optimization_window_backtest(
     chart_output_path: str | Path | None = None,
     return_summary_series: bool | None = None,
 ) -> PredictionMarketBacktest:
-    from backtests._shared._prediction_market_backtest import PredictionMarketBacktest
+    from prediction_market_extensions.backtesting._prediction_market_backtest import (
+        PredictionMarketBacktest,
+    )
 
     normalized_params = _coerce_parameter_values(config=config, params=params)
     kwargs = _build_backtest_kwargs(
@@ -326,9 +349,9 @@ def build_optimization_window_backtest(
 
 def _build_backtest_kwargs(
     *,
-    config: OptimizationConfig,
+    config: ParameterSearchConfig,
     trial_id: int,
-    window: OptimizationWindow,
+    window: ParameterSearchWindow,
     params: ParameterValues,
 ) -> dict[str, Any]:
     params_map = dict(params)
@@ -363,7 +386,7 @@ def _default_evaluation_worker(
 
         install_commission_patch()
 
-        from backtests._shared._prediction_market_backtest import (
+        from prediction_market_extensions.backtesting._prediction_market_backtest import (
             PredictionMarketBacktest,
         )
 
@@ -531,11 +554,11 @@ def _score_result(
 
 def _evaluate_window(
     *,
-    config: OptimizationConfig,
+    config: ParameterSearchConfig,
     evaluator: BacktestEvaluator | None,
     trial_id: int,
     params: ParameterValues,
-    window: OptimizationWindow,
+    window: ParameterSearchWindow,
 ) -> _WindowEvaluation:
     try:
         if evaluator is None:
@@ -623,10 +646,10 @@ def _build_leaderboard_row(
     params: ParameterValues,
     train_evaluations: Sequence[_WindowEvaluation],
     holdout_evaluations: Sequence[_WindowEvaluation] = (),
-) -> OptimizationLeaderboardRow:
+) -> ParameterSearchLeaderboardRow:
     train_scores = tuple(evaluation.score for evaluation in train_evaluations)
     holdout_scores = tuple(evaluation.score for evaluation in holdout_evaluations)
-    return OptimizationLeaderboardRow(
+    return ParameterSearchLeaderboardRow(
         trial_id=trial_id,
         params=params,
         train_scores=train_scores,
@@ -679,12 +702,12 @@ def _build_leaderboard_row(
     )
 
 
-def _train_row_sort_key(row: OptimizationLeaderboardRow) -> tuple[float, int]:
+def _train_row_sort_key(row: ParameterSearchLeaderboardRow) -> tuple[float, int]:
     return (-row.train_median_score, row.trial_id)
 
 
 def _final_row_sort_key(
-    row: OptimizationLeaderboardRow,
+    row: ParameterSearchLeaderboardRow,
 ) -> tuple[int, float, float, int]:
     holdout_rank = (
         row.holdout_median_score
@@ -715,7 +738,7 @@ def _json_safe(value: Any) -> Any:
 
 def _write_leaderboard_csv(
     *,
-    rows: Sequence[OptimizationLeaderboardRow],
+    rows: Sequence[ParameterSearchLeaderboardRow],
     output_path: Path,
 ) -> str:
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -785,12 +808,13 @@ def _write_leaderboard_csv(
 
 def _summary_payload(
     *,
-    config: OptimizationConfig,
-    summary: OptimizationSummary,
+    config: ParameterSearchConfig,
+    summary: ParameterSearchSummary,
 ) -> dict[str, Any]:
     best_row = summary.best_row
     return {
         "name": summary.name,
+        "optimizer_type": summary.optimizer_type,
         "objective_name": summary.objective_name,
         "generated_at": datetime.now(UTC).isoformat(),
         "candidate_pool_size": summary.candidate_pool_size,
@@ -823,8 +847,8 @@ def _summary_payload(
 
 def _write_summary_json(
     *,
-    config: OptimizationConfig,
-    summary: OptimizationSummary,
+    config: ParameterSearchConfig,
+    summary: ParameterSearchSummary,
     output_path: Path,
 ) -> str:
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -844,7 +868,7 @@ def _format_score(value: float | None) -> str:
 
 def _print_top_candidates(
     *,
-    rows: Sequence[OptimizationLeaderboardRow],
+    rows: Sequence[ParameterSearchLeaderboardRow],
     holdout_enabled: bool,
 ) -> None:
     print()
@@ -866,16 +890,16 @@ def _print_top_candidates(
         )
 
 
-def run_parameter_optimization(
-    config: OptimizationConfig,
+def run_parameter_search(
+    config: ParameterSearchConfig,
     *,
     evaluator: BacktestEvaluator | None = None,
-) -> OptimizationSummary:
+) -> ParameterSearchSummary:
     candidate_pool = _parameter_candidates(config.parameter_grid)
     sampled_params = _sample_parameter_sets(config)
 
     train_evaluations_by_trial: dict[int, tuple[_WindowEvaluation, ...]] = {}
-    train_rows: dict[int, OptimizationLeaderboardRow] = {}
+    train_rows: dict[int, ParameterSearchLeaderboardRow] = {}
     for trial_id, params in enumerate(sampled_params, start=1):
         train_evaluations = tuple(
             _evaluate_window(
@@ -925,7 +949,7 @@ def run_parameter_optimization(
     summary_json_path = artifact_root / f"{config.name}_summary.json"
     resolved_leaderboard_csv_path = str(leaderboard_csv_path.resolve())
     resolved_summary_json_path = str(summary_json_path.resolve())
-    summary = OptimizationSummary(
+    summary = ParameterSearchSummary(
         name=config.name,
         objective_name="risk_adjusted_score",
         candidate_pool_size=len(candidate_pool),
@@ -950,7 +974,7 @@ def run_parameter_optimization(
 
     print()
     print(
-        f"Optimization complete for {config.name}: "
+        f"Parameter search complete for {config.name}: "
         f"evaluated {summary.evaluated_trials} of {summary.candidate_pool_size} parameter combinations."
     )
     print(
@@ -964,11 +988,26 @@ def run_parameter_optimization(
 
 
 __all__ = [
+    "OPTIMIZER_TYPE_PARAMETER_SEARCH",
     "OptimizationConfig",
     "OptimizationLeaderboardRow",
     "OptimizationSummary",
     "OptimizationWindow",
+    "ParameterSearchConfig",
+    "ParameterSearchLeaderboardRow",
+    "ParameterSearchSummary",
+    "ParameterSearchWindow",
     "SEARCH_PLACEHOLDER_PREFIX",
     "build_optimization_window_backtest",
+    "build_parameter_search_window_backtest",
     "run_parameter_optimization",
+    "run_parameter_search",
 ]
+
+
+OptimizationWindow = ParameterSearchWindow
+OptimizationConfig = ParameterSearchConfig
+OptimizationLeaderboardRow = ParameterSearchLeaderboardRow
+OptimizationSummary = ParameterSearchSummary
+build_optimization_window_backtest = build_parameter_search_window_backtest
+run_parameter_optimization = run_parameter_search

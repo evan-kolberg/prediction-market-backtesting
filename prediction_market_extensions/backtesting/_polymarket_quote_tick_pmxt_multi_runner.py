@@ -10,16 +10,24 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 from typing import Any
 
-from backtests._shared._artifact_paths import resolve_multi_sim_detail_chart_output_path
-from backtests._shared._artifact_paths import sanitize_chart_label
+from prediction_market_extensions.backtesting._artifact_paths import (
+    resolve_multi_sim_detail_chart_output_path,
+)
+from prediction_market_extensions.backtesting._artifact_paths import (
+    sanitize_chart_label,
+)
 
 if TYPE_CHECKING:
-    from backtests._shared._prediction_market_backtest import MarketReportConfig
-    from backtests._shared._prediction_market_backtest import PredictionMarketBacktest
+    from prediction_market_extensions.backtesting._prediction_market_backtest import (
+        MarketReportConfig,
+    )
+    from prediction_market_extensions.backtesting._prediction_market_backtest import (
+        PredictionMarketBacktest,
+    )
 
 
 async def run_single_market_pmxt_backtest(**kwargs: Any) -> dict[str, Any] | None:
-    from backtests._shared._polymarket_quote_tick_pmxt_runner import (
+    from prediction_market_extensions.backtesting._polymarket_quote_tick_pmxt_runner import (
         run_single_market_pmxt_backtest as _run_single_market_pmxt_backtest,
     )
 
@@ -251,7 +259,9 @@ def run_reported_multi_sim_pmxt_backtest(
     if partial_message and len(results) < len(backtest.sims):
         print(partial_message.format(completed=len(results), total=len(backtest.sims)))
 
-    from backtests._shared._prediction_market_backtest import finalize_market_results
+    from prediction_market_extensions.backtesting._prediction_market_backtest import (
+        finalize_market_results,
+    )
 
     finalize_market_results(name=backtest.name, results=results, report=report)
     return results

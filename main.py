@@ -136,7 +136,9 @@ def _has_run_entrypoint(module_ast: ast.Module) -> bool:
 
 def _load_runner_metadata(path: Path) -> dict[str, Any] | None:
     if path.suffix == ".ipynb":
-        from backtests._shared._notebook_runner import load_notebook_metadata
+        from prediction_market_extensions.backtesting._notebook_runner import (
+            load_notebook_metadata,
+        )
 
         return load_notebook_metadata(path, project_root=PROJECT_ROOT)
 
@@ -577,7 +579,9 @@ def _load_runner(backtest: dict[str, Any]) -> Any:
     relative_path = _relative_runner_path(backtest)
     runner_path = PROJECT_ROOT / relative_path
     if runner_path.suffix == ".ipynb":
-        from backtests._shared._notebook_runner import execute_notebook_runner
+        from prediction_market_extensions.backtesting._notebook_runner import (
+            execute_notebook_runner,
+        )
 
         def _run_notebook() -> None:
             execute_notebook_runner(runner_path, project_root=PROJECT_ROOT)
@@ -614,7 +618,7 @@ def _load_runner(backtest: dict[str, Any]) -> Any:
     if experiment is None:
         raise RuntimeError(f"{relative_path} does not expose EXPERIMENT or run()")
 
-    from backtests._shared._experiments import run_experiment
+    from prediction_market_extensions.backtesting._experiments import run_experiment
 
     def _run_manifest() -> Any:
         return run_experiment(experiment)
@@ -760,7 +764,9 @@ def main() -> None:
 
     if _env_flag_enabled(ENABLE_TIMING_ENV):
         try:
-            from backtests._shared._timing_test import install_timing
+            from prediction_market_extensions.backtesting._timing_test import (
+                install_timing,
+            )
 
             install_timing()
         except ImportError:

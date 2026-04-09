@@ -5,8 +5,10 @@
 - `strategies/` contains reusable strategy classes and configs
 - `strategies/private/` is for git-ignored local strategy modules
 - `backtests/` contains flat public runner entrypoints
-- `backtests/_shared/` contains shared runner plumbing, data-source adapters,
+- `prediction_market_extensions/backtesting/` contains shared runner plumbing, data-source adapters,
   strategy-config binding, timing, reporting, and replay helpers
+- `prediction_market_extensions/backtesting/optimizers/` is the extension-side
+  namespace for optimizer families such as parameter search
 - `backtests/private/` is for git-ignored local runners
 
 Only flat `backtests/*.py`, `backtests/*.ipynb`, `backtests/private/*.py`, and
@@ -66,15 +68,15 @@ else:
 
 ensure_repo_root(__file__)
 
-from backtests._shared._execution_config import ExecutionModelConfig
-from backtests._shared._execution_config import StaticLatencyConfig
-from backtests._shared._experiments import build_replay_experiment
-from backtests._shared._experiments import run_experiment
-from backtests._shared._prediction_market_backtest import MarketReportConfig
-from backtests._shared._prediction_market_runner import MarketDataConfig
-from backtests._shared._replay_specs import PolymarketPMXTQuoteReplay
-from backtests._shared._timing_harness import timing_harness
-from backtests._shared.data_sources import PMXT, Polymarket, QuoteTick
+from prediction_market_extensions.backtesting._execution_config import ExecutionModelConfig
+from prediction_market_extensions.backtesting._execution_config import StaticLatencyConfig
+from prediction_market_extensions.backtesting._experiments import build_replay_experiment
+from prediction_market_extensions.backtesting._experiments import run_experiment
+from prediction_market_extensions.backtesting._prediction_market_backtest import MarketReportConfig
+from prediction_market_extensions.backtesting._prediction_market_runner import MarketDataConfig
+from prediction_market_extensions.backtesting._replay_specs import PolymarketPMXTQuoteReplay
+from prediction_market_extensions.backtesting._timing_harness import timing_harness
+from prediction_market_extensions.backtesting.data_sources import PMXT, Polymarket, QuoteTick
 
 NAME = "polymarket_quote_tick_pmxt_ema_crossover"
 DESCRIPTION = "EMA crossover momentum on one Polymarket market"
@@ -175,12 +177,12 @@ Use `CHART_OUTPUT_PATH="output"` for the normal public-runner default. The
 shared runner layer resolves that relative path from the repo root so it lands
 under this repo's `output/` directory consistently.
 
-Optimizer runners are the one deliberate variant in that contract. They expose
-`BASE_REPLAY`, `TRAIN_WINDOWS`, `HOLDOUT_WINDOWS`, `STRATEGY_SPEC`,
-`PARAMETER_GRID`, and `OPTIMIZATION` instead of `REPLAYS` plus chart-summary
-report fields. They still keep `NAME`, `DESCRIPTION`, `EMIT_HTML`,
-`CHART_OUTPUT_PATH`, `DATA`, `EXECUTION`, `EXPERIMENT`, and `run()` at top
-level so the menu, tests, and direct runner path stay uniform.
+Optimizer runners are the one deliberate variant in that contract. Parameter
+search runners expose `BASE_REPLAY`, `TRAIN_WINDOWS`, `HOLDOUT_WINDOWS`,
+`STRATEGY_SPEC`, `PARAMETER_GRID`, and `PARAMETER_SEARCH` instead of `REPLAYS`
+plus chart-summary report fields. They still keep `NAME`, `DESCRIPTION`,
+`EMIT_HTML`, `CHART_OUTPUT_PATH`, `DATA`, `EXECUTION`, `EXPERIMENT`, and
+`run()` at top level so the menu, tests, and direct runner path stay uniform.
 
 ## HTML And Report Modes
 
@@ -299,8 +301,13 @@ replay lists for an explicit search contract:
 - `STRATEGY_SPEC` defines the strategy config payload with
   `__SEARCH__:<name>` placeholders
 - `PARAMETER_GRID` provides the candidate values for those placeholders
-- `OPTIMIZATION` carries the full optimizer config consumed by
-  `OptimizationExperiment`
+- `OPTIMIZER` is the generic optimizer handle consumed by notebooks and future
+  optimizer tooling
+- `PARAMETER_SEARCH` carries the explicit parameter-search config consumed by
+  `ParameterSearchExperiment`
+
+Current parameter-search helpers live under
+`prediction_market_extensions.backtesting.optimizers`.
 
 The public optimizer example is:
 
@@ -322,7 +329,7 @@ A runner file should answer the experiment questions directly:
 - what the capital and execution assumptions are
 - which strategy config or configs should be bound into the run
 
-Keep the top-level file declarative. Keep shared mechanics in `backtests/_shared/`.
+Keep the top-level file declarative. Keep shared mechanics in `prediction_market_extensions/backtesting/`.
 
 That division is deliberate:
 
@@ -422,9 +429,10 @@ The public research example is:
 
 That notebook is intentionally optimizer-contract driven rather than
 strategy-specific. Change the `OPTIMIZER_MODULE` cell to any runner module that
-exposes `OPTIMIZATION`, and the notebook will run a compact parameter search,
-select the winning params, and replay one train or holdout window with HTML
-enabled.
+exposes `OPTIMIZER`; today's public optimizer family is
+`optimizer_type="parameter_search"` and still also publishes `PARAMETER_SEARCH`
+plus the older `OPTIMIZATION` alias. The notebook runs a compact sweep, selects
+the winning params, and replays one train or holdout window with HTML enabled.
 
 After a notebook-backed run finishes, the runner scans `output/` for HTML files
 updated during that run and rewrites one autogenerated markdown cell at the end

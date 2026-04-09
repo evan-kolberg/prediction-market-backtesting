@@ -3,9 +3,15 @@ from __future__ import annotations
 import asyncio
 from types import SimpleNamespace
 
-from backtests._shared import _polymarket_quote_tick_pmxt_runner as pmxt_runner
-from backtests._shared._execution_config import ExecutionModelConfig
-from backtests._shared._execution_config import StaticLatencyConfig
+from prediction_market_extensions.backtesting import (
+    _polymarket_quote_tick_pmxt_runner as pmxt_runner,
+)
+from prediction_market_extensions.backtesting._execution_config import (
+    ExecutionModelConfig,
+)
+from prediction_market_extensions.backtesting._execution_config import (
+    StaticLatencyConfig,
+)
 
 
 def test_pmxt_runner_uses_l2_execution_settings(monkeypatch):

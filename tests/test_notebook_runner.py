@@ -4,7 +4,7 @@ from pathlib import Path
 
 import nbformat
 
-from backtests._shared import _notebook_runner as notebook_runner
+from prediction_market_extensions.backtesting import _notebook_runner as notebook_runner
 
 
 def test_load_notebook_metadata_prefers_explicit_notebook_metadata(

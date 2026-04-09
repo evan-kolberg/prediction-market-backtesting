@@ -99,7 +99,7 @@ uv run python backtests/polymarket_quote_tick_pmxt_ema_crossover.py
 You can also time a runner explicitly through the harness test helper:
 
 ```bash
-uv run python backtests/_shared/_timing_test.py backtests/polymarket_quote_tick_pmxt_ema_crossover.py
+uv run python prediction_market_extensions/backtesting/_timing_test.py backtests/polymarket_quote_tick_pmxt_ema_crossover.py
 ```
 
 Public PMXT examples are pinned to known-good sample windows in code so the

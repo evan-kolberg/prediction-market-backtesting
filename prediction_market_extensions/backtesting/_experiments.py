@@ -11,19 +11,31 @@ from typing import TYPE_CHECKING
 
 import pandas as pd
 
-from backtests._shared._execution_config import ExecutionModelConfig
-from backtests._shared._optimizer import OptimizationConfig
-from backtests._shared._optimizer import OptimizationSummary
-from backtests._shared._optimizer import run_parameter_optimization
-from backtests._shared._prediction_market_backtest import MarketReportConfig
-from backtests._shared._prediction_market_backtest import PredictionMarketBacktest
-from backtests._shared._prediction_market_backtest import finalize_market_results
-from backtests._shared._result_policies import ResultPolicy
-from backtests._shared._replay_specs import ReplaySpec
-from backtests._shared._strategy_configs import StrategyConfigSpec
+from prediction_market_extensions.backtesting._execution_config import (
+    ExecutionModelConfig,
+)
+from prediction_market_extensions.backtesting._prediction_market_backtest import (
+    MarketReportConfig,
+)
+from prediction_market_extensions.backtesting._prediction_market_backtest import (
+    PredictionMarketBacktest,
+)
+from prediction_market_extensions.backtesting._prediction_market_backtest import (
+    finalize_market_results,
+)
+from prediction_market_extensions.backtesting._result_policies import ResultPolicy
+from prediction_market_extensions.backtesting._replay_specs import ReplaySpec
+from prediction_market_extensions.backtesting._strategy_configs import (
+    StrategyConfigSpec,
+)
+from prediction_market_extensions.backtesting.optimizers import ParameterSearchConfig
+from prediction_market_extensions.backtesting.optimizers import ParameterSearchSummary
+from prediction_market_extensions.backtesting.optimizers import run_parameter_search
 
 if TYPE_CHECKING:
-    from backtests._shared._market_data_config import MarketDataConfig
+    from prediction_market_extensions.backtesting._market_data_config import (
+        MarketDataConfig,
+    )
 
 
 @dataclass(frozen=True)
@@ -58,13 +70,17 @@ class ReplayExperiment:
 
 
 @dataclass(frozen=True)
-class OptimizationExperiment:
+class ParameterSearchExperiment:
     name: str
     description: str
-    optimization: OptimizationConfig
+    parameter_search: ParameterSearchConfig
+
+    @property
+    def optimization(self) -> ParameterSearchConfig:
+        return self.parameter_search
 
 
-type Experiment = ReplayExperiment | OptimizationExperiment
+type Experiment = ReplayExperiment | ParameterSearchExperiment
 
 
 def build_backtest_for_experiment(
@@ -231,9 +247,9 @@ async def run_replay_experiment_async(
 
 def run_experiment(
     experiment: Experiment,
-) -> list[dict[str, Any]] | OptimizationSummary:
-    if isinstance(experiment, OptimizationExperiment):
-        return run_parameter_optimization(experiment.optimization)
+) -> list[dict[str, Any]] | ParameterSearchSummary:
+    if isinstance(experiment, ParameterSearchExperiment):
+        return run_parameter_search(experiment.parameter_search)
 
     try:
         asyncio.get_running_loop()
@@ -247,7 +263,7 @@ def run_experiment(
 
 __all__ = [
     "Experiment",
-    "OptimizationExperiment",
+    "ParameterSearchExperiment",
     "ReplayExperiment",
     "build_backtest_for_experiment",
     "build_replay_experiment",
@@ -255,3 +271,6 @@ __all__ = [
     "run_experiment",
     "run_replay_experiment_async",
 ]
+
+
+OptimizationExperiment = ParameterSearchExperiment

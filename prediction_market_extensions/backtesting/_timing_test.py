@@ -1,14 +1,14 @@
 """Timing harness — measures per-hour fetch time, source, and overall progress.
 
 Can be used standalone:
-    uv run python backtests/_shared/_timing_test.py <backtest_file>
+    uv run python prediction_market_extensions/backtesting/_timing_test.py <backtest_file>
 
 Or imported and activated before running any backtest:
-    from backtests._shared._timing_test import install_timing
+    from prediction_market_extensions.backtesting._timing_test import install_timing
     install_timing()
 
 Or wrapped explicitly on a runner:
-    from backtests._shared._timing_harness import timing_harness
+    from prediction_market_extensions.backtesting._timing_harness import timing_harness
 
     @timing_harness
     async def run() -> None:
@@ -219,7 +219,7 @@ def install_timing() -> None:
     )
 
     try:
-        from backtests._shared.data_sources.pmxt import (
+        from prediction_market_extensions.backtesting.data_sources.pmxt import (
             RunnerPolymarketPMXTDataLoader,
         )
     except ImportError:
@@ -668,7 +668,7 @@ def _load_backtest_module(path_str: str):
 if __name__ == "__main__":
     if len(sys.argv) < 2:
         print(
-            "Usage: uv run python backtests/_shared/_timing_test.py <backtest_file>",
+            "Usage: uv run python prediction_market_extensions/backtesting/_timing_test.py <backtest_file>",
             file=sys.stderr,
         )
         sys.exit(1)

@@ -3,15 +3,24 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-from backtests._shared._artifact_paths import resolve_multi_sim_detail_chart_output_path
-from backtests._shared._isolated_replay_runner import (
+from prediction_market_extensions.backtesting._artifact_paths import (
+    resolve_multi_sim_detail_chart_output_path,
+)
+from prediction_market_extensions.backtesting._isolated_replay_runner import (
     run_single_replay_backtest_in_subprocess,
 )
-from backtests._shared._artifact_paths import sanitize_chart_label
-from backtests._shared._prediction_market_backtest import MarketReportConfig
-from backtests._shared._prediction_market_backtest import PredictionMarketBacktest
-from backtests._shared._prediction_market_backtest import finalize_market_results
-from backtests._shared._result_policies import ResultPolicy
+from prediction_market_extensions.backtesting._artifact_paths import (
+    sanitize_chart_label,
+)
+from prediction_market_extensions.backtesting._prediction_market_backtest import (
+    MarketReportConfig,
+)
+from prediction_market_extensions.backtesting._prediction_market_backtest import (
+    PredictionMarketBacktest,
+)
+from prediction_market_extensions.backtesting._prediction_market_backtest import (
+    finalize_market_results,
+)
 
 _DEFAULT_PREDICTION_MARKET_BACKTEST_RUN_ASYNC = PredictionMarketBacktest.run_async
 
@@ -22,9 +31,9 @@ def _resolve_multi_market_chart_output_path(
     sim: Any,
     sim_index: int,
 ) -> str | None:
-    raw_market_id = getattr(sim, "market_slug", None) or getattr(
+    raw_market_id = getattr(sim, "market_ticker", None) or getattr(
         sim,
-        "market_ticker",
+        "market_slug",
         None,
     )
     market_id = str(raw_market_id or f"market-{sim_index + 1}")
@@ -93,12 +102,12 @@ async def run_multi_market_trade_backtest_async(
     backtest: PredictionMarketBacktest,
 ) -> list[dict[str, Any]]:
     if (
-        backtest.data.platform != "polymarket"
+        backtest.data.platform != "kalshi"
         or backtest.data.data_type != "trade_tick"
         or backtest.data.vendor != "native"
     ):
         raise ValueError(
-            "run_multi_market_trade_backtest_async requires Polymarket native trade-tick data"
+            "run_multi_market_trade_backtest_async requires Kalshi native trade-tick data"
         )
 
     results: list[dict[str, Any]] = []
@@ -108,8 +117,8 @@ async def run_multi_market_trade_backtest_async(
         is not _DEFAULT_PREDICTION_MARKET_BACKTEST_RUN_ASYNC
     )
     for sim_index, sim in enumerate(backtest.sims):
-        if sim.market_slug is None:
-            raise ValueError("market_slug is required for Polymarket trade-tick sims.")
+        if sim.market_ticker is None:
+            raise ValueError("market_ticker is required for Kalshi trade-tick sims.")
 
         single_market_backtest_kwargs = _single_market_backtest_kwargs(
             backtest=backtest,
@@ -142,7 +151,6 @@ def run_reported_multi_market_trade_backtest(
     report: MarketReportConfig,
     empty_message: str | None = None,
     partial_message: str | None = None,
-    result_policy: ResultPolicy | None = None,
 ) -> list[dict[str, Any]]:
     try:
         asyncio.get_running_loop()
@@ -160,11 +168,6 @@ def run_reported_multi_market_trade_backtest(
 
     if partial_message and len(results) < len(backtest.sims):
         print(partial_message.format(completed=len(results), total=len(backtest.sims)))
-
-    if result_policy is not None:
-        transformed = result_policy.apply(results)
-        if transformed is not None:
-            results = transformed
 
     finalize_market_results(name=backtest.name, results=results, report=report)
     return results

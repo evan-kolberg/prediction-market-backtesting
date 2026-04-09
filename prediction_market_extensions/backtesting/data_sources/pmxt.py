@@ -18,10 +18,16 @@ from prediction_market_extensions.adapters.polymarket.pmxt import (
     PolymarketPMXTDataLoader,
 )
 
-from backtests._shared.data_sources._common import DISABLED_ENV_VALUES
-from backtests._shared.data_sources._common import env_value
-from backtests._shared.data_sources._common import normalize_local_path
-from backtests._shared.data_sources._common import normalize_urlish
+from prediction_market_extensions.backtesting.data_sources._common import (
+    DISABLED_ENV_VALUES,
+)
+from prediction_market_extensions.backtesting.data_sources._common import env_value
+from prediction_market_extensions.backtesting.data_sources._common import (
+    normalize_local_path,
+)
+from prediction_market_extensions.backtesting.data_sources._common import (
+    normalize_urlish,
+)
 
 
 PMXT_DATA_SOURCE_ENV = "PMXT_DATA_SOURCE"

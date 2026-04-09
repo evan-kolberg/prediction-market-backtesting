@@ -1,19 +1,29 @@
 from __future__ import annotations
 
-import backtests._shared.data_sources as data_sources
+import prediction_market_extensions.backtesting.data_sources as data_sources
 
-from backtests._shared._market_data_support import build_single_market_replay
-from backtests._shared._market_data_support import resolve_market_data_support
-from backtests._shared._market_data_support import supported_market_data_keys
-from backtests._shared._replay_specs import KalshiTradeTickReplay
-from backtests._shared._replay_specs import PolymarketPMXTQuoteReplay
-from backtests._shared._replay_specs import PolymarketTradeTickReplay
-from backtests._shared.data_sources import Kalshi
-from backtests._shared.data_sources import Native
-from backtests._shared.data_sources import PMXT
-from backtests._shared.data_sources import Polymarket
-from backtests._shared.data_sources import QuoteTick
-from backtests._shared.data_sources import TradeTick
+from prediction_market_extensions.backtesting._market_data_support import (
+    build_single_market_replay,
+)
+from prediction_market_extensions.backtesting._market_data_support import (
+    resolve_market_data_support,
+)
+from prediction_market_extensions.backtesting._market_data_support import (
+    supported_market_data_keys,
+)
+from prediction_market_extensions.backtesting._replay_specs import KalshiTradeTickReplay
+from prediction_market_extensions.backtesting._replay_specs import (
+    PolymarketPMXTQuoteReplay,
+)
+from prediction_market_extensions.backtesting._replay_specs import (
+    PolymarketTradeTickReplay,
+)
+from prediction_market_extensions.backtesting.data_sources import Kalshi
+from prediction_market_extensions.backtesting.data_sources import Native
+from prediction_market_extensions.backtesting.data_sources import PMXT
+from prediction_market_extensions.backtesting.data_sources import Polymarket
+from prediction_market_extensions.backtesting.data_sources import QuoteTick
+from prediction_market_extensions.backtesting.data_sources import TradeTick
 
 
 def test_support_matrix_matches_publicly_supported_combinations() -> None:

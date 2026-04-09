@@ -47,9 +47,9 @@ provenance notices with file-specific change dates:
 - `prediction_market_extensions/analysis/legacy_backtesting/progress.py`
 - `prediction_market_extensions/analysis/legacy_plot_adapter.py`
 - `prediction_market_extensions/analysis/tearsheet.py`
-- `backtests/_shared/_kalshi_trade_tick_runner.py`
-- `backtests/_shared/_polymarket_quote_tick_pmxt_runner.py`
-- `backtests/_shared/_polymarket_trade_tick_runner.py`
+- `prediction_market_extensions/backtesting/_kalshi_trade_tick_runner.py`
+- `prediction_market_extensions/backtesting/_polymarket_quote_tick_pmxt_runner.py`
+- `prediction_market_extensions/backtesting/_polymarket_trade_tick_runner.py`
 - `backtests/kalshi_trade_tick_breakout.py`
 - `backtests/kalshi_trade_tick_multi_sim_runner.py`
 - `backtests/polymarket_quote_tick_pmxt_25_sims_runner.py`

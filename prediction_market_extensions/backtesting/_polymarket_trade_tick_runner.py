@@ -22,15 +22,31 @@ import pandas as pd
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.trading.strategy import Strategy
 
-from backtests._shared._execution_config import ExecutionModelConfig
-from backtests._shared._experiments import ReplayExperiment
-from backtests._shared._experiments import run_replay_experiment_async
-from backtests._shared._prediction_market_backtest import MarketReportConfig
-from backtests._shared._prediction_market_backtest import PredictionMarketBacktest
-from backtests._shared._prediction_market_runner import MarketDataConfig
-from backtests._shared._replay_specs import PolymarketTradeTickReplay
-from backtests._shared._strategy_configs import resolve_strategy_factory
-from backtests._shared._strategy_configs import StrategyConfigSpec
+from prediction_market_extensions.backtesting._execution_config import (
+    ExecutionModelConfig,
+)
+from prediction_market_extensions.backtesting._experiments import ReplayExperiment
+from prediction_market_extensions.backtesting._experiments import (
+    run_replay_experiment_async,
+)
+from prediction_market_extensions.backtesting._prediction_market_backtest import (
+    MarketReportConfig,
+)
+from prediction_market_extensions.backtesting._prediction_market_backtest import (
+    PredictionMarketBacktest,
+)
+from prediction_market_extensions.backtesting._prediction_market_runner import (
+    MarketDataConfig,
+)
+from prediction_market_extensions.backtesting._replay_specs import (
+    PolymarketTradeTickReplay,
+)
+from prediction_market_extensions.backtesting._strategy_configs import (
+    resolve_strategy_factory,
+)
+from prediction_market_extensions.backtesting._strategy_configs import (
+    StrategyConfigSpec,
+)
 
 
 type StrategyFactory = Callable[[InstrumentId], Strategy]

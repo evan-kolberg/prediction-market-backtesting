@@ -20,16 +20,30 @@ else:
 
 ensure_repo_root(__file__)
 
-from backtests._shared._execution_config import ExecutionModelConfig
-from backtests._shared._execution_config import StaticLatencyConfig
-from backtests._shared._experiments import OptimizationExperiment
-from backtests._shared._experiments import run_experiment
-from backtests._shared._optimizer import OptimizationConfig
-from backtests._shared._optimizer import OptimizationWindow
-from backtests._shared._prediction_market_runner import MarketDataConfig
-from backtests._shared._replay_specs import PolymarketPMXTQuoteReplay
-from backtests._shared._timing_harness import timing_harness
-from backtests._shared.data_sources import PMXT, Polymarket, QuoteTick
+from prediction_market_extensions.backtesting._execution_config import (
+    ExecutionModelConfig,
+)
+from prediction_market_extensions.backtesting._execution_config import (
+    StaticLatencyConfig,
+)
+from prediction_market_extensions.backtesting._experiments import (
+    ParameterSearchExperiment,
+)
+from prediction_market_extensions.backtesting._experiments import run_experiment
+from prediction_market_extensions.backtesting._prediction_market_runner import (
+    MarketDataConfig,
+)
+from prediction_market_extensions.backtesting._replay_specs import (
+    PolymarketPMXTQuoteReplay,
+)
+from prediction_market_extensions.backtesting._timing_harness import timing_harness
+from prediction_market_extensions.backtesting.data_sources import (
+    PMXT,
+    Polymarket,
+    QuoteTick,
+)
+from prediction_market_extensions.backtesting.optimizers import ParameterSearchConfig
+from prediction_market_extensions.backtesting.optimizers import ParameterSearchWindow
 
 
 NAME = "polymarket_quote_tick_pmxt_ema_optimizer"
@@ -56,17 +70,17 @@ BASE_REPLAY = PolymarketPMXTQuoteReplay(
 )
 
 TRAIN_WINDOWS = (
-    OptimizationWindow(
+    ParameterSearchWindow(
         name="sample-a-full-window",
         start_time="2026-04-05T00:00:00Z",
         end_time="2026-04-07T23:59:59Z",
     ),
-    OptimizationWindow(
+    ParameterSearchWindow(
         name="sample-b-2026-04-06-day",
         start_time="2026-04-06T00:00:00Z",
         end_time="2026-04-06T23:59:59Z",
     ),
-    OptimizationWindow(
+    ParameterSearchWindow(
         name="sample-c-2026-04-07-late",
         start_time="2026-04-07T12:00:00Z",
         end_time="2026-04-07T23:59:59Z",
@@ -74,7 +88,7 @@ TRAIN_WINDOWS = (
 )
 
 HOLDOUT_WINDOWS = (
-    OptimizationWindow(
+    ParameterSearchWindow(
         name="sample-d-close-window",
         start_time="2026-04-07T00:00:00Z",
         end_time="2026-04-07T11:59:59Z",
@@ -112,7 +126,7 @@ EXECUTION = ExecutionModelConfig(
     ),
 )
 
-OPTIMIZATION = OptimizationConfig(
+PARAMETER_SEARCH = ParameterSearchConfig(
     name=NAME,
     data=DATA,
     base_replay=BASE_REPLAY,
@@ -134,10 +148,14 @@ OPTIMIZATION = OptimizationConfig(
 )
 
 
-EXPERIMENT = OptimizationExperiment(
+OPTIMIZER = PARAMETER_SEARCH
+OPTIMIZATION = PARAMETER_SEARCH
+
+
+EXPERIMENT = ParameterSearchExperiment(
     name=NAME,
     description=DESCRIPTION,
-    optimization=OPTIMIZATION,
+    parameter_search=PARAMETER_SEARCH,
 )
 
 

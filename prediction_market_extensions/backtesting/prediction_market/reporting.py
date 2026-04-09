@@ -14,11 +14,17 @@ from prediction_market_extensions.analysis.legacy_backtesting.models import (
     DEFAULT_SUMMARY_PLOT_PANELS,
 )
 
-from backtests._shared._backtest_runtime import print_backtest_result_warnings
-from backtests._shared.prediction_market.artifacts import resolve_repo_relative_path
+from prediction_market_extensions.backtesting._backtest_runtime import (
+    print_backtest_result_warnings,
+)
+from prediction_market_extensions.backtesting.prediction_market.artifacts import (
+    resolve_repo_relative_path,
+)
 
 if TYPE_CHECKING:
-    from backtests._shared._prediction_market_backtest import PredictionMarketBacktest
+    from prediction_market_extensions.backtesting._prediction_market_backtest import (
+        PredictionMarketBacktest,
+    )
 
 
 @dataclass(frozen=True)

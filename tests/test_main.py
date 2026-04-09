@@ -37,7 +37,7 @@ def test_main_installs_timing_patch_by_default(monkeypatch):
     monkeypatch.delenv(main_module.ENABLE_TIMING_ENV, raising=False)
     monkeypatch.setitem(
         sys.modules,
-        "backtests._shared._timing_test",
+        "prediction_market_extensions.backtesting._timing_test",
         SimpleNamespace(
             install_timing=lambda: calls.__setitem__("timing", calls["timing"] + 1),
         ),
@@ -71,7 +71,7 @@ def test_main_skips_timing_patch_when_disabled(monkeypatch):
     monkeypatch.setenv(main_module.ENABLE_TIMING_ENV, "0")
     monkeypatch.setitem(
         sys.modules,
-        "backtests._shared._timing_test",
+        "prediction_market_extensions.backtesting._timing_test",
         SimpleNamespace(install_timing=lambda: calls.__setitem__("timing", 1)),
     )
 
@@ -202,8 +202,7 @@ def test_runner_preview_shows_full_file_contents(
 
 def test_discoverable_backtest_paths_stay_flat(tmp_path: Path) -> None:
     backtests_root = tmp_path / "backtests"
-    (backtests_root / "_shared").mkdir(parents=True)
-    (backtests_root / "private").mkdir()
+    (backtests_root / "private").mkdir(parents=True)
     (backtests_root / "nested").mkdir()
 
     (backtests_root / "__init__.py").write_text("")
@@ -406,7 +405,9 @@ def test_load_runner_executes_notebook_runner(
     monkeypatch.setattr(main_module, "PROJECT_ROOT", project_root)
     monkeypatch.setattr(main_module, "BACKTESTS_ROOT", backtests_root)
 
-    from backtests._shared import _notebook_runner as notebook_runner
+    from prediction_market_extensions.backtesting import (
+        _notebook_runner as notebook_runner,
+    )
 
     captured: dict[str, object] = {}
 
