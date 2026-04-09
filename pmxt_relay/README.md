@@ -66,7 +66,7 @@ git clone https://github.com/evan-kolberg/prediction-market-backtesting.git /opt
 cd /opt/prediction-market-backtesting
 
 uv venv --python 3.12
-uv pip install -e nautilus_pm/ bokeh plotly numpy py-clob-client duckdb textual
+uv pip install "nautilus_trader[polymarket,visualization]==1.225.0" bokeh plotly numpy py-clob-client duckdb textual
 
 useradd --system --home /srv/pmxt-relay --shell /usr/sbin/nologin pmxtrelay || true
 install -o pmxtrelay -g pmxtrelay -d /srv/pmxt-relay /srv/pmxt-relay/raw /srv/pmxt-relay/state /srv/pmxt-relay/tmp

@@ -1,8 +1,9 @@
 Repository Notice
 =================
 
-This repository includes a vendored copy of NautilusTrader and additional
-prediction-market files derived from NautilusTrader example and adapter code.
+This repository now runs against upstream NautilusTrader plus a local override
+layer under `_nautilus_overrides/`, while keeping `nautilus_pm/` as a temporary
+reference/provenance tree during the migration away from the vendored runtime.
 
 Licensing scope
 ---------------
@@ -10,8 +11,8 @@ Licensing scope
 - `nautilus_pm/` remains under the GNU Lesser General Public License Version
   3.0 or later. Upstream license text and notices are preserved in
   `nautilus_pm/LICENSE`.
-- Root files that carry a Nautilus-derived notice are also distributed under
-  LGPL-3.0-or-later.
+- `_nautilus_overrides/` and other root files that carry a Nautilus-derived
+  notice are also distributed under LGPL-3.0-or-later.
 - Root files without that notice remain under the MIT License unless they say
   otherwise.
 
@@ -19,10 +20,34 @@ LGPL-covered root files
 -----------------------
 
 The following root files were copied or adapted from NautilusTrader
-prediction-market example code during March 2026, beginning with refactor
-commit `b34beabd4b` on 2026-03-11, and now carry file-level LGPL provenance
-notices with file-specific change dates:
+prediction-market example, adapter, or plotting code and carry file-level LGPL
+provenance notices with file-specific change dates:
 
+- `_nautilus_overrides/nautilus_trader/adapters/kalshi/data.py`
+- `_nautilus_overrides/nautilus_trader/adapters/kalshi/fee_model.py`
+- `_nautilus_overrides/nautilus_trader/adapters/kalshi/loaders.py`
+- `_nautilus_overrides/nautilus_trader/adapters/kalshi/market_selection.py`
+- `_nautilus_overrides/nautilus_trader/adapters/kalshi/providers.py`
+- `_nautilus_overrides/nautilus_trader/adapters/kalshi/research.py`
+- `_nautilus_overrides/nautilus_trader/adapters/polymarket/__init__.py`
+- `_nautilus_overrides/nautilus_trader/adapters/polymarket/common/gamma_markets.py`
+- `_nautilus_overrides/nautilus_trader/adapters/polymarket/common/market_selection.py`
+- `_nautilus_overrides/nautilus_trader/adapters/polymarket/common/parsing.py`
+- `_nautilus_overrides/nautilus_trader/adapters/polymarket/fee_model.py`
+- `_nautilus_overrides/nautilus_trader/adapters/polymarket/loaders.py`
+- `_nautilus_overrides/nautilus_trader/adapters/polymarket/pmxt.py`
+- `_nautilus_overrides/nautilus_trader/adapters/polymarket/research.py`
+- `_nautilus_overrides/nautilus_trader/adapters/polymarket/schemas/trade.py`
+- `_nautilus_overrides/nautilus_trader/adapters/polymarket/schemas/user.py`
+- `_nautilus_overrides/nautilus_trader/adapters/prediction_market/__init__.py`
+- `_nautilus_overrides/nautilus_trader/adapters/prediction_market/backtest_utils.py`
+- `_nautilus_overrides/nautilus_trader/adapters/prediction_market/fill_model.py`
+- `_nautilus_overrides/nautilus_trader/adapters/prediction_market/research.py`
+- `_nautilus_overrides/nautilus_trader/analysis/legacy_backtesting/__init__.py`
+- `_nautilus_overrides/nautilus_trader/analysis/legacy_backtesting/models.py`
+- `_nautilus_overrides/nautilus_trader/analysis/legacy_backtesting/plotting.py`
+- `_nautilus_overrides/nautilus_trader/analysis/legacy_backtesting/progress.py`
+- `_nautilus_overrides/nautilus_trader/analysis/legacy_plot_adapter.py`
 - `backtests/_shared/_kalshi_trade_tick_runner.py`
 - `backtests/_shared/_polymarket_quote_tick_pmxt_runner.py`
 - `backtests/_shared/_polymarket_trade_tick_runner.py`
@@ -31,16 +56,16 @@ notices with file-specific change dates:
 - `backtests/kalshi_trade_tick_panic_fade.py`
 - `backtests/kalshi_trade_tick_rsi_reversion.py`
 - `backtests/kalshi_trade_tick_spread_capture.py`
+- `backtests/polymarket_quote_tick_pmxt_25_sims_runner.py`
 - `backtests/polymarket_quote_tick_pmxt_breakout.py`
 - `backtests/polymarket_quote_tick_pmxt_deep_value_hold.py`
 - `backtests/polymarket_quote_tick_pmxt_ema_crossover.py`
 - `backtests/polymarket_quote_tick_pmxt_ema_optimizer.py`
 - `backtests/polymarket_quote_tick_pmxt_final_period_momentum.py`
-- `backtests/polymarket_quote_tick_pmxt_25_sims_runner.py`
 - `backtests/polymarket_quote_tick_pmxt_late_favorite_limit_hold.py`
+- `backtests/polymarket_quote_tick_pmxt_multi_sim_runner.py`
 - `backtests/polymarket_quote_tick_pmxt_panic_fade.py`
 - `backtests/polymarket_quote_tick_pmxt_rsi_reversion.py`
-- `backtests/polymarket_quote_tick_pmxt_multi_sim_runner.py`
 - `backtests/polymarket_quote_tick_pmxt_spread_capture.py`
 - `backtests/polymarket_quote_tick_pmxt_threshold_momentum.py`
 - `backtests/polymarket_quote_tick_pmxt_vwap_reversion.py`
@@ -72,6 +97,10 @@ notices with file-specific change dates:
 Local modifications inside the vendored NautilusTrader subtree
 --------------------------------------------------------------
 
+`nautilus_pm/` is no longer the supported runtime install target, but it remains
+in this repository temporarily as the vendored NautilusTrader reference tree for
+provenance checks and migration comparisons.
+
 Python files changed in this repository since the original subtree import now
 carry dated file-level notices. That includes modified upstream files and local
 additions under:
@@ -94,7 +123,7 @@ Examples:
   Modified on 2026-03-11 and 2026-03-15.
 - `nautilus_pm/nautilus_trader/adapters/polymarket/pmxt.py`
   Added locally on 2026-03-15 and modified on 2026-03-19 and 2026-04-02 within the
-  LGPL-covered subtree.
+  LGPL-covered reference tree.
 - `nautilus_pm/nautilus_trader/adapters/prediction_market/research.py`
   Modified on 2026-03-11, 2026-03-15, and 2026-03-16.
 - `nautilus_pm/nautilus_trader/examples/strategies/prediction_market/core.py`
@@ -106,7 +135,9 @@ Upstream lineage
 ----------------
 
 - NautilusTrader upstream project: `https://github.com/nautechsystems/nautilus_trader`
-- This repository vendors NautilusTrader under `nautilus_pm/` and keeps the
-  upstream license text in `nautilus_pm/LICENSE`.
+- This repository keeps the upstream NautilusTrader license text in
+  `nautilus_pm/LICENSE` and uses upstream `nautilus_trader` as the active
+  runtime dependency.
+- Active local runtime overrides now live under `_nautilus_overrides/`.
 - The most recent subtree sync recorded in this repository references upstream
   split commit `f51c805c9f`.

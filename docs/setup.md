@@ -16,7 +16,7 @@ cd prediction-market-backtesting
 unset CONDA_PREFIX
 
 uv venv --python 3.13
-uv pip install -e nautilus_pm/ bokeh plotly numpy py-clob-client duckdb textual
+uv pip install "nautilus_trader[polymarket,visualization]==1.225.0" bokeh plotly numpy py-clob-client duckdb textual
 ```
 
 If you want to build the docs locally, also install the MkDocs theme used by
@@ -135,9 +135,14 @@ printed after the run.
 
 ## Updating The Vendored Subtree
 
-```bash
-make update
-```
+Phase 1 now runs against upstream `nautilus_trader==1.225.0` plus the local
+runtime overlay under `_nautilus_overrides/`.
 
-Unlike submodules, the subtree is copied into this repo. There is no live link
-to upstream.
+`nautilus_pm/` remains in the repo temporarily as a reference/provenance tree
+while the migration is in progress, but it is no longer the supported runtime
+install target. Do not use `uv pip install -e nautilus_pm/` for normal repo
+setup.
+
+When you need to inspect provenance or compare old vendored behavior, diff the
+active overlay files under `_nautilus_overrides/` against their counterparts in
+`nautilus_pm/`.
