@@ -1,0 +1,887 @@
+# -------------------------------------------------------------------------------------------------
+#  Copyright (C) 2015-2026 Nautech Systems Pty Ltd. All rights reserved.
+#  https://nautechsystems.io
+#
+#  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
+#  You may not use this file except in compliance with the License.
+#  You may obtain a copy of the License at https://www.gnu.org/licenses/lgpl-3.0.en.html
+#
+#  Unless required by applicable law or agreed to in writing, software distributed under the
+#  License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+#  KIND, either express or implied. See the License for the specific language governing
+#  permissions and limitations under the License.
+# -------------------------------------------------------------------------------------------------
+#  Modified by Evan Kolberg in this repository on 2026-03-11, 2026-03-15, 2026-03-16, and 2026-03-31.
+#  See the repository NOTICE file for provenance and licensing scope.
+#
+
+from __future__ import annotations
+
+import os
+import re
+from collections.abc import Sequence
+from datetime import datetime
+from pathlib import Path
+from typing import Any
+
+import pandas as pd
+
+from nautilus_trader.adapters.prediction_market.backtest_utils import (
+    _timestamp_to_naive_utc_datetime,
+)
+from nautilus_trader.adapters.prediction_market.backtest_utils import build_brier_inputs
+from nautilus_trader.adapters.prediction_market.backtest_utils import (
+    build_market_prices,
+)
+from nautilus_trader.adapters.prediction_market.backtest_utils import (
+    extract_price_points,
+)
+from nautilus_trader.adapters.prediction_market.backtest_utils import (
+    extract_realized_pnl,
+)
+from nautilus_trader.adapters.prediction_market.backtest_utils import (
+    infer_realized_outcome,
+)
+from nautilus_trader.adapters.prediction_market.fill_model import (
+    PredictionMarketTakerFillModel,
+)
+from nautilus_trader.analysis import legacy_plot_adapter as legacy_plot_adapter
+from nautilus_trader.analysis.legacy_backtesting.models import (
+    DEFAULT_SUMMARY_PLOT_PANELS,
+)
+from nautilus_trader.analysis.legacy_backtesting.models import normalize_plot_panels
+from nautilus_trader.analysis.legacy_backtesting.models import PANEL_BRIER_ADVANTAGE
+from nautilus_trader.analysis.legacy_plot_adapter import build_legacy_backtest_layout
+from nautilus_trader.analysis.legacy_plot_adapter import save_legacy_backtest_layout
+from nautilus_trader.analysis.reporter import ReportProvider
+from nautilus_trader.backtest.config import BacktestEngineConfig
+from nautilus_trader.backtest.engine import BacktestEngine
+from nautilus_trader.config import LoggingConfig
+from nautilus_trader.model.enums import AccountType
+from nautilus_trader.model.enums import BookType
+from nautilus_trader.model.enums import OmsType
+from nautilus_trader.model.identifiers import TraderId
+from nautilus_trader.model.identifiers import Venue
+from nautilus_trader.model.objects import Currency
+from nautilus_trader.model.objects import Money
+from nautilus_trader.risk.config import RiskEngineConfig
+from nautilus_trader.trading.strategy import Strategy
+
+
+def _extract_account_pnl_series(engine: BacktestEngine) -> pd.Series:
+    accounts = list(engine.cache.accounts())
+    if not accounts:
+        return pd.Series(dtype=float)
+
+    report = ReportProvider.generate_account_report(accounts[0])
+    if report.empty or "total" not in report.columns:
+        return pd.Series(dtype=float)
+
+    frame = report.copy()
+    frame.index = pd.to_datetime(frame.index, utc=True, errors="coerce")
+    frame = frame[~frame.index.isna()]
+    if frame.empty:
+        return pd.Series(dtype=float)
+
+    total = pd.to_numeric(frame["total"], errors="coerce").dropna()
+    total = total.groupby(total.index).last().sort_index()
+    if total.empty:
+        return pd.Series(dtype=float)
+
+    return total - float(total.iloc[0])
+
+
+def _dense_account_series_from_engine(
+    *,
+    engine: BacktestEngine,
+    market_id: str,
+    market_prices: Sequence[tuple[datetime, float]],
+    initial_cash: float,
+) -> tuple[pd.Series, pd.Series]:
+    models_module, _ = legacy_plot_adapter._load_legacy_modules()
+    account_report = legacy_plot_adapter._extract_account_report(engine)
+    fills_report = engine.trader.generate_order_fills_report()
+    fills = legacy_plot_adapter._convert_fills(fills_report, models_module)
+    sparse_snapshots = legacy_plot_adapter._build_portfolio_snapshots(
+        models_module,
+        account_report,
+        fills,
+    )
+    normalized_market_prices = legacy_plot_adapter._market_prices_with_fill_points(
+        {market_id: market_prices},
+        fills,
+    )
+    dense_snapshots = legacy_plot_adapter._build_dense_portfolio_snapshots(
+        models_module=models_module,
+        sparse_snapshots=sparse_snapshots,
+        fills=fills,
+        market_prices=normalized_market_prices,
+        initial_cash=float(initial_cash),
+    )
+    if not dense_snapshots:
+        return pd.Series(dtype=float), pd.Series(dtype=float)
+
+    index = pd.to_datetime(
+        [snapshot.timestamp for snapshot in dense_snapshots], utc=True
+    )
+    equity = pd.Series(
+        [float(snapshot.total_equity) for snapshot in dense_snapshots],
+        index=index,
+        dtype=float,
+    )
+    cash = pd.Series(
+        [float(snapshot.cash) for snapshot in dense_snapshots],
+        index=index,
+        dtype=float,
+    )
+    return (
+        equity.groupby(equity.index).last().sort_index(),
+        cash.groupby(cash.index).last().sort_index(),
+    )
+
+
+def _pairs_to_series(
+    pairs: Sequence[tuple[str, float]] | Sequence[tuple[Any, float]],
+) -> pd.Series:
+    if not pairs:
+        return pd.Series(dtype=float)
+
+    series = pd.Series(
+        [float(value) for _, value in pairs],
+        index=pd.to_datetime(
+            [ts for ts, _ in pairs],
+            format="mixed",
+            utc=True,
+        ),
+    )
+    series = pd.to_numeric(series, errors="coerce").dropna()
+    if series.empty:
+        return pd.Series(dtype=float)
+
+    return series.groupby(series.index).last().sort_index()
+
+
+def _to_legacy_datetime(timestamp: pd.Timestamp) -> datetime:
+    return _timestamp_to_naive_utc_datetime(pd.Timestamp(timestamp))
+
+
+def _series_to_iso_pairs(series: pd.Series) -> list[tuple[str, float]]:
+    if series.empty:
+        return []
+
+    return [
+        (pd.Timestamp(ts).isoformat(), float(value)) for ts, value in series.items()
+    ]
+
+
+def _align_series_to_timeline(
+    series: pd.Series,
+    timeline: pd.DatetimeIndex,
+    *,
+    before: float,
+    after: float,
+) -> pd.Series:
+    if series.empty:
+        return pd.Series(dtype=float, index=timeline)
+
+    aligned = series.reindex(timeline).ffill()
+    aligned.loc[timeline < series.index[0]] = float(before)
+    aligned.loc[timeline > series.index[-1]] = float(after)
+    return aligned.astype(float)
+
+
+def _parse_float_like(value: Any, default: float = 0.0) -> float:
+    if value is None:
+        return default
+    if isinstance(value, int | float):
+        return float(value)
+
+    text = str(value).strip().replace("_", "").replace("\u2212", "-")
+    if not text:
+        return default
+
+    match = re.search(r"[-+]?\d*\.?\d+", text)
+    if match is None:
+        return default
+
+    try:
+        return float(match.group(0))
+    except ValueError:
+        return default
+
+
+def _serialize_fill_events(
+    *,
+    market_id: str,
+    fills_report: pd.DataFrame,
+) -> list[dict[str, Any]]:
+    if fills_report.empty:
+        return []
+
+    frame = fills_report.copy()
+    if frame.index.name and frame.index.name not in frame.columns:
+        frame = frame.reset_index()
+
+    events: list[dict[str, Any]] = []
+    for idx, (_, row) in enumerate(frame.iterrows(), start=1):
+        quantity = _parse_float_like(
+            row.get("filled_qty", row.get("last_qty", row.get("quantity")))
+        )
+        if quantity <= 0.0:
+            continue
+
+        timestamp = pd.to_datetime(
+            row.get("ts_last", row.get("ts_event", row.get("ts_init"))),
+            utc=True,
+            errors="coerce",
+        )
+        if pd.isna(timestamp):
+            continue
+        assert isinstance(timestamp, pd.Timestamp)
+
+        events.append(
+            {
+                "order_id": str(
+                    row.get("client_order_id")
+                    or row.get("venue_order_id")
+                    or row.get("order_id")
+                    or f"fill-{idx}"
+                ),
+                "market_id": market_id,
+                "action": str(row.get("side") or row.get("order_side") or "BUY")
+                .strip()
+                .lower(),
+                "side": "yes",
+                "price": _parse_float_like(
+                    row.get("avg_px", row.get("last_px", row.get("price")))
+                ),
+                "quantity": quantity,
+                "timestamp": timestamp.isoformat(),
+                "commission": _parse_float_like(
+                    row.get("commissions", row.get("commission", row.get("fees"))),
+                ),
+            },
+        )
+
+    events.sort(key=lambda event: event["timestamp"])
+    return events
+
+
+def _deserialize_fill_events(
+    *,
+    market_id: str,
+    fill_events: Sequence[dict[str, Any]],
+    models_module: Any,
+) -> list[Any]:
+    fills: list[Any] = []
+    market_side = legacy_plot_adapter._infer_market_side(models_module, market_id)
+
+    for idx, event in enumerate(fill_events, start=1):
+        timestamp = pd.to_datetime(event.get("timestamp"), utc=True, errors="coerce")
+        if pd.isna(timestamp):
+            continue
+        assert isinstance(timestamp, pd.Timestamp)
+
+        quantity = float(event.get("quantity") or 0.0)
+        if quantity <= 0.0:
+            continue
+
+        action = str(event.get("action") or "buy").strip().lower()
+        fills.append(
+            models_module.Fill(
+                order_id=str(event.get("order_id") or f"fill-{idx}"),
+                market_id=market_id,
+                action=models_module.OrderAction.BUY
+                if action == "buy"
+                else models_module.OrderAction.SELL,
+                side=market_side,
+                price=float(event.get("price") or 0.0),
+                quantity=quantity,
+                timestamp=_to_legacy_datetime(timestamp),
+                commission=float(event.get("commission") or 0.0),
+            ),
+        )
+
+    fills.sort(key=lambda fill: fill.timestamp)
+    return fills
+
+
+def _aggregate_brier_frames(
+    results: Sequence[dict[str, Any]],
+) -> dict[str, pd.DataFrame]:
+    frames: dict[str, pd.DataFrame] = {}
+
+    for result in results:
+        market_id = str(result.get("slug") or result.get("market") or "unknown")
+        user_series = _pairs_to_series(result.get("user_probability_series") or [])
+        market_series = _pairs_to_series(result.get("market_probability_series") or [])
+        outcome_series = _pairs_to_series(result.get("outcome_series") or [])
+        if user_series.empty or market_series.empty or outcome_series.empty:
+            continue
+
+        frame = legacy_plot_adapter.prepare_cumulative_brier_advantage(
+            user_probabilities=user_series,
+            market_probabilities=market_series,
+            outcomes=outcome_series,
+        )
+        if (
+            frame.empty
+            or "brier_advantage" not in frame
+            or "cumulative_brier_advantage" not in frame
+        ):
+            continue
+
+        frames[market_id] = frame
+
+    return frames
+
+
+def run_market_backtest(
+    *,
+    market_id: str,
+    instrument: Any,
+    data: Sequence[object],
+    strategy: Strategy,
+    strategy_name: str,
+    output_prefix: str,
+    platform: str,
+    venue: Venue,
+    base_currency: Currency,
+    fee_model: Any,
+    fill_model: Any | None = None,
+    apply_default_fill_model: bool = True,
+    initial_cash: float,
+    probability_window: int,
+    price_attr: str,
+    count_key: str,
+    data_count: int | None = None,
+    chart_resample_rule: str | None = None,
+    market_key: str = "market",
+    open_browser: bool = False,
+    emit_html: bool = True,
+    return_chart_layout: bool = False,
+    return_summary_series: bool = False,
+    chart_output_path: str | Path | None = None,
+    book_type: BookType = BookType.L1_MBP,
+    liquidity_consumption: bool = False,
+    queue_position: bool = False,
+    latency_model: Any | None = None,
+) -> dict[str, Any]:
+    """
+    Run one prediction-market backtest and emit a legacy chart.
+
+    Prediction-market market orders are taker-style orders against a central
+    limit order book. Historical backtests here replay trades/bars without full
+    book depth, so we apply a deterministic one-tick adverse fill model by
+    default to approximate slippage. Callers can override this with a custom
+    ``fill_model`` if needed.
+    """
+    if fill_model is None and apply_default_fill_model:
+        fill_model = PredictionMarketTakerFillModel()
+
+    engine = BacktestEngine(
+        config=BacktestEngineConfig(
+            trader_id=TraderId("BACKTESTER-001"),
+            logging=LoggingConfig(log_level="WARNING"),
+            risk_engine=RiskEngineConfig(bypass=True),
+        ),
+    )
+    engine.add_venue(
+        venue=venue,
+        oms_type=OmsType.NETTING,
+        account_type=AccountType.CASH,
+        base_currency=base_currency,
+        starting_balances=[Money(initial_cash, base_currency)],
+        fill_model=fill_model,
+        fee_model=fee_model,
+        latency_model=latency_model,
+        book_type=book_type,
+        liquidity_consumption=liquidity_consumption,
+        queue_position=queue_position,
+    )
+    engine.add_instrument(instrument)
+    engine.add_data(data if isinstance(data, list) else list(data))
+    engine.add_strategy(strategy)
+    engine.run()
+
+    fills = engine.trader.generate_order_fills_report()
+    positions = engine.trader.generate_positions_report()
+    pnl = extract_realized_pnl(positions)
+    price_points = extract_price_points(data, price_attr=price_attr)
+    user_probabilities, market_probabilities, outcomes = build_brier_inputs(
+        points=price_points,
+        window=probability_window,
+        realized_outcome=infer_realized_outcome(instrument),
+    )
+    chart_market_prices = build_market_prices(
+        price_points,
+        resample_rule=chart_resample_rule,
+    )
+
+    chart_path = str(
+        chart_output_path or f"output/{output_prefix}_{market_id}_legacy.html"
+    )
+    chart_layout = None
+    chart_title = f"{strategy_name} legacy chart"
+    if emit_html or return_chart_layout:
+        os.makedirs("output", exist_ok=True)
+        chart_layout, chart_title = build_legacy_backtest_layout(
+            engine=engine,
+            output_path=chart_path,
+            strategy_name=strategy_name,
+            platform=platform,
+            initial_cash=initial_cash,
+            market_prices={
+                str(instrument.id): chart_market_prices,
+            },
+            user_probabilities=user_probabilities,
+            market_probabilities=market_probabilities,
+            outcomes=outcomes,
+            open_browser=open_browser,
+        )
+        if emit_html:
+            chart_path = save_legacy_backtest_layout(
+                chart_layout,
+                chart_path,
+                chart_title,
+            )
+    else:
+        chart_path = None
+
+    summary_price_series = None
+    summary_pnl_series = None
+    summary_equity_series = None
+    summary_cash_series = None
+    summary_user_probability_series = None
+    summary_market_probability_series = None
+    summary_outcome_series = None
+    summary_fill_events = None
+    if return_summary_series:
+        summary_legacy_models, _ = legacy_plot_adapter._load_legacy_modules()
+        summary_legacy_fills = legacy_plot_adapter._convert_fills(
+            fills, summary_legacy_models
+        )
+        summary_market_prices = legacy_plot_adapter._market_prices_with_fill_points(
+            {market_id: chart_market_prices},
+            summary_legacy_fills,
+        ).get(market_id, chart_market_prices)
+        dense_equity_series, dense_cash_series = _dense_account_series_from_engine(
+            engine=engine,
+            market_id=market_id,
+            market_prices=chart_market_prices,
+            initial_cash=initial_cash,
+        )
+        summary_price_series = _series_to_iso_pairs(
+            _pairs_to_series(summary_market_prices)
+        )
+        pnl_series = (
+            dense_equity_series - float(dense_equity_series.iloc[0])
+            if not dense_equity_series.empty
+            else _extract_account_pnl_series(engine)
+        )
+        if not pnl_series.empty:
+            summary_pnl_series = _series_to_iso_pairs(pnl_series)
+        if not dense_equity_series.empty:
+            summary_equity_series = _series_to_iso_pairs(dense_equity_series)
+        if not dense_cash_series.empty:
+            summary_cash_series = _series_to_iso_pairs(dense_cash_series)
+        if not user_probabilities.empty:
+            summary_user_probability_series = _series_to_iso_pairs(user_probabilities)
+        if not market_probabilities.empty:
+            summary_market_probability_series = _series_to_iso_pairs(
+                market_probabilities
+            )
+        if not outcomes.empty:
+            summary_outcome_series = _series_to_iso_pairs(outcomes)
+        summary_fill_events = _serialize_fill_events(
+            market_id=market_id,
+            fills_report=fills,
+        )
+
+    engine.reset()
+    engine.dispose()
+
+    result = {
+        market_key: market_id,
+        count_key: int(data_count) if data_count is not None else len(data),
+        "fills": len(fills),
+        "pnl": pnl,
+    }
+    if chart_path is not None:
+        result["chart_path"] = chart_path
+    if return_chart_layout and chart_layout is not None:
+        result["chart_layout"] = chart_layout
+        result["chart_title"] = chart_title
+    if return_summary_series:
+        result["price_series"] = summary_price_series or []
+        result["pnl_series"] = summary_pnl_series or []
+        result["equity_series"] = summary_equity_series or []
+        result["cash_series"] = summary_cash_series or []
+        result["user_probability_series"] = summary_user_probability_series or []
+        result["market_probability_series"] = summary_market_probability_series or []
+        result["outcome_series"] = summary_outcome_series or []
+        result["fill_events"] = summary_fill_events or []
+    return result
+
+
+def save_combined_backtest_report(
+    *,
+    results: Sequence[dict[str, Any]],
+    output_path: str | Path,
+    title: str,
+    market_key: str,
+    pnl_label: str,
+) -> str | None:
+    """
+    Save one HTML page by concatenating the generated per-market chart HTML bodies.
+    """
+    chart_paths: list[Path] = []
+    for result in results:
+        chart_path = result.get("chart_path")
+        if chart_path is None:
+            continue
+        chart_paths.append(Path(str(chart_path)).expanduser().resolve())
+
+    if not chart_paths:
+        return None
+
+    output_abs = Path(output_path).expanduser().resolve()
+    output_abs.parent.mkdir(parents=True, exist_ok=True)
+    first_html = chart_paths[0].read_text(encoding="utf-8")
+    head_match = re.search(
+        r"<head[^>]*>(?P<head>.*)</head>", first_html, flags=re.IGNORECASE | re.DOTALL
+    )
+    if head_match is None:
+        raise ValueError(f"Unable to locate <head> in {chart_paths[0]}")
+
+    body_pattern = re.compile(
+        r"<body[^>]*>(?P<body>.*)</body>", flags=re.IGNORECASE | re.DOTALL
+    )
+    body_chunks: list[str] = []
+    for chart_path in chart_paths:
+        html_text = chart_path.read_text(encoding="utf-8")
+        body_match = body_pattern.search(html_text)
+        if body_match is None:
+            raise ValueError(f"Unable to locate <body> in {chart_path}")
+        body_chunks.append(body_match.group("body").strip())
+
+    combined_html = (
+        "<!DOCTYPE html>\n"
+        '<html lang="en">\n'
+        "  <head>\n"
+        f"{head_match.group('head').strip()}\n"
+        "  </head>\n"
+        "  <body>\n"
+        f"{'\n\n'.join(body_chunks)}\n"
+        "  </body>\n"
+        "</html>\n"
+    )
+    output_abs.write_text(combined_html, encoding="utf-8")
+    return str(output_abs)
+
+
+def save_aggregate_backtest_report(
+    *,
+    results: Sequence[dict[str, Any]],
+    output_path: str | Path,
+    title: str,
+    market_key: str,
+    pnl_label: str,
+    max_points_per_market: int = 400,
+    plot_panels: Sequence[str] | None = None,
+) -> str | None:
+    """
+    Save one legacy Bokeh report spanning multiple markets in shared panels.
+    """
+    if not results:
+        return None
+
+    models_module, plotting_module = legacy_plot_adapter._load_legacy_modules()
+    downsample_point_limit = max(5000, max_points_per_market * 12)
+    resolved_plot_panels = normalize_plot_panels(
+        plot_panels,
+        default=DEFAULT_SUMMARY_PLOT_PANELS,
+    )
+    legacy_plot_adapter._configure_legacy_downsampling(
+        plotting_module,
+        adaptive=True,
+        max_points=downsample_point_limit,
+    )
+
+    market_prices: dict[str, list[tuple[datetime, float]]] = {}
+    fills: list[Any] = []
+    equity_series_by_market: dict[str, pd.Series] = {}
+    cash_series_by_market: dict[str, pd.Series] = {}
+    active_ranges: dict[str, tuple[pd.Timestamp, pd.Timestamp]] = {}
+    timeline_points: set[pd.Timestamp] = set()
+
+    for result in results:
+        label = str(result.get(market_key) or "unknown")
+        final_pnl = float(result.get("pnl") or 0.0)
+
+        price_series = _pairs_to_series(result.get("price_series") or [])
+        if not price_series.empty:
+            market_prices[label] = [
+                (_to_legacy_datetime(ts), float(value))
+                for ts, value in price_series.items()
+            ]
+            active_ranges[label] = (price_series.index[0], price_series.index[-1])
+            timeline_points.update(price_series.index.to_list())
+
+        fills.extend(
+            _deserialize_fill_events(
+                market_id=label,
+                fill_events=result.get("fill_events") or [],
+                models_module=models_module,
+            ),
+        )
+        for event in result.get("fill_events") or []:
+            timestamp = pd.to_datetime(
+                event.get("timestamp"), utc=True, errors="coerce"
+            )
+            if not pd.isna(timestamp):
+                timeline_points.add(timestamp)
+
+        equity_series = _pairs_to_series(result.get("equity_series") or [])
+        cash_series = _pairs_to_series(result.get("cash_series") or [])
+        pnl_series = _pairs_to_series(result.get("pnl_series") or [])
+
+        if equity_series.empty:
+            if not pnl_series.empty:
+                start_equity = (
+                    float(cash_series.iloc[0]) if not cash_series.empty else 100.0
+                )
+                equity_series = pnl_series.astype(float) + start_equity
+            elif not price_series.empty:
+                equity_series = pd.Series(
+                    [100.0, 100.0 + final_pnl],
+                    index=pd.DatetimeIndex(
+                        [price_series.index[0], price_series.index[-1]]
+                    ),
+                    dtype=float,
+                )
+
+        if not pnl_series.empty:
+            pnl_series = pnl_series.astype(float)
+            pnl_series.iloc[-1] = final_pnl
+        elif not equity_series.empty:
+            pnl_series = (equity_series - float(equity_series.iloc[0])).astype(float)
+            pnl_series.iloc[-1] = final_pnl
+
+        if cash_series.empty and not equity_series.empty:
+            fallback_start = float(equity_series.iloc[0])
+            fallback_end = float(equity_series.iloc[-1])
+            if len(equity_series.index) == 1:
+                cash_series = pd.Series(
+                    [fallback_start], index=equity_series.index, dtype=float
+                )
+            else:
+                cash_series = pd.Series(
+                    [fallback_start, fallback_end],
+                    index=pd.DatetimeIndex(
+                        [equity_series.index[0], equity_series.index[-1]]
+                    ),
+                    dtype=float,
+                )
+
+        if not equity_series.empty:
+            equity_series_by_market[label] = equity_series.astype(float)
+            timeline_points.update(equity_series.index.to_list())
+            if label not in active_ranges:
+                active_ranges[label] = (equity_series.index[0], equity_series.index[-1])
+        if not cash_series.empty:
+            cash_series_by_market[label] = cash_series.astype(float)
+            timeline_points.update(cash_series.index.to_list())
+            if label not in active_ranges:
+                active_ranges[label] = (cash_series.index[0], cash_series.index[-1])
+        if not pnl_series.empty:
+            timeline_points.update(pnl_series.index.to_list())
+            if label not in active_ranges:
+                active_ranges[label] = (pnl_series.index[0], pnl_series.index[-1])
+
+    if timeline_points:
+        timeline = pd.DatetimeIndex(sorted(timeline_points))
+    else:
+        now = pd.Timestamp.now(tz="UTC")
+        timeline = pd.DatetimeIndex([now])
+
+    aggregate_equity = pd.Series(0.0, index=timeline, dtype=float)
+    aggregate_cash = pd.Series(0.0, index=timeline, dtype=float)
+    active_count = pd.Series(0, index=timeline, dtype=int)
+    overlay_equity: dict[str, pd.Series] = {}
+    overlay_cash: dict[str, pd.Series] = {}
+
+    for label, (start, end) in active_ranges.items():
+        equity_series = equity_series_by_market.get(label, pd.Series(dtype=float))
+        cash_series = cash_series_by_market.get(label, pd.Series(dtype=float))
+        if equity_series.empty and cash_series.empty:
+            continue
+
+        if equity_series.empty:
+            start_equity = (
+                float(cash_series.iloc[0]) if not cash_series.empty else 100.0
+            )
+            end_equity = (
+                float(cash_series.iloc[-1]) if not cash_series.empty else start_equity
+            )
+            equity_series = pd.Series(
+                [start_equity, end_equity],
+                index=pd.DatetimeIndex([start, end]),
+                dtype=float,
+            )
+        if cash_series.empty:
+            cash_series = pd.Series(
+                [float(equity_series.iloc[0]), float(equity_series.iloc[-1])],
+                index=pd.DatetimeIndex([start, end]),
+                dtype=float,
+            )
+
+        full_equity = _align_series_to_timeline(
+            equity_series,
+            timeline,
+            before=float(equity_series.iloc[0]),
+            after=float(equity_series.iloc[-1]),
+        )
+        full_cash = _align_series_to_timeline(
+            cash_series,
+            timeline,
+            before=float(cash_series.iloc[0]),
+            after=float(cash_series.iloc[-1]),
+        )
+
+        aggregate_equity = aggregate_equity.add(full_equity, fill_value=0.0)
+        aggregate_cash = aggregate_cash.add(full_cash, fill_value=0.0)
+
+        active_mask = (timeline >= start) & (timeline <= end)
+        active_count.loc[active_mask] = active_count.loc[active_mask] + 1
+
+        clipped_equity = full_equity.copy()
+        clipped_cash = full_cash.copy()
+        clipped_equity.loc[~active_mask] = float("nan")
+        clipped_cash.loc[~active_mask] = float("nan")
+        overlay_equity[label] = clipped_equity
+        overlay_cash[label] = clipped_cash
+
+    if aggregate_equity.empty:
+        return None
+
+    initial_cash = float(aggregate_equity.iloc[0])
+    equity_curve = [
+        models_module.PortfolioSnapshot(
+            timestamp=_to_legacy_datetime(ts),
+            cash=float(aggregate_cash.loc[ts]),
+            total_equity=float(aggregate_equity.loc[ts]),
+            unrealized_pnl=float(aggregate_equity.loc[ts] - aggregate_cash.loc[ts]),
+            num_positions=int(active_count.loc[ts]),
+        )
+        for ts in timeline
+    ]
+
+    final_equity = float(aggregate_equity.iloc[-1])
+    equity_values = pd.Series(
+        [snapshot.total_equity for snapshot in equity_curve], dtype=float
+    )
+    running_peak = equity_values.cummax().replace(0.0, pd.NA)
+    drawdowns = ((equity_values - running_peak) / running_peak).fillna(0.0)
+    max_drawdown = float(drawdowns.min()) if not drawdowns.empty else 0.0
+    metrics = {
+        "final_pnl": final_equity - initial_cash,
+        "total_return": 0.0
+        if initial_cash == 0
+        else (final_equity - initial_cash) / initial_cash,
+        "max_drawdown": max_drawdown,
+    }
+
+    result = models_module.BacktestResult(
+        equity_curve=equity_curve,
+        fills=fills,
+        metrics=metrics,
+        strategy_name=title,
+        platform=models_module.Platform.POLYMARKET,
+        start_time=_to_legacy_datetime(timeline[0]),
+        end_time=_to_legacy_datetime(timeline[-1]),
+        initial_cash=float(initial_cash),
+        final_equity=float(final_equity),
+        num_markets_traded=sum(
+            1 for item in results if int(item.get("fills") or 0) > 0
+        ),
+        num_markets_resolved=len(results),
+        market_prices=market_prices,
+        market_pnls={},
+        overlay_series={
+            "equity": overlay_equity,
+            "cash": overlay_cash,
+        },
+        hide_primary_panel_series=True,
+        primary_series_name="Aggregate",
+        prepend_total_equity_panel=True,
+        total_equity_panel_label="Total Equity",
+        plot_monthly_returns=True,
+        plot_panels=resolved_plot_panels,
+    )
+
+    output_abs = Path(output_path).expanduser().resolve()
+    output_abs.parent.mkdir(parents=True, exist_ok=True)
+    extra_panels: dict[str, Any] = {}
+    if PANEL_BRIER_ADVANTAGE in resolved_plot_panels:
+        brier_frames = _aggregate_brier_frames(results)
+        if brier_frames:
+            panel = legacy_plot_adapter._build_multi_market_brier_panel(
+                brier_frames,
+                axis_label="Cumulative Brier Advantage",
+                max_points_per_market=max_points_per_market,
+            )
+            if panel is not None:
+                extra_panels[PANEL_BRIER_ADVANTAGE] = panel
+    layout = plotting_module.plot(
+        result,
+        filename=str(output_abs),
+        max_markets=max(len(market_prices), 30),
+        open_browser=False,
+        progress=False,
+        plot_panels=resolved_plot_panels,
+        extra_panels=extra_panels,
+    )
+    layout = legacy_plot_adapter._apply_layout_overrides(
+        layout,
+        initial_cash=float(initial_cash),
+        hide_yes_price_fill_markers=legacy_plot_adapter._should_hide_yes_price_fill_markers(
+            fill_count=len(fills),
+            max_points=downsample_point_limit,
+        ),
+    )
+    return save_legacy_backtest_layout(layout, output_abs, title)
+
+
+def print_backtest_summary(
+    *,
+    results: list[dict[str, Any]],
+    market_key: str,
+    count_key: str,
+    count_label: str,
+    pnl_label: str,
+    empty_message: str = "No markets had sufficient data.",
+) -> None:
+    """
+    Print a normalized backtest summary table.
+    """
+    if not results:
+        print(empty_message)
+        return
+
+    col_w = max(len(str(result[market_key])) for result in results) + 2
+    header = f"{'Market':<{col_w}} {count_label:>8} {'Fills':>6} {pnl_label:>12}"
+    sep = "─" * len(header)
+
+    print(f"\n{sep}\n{header}\n{sep}")
+    for result in results:
+        print(
+            f"{result[market_key]:<{col_w}} {result[count_key]:>8} "
+            f"{result['fills']:>6} {result['pnl']:>+12.4f}"
+        )
+
+    total_pnl = sum(float(result["pnl"]) for result in results)
+    total_fills = sum(int(result["fills"]) for result in results)
+    print(sep)
+    print(f"{'TOTAL':<{col_w}} {'':>8} {total_fills:>6} {total_pnl:>+12.4f}")
+    print(sep)

@@ -1,7 +1,12 @@
 from __future__ import annotations
 
+import contextlib
 import csv
 import json
+import multiprocessing
+import pickle
+import tempfile
+import traceback
 from collections.abc import Callable
 from collections.abc import Mapping
 from collections.abc import Sequence
@@ -15,13 +20,16 @@ from random import Random
 from statistics import median
 from types import MappingProxyType
 from typing import Any
+from typing import TYPE_CHECKING
 
 from backtests._shared._execution_config import ExecutionModelConfig
 from backtests._shared._market_data_config import MarketDataConfig
-from backtests._shared._prediction_market_backtest import PredictionMarketBacktest
 from backtests._shared._replay_specs import ReplaySpec
 from backtests._shared._strategy_configs import StrategyConfigSpec
 from backtests._shared.data_sources.registry import resolve_market_data_support
+
+if TYPE_CHECKING:
+    from backtests._shared._prediction_market_backtest import PredictionMarketBacktest
 
 
 SEARCH_PLACEHOLDER_PREFIX = "__SEARCH__:"
@@ -263,26 +271,136 @@ def _build_backtest(
     window: OptimizationWindow,
     params: ParameterValues,
 ) -> PredictionMarketBacktest:
+    from backtests._shared._prediction_market_backtest import PredictionMarketBacktest
+
+    return PredictionMarketBacktest(
+        **_build_backtest_kwargs(
+            config=config,
+            trial_id=trial_id,
+            window=window,
+            params=params,
+        )
+    )
+
+
+def _build_backtest_kwargs(
+    *,
+    config: OptimizationConfig,
+    trial_id: int,
+    window: OptimizationWindow,
+    params: ParameterValues,
+) -> dict[str, Any]:
     params_map = dict(params)
     bound_strategy_spec = _replace_search_placeholders(config.strategy_spec, params_map)
     replay = _windowed_replay(base_replay=config.base_replay, window=window)
-    return PredictionMarketBacktest(
-        name=f"{config.name}:{window.name}:trial-{trial_id:03d}",
-        data=config.data,
-        replays=(replay,),
-        strategy_configs=[bound_strategy_spec],
-        initial_cash=config.initial_cash,
-        probability_window=config.probability_window,
-        min_trades=config.min_trades,
-        min_quotes=config.min_quotes,
-        min_price_range=config.min_price_range,
-        nautilus_log_level=config.nautilus_log_level,
-        execution=config.execution,
-        chart_resample_rule=config.chart_resample_rule,
-        emit_html=config.emit_html,
-        chart_output_path=config.chart_output_path,
-        return_summary_series=True,
+    return {
+        "name": f"{config.name}:{window.name}:trial-{trial_id:03d}",
+        "data": config.data,
+        "replays": (replay,),
+        "strategy_configs": [bound_strategy_spec],
+        "initial_cash": config.initial_cash,
+        "probability_window": config.probability_window,
+        "min_trades": config.min_trades,
+        "min_quotes": config.min_quotes,
+        "min_price_range": config.min_price_range,
+        "nautilus_log_level": config.nautilus_log_level,
+        "execution": config.execution,
+        "chart_resample_rule": config.chart_resample_rule,
+        "emit_html": config.emit_html,
+        "chart_output_path": config.chart_output_path,
+        "return_summary_series": True,
+    }
+
+
+def _default_evaluation_worker(
+    worker_kwargs: dict[str, Any],
+    result_path: str,
+    send_conn: Any,
+) -> None:
+    try:
+        from _nautilus_bootstrap import install_local_nautilus_overrides
+
+        install_local_nautilus_overrides()
+
+        from backtests._shared._prediction_market_backtest import (
+            PredictionMarketBacktest,
+        )
+
+        result = PredictionMarketBacktest(**worker_kwargs).run()
+        with open(result_path, "wb") as result_file:
+            pickle.dump(result, result_file)
+        send_conn.send(("ok", result_path))
+    except BaseException as exc:  # pragma: no cover - exercised via subprocess
+        send_conn.send(
+            (
+                "error",
+                {
+                    "error": repr(exc),
+                    "traceback": traceback.format_exc(),
+                },
+            )
+        )
+    finally:
+        send_conn.close()
+
+
+def _run_default_evaluator_in_subprocess(
+    *,
+    worker_kwargs: dict[str, Any],
+) -> object:
+    ctx = multiprocessing.get_context("spawn")
+    recv_conn, send_conn = ctx.Pipe(duplex=False)
+    with tempfile.NamedTemporaryFile(
+        prefix="optimizer-window-",
+        suffix=".pkl",
+        delete=False,
+    ) as result_file:
+        result_path = result_file.name
+    process = ctx.Process(
+        target=_default_evaluation_worker,
+        args=(worker_kwargs, result_path, send_conn),
+        daemon=False,
     )
+    process.start()
+    send_conn.close()
+
+    payload: tuple[str, Any] | None = None
+    try:
+        payload = recv_conn.recv()
+    except EOFError:
+        payload = None
+    finally:
+        recv_conn.close()
+        process.join()
+
+    try:
+        if payload is not None:
+            status, data = payload
+            if status == "ok":
+                if process.exitcode not in (0, None):
+                    raise RuntimeError(
+                        "Optimizer worker exited with a non-zero code after returning a result: "
+                        f"{process.exitcode}"
+                    )
+                with open(data, "rb") as result_file:
+                    return pickle.load(result_file)
+
+            if status == "error":
+                message = data.get("error", "Unknown worker error")
+                worker_traceback = data.get("traceback", "")
+                raise RuntimeError(
+                    f"{message}\n\nChild traceback:\n{worker_traceback}".rstrip()
+                )
+
+            raise RuntimeError(f"Unexpected optimizer worker payload status {status!r}")
+
+        raise RuntimeError(
+            "Optimizer worker exited without returning a result. "
+            f"Process exit code: {process.exitcode}"
+        )
+    finally:
+        with contextlib.suppress(FileNotFoundError):
+            Path(result_path).unlink()
 
 
 def _coerce_results(value: object) -> list[dict[str, Any]]:
@@ -373,20 +491,30 @@ def _score_result(
 def _evaluate_window(
     *,
     config: OptimizationConfig,
-    evaluator: BacktestEvaluator,
+    evaluator: BacktestEvaluator | None,
     trial_id: int,
     params: ParameterValues,
     window: OptimizationWindow,
 ) -> _WindowEvaluation:
-    backtest = _build_backtest(
-        config=config,
-        trial_id=trial_id,
-        window=window,
-        params=params,
-    )
-
     try:
-        raw_results = evaluator(backtest)
+        if evaluator is None:
+            raw_results = _run_default_evaluator_in_subprocess(
+                worker_kwargs=_build_backtest_kwargs(
+                    config=config,
+                    trial_id=trial_id,
+                    window=window,
+                    params=params,
+                )
+            )
+        else:
+            raw_results = evaluator(
+                _build_backtest(
+                    config=config,
+                    trial_id=trial_id,
+                    window=window,
+                    params=params,
+                )
+            )
         results = _coerce_results(raw_results)
     except Exception as exc:  # noqa: BLE001
         return _WindowEvaluation(
@@ -702,7 +830,6 @@ def run_parameter_optimization(
     *,
     evaluator: BacktestEvaluator | None = None,
 ) -> OptimizationSummary:
-    evaluator = evaluator or (lambda backtest: backtest.run())
     candidate_pool = _parameter_candidates(config.parameter_grid)
     sampled_params = _sample_parameter_sets(config)
 
