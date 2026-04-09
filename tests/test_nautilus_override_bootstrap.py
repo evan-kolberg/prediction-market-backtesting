@@ -6,9 +6,12 @@ import sys
 
 import nautilus_trader
 import nautilus_trader.adapters as nautilus_adapters
+from nautilus_trader.adapters.polymarket.execution import PolymarketExecutionClient
 from nautilus_trader.adapters.polymarket import PolymarketPMXTDataLoader
 from nautilus_trader.adapters.prediction_market import HistoricalReplayAdapter
+from nautilus_trader.analysis import config as analysis_config
 from nautilus_trader.analysis import legacy_plot_adapter
+from nautilus_trader.analysis import tearsheet
 
 from _nautilus_bootstrap import LOCAL_ADAPTERS
 from _nautilus_bootstrap import install_local_nautilus_overrides
@@ -43,6 +46,28 @@ def test_nautilus_runtime_uses_upstream_package_with_local_overrides() -> None:
 
     legacy_plot_path = Path(legacy_plot_adapter.__file__).resolve()
     assert OVERLAY_ROOT in legacy_plot_path.parents
+
+    execution_module = sys.modules[PolymarketExecutionClient.__module__]
+    execution_path = Path(execution_module.__file__).resolve()
+    assert OVERLAY_ROOT in execution_path.parents
+    assert (
+        execution_path.relative_to(OVERLAY_ROOT).as_posix()
+        == "nautilus_trader/adapters/polymarket/execution.py"
+    )
+
+    analysis_config_path = Path(analysis_config.__file__).resolve()
+    assert OVERLAY_ROOT in analysis_config_path.parents
+    assert (
+        analysis_config_path.relative_to(OVERLAY_ROOT).as_posix()
+        == "nautilus_trader/analysis/config.py"
+    )
+
+    tearsheet_path = Path(tearsheet.__file__).resolve()
+    assert OVERLAY_ROOT in tearsheet_path.parents
+    assert (
+        tearsheet_path.relative_to(OVERLAY_ROOT).as_posix()
+        == "nautilus_trader/analysis/tearsheet.py"
+    )
 
 
 def test_direct_runner_bootstrap_reinstalls_adapter_overrides(

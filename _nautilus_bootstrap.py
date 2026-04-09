@@ -21,11 +21,14 @@ def _prepend_package_path(package: object, path: Path) -> None:
 
 
 def install_local_nautilus_overrides() -> None:
+    import nautilus_trader
+
+    _prepend_package_path(nautilus_trader, LOCAL_OVERRIDE_ROOT)
+
     import nautilus_trader.adapters as nautilus_adapters
     import nautilus_trader.analysis as nautilus_analysis
 
     _prepend_package_path(nautilus_adapters, LOCAL_ADAPTERS)
-
     _prepend_package_path(nautilus_analysis, LOCAL_ANALYSIS)
 
 

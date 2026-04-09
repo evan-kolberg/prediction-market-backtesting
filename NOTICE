@@ -33,6 +33,7 @@ provenance notices with file-specific change dates:
 - `_nautilus_overrides/nautilus_trader/adapters/polymarket/common/gamma_markets.py`
 - `_nautilus_overrides/nautilus_trader/adapters/polymarket/common/market_selection.py`
 - `_nautilus_overrides/nautilus_trader/adapters/polymarket/common/parsing.py`
+- `_nautilus_overrides/nautilus_trader/adapters/polymarket/execution.py`
 - `_nautilus_overrides/nautilus_trader/adapters/polymarket/fee_model.py`
 - `_nautilus_overrides/nautilus_trader/adapters/polymarket/loaders.py`
 - `_nautilus_overrides/nautilus_trader/adapters/polymarket/pmxt.py`
@@ -43,11 +44,14 @@ provenance notices with file-specific change dates:
 - `_nautilus_overrides/nautilus_trader/adapters/prediction_market/backtest_utils.py`
 - `_nautilus_overrides/nautilus_trader/adapters/prediction_market/fill_model.py`
 - `_nautilus_overrides/nautilus_trader/adapters/prediction_market/research.py`
+- `_nautilus_overrides/nautilus_trader/analysis/__init__.py`
+- `_nautilus_overrides/nautilus_trader/analysis/config.py`
 - `_nautilus_overrides/nautilus_trader/analysis/legacy_backtesting/__init__.py`
 - `_nautilus_overrides/nautilus_trader/analysis/legacy_backtesting/models.py`
 - `_nautilus_overrides/nautilus_trader/analysis/legacy_backtesting/plotting.py`
 - `_nautilus_overrides/nautilus_trader/analysis/legacy_backtesting/progress.py`
 - `_nautilus_overrides/nautilus_trader/analysis/legacy_plot_adapter.py`
+- `_nautilus_overrides/nautilus_trader/analysis/tearsheet.py`
 - `backtests/_shared/_kalshi_trade_tick_runner.py`
 - `backtests/_shared/_polymarket_quote_tick_pmxt_runner.py`
 - `backtests/_shared/_polymarket_trade_tick_runner.py`
