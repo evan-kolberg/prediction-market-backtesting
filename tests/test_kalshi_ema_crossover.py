@@ -1,10 +1,10 @@
-"""End-to-end test for the Kalshi EMA-crossover backtest."""
+"""End-to-end test for the retained Kalshi single-runner example."""
 
 from pathlib import Path
 
 import pytest
 
-import backtests.kalshi_trade_tick_ema_crossover as strat
+import backtests.kalshi_trade_tick_breakout as strat
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]

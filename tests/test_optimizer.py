@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import importlib
 import json
 from dataclasses import replace
 from pathlib import Path
@@ -329,58 +328,35 @@ def test_optimizer_keeps_failed_trials_visible_on_leaderboard(tmp_path: Path) ->
     assert failed_row.train_median_score == config.invalid_score
 
 
-def test_pmxt_ema_optimizer_runner_writes_artifacts(
+def test_run_parameter_optimization_writes_artifacts(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("BACKTEST_ENABLE_TIMING", "0")
-    module = importlib.import_module(
-        "backtests.polymarket_quote_tick_pmxt_ema_optimizer"
-    )
-    optimization = replace(
-        module.OPTIMIZATION,
-        artifact_root=tmp_path,
+    config = _make_config(
+        tmp_path,
+        name="optimizer_artifact_test",
+        parameter_grid={"edge": (1, 2)},
         max_trials=2,
         holdout_top_k=1,
     )
-    monkeypatch.setattr(module, "OPTIMIZATION", optimization)
 
     def _evaluator(backtest: PredictionMarketBacktest) -> dict[str, object]:
-        config = backtest.strategy_configs[0]["config"]
-        fast_period = config["fast_period"]
+        edge = backtest.strategy_configs[0]["config"]["edge"]
         window_name = backtest.sims[0].metadata["optimization_window"]
-        holdout_bonus = 1.0 if window_name == "sample-d-close-window" else 0.0
-        return _result_for_score((fast_period / 100.0) + holdout_bonus)
+        holdout_bonus = 1.0 if window_name == "holdout-a" else 0.0
+        return _result_for_score(float(edge) + holdout_bonus)
 
-    monkeypatch.setattr(
-        module,
-        "run_experiment",
-        lambda _experiment: optimizer.run_parameter_optimization(
-            module.OPTIMIZATION,
-            evaluator=_evaluator,
-        ),
-    )
+    summary = optimizer.run_parameter_optimization(config, evaluator=_evaluator)
 
-    module.run()
-
-    leaderboard_path = tmp_path / f"{module.NAME}_leaderboard.csv"
-    summary_path = tmp_path / f"{module.NAME}_summary.json"
+    leaderboard_path = tmp_path / "optimizer_artifact_test_leaderboard.csv"
+    summary_path = tmp_path / "optimizer_artifact_test_summary.json"
     assert leaderboard_path.exists()
     assert summary_path.exists()
 
     payload = json.loads(summary_path.read_text())
-    assert payload["name"] == module.NAME
+    assert payload["name"] == summary.name
     assert payload["evaluated_trials"] == 2
-    assert payload["train_windows"] == [
-        window.name for window in optimization.train_windows
-    ]
+    assert payload["train_windows"] == [window.name for window in config.train_windows]
     assert payload["holdout_windows"] == [
-        window.name for window in optimization.holdout_windows
+        window.name for window in config.holdout_windows
     ]
-    assert set(payload["best_candidate"]["params"]) == {
-        "entry_buffer",
-        "fast_period",
-        "slow_period",
-        "stop_loss",
-        "take_profit",
-    }
+    assert set(payload["best_candidate"]["params"]) == {"edge"}

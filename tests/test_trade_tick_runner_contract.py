@@ -3,14 +3,11 @@ from __future__ import annotations
 import importlib
 from pathlib import Path
 
-import pytest
-
 from backtests._shared._replay_specs import KalshiTradeTickReplay
 from backtests._shared._replay_specs import PolymarketTradeTickReplay
 
 
 EXPECTED_INITIAL_CASH = 100.0
-EXPECTED_FIXED_SPORTS_LOOKBACK_DAYS = 7
 EXPECTED_EMIT_HTML = True
 EXPECTED_CHART_OUTPUT_PATH = "output"
 EXPECTED_DETAIL_PLOT_PANELS = (
@@ -43,71 +40,79 @@ EXPECTED_POLYMARKET_TRADE_SOURCES = (
     "clob:https://clob.polymarket.com",
 )
 
-EXPECTED_KALSHI_REPLAYS = {
-    "kalshi_trade_tick_breakout": KalshiTradeTickReplay(
+BACKTESTS_ROOT = Path(__file__).resolve().parents[1] / "backtests"
+
+KALSHI_SINGLE_RUNNER = BACKTESTS_ROOT / "kalshi_trade_tick_breakout.py"
+KALSHI_MULTI_RUNNER = BACKTESTS_ROOT / "kalshi_trade_tick_multi_sim_runner.py"
+POLYMARKET_SINGLE_RUNNER = BACKTESTS_ROOT / "polymarket_trade_tick_vwap_reversion.py"
+POLYMARKET_MULTI_RUNNER = BACKTESTS_ROOT / "polymarket_trade_tick_multi_sim_runner.py"
+
+EXPECTED_KALSHI_SINGLE_REPLAY = KalshiTradeTickReplay(
+    market_ticker="KXLAYOFFSYINFO-26-494000",
+    start_time="2026-03-15T00:00:00Z",
+    end_time="2026-04-08T23:59:59Z",
+)
+EXPECTED_KALSHI_MULTI_REPLAYS = (
+    KalshiTradeTickReplay(
         market_ticker="KXLAYOFFSYINFO-26-494000",
         start_time="2026-03-15T00:00:00Z",
         end_time="2026-04-08T23:59:59Z",
+        metadata={"sim_label": "layoffs-infotech-window"},
     ),
-    "kalshi_trade_tick_ema_crossover": KalshiTradeTickReplay(
+    KalshiTradeTickReplay(
         market_ticker="KXCITRINI-28JUL01",
         start_time="2026-03-18T00:00:00Z",
         end_time="2026-04-08T23:59:59Z",
+        metadata={"sim_label": "citrini-jul-window"},
     ),
-    "kalshi_trade_tick_panic_fade": KalshiTradeTickReplay(
-        market_ticker="KXGREENLAND-29",
-        start_time="2026-03-20T00:00:00Z",
-        end_time="2026-04-08T23:59:59Z",
-    ),
-    "kalshi_trade_tick_rsi_reversion": KalshiTradeTickReplay(
-        market_ticker="CONTROLH-2026-R",
-        start_time="2026-03-22T00:00:00Z",
-        end_time="2026-04-08T23:59:59Z",
-    ),
-    "kalshi_trade_tick_spread_capture": KalshiTradeTickReplay(
+    KalshiTradeTickReplay(
         market_ticker="KXPRESNOMR-28-MR",
         start_time="2026-03-24T00:00:00Z",
         end_time="2026-04-08T23:59:59Z",
+        metadata={"sim_label": "presnomr-window"},
     ),
-}
-
-EXPECTED_POLYMARKET_REPLAYS = {
-    "polymarket_trade_tick_ema_crossover": PolymarketTradeTickReplay(
-        market_slug="will-ukraine-qualify-for-the-2026-fifa-world-cup",
-        start_time="2026-03-20T00:00:00Z",
-        end_time="2026-03-26T23:53:59Z",
-    ),
-    "polymarket_trade_tick_panic_fade": PolymarketTradeTickReplay(
-        market_slug="will-newcastle-win-the-202526-champions-league",
-        start_time="2026-03-11T00:00:00Z",
-        end_time="2026-03-18T22:56:01Z",
-    ),
-    "polymarket_trade_tick_rsi_reversion": PolymarketTradeTickReplay(
-        market_slug="will-man-city-win-the-202526-champions-league",
-        start_time="2026-03-11T00:00:00Z",
-        end_time="2026-03-18T01:28:17Z",
-    ),
-    "polymarket_trade_tick_spread_capture": PolymarketTradeTickReplay(
-        market_slug="will-chelsea-win-the-202526-champions-league",
-        start_time="2026-03-11T00:00:00Z",
-        end_time="2026-03-18T01:22:09Z",
-    ),
-    "polymarket_trade_tick_vwap_reversion": PolymarketTradeTickReplay(
-        market_slug="will-openai-launch-a-new-consumer-hardware-product-by-march-31-2026",
-        start_time="2026-02-21T16:00:00Z",
-        end_time="2026-03-31T23:59:59Z",
-    ),
-}
-
-BACKTESTS_ROOT = Path(__file__).resolve().parents[1] / "backtests"
-KALSHI_SINGLE_MARKET_RUNNERS = sorted(BACKTESTS_ROOT.glob("kalshi_trade_tick_*.py"))
-POLYMARKET_SINGLE_MARKET_RUNNERS = sorted(
-    path
-    for path in BACKTESTS_ROOT.glob("polymarket_trade_tick_*.py")
-    if "sports_" not in path.name
 )
-POLYMARKET_SPORTS_RUNNERS = sorted(
-    BACKTESTS_ROOT.glob("polymarket_trade_tick_sports_*.py")
+EXPECTED_POLYMARKET_SINGLE_REPLAY = PolymarketTradeTickReplay(
+    market_slug="will-openai-launch-a-new-consumer-hardware-product-by-march-31-2026",
+    start_time="2026-02-21T16:00:00Z",
+    end_time="2026-03-31T23:59:59Z",
+)
+EXPECTED_POLYMARKET_MULTI_REPLAYS = (
+    PolymarketTradeTickReplay(
+        market_slug="will-ukraine-qualify-for-the-2026-fifa-world-cup",
+        lookback_days=7,
+        end_time="2026-03-26T23:53:59Z",
+        outcome="Yes",
+        metadata={"market_close_time_ns": 1774569239000000000},
+    ),
+    PolymarketTradeTickReplay(
+        market_slug="will-man-city-win-the-202526-champions-league",
+        lookback_days=7,
+        end_time="2026-03-18T01:28:17Z",
+        outcome="Yes",
+        metadata={"market_close_time_ns": 1773797297000000000},
+    ),
+    PolymarketTradeTickReplay(
+        market_slug="will-chelsea-win-the-202526-champions-league",
+        lookback_days=7,
+        end_time="2026-03-18T01:22:09Z",
+        outcome="Yes",
+        metadata={"market_close_time_ns": 1773796929000000000},
+    ),
+    PolymarketTradeTickReplay(
+        market_slug="will-newcastle-win-the-202526-champions-league",
+        lookback_days=7,
+        end_time="2026-03-18T22:56:01Z",
+        outcome="Yes",
+        metadata={"market_close_time_ns": 1773874561000000000},
+    ),
+    PolymarketTradeTickReplay(
+        market_slug="will-leverkusen-win-the-202526-champions-league",
+        lookback_days=7,
+        end_time="2026-03-18T01:28:15Z",
+        outcome="Yes",
+        metadata={"market_close_time_ns": 1773797295000000000},
+    ),
 )
 
 
@@ -115,13 +120,8 @@ def _import_runner(runner_path: Path):
     return importlib.import_module(f"backtests.{runner_path.stem}")
 
 
-@pytest.mark.parametrize(
-    "runner_path", KALSHI_SINGLE_MARKET_RUNNERS, ids=lambda path: path.stem
-)
-def test_kalshi_trade_tick_runners_use_expected_runtime_contract(
-    runner_path: Path,
-) -> None:
-    module = _import_runner(runner_path)
+def test_kalshi_trade_tick_single_runner_uses_expected_runtime_contract() -> None:
+    module = _import_runner(KALSHI_SINGLE_RUNNER)
 
     assert module.DATA.sources == EXPECTED_KALSHI_TRADE_SOURCES
     assert module.EMIT_HTML is EXPECTED_EMIT_HTML
@@ -131,18 +131,29 @@ def test_kalshi_trade_tick_runners_use_expected_runtime_contract(
     assert module.EXPERIMENT.chart_output_path == EXPECTED_CHART_OUTPUT_PATH
     assert module.EXPERIMENT.detail_plot_panels == EXPECTED_DETAIL_PLOT_PANELS
     assert module.EXPERIMENT.initial_cash == EXPECTED_INITIAL_CASH
-    assert module.REPLAYS == (EXPECTED_KALSHI_REPLAYS[module.NAME],)
+    assert module.REPLAYS == (EXPECTED_KALSHI_SINGLE_REPLAY,)
 
 
-@pytest.mark.parametrize(
-    "runner_path",
-    POLYMARKET_SINGLE_MARKET_RUNNERS,
-    ids=lambda path: path.stem,
-)
-def test_polymarket_trade_tick_single_market_runners_use_expected_runtime_contract(
-    runner_path: Path,
-) -> None:
-    module = _import_runner(runner_path)
+def test_kalshi_trade_tick_multi_runner_uses_expected_runtime_contract() -> None:
+    module = _import_runner(KALSHI_MULTI_RUNNER)
+
+    assert module.DATA.sources == EXPECTED_KALSHI_TRADE_SOURCES
+    assert module.EMIT_HTML is EXPECTED_EMIT_HTML
+    assert module.CHART_OUTPUT_PATH == EXPECTED_CHART_OUTPUT_PATH
+    assert module.DETAIL_PLOT_PANELS == EXPECTED_DETAIL_PLOT_PANELS
+    assert module.SUMMARY_PLOT_PANELS == EXPECTED_SUMMARY_PLOT_PANELS
+    assert module.EXPERIMENT.emit_html is EXPECTED_EMIT_HTML
+    assert module.EXPERIMENT.chart_output_path == EXPECTED_CHART_OUTPUT_PATH
+    assert module.EXPERIMENT.detail_plot_panels == EXPECTED_DETAIL_PLOT_PANELS
+    assert module.EXPERIMENT.return_summary_series is True
+    assert module.REPORT.summary_report is True
+    assert module.REPORT.summary_report_path == module.SUMMARY_REPORT_PATH
+    assert module.REPORT.summary_plot_panels == EXPECTED_SUMMARY_PLOT_PANELS
+    assert module.REPLAYS == EXPECTED_KALSHI_MULTI_REPLAYS
+
+
+def test_polymarket_trade_tick_single_runner_uses_expected_runtime_contract() -> None:
+    module = _import_runner(POLYMARKET_SINGLE_RUNNER)
 
     assert module.DATA.sources == EXPECTED_POLYMARKET_TRADE_SOURCES
     assert module.EMIT_HTML is EXPECTED_EMIT_HTML
@@ -151,16 +162,11 @@ def test_polymarket_trade_tick_single_market_runners_use_expected_runtime_contra
     assert module.EXPERIMENT.emit_html is EXPECTED_EMIT_HTML
     assert module.EXPERIMENT.chart_output_path == EXPECTED_CHART_OUTPUT_PATH
     assert module.EXPERIMENT.detail_plot_panels == EXPECTED_DETAIL_PLOT_PANELS
-    assert module.REPLAYS == (EXPECTED_POLYMARKET_REPLAYS[module.NAME],)
+    assert module.REPLAYS == (EXPECTED_POLYMARKET_SINGLE_REPLAY,)
 
 
-@pytest.mark.parametrize(
-    "runner_path", POLYMARKET_SPORTS_RUNNERS, ids=lambda path: path.stem
-)
-def test_polymarket_trade_tick_sports_runners_use_fixed_replay_windows(
-    runner_path: Path,
-) -> None:
-    module = _import_runner(runner_path)
+def test_polymarket_trade_tick_multi_runner_uses_fixed_replay_windows() -> None:
+    module = _import_runner(POLYMARKET_MULTI_RUNNER)
 
     assert module.DATA.sources == EXPECTED_POLYMARKET_TRADE_SOURCES
     assert module.EMIT_HTML is EXPECTED_EMIT_HTML
@@ -171,14 +177,8 @@ def test_polymarket_trade_tick_sports_runners_use_fixed_replay_windows(
     assert module.EXPERIMENT.chart_output_path == EXPECTED_CHART_OUTPUT_PATH
     assert module.EXPERIMENT.detail_plot_panels == EXPECTED_DETAIL_PLOT_PANELS
     assert module.EXPERIMENT.return_summary_series is True
-    assert "output/" in module.SUMMARY_REPORT_PATH
-    assert module.SUMMARY_REPORT_PATH.endswith("_multi_market.html")
-
     assert module.REPORT.summary_report is True
     assert module.REPORT.summary_report_path == module.SUMMARY_REPORT_PATH
     assert module.REPORT.summary_plot_panels == EXPECTED_SUMMARY_PLOT_PANELS
-
-    assert module.FIXED_LOOKBACK_DAYS == EXPECTED_FIXED_SPORTS_LOOKBACK_DAYS
-    assert len(module.REPLAYS) >= 2
-    for replay in module.REPLAYS:
-        assert replay.lookback_days == module.FIXED_LOOKBACK_DAYS
+    assert module.FIXED_LOOKBACK_DAYS == 7
+    assert module.REPLAYS == EXPECTED_POLYMARKET_MULTI_REPLAYS

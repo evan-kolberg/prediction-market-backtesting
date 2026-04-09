@@ -20,15 +20,21 @@ Good public examples:
 - reusable late-favorite limit-hold logic:
   [`strategies/late_favorite_limit_hold.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/strategies/late_favorite_limit_hold.py)
 - Kalshi native trade-tick runner:
-  [`backtests/kalshi_trade_tick_ema_crossover.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/kalshi_trade_tick_ema_crossover.py)
+  [`backtests/kalshi_trade_tick_breakout.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/kalshi_trade_tick_breakout.py)
+- Kalshi native trade-tick basket runner:
+  [`backtests/kalshi_trade_tick_multi_sim_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/kalshi_trade_tick_multi_sim_runner.py)
 - Polymarket native trade-tick runner:
   [`backtests/polymarket_trade_tick_vwap_reversion.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_trade_tick_vwap_reversion.py)
+- Polymarket native trade-tick basket runner:
+  [`backtests/polymarket_trade_tick_multi_sim_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_trade_tick_multi_sim_runner.py)
 - Polymarket quote-tick runner with PMXT vendor data:
   [`backtests/polymarket_quote_tick_pmxt_ema_crossover.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_quote_tick_pmxt_ema_crossover.py)
 - PMXT labeled multi-sim runner:
   [`backtests/polymarket_quote_tick_pmxt_multi_sim_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_quote_tick_pmxt_multi_sim_runner.py)
-- fixed-basket multi-market runner pattern:
-  [`backtests/polymarket_trade_tick_sports_vwap_reversion.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_trade_tick_sports_vwap_reversion.py)
+- PMXT 25-sim basket runner:
+  [`backtests/polymarket_quote_tick_pmxt_25_sims_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_quote_tick_pmxt_25_sims_runner.py)
+- PMXT optimizer runner:
+  [`backtests/polymarket_quote_tick_pmxt_ema_optimizer.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_quote_tick_pmxt_ema_optimizer.py)
 
 Those public runners are intended as readable research demos, not profitability
 claims. Result payloads now separate the requested replay window from the data
@@ -167,6 +173,13 @@ Use `CHART_OUTPUT_PATH="output"` for the normal public-runner default. The
 shared runner layer resolves that relative path from the repo root so it lands
 under this repo's `output/` directory consistently.
 
+Optimizer runners are the one deliberate variant in that contract. They expose
+`BASE_REPLAY`, `TRAIN_WINDOWS`, `HOLDOUT_WINDOWS`, `STRATEGY_SPEC`,
+`PARAMETER_GRID`, and `OPTIMIZATION` instead of `REPLAYS` plus chart-summary
+report fields. They still keep `NAME`, `DESCRIPTION`, `EMIT_HTML`,
+`CHART_OUTPUT_PATH`, `DATA`, `EXECUTION`, `EXPERIMENT`, and `run()` at top
+level so the menu, tests, and direct runner path stay uniform.
+
 ## HTML And Report Modes
 
 The repo-layer runner contract distinguishes two different output shapes:
@@ -274,33 +287,26 @@ Practical constraints:
 
 ## Optimization Runners
 
-Parameter-search runners are a separate repo-layer orchestration surface. They
-should stay above the replay executor, not inside it.
+Optimizer runners keep the same flat top-level manifest style, but they swap
+replay lists for an explicit search contract:
 
-The canonical optimization shape is:
+- `BASE_REPLAY` defines the market and token the optimizer mutates across
+  windows
+- `TRAIN_WINDOWS` and `HOLDOUT_WINDOWS` pin the exact historical windows used
+  for scoring
+- `STRATEGY_SPEC` defines the strategy config payload with
+  `__SEARCH__:<name>` placeholders
+- `PARAMETER_GRID` provides the candidate values for those placeholders
+- `OPTIMIZATION` carries the full optimizer config consumed by
+  `OptimizationExperiment`
 
-- `DATA` for the venue, modality, vendor, and source priority
-- `BASE_REPLAY` for the shared market identity
-- `TRAIN_WINDOWS` and optional `HOLDOUT_WINDOWS` for explicit replay windows
-- `STRATEGY_SPEC` with `__SEARCH__:<name>` placeholders inside one tunable
-  strategy config
-- `PARAMETER_GRID` with finite candidate values for each placeholder
-- `EXECUTION` for queue-position and latency assumptions
-- `EMIT_HTML` to explicitly keep chart HTML on or off
-- `CHART_OUTPUT_PATH` to keep output location explicit in the file
-- `OPTIMIZATION` for the shared search config
-- `run()` to launch the search and write optimizer artifacts under `output/`
-
-Good reference:
+The public optimizer example is:
 
 - [`backtests/polymarket_quote_tick_pmxt_ema_optimizer.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_quote_tick_pmxt_ema_optimizer.py)
 
-These files are research tooling, not profitability claims. The selected config
-is only the best config under the declared windows, execution assumptions, and
-scoring function in that runner file. They are also not quick smoke checks: the
-optimizer can take minutes, sweep multiple train and holdout windows, and
-intentionally explore configurations that stop early under
-`AccountBalanceNegative`.
+That runner is intentionally research-oriented. It writes leaderboard and
+summary artifacts under `output/` by default and keeps `EMIT_HTML = False` so
+one parameter sweep does not emit one legacy chart per trial.
 
 ## Designing Good Runner Files
 
@@ -366,7 +372,7 @@ uv run python main.py
 Direct script execution is usually better once you know the runner you want:
 
 ```bash
-uv run python backtests/kalshi_trade_tick_ema_crossover.py
+uv run python backtests/kalshi_trade_tick_breakout.py
 uv run python backtests/polymarket_trade_tick_vwap_reversion.py
 uv run python backtests/polymarket_quote_tick_pmxt_ema_crossover.py
 uv run python backtests/polymarket_quote_tick_pmxt_multi_sim_runner.py

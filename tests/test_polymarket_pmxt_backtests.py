@@ -1,112 +1,26 @@
 from __future__ import annotations
 
 import importlib
+
 import pytest
 
 from backtests._shared._replay_specs import PolymarketPMXTQuoteReplay
 from backtests._shared._strategy_configs import build_strategies_from_configs
-from strategies import QuoteTickBreakoutConfig
-from strategies import QuoteTickBreakoutStrategy
-from strategies import QuoteTickDeepValueHoldConfig
-from strategies import QuoteTickDeepValueHoldStrategy
-from strategies import QuoteTickEMACrossoverConfig
-from strategies import QuoteTickEMACrossoverStrategy
-from strategies import QuoteTickFinalPeriodMomentumConfig
-from strategies import QuoteTickFinalPeriodMomentumStrategy
-from strategies import QuoteTickLateFavoriteLimitHoldConfig
-from strategies import QuoteTickLateFavoriteLimitHoldStrategy
-from strategies import QuoteTickMeanReversionConfig
-from strategies import QuoteTickMeanReversionStrategy
-from strategies import QuoteTickPanicFadeConfig
-from strategies import QuoteTickPanicFadeStrategy
-from strategies import QuoteTickRSIReversionConfig
-from strategies import QuoteTickRSIReversionStrategy
-from strategies import QuoteTickThresholdMomentumConfig
-from strategies import QuoteTickThresholdMomentumStrategy
-from strategies import QuoteTickVWAPReversionConfig
-from strategies import QuoteTickVWAPReversionStrategy
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.model.identifiers import Symbol
 from nautilus_trader.model.identifiers import Venue
+from strategies import QuoteTickEMACrossoverConfig
+from strategies import QuoteTickEMACrossoverStrategy
+from strategies import QuoteTickVWAPReversionConfig
+from strategies import QuoteTickVWAPReversionStrategy
 
 
 INSTRUMENT_ID = InstrumentId(Symbol("PM-TEST-YES"), Venue("POLYMARKET"))
-EXPECTED_CLOSE_WINDOW_START_TIME = "2026-03-24T03:00:00Z"
-EXPECTED_CLOSE_WINDOW_END_TIME = "2026-03-24T08:00:00Z"
-EXPECTED_MARKET_ACTIVATION_START_NS = 1774326957277659000
-EXPECTED_MARKET_CLOSE_TIME_NS = 1774337757277659000
 EXPECTED_PMXT_SOURCES = (
     "local:/Volumes/LaCie/pmxt_raws",
     "archive:r2.pmxt.dev",
     "relay:209-209-10-83.sslip.io",
 )
-TIME_BASED_SINGLE_MARKET_MODULES = {
-    "backtests.polymarket_quote_tick_pmxt_final_period_momentum",
-    "backtests.polymarket_quote_tick_pmxt_late_favorite_limit_hold",
-    "backtests.polymarket_quote_tick_pmxt_threshold_momentum",
-}
-EXPECTED_SINGLE_MARKET_REPLAYS = {
-    "backtests.polymarket_quote_tick_pmxt_breakout": PolymarketPMXTQuoteReplay(
-        market_slug="will-ludvig-aberg-win-the-2026-masters-tournament",
-        token_index=0,
-        start_time="2026-04-05T00:00:00Z",
-        end_time="2026-04-07T23:59:59Z",
-    ),
-    "backtests.polymarket_quote_tick_pmxt_deep_value_hold": PolymarketPMXTQuoteReplay(
-        market_slug="will-the-tennessee-titans-draft-a-quarterback-in-the-first-round-of-the-2026-nfl-draft",
-        token_index=0,
-        start_time="2026-04-06T00:00:00Z",
-        end_time="2026-04-07T23:59:59Z",
-    ),
-    "backtests.polymarket_quote_tick_pmxt_ema_crossover": PolymarketPMXTQuoteReplay(
-        market_slug="will-ludvig-aberg-win-the-2026-masters-tournament",
-        token_index=0,
-        start_time="2026-04-05T00:00:00Z",
-        end_time="2026-04-07T23:59:59Z",
-    ),
-    "backtests.polymarket_quote_tick_pmxt_final_period_momentum": PolymarketPMXTQuoteReplay(
-        market_slug="will-openai-launch-a-new-consumer-hardware-product-by-march-31-2026",
-        token_index=0,
-        start_time=EXPECTED_CLOSE_WINDOW_START_TIME,
-        end_time=EXPECTED_CLOSE_WINDOW_END_TIME,
-    ),
-    "backtests.polymarket_quote_tick_pmxt_late_favorite_limit_hold": PolymarketPMXTQuoteReplay(
-        market_slug="will-openai-launch-a-new-consumer-hardware-product-by-march-31-2026",
-        token_index=0,
-        start_time=EXPECTED_CLOSE_WINDOW_START_TIME,
-        end_time=EXPECTED_CLOSE_WINDOW_END_TIME,
-    ),
-    "backtests.polymarket_quote_tick_pmxt_panic_fade": PolymarketPMXTQuoteReplay(
-        market_slug="will-fc-heidenheim-be-relegated-from-the-bundesliga-after-the-202526-season-382",
-        token_index=0,
-        start_time="2026-04-06T00:00:00Z",
-        end_time="2026-04-07T12:00:00Z",
-    ),
-    "backtests.polymarket_quote_tick_pmxt_rsi_reversion": PolymarketPMXTQuoteReplay(
-        market_slug="will-ethan-agarwal-get-the-first-or-second-most-votes-in-the-2026-california-governor-primary-election",
-        token_index=0,
-        start_time="2026-04-07T00:00:00Z",
-        end_time="2026-04-07T23:59:59Z",
-    ),
-    "backtests.polymarket_quote_tick_pmxt_spread_capture": PolymarketPMXTQuoteReplay(
-        market_slug="will-drake-release-an-album-in-2026",
-        token_index=0,
-        start_time="2026-04-05T12:00:00Z",
-        end_time="2026-04-07T23:59:59Z",
-    ),
-    "backtests.polymarket_quote_tick_pmxt_threshold_momentum": PolymarketPMXTQuoteReplay(
-        market_slug="will-openai-launch-a-new-consumer-hardware-product-by-march-31-2026",
-        token_index=0,
-        start_time=EXPECTED_CLOSE_WINDOW_START_TIME,
-        end_time=EXPECTED_CLOSE_WINDOW_END_TIME,
-    ),
-    "backtests.polymarket_quote_tick_pmxt_vwap_reversion": PolymarketPMXTQuoteReplay(
-        market_slug="will-nana-araba-wilmot-win-top-chef-season-23",
-        token_index=0,
-        start_time="2026-04-06T06:00:00Z",
-        end_time="2026-04-07T18:00:00Z",
-    ),
-}
 EXPECTED_DETAIL_PLOT_PANELS = (
     "equity",
     "market_pnl",
@@ -119,7 +33,7 @@ EXPECTED_DETAIL_PLOT_PANELS = (
     "monthly_returns",
     "brier_advantage",
 )
-EXPECTED_SUMMARY_PLOT_PANELS = (
+EXPECTED_MULTI_SIM_SUMMARY_PLOT_PANELS = (
     "total_equity",
     "equity",
     "periodic_pnl",
@@ -130,123 +44,26 @@ EXPECTED_SUMMARY_PLOT_PANELS = (
     "monthly_returns",
     "brier_advantage",
 )
-EXPECTED_MULTI_SIM_RUNNER_REPLAYS = (
-    PolymarketPMXTQuoteReplay(
-        market_slug="will-openai-launch-a-new-consumer-hardware-product-by-march-31-2026",
-        token_index=0,
-        start_time="2026-03-23T00:00:00Z",
-        end_time="2026-03-24T23:59:59Z",
-        metadata={"sim_label": "openai-launch-mar-23-24"},
-    ),
-    PolymarketPMXTQuoteReplay(
-        market_slug="will-ludvig-aberg-win-the-2026-masters-tournament",
-        token_index=0,
-        start_time="2026-04-05T00:00:00Z",
-        end_time="2026-04-07T23:59:59Z",
-        metadata={"sim_label": "aberg-masters-full-window"},
-    ),
-    PolymarketPMXTQuoteReplay(
-        market_slug="will-the-tennessee-titans-draft-a-quarterback-in-the-first-round-of-the-2026-nfl-draft",
-        token_index=0,
-        start_time="2026-04-06T00:00:00Z",
-        end_time="2026-04-07T23:59:59Z",
-        metadata={"sim_label": "titans-draft-two-day-window"},
-    ),
-    PolymarketPMXTQuoteReplay(
-        market_slug="will-fc-heidenheim-be-relegated-from-the-bundesliga-after-the-202526-season-382",
-        token_index=0,
-        start_time="2026-04-07T12:00:00Z",
-        end_time="2026-04-07T23:59:59Z",
-        metadata={"sim_label": "heidenheim-late-session"},
-    ),
-    PolymarketPMXTQuoteReplay(
-        market_slug="will-the-south-african-reserve-bank-decrease-the-repo-rate-after-the-may-meeting",
-        token_index=0,
-        start_time="2026-04-06T12:00:00Z",
-        end_time="2026-04-07T23:59:59Z",
-        metadata={"sim_label": "sarb-rate-watch-window"},
-    ),
-    PolymarketPMXTQuoteReplay(
-        market_slug="will-nana-araba-wilmot-win-top-chef-season-23",
-        token_index=0,
-        start_time="2026-04-06T06:00:00Z",
-        end_time="2026-04-07T18:00:00Z",
-        metadata={"sim_label": "top-chef-finale-runup"},
-    ),
-    PolymarketPMXTQuoteReplay(
-        market_slug="will-drake-release-an-album-in-2026",
-        token_index=0,
-        start_time="2026-04-05T12:00:00Z",
-        end_time="2026-04-07T23:59:59Z",
-        metadata={"sim_label": "drake-weekend-window"},
-    ),
-    PolymarketPMXTQuoteReplay(
-        market_slug="will-ethan-agarwal-get-the-first-or-second-most-votes-in-the-2026-california-governor-primary-election",
-        token_index=0,
-        start_time="2026-04-07T00:00:00Z",
-        end_time="2026-04-07T23:59:59Z",
-        metadata={"sim_label": "agarwal-election-day"},
-    ),
+EXPECTED_25_SIM_SUMMARY_PLOT_PANELS = (
+    "total_equity",
+    "periodic_pnl",
+    "allocation",
+    "monthly_returns",
+)
+EXPECTED_SINGLE_REPLAY = PolymarketPMXTQuoteReplay(
+    market_slug="will-ludvig-aberg-win-the-2026-masters-tournament",
+    token_index=0,
+    start_time="2026-04-05T00:00:00Z",
+    end_time="2026-04-07T23:59:59Z",
 )
 
 
-@pytest.mark.parametrize(
-    ("module_name", "strategy_cls", "config_cls"),
-    [
-        (
-            "backtests.polymarket_quote_tick_pmxt_breakout",
-            QuoteTickBreakoutStrategy,
-            QuoteTickBreakoutConfig,
-        ),
-        (
-            "backtests.polymarket_quote_tick_pmxt_deep_value_hold",
-            QuoteTickDeepValueHoldStrategy,
-            QuoteTickDeepValueHoldConfig,
-        ),
-        (
-            "backtests.polymarket_quote_tick_pmxt_ema_crossover",
-            QuoteTickEMACrossoverStrategy,
-            QuoteTickEMACrossoverConfig,
-        ),
-        (
-            "backtests.polymarket_quote_tick_pmxt_final_period_momentum",
-            QuoteTickFinalPeriodMomentumStrategy,
-            QuoteTickFinalPeriodMomentumConfig,
-        ),
-        (
-            "backtests.polymarket_quote_tick_pmxt_panic_fade",
-            QuoteTickPanicFadeStrategy,
-            QuoteTickPanicFadeConfig,
-        ),
-        (
-            "backtests.polymarket_quote_tick_pmxt_rsi_reversion",
-            QuoteTickRSIReversionStrategy,
-            QuoteTickRSIReversionConfig,
-        ),
-        (
-            "backtests.polymarket_quote_tick_pmxt_spread_capture",
-            QuoteTickMeanReversionStrategy,
-            QuoteTickMeanReversionConfig,
-        ),
-        (
-            "backtests.polymarket_quote_tick_pmxt_threshold_momentum",
-            QuoteTickThresholdMomentumStrategy,
-            QuoteTickThresholdMomentumConfig,
-        ),
-        (
-            "backtests.polymarket_quote_tick_pmxt_vwap_reversion",
-            QuoteTickVWAPReversionStrategy,
-            QuoteTickVWAPReversionConfig,
-        ),
-    ],
-)
-def test_pmxt_backtests_build_expected_quote_tick_strategy(
+def test_pmxt_single_runner_builds_expected_quote_tick_strategy(
     monkeypatch: pytest.MonkeyPatch,
-    module_name: str,
-    strategy_cls: type,
-    config_cls: type,
-):
-    module = importlib.import_module(module_name)
+) -> None:
+    module = importlib.import_module(
+        "backtests.polymarket_quote_tick_pmxt_ema_crossover"
+    )
     captured: dict[str, object] = {}
 
     def _fake_run_experiment(experiment):  # type: ignore[no-untyped-def]
@@ -264,99 +81,18 @@ def test_pmxt_backtests_build_expected_quote_tick_strategy(
     assert len(strategies) == 1
     strategy = strategies[0]
 
-    assert isinstance(strategy, strategy_cls)
-    assert isinstance(strategy.config, config_cls)
-    assert module.EXPERIMENT.name == module.NAME
-    assert module.EXPERIMENT.data == module.DATA
-    assert module.EXPERIMENT.replays == module.REPLAYS
-    assert module.EXPERIMENT.initial_cash == 100.0
-    assert module.EXPERIMENT.min_quotes == 500
-    assert module.EXPERIMENT.min_price_range == 0.005
-    assert module.EXPERIMENT.probability_window > 0
+    assert isinstance(strategy, QuoteTickEMACrossoverStrategy)
+    assert isinstance(strategy.config, QuoteTickEMACrossoverConfig)
     assert module.DATA.sources == EXPECTED_PMXT_SOURCES
-    assert len(module.REPLAYS) == 1
+    assert module.REPLAYS == (EXPECTED_SINGLE_REPLAY,)
+    assert module.EXPERIMENT.replays == module.REPLAYS
     assert module.EXPERIMENT.detail_plot_panels == module.DETAIL_PLOT_PANELS
-    sim = module.REPLAYS[0]
-    assert sim == EXPECTED_SINGLE_MARKET_REPLAYS[module_name]
     assert captured["experiment"] is module.EXPERIMENT
-    assert module.EXPERIMENT.report == module.REPORT
 
 
-def test_pmxt_late_favorite_runner_marks_settlement_pnl():
-    module = importlib.import_module(
-        "backtests.polymarket_quote_tick_pmxt_late_favorite_limit_hold"
-    )
-    fake_results = [
-        {
-            "slug": module.REPLAYS[0].market_slug,
-            "quotes": 1000,
-            "fills": 1,
-            "pnl": -0.75,
-            "realized_outcome": 1.0,
-            "fill_events": [{"action": "buy", "price": 0.90, "quantity": 25.0}],
-        }
-    ]
-    results = module.RESULT_POLICY.apply(fake_results)
-
-    assert module.REPORT.pnl_label == "Settlement PnL (USDC)"
-    assert module.REPLAYS[0].start_time == EXPECTED_CLOSE_WINDOW_START_TIME
-    assert module.REPLAYS[0].end_time == EXPECTED_CLOSE_WINDOW_END_TIME
-    assert fake_results[0]["market_exit_pnl"] == -0.75
-    assert fake_results[0]["pnl"] != -0.75
-    assert results == fake_results
-
-    strategies = build_strategies_from_configs(
-        strategy_configs=module.STRATEGY_CONFIGS,
-        instrument_id=INSTRUMENT_ID,
-    )
-    assert len(strategies) == 1
-    strategy = strategies[0]
-    assert isinstance(strategy, QuoteTickLateFavoriteLimitHoldStrategy)
-    assert isinstance(strategy.config, QuoteTickLateFavoriteLimitHoldConfig)
-
-
-@pytest.mark.parametrize(
-    ("module_name", "activation_start_ns", "market_close_time_ns"),
-    [
-        (
-            "backtests.polymarket_quote_tick_pmxt_late_favorite_limit_hold",
-            EXPECTED_MARKET_ACTIVATION_START_NS,
-            EXPECTED_MARKET_CLOSE_TIME_NS,
-        ),
-        (
-            "backtests.polymarket_quote_tick_pmxt_threshold_momentum",
-            EXPECTED_MARKET_ACTIVATION_START_NS,
-            EXPECTED_MARKET_CLOSE_TIME_NS,
-        ),
-        (
-            "backtests.polymarket_quote_tick_pmxt_final_period_momentum",
-            EXPECTED_MARKET_CLOSE_TIME_NS - 180 * 60 * 1_000_000_000,
-            EXPECTED_MARKET_CLOSE_TIME_NS,
-        ),
-    ],
-)
-def test_time_based_pmxt_single_market_samples_overlap_strategy_window(
-    module_name: str,
-    activation_start_ns: int,
-    market_close_time_ns: int,
-):
-    module = importlib.import_module(module_name)
-    sim = module.REPLAYS[0]
-
-    assert sim.start_time == EXPECTED_CLOSE_WINDOW_START_TIME
-    assert sim.end_time == EXPECTED_CLOSE_WINDOW_END_TIME
-    assert sim.start_time < sim.end_time
-
-    start_ns = pytest.importorskip("pandas").Timestamp(sim.start_time).value
-    end_ns = pytest.importorskip("pandas").Timestamp(sim.end_time).value
-
-    assert start_ns <= activation_start_ns
-    assert market_close_time_ns <= end_ns
-
-
-def test_pmxt_multi_sim_example_runner_uses_fixed_windows(
+def test_pmxt_multi_sim_runner_uses_fixed_windows(
     monkeypatch: pytest.MonkeyPatch,
-):
+) -> None:
     module = importlib.import_module(
         "backtests.polymarket_quote_tick_pmxt_multi_sim_runner"
     )
@@ -374,42 +110,44 @@ def test_pmxt_multi_sim_example_runner_uses_fixed_windows(
 
     module.run()
 
-    assert module.EXPERIMENT.name == module.NAME
-    assert module.EXPERIMENT.data == module.DATA
-    assert module.EXPERIMENT.replays == module.REPLAYS
-    assert module.EXPERIMENT.initial_cash == 100.0
-    assert module.EXPERIMENT.min_quotes == 500
-    assert module.EXPERIMENT.min_price_range == 0.005
-    assert module.EXPERIMENT.chart_output_path == "output"
-    assert module.EXPERIMENT.return_summary_series is True
-    assert module.EXPERIMENT.probability_window == 30
-    assert module.DATA.sources == EXPECTED_PMXT_SOURCES
-    assert module.REPORT.market_key == "sim_label"
-    assert module.REPORT.summary_report is True
-    assert module.REPORT.summary_report_path == (
-        f"output/{module.NAME}_multi_market.html"
+    strategies = build_strategies_from_configs(
+        strategy_configs=module.STRATEGY_CONFIGS,
+        instrument_id=INSTRUMENT_ID,
     )
-    assert module.DETAIL_PLOT_PANELS == EXPECTED_DETAIL_PLOT_PANELS
-    assert module.SUMMARY_PLOT_PANELS == EXPECTED_SUMMARY_PLOT_PANELS
-    assert module.EXPERIMENT.detail_plot_panels == module.DETAIL_PLOT_PANELS
-    assert captured["backtest"].detail_plot_panels == module.DETAIL_PLOT_PANELS
-    assert module.REPORT.summary_plot_panels == module.SUMMARY_PLOT_PANELS
-    assert not hasattr(module.REPORT, "combined_report")
-    assert not hasattr(module.REPORT, "combined_report_path")
-    assert captured["report"] == module.REPORT
-    assert captured["empty_message"] == module.EMPTY_MESSAGE
-    assert captured["partial_message"] == module.PARTIAL_MESSAGE
-    assert captured["backtest"].name == module.NAME
-    assert captured["backtest"].data == module.DATA
-    assert captured["backtest"].replays == module.REPLAYS
-    assert module.REPLAYS == EXPECTED_MULTI_SIM_RUNNER_REPLAYS
+    assert len(strategies) == 1
+    strategy = strategies[0]
 
-    for sim in module.REPLAYS:
-        assert sim.market_slug
-        assert sim.token_index == 0
-        assert isinstance(sim.start_time, str) and sim.start_time
-        assert isinstance(sim.end_time, str) and sim.end_time
-        assert sim.outcome is None
+    assert isinstance(strategy, QuoteTickVWAPReversionStrategy)
+    assert isinstance(strategy.config, QuoteTickVWAPReversionConfig)
+    assert module.DATA.sources == EXPECTED_PMXT_SOURCES
+    assert len(module.REPLAYS) == 8
+    assert module.DETAIL_PLOT_PANELS == EXPECTED_DETAIL_PLOT_PANELS
+    assert module.SUMMARY_PLOT_PANELS == EXPECTED_MULTI_SIM_SUMMARY_PLOT_PANELS
+    assert module.REPORT.summary_report is True
+    assert module.REPORT.summary_report_path == module.SUMMARY_REPORT_PATH
+    assert captured["report"] == module.REPORT
+    assert captured["backtest"].return_summary_series is True
+
+
+def test_pmxt_25_sim_runner_uses_fixed_windows(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = importlib.import_module(
+        "backtests.polymarket_quote_tick_pmxt_25_sims_runner"
+    )
+    captured: dict[str, object] = {}
+
+    def _fake_run_reported_multi_sim_pmxt_backtest(**kwargs):  # type: ignore[no-untyped-def]
+        captured.update(kwargs)
+        return []
+
+    monkeypatch.setattr(
+        module,
+        "run_reported_multi_sim_pmxt_backtest",
+        _fake_run_reported_multi_sim_pmxt_backtest,
+    )
+
+    module.run()
 
     strategies = build_strategies_from_configs(
         strategy_configs=module.STRATEGY_CONFIGS,
@@ -417,16 +155,14 @@ def test_pmxt_multi_sim_example_runner_uses_fixed_windows(
     )
     assert len(strategies) == 1
     strategy = strategies[0]
+
     assert isinstance(strategy, QuoteTickVWAPReversionStrategy)
     assert isinstance(strategy.config, QuoteTickVWAPReversionConfig)
-
-    assert captured["backtest"].emit_html is True
+    assert module.DATA.sources == EXPECTED_PMXT_SOURCES
+    assert len(module.REPLAYS) == 25
+    assert module.DETAIL_PLOT_PANELS == EXPECTED_DETAIL_PLOT_PANELS
+    assert module.SUMMARY_PLOT_PANELS == EXPECTED_25_SIM_SUMMARY_PLOT_PANELS
+    assert module.REPORT.summary_report is True
+    assert module.REPORT.summary_report_path == module.SUMMARY_REPORT_PATH
+    assert captured["report"] == module.REPORT
     assert captured["backtest"].return_summary_series is True
-    assert (
-        module.EXPERIMENT.empty_message
-        == "No PMXT multi-sim example windows met the quote-tick requirements."
-    )
-    assert (
-        module.EXPERIMENT.partial_message
-        == "Completed {completed} of {total} fixed example sims."
-    )

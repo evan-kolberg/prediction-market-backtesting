@@ -92,15 +92,15 @@ def test_show_menu_renders_folder_tree(capsys, monkeypatch):
                 "run": object(),
             },
             {
-                "name": "kalshi_trade_tick_ema_crossover",
-                "description": "Kalshi EMA",
-                "relative_parts": ("kalshi_trade_tick_ema_crossover.py",),
+                "name": "kalshi_trade_tick_multi_sim_runner",
+                "description": "Kalshi basket",
+                "relative_parts": ("kalshi_trade_tick_multi_sim_runner.py",),
                 "run": object(),
             },
             {
-                "name": "polymarket_quote_tick_pmxt_breakout",
-                "description": "PMXT breakout",
-                "relative_parts": ("polymarket_quote_tick_pmxt_breakout.py",),
+                "name": "polymarket_quote_tick_pmxt_25_sims_runner",
+                "description": "PMXT 25 sims",
+                "relative_parts": ("polymarket_quote_tick_pmxt_25_sims_runner.py",),
                 "run": object(),
             },
         ],
@@ -111,8 +111,10 @@ def test_show_menu_renders_folder_tree(capsys, monkeypatch):
     assert choice == 1
     assert "backtests/" in rendered
     assert "├── 1. kalshi_trade_tick_breakout.py — Kalshi breakout" in rendered
-    assert "├── 2. kalshi_trade_tick_ema_crossover.py — Kalshi EMA" in rendered
-    assert "└── 3. polymarket_quote_tick_pmxt_breakout.py — PMXT breakout" in rendered
+    assert "├── 2. kalshi_trade_tick_multi_sim_runner.py — Kalshi basket" in rendered
+    assert (
+        "└── 3. polymarket_quote_tick_pmxt_25_sims_runner.py — PMXT 25 sims" in rendered
+    )
 
 
 def test_assign_shortcuts_prefers_unique_letters_and_avoids_quit_key():

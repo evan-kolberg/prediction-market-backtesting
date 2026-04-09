@@ -36,7 +36,7 @@ aggregate progress bar for any hours that are still in flight. A representative
 make backtest
 uv run python main.py
 
-Running: polymarket_quote_tick_pmxt_panic_fade
+Running: polymarket_quote_tick_pmxt_multi_sim_runner
 Running: polymarket_quote_tick_pmxt_ema_crossover
 
 PMXT source: explicit priority (cache -> local /Volumes/LaCie/pmxt_raws -> archive https://r2.pmxt.dev -> relay https://209-209-10-83.sslip.io)

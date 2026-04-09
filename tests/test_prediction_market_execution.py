@@ -114,9 +114,9 @@ def test_build_backtest_run_state_uses_requested_window_for_coverage():
     assert state["requested_coverage_ratio"] == 2 / 3
 
 
-def test_trade_tick_late_favorite_runner_pins_passive_execution_heuristics():
+def test_quote_tick_pmxt_runner_pins_passive_execution_heuristics():
     module = importlib.import_module(
-        "backtests.polymarket_trade_tick_sports_late_favorite_limit_hold"
+        "backtests.polymarket_quote_tick_pmxt_ema_crossover"
     )
 
     assert module.EXPERIMENT.execution.queue_position is True

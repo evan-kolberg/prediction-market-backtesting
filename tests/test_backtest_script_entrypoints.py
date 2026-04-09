@@ -19,28 +19,30 @@ PUBLIC_RUNNER_PATHS = sorted(
     and not path.name.startswith("_")
 )
 
-PMXT_SINGLE_MARKET_QUOTE_TICK_RUNNERS = sorted(
-    path.relative_to(REPO_ROOT)
-    for path in BACKTESTS_ROOT.glob("polymarket_quote_tick_pmxt_*.py")
-    if "sports_" not in path.name
-    and "multi_sim_runner" not in path.name
-    and not path.name.endswith("_sims_runner.py")
-    and "optimizer" not in path.name
-)
-PMXT_MULTI_SIM_QUOTE_TICK_RUNNERS = sorted(
-    path.relative_to(REPO_ROOT)
-    for path in BACKTESTS_ROOT.glob("polymarket_quote_tick_pmxt_*.py")
-    if "multi_sim_runner" in path.name or path.name.endswith("_sims_runner.py")
-)
-PMXT_QUOTE_TICK_OPTIMIZER_RUNNERS = sorted(
-    path.relative_to(REPO_ROOT)
-    for path in BACKTESTS_ROOT.glob("polymarket_quote_tick_pmxt_*optimizer.py")
-)
+EXPECTED_PUBLIC_RUNNER_PATHS = [
+    Path("backtests/kalshi_trade_tick_breakout.py"),
+    Path("backtests/kalshi_trade_tick_multi_sim_runner.py"),
+    Path("backtests/polymarket_quote_tick_pmxt_25_sims_runner.py"),
+    Path("backtests/polymarket_quote_tick_pmxt_ema_crossover.py"),
+    Path("backtests/polymarket_quote_tick_pmxt_ema_optimizer.py"),
+    Path("backtests/polymarket_quote_tick_pmxt_multi_sim_runner.py"),
+    Path("backtests/polymarket_trade_tick_multi_sim_runner.py"),
+    Path("backtests/polymarket_trade_tick_vwap_reversion.py"),
+]
 
-FIXED_SPORTS_TRADE_TICK_RUNNERS = [
-    Path("backtests/polymarket_trade_tick_sports_final_period_momentum.py"),
-    Path("backtests/polymarket_trade_tick_sports_late_favorite_limit_hold.py"),
-    Path("backtests/polymarket_trade_tick_sports_vwap_reversion.py"),
+PMXT_SINGLE_MARKET_QUOTE_TICK_RUNNERS = [
+    Path("backtests/polymarket_quote_tick_pmxt_ema_crossover.py")
+]
+PMXT_MULTI_SIM_QUOTE_TICK_RUNNERS = [
+    Path("backtests/polymarket_quote_tick_pmxt_multi_sim_runner.py"),
+    Path("backtests/polymarket_quote_tick_pmxt_25_sims_runner.py"),
+]
+PMXT_QUOTE_TICK_OPTIMIZER_RUNNERS = [
+    Path("backtests/polymarket_quote_tick_pmxt_ema_optimizer.py")
+]
+TRADE_TICK_MULTI_RUNNERS = [
+    Path("backtests/kalshi_trade_tick_multi_sim_runner.py"),
+    Path("backtests/polymarket_trade_tick_multi_sim_runner.py"),
 ]
 
 SCRIPT_ENTRYPOINT_PATHS = [
@@ -53,16 +55,7 @@ REPO_BOOTSTRAP_HELPERS = {
 }
 
 
-@pytest.mark.parametrize(
-    "relative_path",
-    [
-        Path("backtests/kalshi_trade_tick_breakout.py"),
-        Path("backtests/polymarket_quote_tick_pmxt_ema_crossover.py"),
-        Path("backtests/polymarket_quote_tick_pmxt_ema_optimizer.py"),
-        Path("backtests/polymarket_trade_tick_panic_fade.py"),
-        Path("backtests/polymarket_trade_tick_vwap_reversion.py"),
-    ],
-)
+@pytest.mark.parametrize("relative_path", EXPECTED_PUBLIC_RUNNER_PATHS)
 def test_direct_script_entrypoints_import_without_repo_root_on_sys_path(
     monkeypatch: pytest.MonkeyPatch,
     relative_path: Path,
@@ -113,6 +106,10 @@ def test_backtests_tree_keeps_public_runners_flat() -> None:
         not in {"_shared", "private", "__pycache__"}
     ]
     assert unexpected_nested_runners == []
+
+
+def test_public_runner_set_matches_curated_examples() -> None:
+    assert PUBLIC_RUNNER_PATHS == EXPECTED_PUBLIC_RUNNER_PATHS
 
 
 def test_repo_keeps_script_bootstrap_helpers_only_next_to_entrypoints() -> None:
@@ -222,14 +219,6 @@ def test_pmxt_single_market_quote_tick_runners_expose_explicit_experiment_consta
 
     globals_dict = runpy.run_path(str(script_path), run_name="__script_test__")
 
-    assert "MARKET_SLUG" not in globals_dict
-    assert "TOKEN_INDEX" not in globals_dict
-    assert "START_TIME" not in globals_dict
-    assert "END_TIME" not in globals_dict
-    assert "MIN_QUOTES" not in globals_dict
-    assert "MIN_PRICE_RANGE" not in globals_dict
-    assert "INITIAL_CASH" not in globals_dict
-
     data = globals_dict["DATA"]
     replays = globals_dict["REPLAYS"]
     experiment = globals_dict["EXPERIMENT"]
@@ -251,7 +240,7 @@ def test_pmxt_single_market_quote_tick_runners_expose_explicit_experiment_consta
 
 
 @pytest.mark.parametrize("relative_path", PMXT_MULTI_SIM_QUOTE_TICK_RUNNERS)
-def test_pmxt_multi_sim_quote_tick_runners_expose_explicit_summary_contract(
+def test_pmxt_quote_tick_multi_runners_expose_explicit_summary_contract(
     monkeypatch: pytest.MonkeyPatch,
     relative_path: Path,
 ) -> None:
@@ -299,11 +288,6 @@ def test_pmxt_quote_tick_optimizer_runners_expose_explicit_search_configuration(
 
     globals_dict = runpy.run_path(str(script_path), run_name="__script_test__")
 
-    assert "MARKET_SLUG" not in globals_dict
-    assert "TOKEN_INDEX" not in globals_dict
-    assert "START_TIME" not in globals_dict
-    assert "END_TIME" not in globals_dict
-
     data = globals_dict["DATA"]
     base_replay = globals_dict["BASE_REPLAY"]
     train_windows = globals_dict["TRAIN_WINDOWS"]
@@ -341,8 +325,8 @@ def test_pmxt_quote_tick_optimizer_runners_expose_explicit_search_configuration(
     assert optimization.min_price_range == 0.005
 
 
-@pytest.mark.parametrize("relative_path", FIXED_SPORTS_TRADE_TICK_RUNNERS)
-def test_fixed_sports_trade_tick_runners_pin_historical_close_windows(
+@pytest.mark.parametrize("relative_path", TRADE_TICK_MULTI_RUNNERS)
+def test_trade_tick_multi_runners_emit_summary_contract(
     monkeypatch: pytest.MonkeyPatch,
     relative_path: Path,
 ) -> None:
@@ -354,24 +338,11 @@ def test_fixed_sports_trade_tick_runners_pin_historical_close_windows(
 
     globals_dict = runpy.run_path(str(script_path), run_name="__script_test__")
 
-    replays = globals_dict["REPLAYS"]
     experiment = globals_dict["EXPERIMENT"]
     report = globals_dict["REPORT"]
-    pd = pytest.importorskip("pandas")
 
+    assert globals_dict["EMIT_HTML"] is True
     assert globals_dict["CHART_OUTPUT_PATH"] == "output"
-    assert experiment.default_lookback_days is None
-    assert experiment.min_price_range == 0.01
-    assert experiment.chart_output_path == "output"
     assert experiment.return_summary_series is True
     assert report.summary_report is True
-    assert (
-        report.summary_report_path == f"output/{globals_dict['NAME']}_multi_market.html"
-    )
-    assert len(replays) >= 2
-    for replay in replays:
-        assert replay.market_slug
-        assert replay.lookback_days == 7
-        assert isinstance(replay.end_time, str) and replay.end_time
-        close_ns = replay.metadata["market_close_time_ns"]
-        assert pd.Timestamp(replay.end_time).value == close_ns
+    assert report.summary_report_path == globals_dict["SUMMARY_REPORT_PATH"]

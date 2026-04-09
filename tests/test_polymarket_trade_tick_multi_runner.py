@@ -157,12 +157,10 @@ def test_run_reported_multi_market_trade_backtest_applies_result_policy(
 @pytest.mark.parametrize(
     "module_name",
     [
-        "backtests.polymarket_trade_tick_sports_final_period_momentum",
-        "backtests.polymarket_trade_tick_sports_late_favorite_limit_hold",
-        "backtests.polymarket_trade_tick_sports_vwap_reversion",
+        "backtests.polymarket_trade_tick_multi_sim_runner",
     ],
 )
-def test_fixed_sports_trade_tick_runners_use_reported_multi_runner(
+def test_trade_tick_multi_runner_uses_reported_multi_runner(
     monkeypatch: pytest.MonkeyPatch,
     module_name: str,
 ) -> None:
@@ -192,7 +190,4 @@ def test_fixed_sports_trade_tick_runners_use_reported_multi_runner(
     assert captured["backtest"].data == module.DATA
     assert captured["backtest"].replays == module.REPLAYS
     assert captured["backtest"].chart_output_path == "output"
-    if module_name.endswith("late_favorite_limit_hold"):
-        assert captured["result_policy"] == module.RESULT_POLICY
-    else:
-        assert "result_policy" not in captured
+    assert "result_policy" not in captured

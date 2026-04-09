@@ -22,9 +22,6 @@ quickly because the shared summary report is built from aggregated summary
 series instead of trying to inline every raw tick, fill, and panel from every
 run into one browser page.
 
-Optimizer runners write search artifacts to `output/` as CSV and JSON. They do
-not emit one HTML chart per trial by default.
-
 Every public runner now exposes explicit plotting controls at top level:
 
 - `EMIT_HTML` keeps per-run HTML generation on or off in the file itself
@@ -39,7 +36,8 @@ Good examples:
 - [`backtests/polymarket_trade_tick_vwap_reversion.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_trade_tick_vwap_reversion.py)
 - [`backtests/polymarket_quote_tick_pmxt_ema_crossover.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_quote_tick_pmxt_ema_crossover.py)
 - [`backtests/polymarket_quote_tick_pmxt_multi_sim_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_quote_tick_pmxt_multi_sim_runner.py)
-- [`backtests/polymarket_trade_tick_sports_vwap_reversion.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_trade_tick_sports_vwap_reversion.py)
+- [`backtests/polymarket_trade_tick_multi_sim_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_trade_tick_multi_sim_runner.py)
+- [`backtests/polymarket_quote_tick_pmxt_ema_optimizer.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_quote_tick_pmxt_ema_optimizer.py)
 
 ## Scaling Model
 
@@ -173,9 +171,6 @@ Charts are written to `output/`, typically with names like:
 
 - `output/<backtest>_<market>_legacy.html`
 - `output/polymarket_quote_tick_pmxt_ema_crossover_<market>_legacy.html`
-- `output/polymarket_quote_tick_pmxt_breakout_<market>_legacy.html`
-- `output/polymarket_quote_tick_pmxt_rsi_reversion_<market>_legacy.html`
-- `output/polymarket_quote_tick_pmxt_spread_capture_<market>_legacy.html`
 - `output/polymarket_quote_tick_pmxt_multi_sim_runner_multi_market.html`
 - `output/polymarket_quote_tick_pmxt_ema_optimizer_leaderboard.csv`
 - `output/polymarket_quote_tick_pmxt_ema_optimizer_summary.json`
@@ -214,22 +209,19 @@ one separate HTML artifact.
 
 The clearest multi-market plotting runner files:
 
-- [`backtests/polymarket_trade_tick_sports_final_period_momentum.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_trade_tick_sports_final_period_momentum.py)
-- [`backtests/polymarket_trade_tick_sports_late_favorite_limit_hold.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_trade_tick_sports_late_favorite_limit_hold.py)
-- [`backtests/polymarket_trade_tick_sports_vwap_reversion.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_trade_tick_sports_vwap_reversion.py)
+- [`backtests/kalshi_trade_tick_multi_sim_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/kalshi_trade_tick_multi_sim_runner.py)
+- [`backtests/polymarket_trade_tick_multi_sim_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_trade_tick_multi_sim_runner.py)
 - [`backtests/polymarket_quote_tick_pmxt_multi_sim_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_quote_tick_pmxt_multi_sim_runner.py)
 - [`backtests/polymarket_quote_tick_pmxt_25_sims_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_quote_tick_pmxt_25_sims_runner.py)
 
 Those runners now write one per-market legacy chart per replay and one
 aggregate summary chart under `output/`, typically with names like:
 
-- `output/polymarket_trade_tick_sports_final_period_momentum_<market>_legacy.html`
-- `output/polymarket_trade_tick_sports_late_favorite_limit_hold_<market>_legacy.html`
-- `output/polymarket_trade_tick_sports_vwap_reversion_<market>_legacy.html`
+- `output/kalshi_trade_tick_multi_sim_runner_<market>_legacy.html`
+- `output/polymarket_trade_tick_multi_sim_runner_<market>_legacy.html`
 
-- `output/polymarket_trade_tick_sports_final_period_momentum_multi_market.html`
-- `output/polymarket_trade_tick_sports_late_favorite_limit_hold_multi_market.html`
-- `output/polymarket_trade_tick_sports_vwap_reversion_multi_market.html`
+- `output/kalshi_trade_tick_multi_sim_runner_multi_market.html`
+- `output/polymarket_trade_tick_multi_sim_runner_multi_market.html`
 
 The PMXT multi-sim example runner writes per-sim detail charts plus one
 aggregate summary chart:
@@ -249,7 +241,7 @@ That means the scaling story is stable across run sizes:
   built from summary series, while the detailed execution view stays available
   one sim at a time
 
-In the fixed sports runners, "multi-market" is literal: one report spans
-multiple different market slugs. In the PMXT multi-sim runner, "multi-market"
+In the fixed basket runners, "multi-market" is literal: one report spans
+multiple different market slugs or tickers. In the PMXT multi-sim runner, "multi-market"
 really means one aggregate report spanning multiple labeled sims, even though
 all four replays use the same underlying market slug.

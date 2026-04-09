@@ -69,7 +69,7 @@ uv run python main.py
 Direct runner files also work:
 
 ```bash
-uv run python backtests/kalshi_trade_tick_ema_crossover.py
+uv run python backtests/kalshi_trade_tick_breakout.py
 uv run python backtests/polymarket_trade_tick_vwap_reversion.py
 uv run python backtests/polymarket_quote_tick_pmxt_ema_crossover.py
 uv run python backtests/polymarket_quote_tick_pmxt_multi_sim_runner.py
