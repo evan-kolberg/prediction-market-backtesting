@@ -18,16 +18,10 @@ class MarketDataConfig:
         object.__setattr__(self, "platform", _normalize_name(self.platform))
         object.__setattr__(self, "data_type", _normalize_name(self.data_type))
         object.__setattr__(self, "vendor", _normalize_name(self.vendor))
-        object.__setattr__(
-            self,
-            "sources",
-            tuple(source.strip() for source in self.sources if source.strip()),
-        )
+        object.__setattr__(self, "sources", tuple(source.strip() for source in self.sources if source.strip()))
 
 
-def _normalize_name(
-    value: str | MarketPlatform | MarketDataType | MarketDataVendor,
-) -> str:
+def _normalize_name(value: str | MarketPlatform | MarketDataType | MarketDataVendor) -> str:
     if isinstance(value, str):
         return value.strip().casefold()
     return value.name.strip().casefold()

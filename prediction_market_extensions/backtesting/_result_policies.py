@@ -5,9 +5,7 @@ from dataclasses import dataclass
 from typing import Any
 from typing import Protocol
 
-from prediction_market_extensions.adapters.prediction_market.backtest_utils import (
-    compute_binary_settlement_pnl,
-)
+from prediction_market_extensions.adapters.prediction_market.backtest_utils import compute_binary_settlement_pnl
 
 
 type Results = list[dict[str, Any]]
@@ -29,8 +27,7 @@ class BinarySettlementPnlPolicy:
     def apply(self, results: Results) -> Results:
         for result in results:
             settlement_pnl = self.settlement_pnl_fn(
-                result.get(self.fill_events_key, []),
-                result.get(self.realized_outcome_key),
+                result.get(self.fill_events_key, []), result.get(self.realized_outcome_key)
             )
             if settlement_pnl is None:
                 continue
@@ -39,7 +36,4 @@ class BinarySettlementPnlPolicy:
         return results
 
 
-__all__ = [
-    "BinarySettlementPnlPolicy",
-    "ResultPolicy",
-]
+__all__ = ["BinarySettlementPnlPolicy", "ResultPolicy"]

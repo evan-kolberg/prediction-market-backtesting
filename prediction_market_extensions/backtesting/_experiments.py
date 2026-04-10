@@ -7,35 +7,27 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from typing import Literal
 from typing import TYPE_CHECKING
 
 import pandas as pd
 
-from prediction_market_extensions.backtesting._execution_config import (
-    ExecutionModelConfig,
-)
-from prediction_market_extensions.backtesting._prediction_market_backtest import (
-    MarketReportConfig,
-)
-from prediction_market_extensions.backtesting._prediction_market_backtest import (
-    PredictionMarketBacktest,
-)
-from prediction_market_extensions.backtesting._prediction_market_backtest import (
-    finalize_market_results,
-)
+from prediction_market_extensions.backtesting._execution_config import ExecutionModelConfig
+from prediction_market_extensions.backtesting._prediction_market_backtest import MarketReportConfig
+from prediction_market_extensions.backtesting._prediction_market_backtest import PredictionMarketBacktest
+from prediction_market_extensions.backtesting._prediction_market_backtest import finalize_market_results
 from prediction_market_extensions.backtesting._result_policies import ResultPolicy
 from prediction_market_extensions.backtesting._replay_specs import ReplaySpec
-from prediction_market_extensions.backtesting._strategy_configs import (
-    StrategyConfigSpec,
-)
+from prediction_market_extensions.backtesting._strategy_configs import StrategyConfigSpec
 from prediction_market_extensions.backtesting.optimizers import ParameterSearchConfig
 from prediction_market_extensions.backtesting.optimizers import ParameterSearchSummary
 from prediction_market_extensions.backtesting.optimizers import run_parameter_search
 
 if TYPE_CHECKING:
-    from prediction_market_extensions.backtesting._market_data_config import (
-        MarketDataConfig,
-    )
+    from prediction_market_extensions.backtesting._market_data_config import MarketDataConfig
+
+
+type MultiReplayMode = Literal["joint_portfolio", "independent"]
 
 
 @dataclass(frozen=True)
@@ -63,6 +55,7 @@ class ReplayExperiment:
     return_chart_layout: bool = False
     return_summary_series: bool = False
     detail_plot_panels: Sequence[str] | None = None
+    multi_replay_mode: MultiReplayMode = "joint_portfolio"
     report: MarketReportConfig | None = None
     empty_message: str | None = None
     partial_message: str | None = None
@@ -83,9 +76,7 @@ class ParameterSearchExperiment:
 type Experiment = ReplayExperiment | ParameterSearchExperiment
 
 
-def build_backtest_for_experiment(
-    experiment: ReplayExperiment,
-) -> PredictionMarketBacktest:
+def build_backtest_for_experiment(experiment: ReplayExperiment) -> PredictionMarketBacktest:
     return PredictionMarketBacktest(
         name=experiment.name,
         data=experiment.data,
@@ -137,6 +128,7 @@ def build_replay_experiment(
     return_chart_layout: bool = False,
     return_summary_series: bool = False,
     detail_plot_panels: Sequence[str] | None = None,
+    multi_replay_mode: MultiReplayMode = "joint_portfolio",
     report: MarketReportConfig | None = None,
     empty_message: str | None = None,
     partial_message: str | None = None,
@@ -166,6 +158,7 @@ def build_replay_experiment(
         return_chart_layout=return_chart_layout,
         return_summary_series=return_summary_series,
         detail_plot_panels=detail_plot_panels,
+        multi_replay_mode=multi_replay_mode,
         report=report,
         empty_message=empty_message,
         partial_message=partial_message,
@@ -206,6 +199,7 @@ def replay_experiment_from_backtest(
         return_chart_layout=backtest.return_chart_layout,
         return_summary_series=backtest.return_summary_series,
         detail_plot_panels=backtest.detail_plot_panels,
+        multi_replay_mode="joint_portfolio",
         report=report,
         empty_message=empty_message,
         partial_message=partial_message,
@@ -213,11 +207,9 @@ def replay_experiment_from_backtest(
     )
 
 
-async def run_replay_experiment_async(
-    experiment: ReplayExperiment,
-) -> list[dict[str, Any]]:
+async def run_replay_experiment_async(experiment: ReplayExperiment) -> list[dict[str, Any]]:
     backtest = build_backtest_for_experiment(experiment)
-    results = await backtest.run_async()
+    results = await _run_replay_backtest_async(backtest=backtest, multi_replay_mode=experiment.multi_replay_mode)
     if not results:
         if experiment.empty_message:
             print(experiment.empty_message)
@@ -229,46 +221,113 @@ async def run_replay_experiment_async(
             results = transformed
 
     if experiment.partial_message and len(results) < len(experiment.replays):
-        print(
-            experiment.partial_message.format(
-                completed=len(results),
-                total=len(experiment.replays),
-            )
-        )
+        print(experiment.partial_message.format(completed=len(results), total=len(experiment.replays)))
 
     if experiment.report is not None:
         finalize_market_results(
             name=experiment.name,
             results=results,
             report=experiment.report,
+            multi_replay_mode=experiment.multi_replay_mode,
         )
     return results
 
 
-def run_experiment(
-    experiment: Experiment,
-) -> list[dict[str, Any]] | ParameterSearchSummary:
+def _dispatch_multi_replay_runner(backtest: PredictionMarketBacktest) -> list[dict[str, Any]]:
+    from prediction_market_extensions.backtesting._independent_multi_replay_runner import (
+        run_independent_multi_replay_backtest_async,
+    )
+
+    return asyncio.run(run_independent_multi_replay_backtest_async(backtest=backtest))
+
+
+async def _dispatch_multi_replay_runner_async(backtest: PredictionMarketBacktest) -> list[dict[str, Any]]:
+    from prediction_market_extensions.backtesting._independent_multi_replay_runner import (
+        run_independent_multi_replay_backtest_async,
+    )
+
+    return await run_independent_multi_replay_backtest_async(backtest=backtest)
+
+
+def _run_replay_backtest(
+    backtest: PredictionMarketBacktest, *, multi_replay_mode: MultiReplayMode
+) -> list[dict[str, Any]]:
+    if multi_replay_mode == "independent" and len(backtest.replays) > 1:
+        return _dispatch_multi_replay_runner(backtest)
+    return backtest.run()
+
+
+async def _run_replay_backtest_async(
+    *, backtest: PredictionMarketBacktest, multi_replay_mode: MultiReplayMode
+) -> list[dict[str, Any]]:
+    if multi_replay_mode == "independent" and len(backtest.replays) > 1:
+        return await _dispatch_multi_replay_runner_async(backtest)
+    return await backtest.run_async()
+
+
+def _finalize_replay_results(experiment: ReplayExperiment, results: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Apply result policies, print status messages, and run report finalization."""
+    if not results:
+        if experiment.empty_message:
+            print(experiment.empty_message)
+        return []
+
+    if experiment.partial_message and len(results) < len(experiment.replays):
+        print(experiment.partial_message.format(completed=len(results), total=len(experiment.replays)))
+
+    if experiment.result_policy is not None:
+        transformed = experiment.result_policy.apply(results)
+        if transformed is not None:
+            results = transformed
+
+    if experiment.report is not None:
+        finalize_market_results(
+            name=experiment.name,
+            results=results,
+            report=experiment.report,
+            multi_replay_mode=experiment.multi_replay_mode,
+        )
+
+    return results
+
+
+def run_experiment(experiment: Experiment) -> list[dict[str, Any]] | ParameterSearchSummary:
     if isinstance(experiment, ParameterSearchExperiment):
         return run_parameter_search(experiment.parameter_search)
 
     try:
         asyncio.get_running_loop()
     except RuntimeError:
-        return asyncio.run(run_replay_experiment_async(experiment))
+        pass
+    else:
+        raise RuntimeError(
+            "run_experiment() cannot be called inside an active event loop; use await run_experiment_async() instead."
+        )
 
-    raise RuntimeError(
-        "run_experiment() cannot be called inside an active event loop; use await run_replay_experiment_async() instead."
-    )
+    backtest = build_backtest_for_experiment(experiment)
+    results = _run_replay_backtest(backtest, multi_replay_mode=experiment.multi_replay_mode)
+    return _finalize_replay_results(experiment, results)
+
+
+async def run_experiment_async(experiment: Experiment) -> list[dict[str, Any]] | ParameterSearchSummary:
+    if isinstance(experiment, ParameterSearchExperiment):
+        return await asyncio.to_thread(run_parameter_search, experiment.parameter_search)
+
+    backtest = build_backtest_for_experiment(experiment)
+    results = await _run_replay_backtest_async(backtest=backtest, multi_replay_mode=experiment.multi_replay_mode)
+    return _finalize_replay_results(experiment, results)
 
 
 __all__ = [
     "Experiment",
+    "MultiReplayMode",
     "ParameterSearchExperiment",
     "ReplayExperiment",
     "build_backtest_for_experiment",
     "build_replay_experiment",
     "replay_experiment_from_backtest",
     "run_experiment",
+    "run_experiment_async",
     "run_replay_experiment_async",
 ]
 

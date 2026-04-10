@@ -61,7 +61,4 @@ class ExecutionModelConfig:
         return self.latency_model.build_latency_model()
 
 
-__all__ = [
-    "ExecutionModelConfig",
-    "StaticLatencyConfig",
-]
+__all__ = ["ExecutionModelConfig", "StaticLatencyConfig"]

@@ -14,9 +14,7 @@ from prediction_market_extensions.adapters.prediction_market import LoadedReplay
 from prediction_market_extensions.adapters.prediction_market import ReplayCoverageStats
 from prediction_market_extensions.adapters.prediction_market import ReplayLoadRequest
 from prediction_market_extensions.adapters.prediction_market import ReplayWindow
-from prediction_market_extensions.adapters.prediction_market.fill_model import (
-    PredictionMarketTakerFillModel,
-)
+from prediction_market_extensions.adapters.prediction_market.fill_model import PredictionMarketTakerFillModel
 from nautilus_trader.backtest.config import BacktestEngineConfig
 from nautilus_trader.backtest.engine import BacktestEngine
 from nautilus_trader.common.component import is_backtest_force_stop
@@ -29,53 +27,23 @@ from nautilus_trader.model.objects import Money
 from nautilus_trader.risk.config import RiskEngineConfig
 from nautilus_trader.trading.strategy import Strategy
 
-from prediction_market_extensions.backtesting._backtest_runtime import (
-    build_backtest_run_state,
-)
-from prediction_market_extensions.backtesting._execution_config import (
-    ExecutionModelConfig,
-)
-from prediction_market_extensions.backtesting._market_data_config import (
-    MarketDataConfig,
-)
+from prediction_market_extensions.backtesting._backtest_runtime import build_backtest_run_state
+from prediction_market_extensions.backtesting._execution_config import ExecutionModelConfig
+from prediction_market_extensions.backtesting._market_data_config import MarketDataConfig
 from prediction_market_extensions.backtesting._replay_specs import MarketSimConfig
 from prediction_market_extensions.backtesting._replay_specs import ReplaySpec
-from prediction_market_extensions.backtesting._replay_specs import (
-    coerce_legacy_market_sim_config,
-)
-from prediction_market_extensions.backtesting._strategy_configs import (
-    build_importable_strategy_configs,
-)
-from prediction_market_extensions.backtesting._strategy_configs import (
-    StrategyConfigSpec,
-)
-from prediction_market_extensions.backtesting.data_sources.kalshi_native import (
-    RunnerKalshiDataLoader,
-)
-from prediction_market_extensions.backtesting.data_sources.pmxt import (
-    RunnerPolymarketPMXTDataLoader,
-)
-from prediction_market_extensions.backtesting.data_sources.polymarket_native import (
-    RunnerPolymarketDataLoader,
-)
-from prediction_market_extensions.backtesting.data_sources.registry import (
-    resolve_replay_adapter,
-)
-from prediction_market_extensions.backtesting.prediction_market import (
-    PredictionMarketArtifactBuilder,
-)
-from prediction_market_extensions.backtesting.prediction_market import (
-    MarketReportConfig,
-)
-from prediction_market_extensions.backtesting.prediction_market import (
-    finalize_market_results,
-)
-from prediction_market_extensions.backtesting.prediction_market import (
-    run_reported_backtest,
-)
-from prediction_market_extensions.analysis.legacy_plot_adapter import (
-    DEFAULT_DETAIL_PLOT_PANELS,
-)
+from prediction_market_extensions.backtesting._replay_specs import coerce_legacy_market_sim_config
+from prediction_market_extensions.backtesting._strategy_configs import build_importable_strategy_configs
+from prediction_market_extensions.backtesting._strategy_configs import StrategyConfigSpec
+from prediction_market_extensions.backtesting.data_sources.kalshi_native import RunnerKalshiDataLoader
+from prediction_market_extensions.backtesting.data_sources.pmxt import RunnerPolymarketPMXTDataLoader
+from prediction_market_extensions.backtesting.data_sources.polymarket_native import RunnerPolymarketDataLoader
+from prediction_market_extensions.backtesting.data_sources.registry import resolve_replay_adapter
+from prediction_market_extensions.backtesting.prediction_market import PredictionMarketArtifactBuilder
+from prediction_market_extensions.backtesting.prediction_market import MarketReportConfig
+from prediction_market_extensions.backtesting.prediction_market import finalize_market_results
+from prediction_market_extensions.backtesting.prediction_market import run_reported_backtest
+from prediction_market_extensions.analysis.legacy_plot_adapter import DEFAULT_DETAIL_PLOT_PANELS
 
 
 KalshiDataLoader = RunnerKalshiDataLoader
@@ -117,9 +85,7 @@ class PredictionMarketBacktest:
         if strategy_factory is not None and strategy_configs:
             raise ValueError("Use strategy_factory or strategy_configs, not both.")
         if strategy_factory is None and not strategy_configs:
-            raise ValueError(
-                "strategy_configs is required when strategy_factory is not provided."
-            )
+            raise ValueError("strategy_configs is required when strategy_factory is not provided.")
         if replays is not None and sims is not None:
             raise ValueError("Use replays or sims, not both.")
         raw_replays = replays if replays is not None else sims
@@ -149,9 +115,7 @@ class PredictionMarketBacktest:
         self.return_chart_layout = return_chart_layout
         self.return_summary_series = return_summary_series
         self.detail_plot_panels = tuple(
-            DEFAULT_DETAIL_PLOT_PANELS
-            if detail_plot_panels is None
-            else detail_plot_panels
+            DEFAULT_DETAIL_PLOT_PANELS if detail_plot_panels is None else detail_plot_panels
         )
 
     @property
@@ -171,9 +135,7 @@ class PredictionMarketBacktest:
         except RuntimeError:
             return asyncio.run(self.run_async())
 
-        raise RuntimeError(
-            "run() cannot be called inside an active event loop; use await run_async() instead."
-        )
+        raise RuntimeError("run() cannot be called inside an active event loop; use await run_async() instead.")
 
     def run_backtest(self) -> list[dict[str, Any]]:
         return self.run()
@@ -193,34 +155,27 @@ class PredictionMarketBacktest:
                 for loaded_sim in loaded_sims:
                     engine.add_strategy(self.strategy_factory(loaded_sim.instrument.id))
             else:
-                for importable_config in self._build_importable_strategy_configs(
-                    loaded_sims
-                ):
-                    engine.add_strategy(
-                        NautilusStrategyFactory.create(importable_config)
-                    )
+                for importable_config in self._build_importable_strategy_configs(loaded_sims):
+                    engine.add_strategy(NautilusStrategyFactory.create(importable_config))
 
-            print(
-                f"Starting {self.name} with {len(loaded_sims)} sims "
-                f"and {self._strategy_summary_label()}..."
-            )
+            print(f"Starting {self.name} with {len(loaded_sims)} sims and {self._strategy_summary_label()}...")
             engine.run()
             engine_result = engine.get_result()
             forced_stop = bool(is_backtest_force_stop())
 
             fills_report = engine.trader.generate_order_fills_report()
             positions_report = engine.trader.generate_positions_report()
-            single_market_artifacts = self._build_single_market_artifacts(
-                engine=engine,
-                loaded_sims=loaded_sims,
-                fills_report=fills_report,
+            market_artifacts_by_market_id = self._build_market_artifacts(
+                engine=engine, loaded_sims=loaded_sims, fills_report=fills_report
             )
+            joint_portfolio_artifacts = self._build_joint_portfolio_artifacts(engine=engine, loaded_sims=loaded_sims)
             return [
                 self._build_result(
                     loaded_sim=loaded_sim,
                     fills_report=fills_report,
                     positions_report=positions_report,
-                    single_market_artifacts=single_market_artifacts,
+                    market_artifacts=market_artifacts_by_market_id.get(loaded_sim.market_id),
+                    joint_portfolio_artifacts=joint_portfolio_artifacts if result_index == 0 else None,
                     run_state=build_backtest_run_state(
                         data=loaded_sim.records,
                         backtest_end_ns=engine_result.backtest_end,
@@ -229,7 +184,7 @@ class PredictionMarketBacktest:
                         requested_end_ns=loaded_sim.requested_window.end_ns,
                     ),
                 )
-                for loaded_sim in loaded_sims
+                for result_index, loaded_sim in enumerate(loaded_sims)
             ]
         finally:
             engine.reset()
@@ -260,52 +215,43 @@ class PredictionMarketBacktest:
         loaded_sim: LoadedReplay,
         fills_report: pd.DataFrame,
         positions_report: pd.DataFrame,
-        single_market_artifacts: Mapping[str, Any] | None = None,
+        market_artifacts: Mapping[str, Any] | None = None,
+        joint_portfolio_artifacts: Mapping[str, Any] | None = None,
         run_state: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         return self._create_artifact_builder().build_result(
             loaded_sim=loaded_sim,
             fills_report=fills_report,
             positions_report=positions_report,
-            single_market_artifacts=single_market_artifacts,
+            market_artifacts=market_artifacts,
+            joint_portfolio_artifacts=joint_portfolio_artifacts,
             run_state=run_state,
         )
 
-    def _build_single_market_artifacts(
-        self,
-        *,
-        engine: BacktestEngine,
-        loaded_sims: Sequence[LoadedReplay],
-        fills_report: pd.DataFrame,
-    ) -> dict[str, Any]:
-        return self._create_artifact_builder().build_single_market_artifacts(
-            engine=engine,
-            loaded_sims=loaded_sims,
-            fills_report=fills_report,
+    def _build_market_artifacts(
+        self, *, engine: BacktestEngine, loaded_sims: Sequence[LoadedReplay], fills_report: pd.DataFrame
+    ) -> dict[str, dict[str, Any]]:
+        return self._create_artifact_builder().build_market_artifacts(
+            engine=engine, loaded_sims=loaded_sims, fills_report=fills_report
         )
+
+    def _build_joint_portfolio_artifacts(
+        self, *, engine: BacktestEngine, loaded_sims: Sequence[LoadedReplay]
+    ) -> dict[str, Any]:
+        return self._create_artifact_builder().build_joint_portfolio_artifacts(engine=engine, loaded_sims=loaded_sims)
 
     def _resolve_chart_output_path(self, *, market_id: str) -> Path:
-        return self._create_artifact_builder().resolve_chart_output_path(
-            market_id=market_id
-        )
+        return self._create_artifact_builder().resolve_chart_output_path(market_id=market_id)
 
-    def _normalize_replays(
-        self,
-        replays: Sequence[ReplaySpec | MarketSimConfig],
-    ) -> tuple[ReplaySpec, ...]:
+    def _normalize_replays(self, replays: Sequence[ReplaySpec | MarketSimConfig]) -> tuple[ReplaySpec, ...]:
         normalized: list[ReplaySpec] = []
         adapter = resolve_replay_adapter(
-            platform=self.data.platform,
-            data_type=self.data.data_type,
-            vendor=self.data.vendor,
+            platform=self.data.platform, data_type=self.data.data_type, vendor=self.data.vendor
         )
         for replay in replays:
             if isinstance(replay, MarketSimConfig):
                 replay = coerce_legacy_market_sim_config(
-                    platform=self.data.platform,
-                    data_type=self.data.data_type,
-                    vendor=self.data.vendor,
-                    sim=replay,
+                    platform=self.data.platform, data_type=self.data.data_type, vendor=self.data.vendor, sim=replay
                 )
             if not isinstance(replay, adapter.replay_spec_type):
                 raise TypeError(
@@ -317,9 +263,7 @@ class PredictionMarketBacktest:
         return tuple(normalized)
 
     def _load_request(self) -> ReplayLoadRequest:
-        min_record_count = (
-            self.min_quotes if self.data.data_type == "quote_tick" else self.min_trades
-        )
+        min_record_count = self.min_quotes if self.data.data_type == "quote_tick" else self.min_trades
         return ReplayLoadRequest(
             min_record_count=min_record_count,
             min_price_range=self.min_price_range,
@@ -331,9 +275,7 @@ class PredictionMarketBacktest:
 
     async def _load_sims_async(self) -> list[LoadedReplay]:
         adapter = resolve_replay_adapter(
-            platform=self.data.platform,
-            data_type=self.data.data_type,
-            vendor=self.data.vendor,
+            platform=self.data.platform, data_type=self.data.data_type, vendor=self.data.vendor
         )
         with adapter.configure_sources(sources=self.data.sources) as data_source:
             print(data_source.summary)
@@ -351,22 +293,18 @@ class PredictionMarketBacktest:
                 trader_id=TraderId("BACKTESTER-001"),
                 logging=LoggingConfig(log_level=self.nautilus_log_level),
                 risk_engine=RiskEngineConfig(),
-            ),
+            )
         )
         latency_model = self.execution.build_latency_model()
         adapter = resolve_replay_adapter(
-            platform=self.data.platform,
-            data_type=self.data.data_type,
-            vendor=self.data.vendor,
+            platform=self.data.platform, data_type=self.data.data_type, vendor=self.data.vendor
         )
         engine_profile = adapter.engine_profile
         fill_model = None
         if engine_profile.fill_model_mode == "taker":
             fill_model = PredictionMarketTakerFillModel()
         elif engine_profile.fill_model_mode != "passive_book":
-            raise AssertionError(
-                f"Unsupported fill model mode {engine_profile.fill_model_mode!r}"
-            )
+            raise AssertionError(f"Unsupported fill model mode {engine_profile.fill_model_mode!r}")
         engine.add_venue(
             venue=engine_profile.venue,
             oms_type=engine_profile.oms_type,
@@ -382,9 +320,7 @@ class PredictionMarketBacktest:
         )
         return engine
 
-    def _build_importable_strategy_configs(
-        self, loaded_sims: Sequence[LoadedReplay]
-    ) -> list[Any]:
+    def _build_importable_strategy_configs(self, loaded_sims: Sequence[LoadedReplay]) -> list[Any]:
         if not loaded_sims:
             return []
 
@@ -395,14 +331,11 @@ class PredictionMarketBacktest:
             target_sims = loaded_sims[:1] if batch_level else loaded_sims
             for loaded_sim in target_sims:
                 bound_spec = self._bind_strategy_spec(
-                    strategy_spec=strategy_spec,
-                    loaded_sim=loaded_sim,
-                    all_instrument_ids=all_instrument_ids,
+                    strategy_spec=strategy_spec, loaded_sim=loaded_sim, all_instrument_ids=all_instrument_ids
                 )
                 importable_configs.extend(
                     build_importable_strategy_configs(
-                        strategy_configs=[bound_spec],
-                        instrument_id=loaded_sim.instrument.id,
+                        strategy_configs=[bound_spec], instrument_id=loaded_sim.instrument.id
                     )
                 )
         return importable_configs
@@ -426,24 +359,15 @@ class PredictionMarketBacktest:
         return False
 
     def _bind_strategy_spec(
-        self,
-        *,
-        strategy_spec: StrategyConfigSpec,
-        loaded_sim: LoadedReplay,
-        all_instrument_ids: Sequence[InstrumentId],
+        self, *, strategy_spec: StrategyConfigSpec, loaded_sim: LoadedReplay, all_instrument_ids: Sequence[InstrumentId]
     ) -> StrategyConfigSpec:
         raw_config = strategy_spec.get("config", {})
         if not isinstance(raw_config, Mapping):
             raise TypeError("strategy config payload must be a mapping")
 
         metadata = dict(loaded_sim.metadata)
-        metadata.setdefault(
-            "market_slug", getattr(loaded_sim.spec, "market_slug", None)
-        )
-        metadata.setdefault(
-            "market_ticker",
-            getattr(loaded_sim.spec, "market_ticker", None),
-        )
+        metadata.setdefault("market_slug", getattr(loaded_sim.spec, "market_slug", None))
+        metadata.setdefault("market_ticker", getattr(loaded_sim.spec, "market_ticker", None))
         metadata.setdefault("token_index", getattr(loaded_sim.spec, "token_index", 0))
         metadata.setdefault("outcome", loaded_sim.outcome)
 
@@ -469,30 +393,21 @@ class PredictionMarketBacktest:
         if isinstance(value, Mapping):
             return {
                 key: self._bind_value(
-                    inner,
-                    instrument_id=instrument_id,
-                    all_instrument_ids=all_instrument_ids,
-                    metadata=metadata,
+                    inner, instrument_id=instrument_id, all_instrument_ids=all_instrument_ids, metadata=metadata
                 )
                 for key, inner in value.items()
             }
         if isinstance(value, list):
             return [
                 self._bind_value(
-                    inner,
-                    instrument_id=instrument_id,
-                    all_instrument_ids=all_instrument_ids,
-                    metadata=metadata,
+                    inner, instrument_id=instrument_id, all_instrument_ids=all_instrument_ids, metadata=metadata
                 )
                 for inner in value
             ]
         if isinstance(value, tuple):
             return tuple(
                 self._bind_value(
-                    inner,
-                    instrument_id=instrument_id,
-                    all_instrument_ids=all_instrument_ids,
-                    metadata=metadata,
+                    inner, instrument_id=instrument_id, all_instrument_ids=all_instrument_ids, metadata=metadata
                 )
                 for inner in value
             )
@@ -530,17 +445,10 @@ def _LoadedMarketSim(
         outcome=outcome,
         realized_outcome=realized_outcome,
         metadata=dict(metadata or {}),
-        requested_window=ReplayWindow(
-            start_ns=requested_start_ns,
-            end_ns=requested_end_ns,
-        ),
+        requested_window=ReplayWindow(start_ns=requested_start_ns, end_ns=requested_end_ns),
         loaded_window=None,
         coverage_stats=ReplayCoverageStats(
-            count=count,
-            count_key=count_key,
-            market_key=market_key,
-            market_id=market_id,
-            prices=tuple(prices),
+            count=count, count_key=count_key, market_key=market_key, market_id=market_id, prices=tuple(prices)
         ),
         instrument_ids=(instrument_id,) if instrument_id is not None else (),
     )

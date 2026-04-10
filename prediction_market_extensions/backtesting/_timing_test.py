@@ -70,11 +70,7 @@ def _transfer_label(source: str) -> str:
 
 
 def _progress_bar_description(
-    *,
-    total_hours: int,
-    started_hours: int,
-    completed_hours: int,
-    active_hours: int | None = None,
+    *, total_hours: int, started_hours: int, completed_hours: int, active_hours: int | None = None
 ) -> str:
     if total_hours <= 0:
         return "Fetching hours"
@@ -108,12 +104,7 @@ def _progress_bar_total(total_hours: int) -> int:
     return max(0, total_hours)
 
 
-def _progress_bar_position(
-    *,
-    total_hours: int,
-    completed_hours: int,
-    active_hours_progress: float = 0.0,
-) -> float:
+def _progress_bar_position(*, total_hours: int, completed_hours: int, active_hours_progress: float = 0.0) -> float:
     total = max(0, total_hours)
     completed = min(max(0, completed_hours), total)
     remaining = max(0.0, float(total - completed))
@@ -152,12 +143,7 @@ def _is_local_scan_source(source: str | None) -> bool:
 
 
 def _transfer_progress_fraction(
-    *,
-    mode: str | None,
-    source: str | None = None,
-    downloaded_bytes: int,
-    total_bytes: int | None,
-    scanned_batches: int,
+    *, mode: str | None, source: str | None = None, downloaded_bytes: int, total_bytes: int | None, scanned_batches: int
 ) -> float:
     if mode == "scan":
         batches = max(0, scanned_batches)
@@ -179,9 +165,7 @@ def _transfer_progress_fraction(
     return 0.0
 
 
-def _active_transfer_progress(
-    downloads: dict[str, dict[str, object]],
-) -> tuple[int, float]:
+def _active_transfer_progress(downloads: dict[str, dict[str, object]]) -> tuple[int, float]:
     progress_by_hour: dict[str, float] = {}
     for state in downloads.values():
         hour_key = str(state.get("hour_key") or state.get("url") or "")
@@ -190,16 +174,10 @@ def _active_transfer_progress(
         progress_by_hour[hour_key] = max(
             progress_by_hour.get(hour_key, 0.0),
             _transfer_progress_fraction(
-                mode=(
-                    str(state.get("mode")) if state.get("mode") is not None else None
-                ),
+                mode=(str(state.get("mode")) if state.get("mode") is not None else None),
                 source=str(state.get("url")) if state.get("url") is not None else None,
                 downloaded_bytes=int(state.get("downloaded_bytes", 0)),
-                total_bytes=(
-                    int(state["total_bytes"])
-                    if state.get("total_bytes") is not None
-                    else None
-                ),
+                total_bytes=(int(state["total_bytes"]) if state.get("total_bytes") is not None else None),
                 scanned_batches=int(state.get("scanned_batches", 0)),
             ),
         )
@@ -214,30 +192,19 @@ def install_timing() -> None:
     _installed = True
 
     from tqdm import tqdm
-    from prediction_market_extensions.adapters.polymarket.pmxt import (
-        PolymarketPMXTDataLoader,
-    )
+    from prediction_market_extensions.adapters.polymarket.pmxt import PolymarketPMXTDataLoader
 
     try:
-        from prediction_market_extensions.backtesting.data_sources.pmxt import (
-            RunnerPolymarketPMXTDataLoader,
-        )
+        from prediction_market_extensions.backtesting.data_sources.pmxt import RunnerPolymarketPMXTDataLoader
     except ImportError:
         RunnerPolymarketPMXTDataLoader = None
 
     source_local = threading.local()
     pbar_state: dict = {"bar": None}
     pbar_lock = threading.Lock()
-    progress_state: dict[str, int] = {
-        "total_hours": 0,
-        "started_hours": 0,
-        "completed_hours": 0,
-    }
+    progress_state: dict[str, int] = {"total_hours": 0, "started_hours": 0, "completed_hours": 0}
     hour_keys_by_label: dict[str, str] = {}
-    progress_keys: dict[str, set[str]] = {
-        "started": set(),
-        "completed": set(),
-    }
+    progress_keys: dict[str, set[str]] = {"started": set(), "completed": set()}
     transfer_state: dict[str, object] = {
         "downloads": {},
         "stop": threading.Event(),
@@ -246,11 +213,7 @@ def install_timing() -> None:
     }
 
     def _ensure_transfer_state(
-        *,
-        url: str,
-        total_bytes: int | None,
-        mode: str | None = None,
-        hour_key: str | None = None,
+        *, url: str, total_bytes: int | None, mode: str | None = None, hour_key: str | None = None
     ) -> dict[str, object]:
         downloads: dict[str, dict[str, object]] = transfer_state["downloads"]  # type: ignore[assignment]
         state = downloads.get(url)
@@ -298,11 +261,7 @@ def install_timing() -> None:
             downloaded_bytes = int(state["downloaded_bytes"])
             total_bytes = state["total_bytes"]
             if mode == "scan":
-                size_text = (
-                    f"{(total_bytes / (1024 * 1024)):,.1f}MiB"
-                    if total_bytes
-                    else "scan"
-                )
+                size_text = f"{(total_bytes / (1024 * 1024)):,.1f}MiB" if total_bytes else "scan"
                 scanned_batches = int(state["scanned_batches"])
                 scanned_rows = int(state["scanned_rows"])
                 matched_rows = int(state["matched_rows"])
@@ -326,9 +285,7 @@ def install_timing() -> None:
                 )
             else:
                 mib_downloaded = downloaded_bytes / (1024 * 1024)
-                labels.append(
-                    f"{_transfer_label(str(state['url']))} {mib_downloaded:,.1f} MiB {elapsed:4.1f}s"
-                )
+                labels.append(f"{_transfer_label(str(state['url']))} {mib_downloaded:,.1f} MiB {elapsed:4.1f}s")
         if len(active_downloads) > len(labels):
             labels.append(f"+{len(active_downloads) - len(labels)} more")
         prefix = "prefetch:" if bool(transfer_state["parallel"]) else "active:"
@@ -377,18 +334,9 @@ def install_timing() -> None:
         completed.add(key)
         progress_state["completed_hours"] = len(completed)
 
-    def _download_progress(
-        url: str,
-        downloaded_bytes: int,
-        total_bytes: int | None,
-        finished: bool,
-    ) -> None:
+    def _download_progress(url: str, downloaded_bytes: int, total_bytes: int | None, finished: bool) -> None:
         with pbar_lock:
-            state = _ensure_transfer_state(
-                url=url,
-                total_bytes=total_bytes,
-                mode="download",
-            )
+            state = _ensure_transfer_state(url=url, total_bytes=total_bytes, mode="download")
             state["downloaded_bytes"] = downloaded_bytes
             state["total_bytes"] = total_bytes
             _refresh_transfer_status()
@@ -397,19 +345,10 @@ def install_timing() -> None:
                 _refresh_transfer_status()
 
     def _scan_progress(
-        source: str,
-        scanned_batches: int,
-        scanned_rows: int,
-        matched_rows: int,
-        total_bytes: int | None,
-        finished: bool,
+        source: str, scanned_batches: int, scanned_rows: int, matched_rows: int, total_bytes: int | None, finished: bool
     ) -> None:
         with pbar_lock:
-            state = _ensure_transfer_state(
-                url=source,
-                total_bytes=total_bytes,
-                mode="scan",
-            )
+            state = _ensure_transfer_state(url=source, total_bytes=total_bytes, mode="scan")
             state["scanned_batches"] = scanned_batches
             state["scanned_rows"] = scanned_rows
             state["matched_rows"] = matched_rows
@@ -432,11 +371,7 @@ def install_timing() -> None:
             return
         with pbar_lock:
             _mark_hour_started(hour)
-            _ensure_transfer_state(
-                url=url,
-                total_bytes=None,
-                hour_key=_hour_progress_key(hour),
-            )
+            _ensure_transfer_state(url=url, total_bytes=None, hour_key=_hour_progress_key(hour))
             _refresh_transfer_status()
 
     def _finish_transfer(url: str | None) -> None:
@@ -466,11 +401,7 @@ def install_timing() -> None:
             result = orig_relay(self, hour, batch_size=batch_size)
             if result is not None:
                 relay_url = self._relay_url_for_hour(hour)
-                source_local.source = (
-                    f"relay-filtered::{relay_url}"
-                    if relay_url is not None
-                    else "relay filtered"
-                )
+                source_local.source = f"relay-filtered::{relay_url}" if relay_url is not None else "relay filtered"
             return result
 
         def patched_relay_raw(self, hour, *, batch_size):
@@ -481,26 +412,15 @@ def install_timing() -> None:
             finally:
                 _finish_transfer(relay_raw_url)
             if result is not None:
-                source_local.source = (
-                    f"relay-raw::{relay_raw_url}"
-                    if relay_raw_url is not None
-                    else "relay raw"
-                )
+                source_local.source = f"relay-raw::{relay_raw_url}" if relay_raw_url is not None else "relay raw"
             return result
 
         def patched_local_archive(self, hour, *, batch_size):
             result = orig_local_archive(self, hour, batch_size=batch_size)
             if result is not None:
                 archive_paths = self._local_archive_paths_for_hour(hour)
-                existing_path = next(
-                    (path for path in archive_paths if path.exists()),
-                    None,
-                )
-                source_local.source = (
-                    f"local-raw::{existing_path}"
-                    if existing_path is not None
-                    else "local raw"
-                )
+                existing_path = next((path for path in archive_paths if path.exists()), None)
+                source_local.source = f"local-raw::{existing_path}" if existing_path is not None else "local raw"
             return result
 
         def patched_remote(self, hour, *, batch_size):
@@ -528,14 +448,7 @@ def install_timing() -> None:
             with pbar_lock:
                 bar = pbar_state["bar"]
                 if bar is not None:
-                    bar.write(
-                        _format_completed_hour_line(
-                            hour,
-                            elapsed=elapsed,
-                            rows=rows,
-                            source=source,
-                        )
-                    )
+                    bar.write(_format_completed_hour_line(hour, elapsed=elapsed, rows=rows, source=source))
                     _mark_hour_completed(hour)
                     _refresh_transfer_status()
             return result
@@ -551,36 +464,20 @@ def install_timing() -> None:
                 progress_keys["started"].clear()
                 progress_keys["completed"].clear()
                 heartbeat_thread = threading.Thread(
-                    target=_transfer_heartbeat,
-                    name="pmxt-timing-heartbeat",
-                    daemon=True,
+                    target=_transfer_heartbeat, name="pmxt-timing-heartbeat", daemon=True
                 )
                 pbar_state["bar"] = tqdm(
                     total=_progress_bar_total(len(hours)),
-                    desc=_progress_bar_description(
-                        total_hours=len(hours),
-                        started_hours=0,
-                        completed_hours=0,
-                    ),
+                    desc=_progress_bar_description(total_hours=len(hours), started_hours=0, completed_hours=0),
                     unit="hr",
                     leave=False,
                     bar_format=("{l_bar}{bar}| [{elapsed}<{remaining}]{postfix}"),
                 )
-                previous_callback = getattr(
-                    self,
-                    "_pmxt_download_progress_callback",
-                    None,
-                )
-                previous_scan_callback = getattr(
-                    self,
-                    "_pmxt_scan_progress_callback",
-                    None,
-                )
+                previous_callback = getattr(self, "_pmxt_download_progress_callback", None)
+                previous_scan_callback = getattr(self, "_pmxt_scan_progress_callback", None)
                 self._pmxt_download_progress_callback = _download_progress
                 self._pmxt_scan_progress_callback = _scan_progress
-                transfer_state["parallel"] = (
-                    min(getattr(self, "_pmxt_prefetch_workers", 1), len(hours)) > 1
-                )
+                transfer_state["parallel"] = min(getattr(self, "_pmxt_prefetch_workers", 1), len(hours)) > 1
                 heartbeat_thread.start()
             try:
                 yield from orig_iter(self, hours, batch_size=batch_size)
@@ -589,9 +486,7 @@ def install_timing() -> None:
                     self._pmxt_download_progress_callback = previous_callback
                     self._pmxt_scan_progress_callback = previous_scan_callback
                     stop_event.set()
-                    downloads: dict[str, dict[str, object]] = transfer_state[
-                        "downloads"
-                    ]  # type: ignore[assignment]
+                    downloads: dict[str, dict[str, object]] = transfer_state["downloads"]  # type: ignore[assignment]
                     downloads.clear()
                     transfer_state["parallel"] = False
                     progress_state["total_hours"] = 0
@@ -616,9 +511,7 @@ def install_timing() -> None:
         loader_cls._load_market_batches = timed_load
         loader_cls._iter_market_batches = patched_iter
 
-    def _install_runner_local_archive_timing(
-        loader_cls,
-    ) -> None:  # type: ignore[no-untyped-def]
+    def _install_runner_local_archive_timing(loader_cls) -> None:  # type: ignore[no-untyped-def]
         orig_local_archive = loader_cls._load_local_archive_market_batches
 
         def patched_local_archive(self, hour, *, batch_size):
@@ -629,15 +522,8 @@ def install_timing() -> None:
                     source_local.source = f"local-raw::{raw_path}"
                 else:
                     archive_paths = self._local_archive_paths_for_hour(hour)
-                    existing_path = next(
-                        (path for path in archive_paths if path.exists()),
-                        None,
-                    )
-                    source_local.source = (
-                        f"local-raw::{existing_path}"
-                        if existing_path is not None
-                        else "local raw"
-                    )
+                    existing_path = next((path for path in archive_paths if path.exists()), None)
+                    source_local.source = f"local-raw::{existing_path}" if existing_path is not None else "local raw"
             return result
 
         loader_cls._load_local_archive_market_batches = patched_local_archive

@@ -13,7 +13,7 @@ def sanitize_chart_label(value: object, *, default: str) -> str:
     return sanitized or default
 
 
-def resolve_multi_sim_detail_chart_output_path(
+def resolve_independent_replay_detail_chart_output_path(
     *,
     backtest_name: str,
     configured_path: str | Path | None,
@@ -34,15 +34,9 @@ def resolve_multi_sim_detail_chart_output_path(
     raw_path = str(configured_path)
     if "{" in raw_path:
         try:
-            resolved = raw_path.format(
-                name=backtest_name,
-                market_id=market_id,
-                sim_label=sim_label,
-            )
+            resolved = raw_path.format(name=backtest_name, market_id=market_id, sim_label=sim_label)
         except KeyError as exc:
-            raise ValueError(
-                "chart_output_path may only reference {name}, {market_id}, and {sim_label}."
-            ) from exc
+            raise ValueError("chart_output_path may only reference {name}, {market_id}, and {sim_label}.") from exc
 
         path = Path(resolved)
         if not path.suffix:
@@ -51,7 +45,5 @@ def resolve_multi_sim_detail_chart_output_path(
 
     path = Path(raw_path)
     if path.suffix:
-        return str(
-            path.with_name(f"{path.stem}_{configured_suffix_label}{path.suffix}")
-        )
+        return str(path.with_name(f"{path.stem}_{configured_suffix_label}{path.suffix}"))
     return str(path / default_filename)

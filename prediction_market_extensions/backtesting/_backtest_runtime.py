@@ -7,33 +7,15 @@ from typing import Any
 
 import pandas as pd
 
-from prediction_market_extensions.adapters.prediction_market import (
-    research as prediction_market_research,
-)
-from prediction_market_extensions.adapters.prediction_market.backtest_utils import (
-    build_brier_inputs,
-)
-from prediction_market_extensions.adapters.prediction_market.backtest_utils import (
-    build_market_prices,
-)
-from prediction_market_extensions.adapters.prediction_market.backtest_utils import (
-    extract_price_points,
-)
-from prediction_market_extensions.adapters.prediction_market.backtest_utils import (
-    extract_realized_pnl,
-)
-from prediction_market_extensions.adapters.prediction_market.backtest_utils import (
-    infer_realized_outcome,
-)
-from prediction_market_extensions.adapters.prediction_market.fill_model import (
-    PredictionMarketTakerFillModel,
-)
-from prediction_market_extensions.analysis.legacy_plot_adapter import (
-    build_legacy_backtest_layout,
-)
-from prediction_market_extensions.analysis.legacy_plot_adapter import (
-    save_legacy_backtest_layout,
-)
+from prediction_market_extensions.adapters.prediction_market import research as prediction_market_research
+from prediction_market_extensions.adapters.prediction_market.backtest_utils import build_brier_inputs
+from prediction_market_extensions.adapters.prediction_market.backtest_utils import build_market_prices
+from prediction_market_extensions.adapters.prediction_market.backtest_utils import extract_price_points
+from prediction_market_extensions.adapters.prediction_market.backtest_utils import extract_realized_pnl
+from prediction_market_extensions.adapters.prediction_market.backtest_utils import infer_realized_outcome
+from prediction_market_extensions.adapters.prediction_market.fill_model import PredictionMarketTakerFillModel
+from prediction_market_extensions.analysis.legacy_plot_adapter import build_legacy_backtest_layout
+from prediction_market_extensions.analysis.legacy_plot_adapter import save_legacy_backtest_layout
 from nautilus_trader.backtest.config import BacktestEngineConfig
 from nautilus_trader.backtest.engine import BacktestEngine
 from nautilus_trader.common.component import is_backtest_force_stop
@@ -84,10 +66,7 @@ def _data_window_ns(data: Sequence[object]) -> tuple[int | None, int | None]:
 
 
 def _coverage_ratio_for_window(
-    *,
-    start_ns: int | None,
-    end_ns: int | None,
-    simulated_through_ns: int | None,
+    *, start_ns: int | None, end_ns: int | None, simulated_through_ns: int | None
 ) -> float | None:
     if start_ns is None or end_ns is None:
         return None
@@ -109,23 +88,17 @@ def build_backtest_run_state(
     requested_end_ns: int | None = None,
 ) -> dict[str, Any]:
     loaded_start_ns, loaded_end_ns = _data_window_ns(data)
-    planned_start_ns = (
-        loaded_start_ns if requested_start_ns is None else requested_start_ns
-    )
+    planned_start_ns = loaded_start_ns if requested_start_ns is None else requested_start_ns
     planned_end_ns = loaded_end_ns if requested_end_ns is None else requested_end_ns
     simulated_through_ns = backtest_end_ns
     if simulated_through_ns is None and forced_stop:
         simulated_through_ns = planned_start_ns
 
     requested_coverage_ratio = _coverage_ratio_for_window(
-        start_ns=planned_start_ns,
-        end_ns=planned_end_ns,
-        simulated_through_ns=simulated_through_ns,
+        start_ns=planned_start_ns, end_ns=planned_end_ns, simulated_through_ns=simulated_through_ns
     )
     loaded_coverage_ratio = _coverage_ratio_for_window(
-        start_ns=loaded_start_ns,
-        end_ns=loaded_end_ns,
-        simulated_through_ns=simulated_through_ns,
+        start_ns=loaded_start_ns, end_ns=loaded_end_ns, simulated_through_ns=simulated_through_ns
     )
 
     terminated_by_window = False
@@ -152,16 +125,12 @@ def build_backtest_run_state(
     }
 
 
-def apply_backtest_run_state(
-    *, result: dict[str, Any], run_state: dict[str, Any]
-) -> dict[str, Any]:
+def apply_backtest_run_state(*, result: dict[str, Any], run_state: dict[str, Any]) -> dict[str, Any]:
     result.update(run_state)
     return result
 
 
-def print_backtest_result_warnings(
-    *, results: Sequence[dict[str, Any]], market_key: str
-) -> None:
+def print_backtest_result_warnings(*, results: Sequence[dict[str, Any]], market_key: str) -> None:
     warning_lines: list[str] = []
     for result in results:
         if not bool(result.get("terminated_early")):
@@ -179,26 +148,17 @@ def print_backtest_result_warnings(
         requested_coverage_ratio = result.get("requested_coverage_ratio")
         coverage_parts: list[str] = []
         if isinstance(coverage_ratio, int | float):
-            coverage_parts.append(
-                f"{float(coverage_ratio) * 100.0:.1f}% of the loaded-data window"
-            )
+            coverage_parts.append(f"{float(coverage_ratio) * 100.0:.1f}% of the loaded-data window")
         if isinstance(requested_coverage_ratio, int | float):
-            coverage_parts.append(
-                f"{float(requested_coverage_ratio) * 100.0:.1f}% of the requested window"
-            )
-        coverage_text = (
-            ", ".join(coverage_parts) if coverage_parts else "unknown coverage"
-        )
+            coverage_parts.append(f"{float(requested_coverage_ratio) * 100.0:.1f}% of the requested window")
+        coverage_text = ", ".join(coverage_parts) if coverage_parts else "unknown coverage"
         if stop_reason == "account_error":
             warning_lines.append(
                 f"WARNING: {market_label} terminated early after an engine AccountError "
                 f"at {simulated_through} ({coverage_text})."
             )
             continue
-        warning_lines.append(
-            f"WARNING: {market_label} terminated early at {simulated_through} "
-            f"({coverage_text})."
-        )
+        warning_lines.append(f"WARNING: {market_label} terminated early at {simulated_through} ({coverage_text}).")
     if warning_lines:
         print()
         for line in warning_lines:
@@ -248,7 +208,7 @@ def run_market_backtest(
             trader_id=TraderId("BACKTESTER-001"),
             logging=LoggingConfig(log_level=nautilus_log_level),
             risk_engine=RiskEngineConfig(),
-        ),
+        )
     )
     engine.add_venue(
         venue=venue,
@@ -284,18 +244,11 @@ def run_market_backtest(
         pnl = extract_realized_pnl(positions)
         price_points = extract_price_points(data_records, price_attr=price_attr)
         user_probabilities, market_probabilities, outcomes = build_brier_inputs(
-            points=price_points,
-            window=probability_window,
-            realized_outcome=infer_realized_outcome(instrument),
+            points=price_points, window=probability_window, realized_outcome=infer_realized_outcome(instrument)
         )
-        chart_market_prices = build_market_prices(
-            price_points,
-            resample_rule=chart_resample_rule,
-        )
+        chart_market_prices = build_market_prices(price_points, resample_rule=chart_resample_rule)
 
-        chart_path = str(
-            chart_output_path or f"output/{output_prefix}_{market_id}_legacy.html"
-        )
+        chart_path = str(chart_output_path or f"output/{output_prefix}_{market_id}_legacy.html")
         chart_layout = None
         chart_title = f"{strategy_name} legacy chart"
         if emit_html or return_chart_layout:
@@ -306,20 +259,14 @@ def run_market_backtest(
                 strategy_name=strategy_name,
                 platform=platform,
                 initial_cash=initial_cash,
-                market_prices={
-                    str(instrument.id): chart_market_prices,
-                },
+                market_prices={str(instrument.id): chart_market_prices},
                 user_probabilities=user_probabilities,
                 market_probabilities=market_probabilities,
                 outcomes=outcomes,
                 open_browser=open_browser,
             )
             if emit_html:
-                chart_path = save_legacy_backtest_layout(
-                    chart_layout,
-                    chart_path,
-                    chart_title,
-                )
+                chart_path = save_legacy_backtest_layout(chart_layout, chart_path, chart_title)
         else:
             chart_path = None
 
@@ -332,25 +279,15 @@ def run_market_backtest(
         summary_outcome_series = None
         summary_fill_events = None
         if return_summary_series:
-            summary_legacy_models, _ = (
-                prediction_market_research.legacy_plot_adapter._load_legacy_modules()
-            )
-            summary_legacy_fills = (
-                prediction_market_research.legacy_plot_adapter._convert_fills(
-                    fills, summary_legacy_models
-                )
+            summary_legacy_models, _ = prediction_market_research.legacy_plot_adapter._load_legacy_modules()
+            summary_legacy_fills = prediction_market_research.legacy_plot_adapter._convert_fills(
+                fills, summary_legacy_models
             )
             summary_market_prices = prediction_market_research.legacy_plot_adapter._market_prices_with_fill_points(
-                {market_id: chart_market_prices},
-                summary_legacy_fills,
+                {market_id: chart_market_prices}, summary_legacy_fills
             ).get(market_id, chart_market_prices)
-            dense_equity_series, dense_cash_series = (
-                prediction_market_research._dense_account_series_from_engine(
-                    engine=engine,
-                    market_id=market_id,
-                    market_prices=chart_market_prices,
-                    initial_cash=initial_cash,
-                )
+            dense_equity_series, dense_cash_series = prediction_market_research._dense_account_series_from_engine(
+                engine=engine, market_id=market_id, market_prices=chart_market_prices, initial_cash=initial_cash
             )
             summary_price_series = prediction_market_research._series_to_iso_pairs(
                 prediction_market_research._pairs_to_series(summary_market_prices)
@@ -361,34 +298,21 @@ def run_market_backtest(
                 else prediction_market_research._extract_account_pnl_series(engine)
             )
             if not pnl_series.empty:
-                summary_pnl_series = prediction_market_research._series_to_iso_pairs(
-                    pnl_series
-                )
+                summary_pnl_series = prediction_market_research._series_to_iso_pairs(pnl_series)
             if not dense_equity_series.empty:
-                summary_equity_series = prediction_market_research._series_to_iso_pairs(
-                    dense_equity_series
-                )
+                summary_equity_series = prediction_market_research._series_to_iso_pairs(dense_equity_series)
             if not dense_cash_series.empty:
-                summary_cash_series = prediction_market_research._series_to_iso_pairs(
-                    dense_cash_series
-                )
+                summary_cash_series = prediction_market_research._series_to_iso_pairs(dense_cash_series)
             if not user_probabilities.empty:
-                summary_user_probability_series = (
-                    prediction_market_research._series_to_iso_pairs(user_probabilities)
-                )
+                summary_user_probability_series = prediction_market_research._series_to_iso_pairs(user_probabilities)
             if not market_probabilities.empty:
-                summary_market_probability_series = (
-                    prediction_market_research._series_to_iso_pairs(
-                        market_probabilities
-                    )
+                summary_market_probability_series = prediction_market_research._series_to_iso_pairs(
+                    market_probabilities
                 )
             if not outcomes.empty:
-                summary_outcome_series = (
-                    prediction_market_research._series_to_iso_pairs(outcomes)
-                )
+                summary_outcome_series = prediction_market_research._series_to_iso_pairs(outcomes)
             summary_fill_events = prediction_market_research._serialize_fill_events(
-                market_id=market_id,
-                fills_report=fills,
+                market_id=market_id, fills_report=fills
             )
 
         result = {
@@ -409,9 +333,7 @@ def run_market_backtest(
             result["equity_series"] = summary_equity_series or []
             result["cash_series"] = summary_cash_series or []
             result["user_probability_series"] = summary_user_probability_series or []
-            result["market_probability_series"] = (
-                summary_market_probability_series or []
-            )
+            result["market_probability_series"] = summary_market_probability_series or []
             result["outcome_series"] = summary_outcome_series or []
             result["fill_events"] = summary_fill_events or []
         return apply_backtest_run_state(result=result, run_state=run_state)

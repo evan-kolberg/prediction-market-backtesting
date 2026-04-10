@@ -35,16 +35,11 @@ def install_timing_harness() -> None:
 def timing_harness(
     func: Callable[P, T] | Callable[P, Awaitable[T]] | None = None,
 ) -> (
-    Callable[
-        [Callable[P, T] | Callable[P, Awaitable[T]]],
-        Callable[P, T] | Callable[P, Awaitable[T]],
-    ]
+    Callable[[Callable[P, T] | Callable[P, Awaitable[T]]], Callable[P, T] | Callable[P, Awaitable[T]]]
     | Callable[P, T]
     | Callable[P, Awaitable[T]]
 ):
-    def decorator(
-        run_func: Callable[P, T] | Callable[P, Awaitable[T]],
-    ) -> Callable[P, T] | Callable[P, Awaitable[T]]:
+    def decorator(run_func: Callable[P, T] | Callable[P, Awaitable[T]]) -> Callable[P, T] | Callable[P, Awaitable[T]]:
         if iscoroutinefunction(run_func):
 
             @wraps(run_func)

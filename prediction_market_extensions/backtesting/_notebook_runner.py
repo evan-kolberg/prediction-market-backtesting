@@ -3,6 +3,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from prediction_market_extensions.backtesting._notebook_support import find_updated_html_artifacts
+from prediction_market_extensions.backtesting._notebook_support import partition_html_artifacts
+from prediction_market_extensions.backtesting._notebook_support import snapshot_html_artifacts
 
 AUTO_EMBED_CELL_MARKER = "<!-- prediction-market-backtesting:auto-embedded-html -->"
 NOTEBOOK_METADATA_KEY = "prediction_market_backtest"
@@ -10,20 +13,14 @@ NOTEBOOK_SUPPORTED_SUFFIX = ".ipynb"
 _EMBED_HEIGHT_PX = 900
 
 
-def load_notebook_metadata(
-    notebook_path: Path,
-    *,
-    project_root: Path,
-) -> dict[str, Any] | None:
+def load_notebook_metadata(notebook_path: Path, *, project_root: Path) -> dict[str, Any] | None:
     nbformat = _import_nbformat()
 
     try:
         with notebook_path.open("r", encoding="utf-8") as handle:
             notebook = nbformat.read(handle, as_version=4)
     except OSError as exc:
-        raise RuntimeError(
-            f"could not read {notebook_path.relative_to(project_root)}: {exc}"
-        ) from exc
+        raise RuntimeError(f"could not read {notebook_path.relative_to(project_root)}: {exc}") from exc
 
     metadata = getattr(notebook, "metadata", {}) or {}
     runner_metadata = metadata.get(NOTEBOOK_METADATA_KEY, {}) or {}
@@ -47,45 +44,28 @@ def load_notebook_metadata(
     }
 
 
-def execute_notebook_runner(
-    notebook_path: Path,
-    *,
-    project_root: Path,
-) -> None:
+def execute_notebook_runner(notebook_path: Path, *, project_root: Path) -> None:
     nbclient = _import_nbclient()
     nbformat = _import_nbformat()
 
     with notebook_path.open("r", encoding="utf-8") as handle:
         notebook = nbformat.read(handle, as_version=4)
 
-    artifact_snapshot = _html_artifact_snapshot(project_root)
-    kernel_name = (
-        getattr(notebook, "metadata", {}).get("kernelspec", {}).get("name") or "python3"
-    )
+    artifact_snapshot = snapshot_html_artifacts(project_root / "output")
+    kernel_name = getattr(notebook, "metadata", {}).get("kernelspec", {}).get("name") or "python3"
     client = nbclient.NotebookClient(
-        notebook,
-        kernel_name=kernel_name,
-        timeout=None,
-        resources={"metadata": {"path": str(project_root)}},
+        notebook, kernel_name=kernel_name, timeout=None, resources={"metadata": {"path": str(project_root)}}
     )
 
     try:
         client.execute()
     except Exception:
-        _write_notebook(
-            notebook_path=notebook_path, notebook=notebook, nbformat=nbformat
-        )
+        _write_notebook(notebook_path=notebook_path, notebook=notebook, nbformat=nbformat)
         raise
 
-    html_artifacts = _updated_html_artifacts(
-        project_root=project_root,
-        before=artifact_snapshot,
-    )
+    html_artifacts = find_updated_html_artifacts(project_root / "output", artifact_snapshot)
     _replace_auto_embed_cell(
-        notebook=notebook,
-        notebook_path=notebook_path,
-        html_artifacts=html_artifacts,
-        nbformat=nbformat,
+        notebook=notebook, notebook_path=notebook_path, html_artifacts=html_artifacts, nbformat=nbformat
     )
     _write_notebook(notebook_path=notebook_path, notebook=notebook, nbformat=nbformat)
 
@@ -94,9 +74,7 @@ def _import_nbclient():
     try:
         import nbclient
     except ImportError as exc:  # pragma: no cover - dependency is present in repo env
-        raise RuntimeError(
-            "Notebook runner support requires nbclient to be installed."
-        ) from exc
+        raise RuntimeError("Notebook runner support requires nbclient to be installed.") from exc
     return nbclient
 
 
@@ -104,9 +82,7 @@ def _import_nbformat():
     try:
         import nbformat
     except ImportError as exc:  # pragma: no cover - dependency is present in repo env
-        raise RuntimeError(
-            "Notebook runner support requires nbformat to be installed."
-        ) from exc
+        raise RuntimeError("Notebook runner support requires nbformat to be installed.") from exc
     return nbformat
 
 
@@ -126,76 +102,20 @@ def _notebook_description(notebook: Any) -> str:
     return ""
 
 
-def _html_artifact_snapshot(project_root: Path) -> dict[Path, tuple[int, int]]:
-    output_root = project_root / "output"
-    if not output_root.exists():
-        return {}
-
-    snapshot: dict[Path, tuple[int, int]] = {}
-    for path in output_root.rglob("*.html"):
-        try:
-            stat = path.stat()
-        except OSError:
-            continue
-        snapshot[path.resolve()] = (stat.st_mtime_ns, stat.st_size)
-    return snapshot
-
-
-def _updated_html_artifacts(
-    *,
-    project_root: Path,
-    before: dict[Path, tuple[int, int]],
-) -> list[Path]:
-    output_root = project_root / "output"
-    if not output_root.exists():
-        return []
-
-    updated: list[tuple[int, Path]] = []
-    for path in output_root.rglob("*.html"):
-        resolved = path.resolve()
-        try:
-            stat = resolved.stat()
-        except OSError:
-            continue
-        signature = (stat.st_mtime_ns, stat.st_size)
-        if before.get(resolved) == signature:
-            continue
-        updated.append((stat.st_mtime_ns, resolved))
-    updated.sort()
-    return [path for _, path in updated]
-
-
-def _replace_auto_embed_cell(
-    *,
-    notebook: Any,
-    notebook_path: Path,
-    html_artifacts: list[Path],
-    nbformat: Any,
-) -> None:
-    notebook.cells = [
-        cell
-        for cell in notebook.cells
-        if AUTO_EMBED_CELL_MARKER not in str(cell.get("source", ""))
-    ]
+def _replace_auto_embed_cell(*, notebook: Any, notebook_path: Path, html_artifacts: list[Path], nbformat: Any) -> None:
+    notebook.cells = [cell for cell in notebook.cells if AUTO_EMBED_CELL_MARKER not in str(cell.get("source", ""))]
     if not html_artifacts:
         return
 
     notebook.cells.append(
         nbformat.v4.new_markdown_cell(
-            _auto_embed_cell_source(
-                notebook_path=notebook_path,
-                html_artifacts=html_artifacts,
-            )
+            _auto_embed_cell_source(notebook_path=notebook_path, html_artifacts=html_artifacts)
         )
     )
 
 
-def _auto_embed_cell_source(
-    *,
-    notebook_path: Path,
-    html_artifacts: list[Path],
-) -> str:
-    embedded, linked = _partition_html_artifacts(html_artifacts)
+def _auto_embed_cell_source(*, notebook_path: Path, html_artifacts: list[Path]) -> str:
+    embedded, linked = partition_html_artifacts(html_artifacts)
     lines = [
         AUTO_EMBED_CELL_MARKER,
         "## Generated HTML Artifacts",
@@ -207,11 +127,7 @@ def _auto_embed_cell_source(
     for path in embedded:
         relative = _relative_html_path(notebook_path=notebook_path, html_path=path)
         lines.extend(
-            [
-                f"### {path.name}",
-                f'<iframe src="{relative}" width="100%" height="{_EMBED_HEIGHT_PX}"></iframe>',
-                "",
-            ]
+            [f"### {path.name}", f'<iframe src="{relative}" width="100%" height="{_EMBED_HEIGHT_PX}"></iframe>', ""]
         )
 
     if linked:
@@ -224,25 +140,8 @@ def _auto_embed_cell_source(
     return "\n".join(lines).rstrip() + "\n"
 
 
-def _partition_html_artifacts(
-    html_artifacts: list[Path],
-) -> tuple[list[Path], list[Path]]:
-    summary_reports = [
-        path for path in html_artifacts if path.name.endswith("_multi_market.html")
-    ]
-    if summary_reports:
-        primary = summary_reports[-1:]
-        secondary = [path for path in html_artifacts if path not in primary]
-        return primary, secondary
-    if len(html_artifacts) <= 3:
-        return html_artifacts, []
-    return html_artifacts[-1:], html_artifacts[:-1]
-
-
 def _relative_html_path(*, notebook_path: Path, html_path: Path) -> str:
-    return html_path.relative_to(
-        notebook_path.parent.resolve(), walk_up=True
-    ).as_posix()
+    return html_path.relative_to(notebook_path.parent.resolve(), walk_up=True).as_posix()
 
 
 def _write_notebook(*, notebook_path: Path, notebook: Any, nbformat: Any) -> None:
