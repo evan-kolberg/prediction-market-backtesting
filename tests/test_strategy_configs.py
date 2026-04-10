@@ -4,7 +4,9 @@ from decimal import Decimal
 from types import SimpleNamespace
 
 from prediction_market_extensions.backtesting._prediction_market_backtest import MarketSimConfig
-from prediction_market_extensions.backtesting._prediction_market_backtest import PredictionMarketBacktest
+from prediction_market_extensions.backtesting._prediction_market_backtest import (
+    PredictionMarketBacktest,
+)
 from prediction_market_extensions.backtesting._prediction_market_backtest import _LoadedMarketSim
 from prediction_market_extensions.backtesting._prediction_market_runner import MarketDataConfig
 from prediction_market_extensions.backtesting._strategy_configs import build_strategies_from_configs
@@ -54,10 +56,12 @@ def test_prediction_market_backtest_binds_strategy_configs_across_sims() -> None
         data=MarketDataConfig(platform="polymarket", data_type="trade_tick", vendor="native"),
         sims=(
             MarketSimConfig(
-                market_slug="market-one", metadata={"market_close_time_ns": 111, "activation_start_time_ns": 11}
+                market_slug="market-one",
+                metadata={"market_close_time_ns": 111, "activation_start_time_ns": 11},
             ),
             MarketSimConfig(
-                market_slug="market-two", metadata={"market_close_time_ns": 222, "activation_start_time_ns": 22}
+                market_slug="market-two",
+                metadata={"market_close_time_ns": 222, "activation_start_time_ns": 22},
             ),
         ),
         strategy_configs=[

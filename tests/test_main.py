@@ -207,7 +207,10 @@ def test_discoverable_backtest_paths_stay_flat(tmp_path: Path) -> None:
     (backtests_root / "private" / "_helper.py").write_text("")
     (backtests_root / "nested" / "should_not_show.py").write_text("")
 
-    discovered = [path.relative_to(backtests_root) for path in main_module._discoverable_backtest_paths(backtests_root)]
+    discovered = [
+        path.relative_to(backtests_root)
+        for path in main_module._discoverable_backtest_paths(backtests_root)
+    ]
 
     assert discovered == [
         Path("kalshi_trade_tick_breakout.py"),
@@ -259,7 +262,12 @@ def test_discover_reads_notebook_metadata_without_execution(tmp_path: Path, monk
     backtests_root.mkdir()
     (backtests_root / "__init__.py").write_text("", encoding="utf-8")
     notebook = nbformat.v4.new_notebook(
-        metadata={"prediction_market_backtest": {"name": "custom_notebook", "description": "Notebook runner"}},
+        metadata={
+            "prediction_market_backtest": {
+                "name": "custom_notebook",
+                "description": "Notebook runner",
+            }
+        },
         cells=[nbformat.v4.new_code_cell("raise RuntimeError('should not execute')")],
     )
     nbformat.write(notebook, backtests_root / "demo_notebook.ipynb")
@@ -308,7 +316,9 @@ def test_load_runner_supports_runner_local_script_helpers(tmp_path: Path, monkey
     backtests_root = project_root / "backtests"
     backtests_root.mkdir()
     (backtests_root / "__init__.py").write_text("", encoding="utf-8")
-    (backtests_root / "_script_helpers.py").write_text('HELPER_VALUE = "helper-ok"\n', encoding="utf-8")
+    (backtests_root / "_script_helpers.py").write_text(
+        'HELPER_VALUE = "helper-ok"\n', encoding="utf-8"
+    )
     (backtests_root / "helper_runner.py").write_text(
         'NAME = "helper_runner"\n'
         'DESCRIPTION = "Uses a local helper shim"\n'
@@ -322,7 +332,9 @@ def test_load_runner_supports_runner_local_script_helpers(tmp_path: Path, monkey
     monkeypatch.setattr(main_module, "PROJECT_ROOT", project_root)
     monkeypatch.setattr(main_module, "BACKTESTS_ROOT", backtests_root)
     normalized_sys_path = [
-        entry for entry in sys.path if Path(entry or ".").resolve() not in {project_root, backtests_root}
+        entry
+        for entry in sys.path
+        if Path(entry or ".").resolve() not in {project_root, backtests_root}
     ]
     monkeypatch.setattr(sys, "path", normalized_sys_path)
 
@@ -349,7 +361,12 @@ def test_load_runner_executes_notebook_runner(tmp_path: Path, monkeypatch) -> No
     backtests_root.mkdir()
     (backtests_root / "__init__.py").write_text("", encoding="utf-8")
     notebook = nbformat.v4.new_notebook(
-        metadata={"prediction_market_backtest": {"name": "demo_notebook", "description": "Notebook runner"}},
+        metadata={
+            "prediction_market_backtest": {
+                "name": "demo_notebook",
+                "description": "Notebook runner",
+            }
+        },
         cells=[nbformat.v4.new_code_cell("x = 1")],
     )
     notebook_path = backtests_root / "demo_notebook.ipynb"
@@ -377,8 +394,16 @@ def test_load_runner_executes_notebook_runner(tmp_path: Path, monkeypatch) -> No
 
 def test_filter_backtests_matches_name_description_and_path() -> None:
     backtests = [
-        {"name": "demo_runner", "description": "Demo runner", "relative_parts": ("demo_runner.py",)},
-        {"name": "pmxt_runner", "description": "PMXT quote runner", "relative_parts": ("pmxt_runner.py",)},
+        {
+            "name": "demo_runner",
+            "description": "Demo runner",
+            "relative_parts": ("demo_runner.py",),
+        },
+        {
+            "name": "pmxt_runner",
+            "description": "PMXT quote runner",
+            "relative_parts": ("pmxt_runner.py",),
+        },
     ]
 
     assert main_module._filter_backtests(backtests, "") == [0, 1]
@@ -392,7 +417,9 @@ def test_textual_menu_keeps_preview_lazy(monkeypatch) -> None:
 
     preview_calls: list[str] = []
     monkeypatch.setattr(
-        main_module, "_runner_preview", lambda backtest: preview_calls.append(backtest["name"]) or backtest["name"]
+        main_module,
+        "_runner_preview",
+        lambda backtest: preview_calls.append(backtest["name"]) or backtest["name"],
     )
 
     backtests = [

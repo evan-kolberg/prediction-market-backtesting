@@ -126,7 +126,9 @@ class _BreakoutBase(LongOnlyPredictionMarketStrategy):
             or self._reentry_cooldown() > 0
         )
 
-    def _on_price(self, price: float, *, entry_price: float | None = None, visible_size: float | None = None) -> None:
+    def _on_price(
+        self, price: float, *, entry_price: float | None = None, visible_size: float | None = None
+    ) -> None:
         previous_price = self._last_price
         prior_window = list(self._prices)
         reference_price = price if entry_price is None else entry_price
@@ -158,7 +160,9 @@ class _BreakoutBase(LongOnlyPredictionMarketStrategy):
             return
 
         self._holding_periods += 1
-        if self._risk_exit(price=price, take_profit=self.config.take_profit, stop_loss=self.config.stop_loss):
+        if self._risk_exit(
+            price=price, take_profit=self.config.take_profit, stop_loss=self.config.stop_loss
+        ):
             self._append_price(price)
             return
 

@@ -154,7 +154,9 @@ def is_sports_market(
         return False
 
     normalized_now = now if now.tzinfo is not None else now.replace(tzinfo=UTC)
-    hours_left = (close_dt.astimezone(UTC) - normalized_now.astimezone(UTC)).total_seconds() / 3600.0
+    hours_left = (
+        close_dt.astimezone(UTC) - normalized_now.astimezone(UTC)
+    ).total_seconds() / 3600.0
     return 0.0 <= hours_left <= max_hours_to_close
 
 

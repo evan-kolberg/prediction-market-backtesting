@@ -104,7 +104,9 @@ def _progress_bar_total(total_hours: int) -> int:
     return max(0, total_hours)
 
 
-def _progress_bar_position(*, total_hours: int, completed_hours: int, active_hours_progress: float = 0.0) -> float:
+def _progress_bar_position(
+    *, total_hours: int, completed_hours: int, active_hours_progress: float = 0.0
+) -> float:
     total = max(0, total_hours)
     completed = min(max(0, completed_hours), total)
     remaining = max(0.0, float(total - completed))
@@ -143,7 +145,12 @@ def _is_local_scan_source(source: str | None) -> bool:
 
 
 def _transfer_progress_fraction(
-    *, mode: str | None, source: str | None = None, downloaded_bytes: int, total_bytes: int | None, scanned_batches: int
+    *,
+    mode: str | None,
+    source: str | None = None,
+    downloaded_bytes: int,
+    total_bytes: int | None,
+    scanned_batches: int,
 ) -> float:
     if mode == "scan":
         batches = max(0, scanned_batches)
@@ -177,7 +184,9 @@ def _active_transfer_progress(downloads: dict[str, dict[str, object]]) -> tuple[
                 mode=(str(state.get("mode")) if state.get("mode") is not None else None),
                 source=str(state.get("url")) if state.get("url") is not None else None,
                 downloaded_bytes=int(state.get("downloaded_bytes", 0)),
-                total_bytes=(int(state["total_bytes"]) if state.get("total_bytes") is not None else None),
+                total_bytes=(
+                    int(state["total_bytes"]) if state.get("total_bytes") is not None else None
+                ),
                 scanned_batches=int(state.get("scanned_batches", 0)),
             ),
         )
@@ -195,7 +204,9 @@ def install_timing() -> None:
     from prediction_market_extensions.adapters.polymarket.pmxt import PolymarketPMXTDataLoader
 
     try:
-        from prediction_market_extensions.backtesting.data_sources.pmxt import RunnerPolymarketPMXTDataLoader
+        from prediction_market_extensions.backtesting.data_sources.pmxt import (
+            RunnerPolymarketPMXTDataLoader,
+        )
     except ImportError:
         RunnerPolymarketPMXTDataLoader = None
 
@@ -285,7 +296,9 @@ def install_timing() -> None:
                 )
             else:
                 mib_downloaded = downloaded_bytes / (1024 * 1024)
-                labels.append(f"{_transfer_label(str(state['url']))} {mib_downloaded:,.1f} MiB {elapsed:4.1f}s")
+                labels.append(
+                    f"{_transfer_label(str(state['url']))} {mib_downloaded:,.1f} MiB {elapsed:4.1f}s"
+                )
         if len(active_downloads) > len(labels):
             labels.append(f"+{len(active_downloads) - len(labels)} more")
         prefix = "prefetch:" if bool(transfer_state["parallel"]) else "active:"
@@ -334,7 +347,9 @@ def install_timing() -> None:
         completed.add(key)
         progress_state["completed_hours"] = len(completed)
 
-    def _download_progress(url: str, downloaded_bytes: int, total_bytes: int | None, finished: bool) -> None:
+    def _download_progress(
+        url: str, downloaded_bytes: int, total_bytes: int | None, finished: bool
+    ) -> None:
         with pbar_lock:
             state = _ensure_transfer_state(url=url, total_bytes=total_bytes, mode="download")
             state["downloaded_bytes"] = downloaded_bytes
@@ -345,7 +360,12 @@ def install_timing() -> None:
                 _refresh_transfer_status()
 
     def _scan_progress(
-        source: str, scanned_batches: int, scanned_rows: int, matched_rows: int, total_bytes: int | None, finished: bool
+        source: str,
+        scanned_batches: int,
+        scanned_rows: int,
+        matched_rows: int,
+        total_bytes: int | None,
+        finished: bool,
     ) -> None:
         with pbar_lock:
             state = _ensure_transfer_state(url=source, total_bytes=total_bytes, mode="scan")
@@ -401,7 +421,9 @@ def install_timing() -> None:
             result = orig_relay(self, hour, batch_size=batch_size)
             if result is not None:
                 relay_url = self._relay_url_for_hour(hour)
-                source_local.source = f"relay-filtered::{relay_url}" if relay_url is not None else "relay filtered"
+                source_local.source = (
+                    f"relay-filtered::{relay_url}" if relay_url is not None else "relay filtered"
+                )
             return result
 
         def patched_relay_raw(self, hour, *, batch_size):
@@ -412,7 +434,9 @@ def install_timing() -> None:
             finally:
                 _finish_transfer(relay_raw_url)
             if result is not None:
-                source_local.source = f"relay-raw::{relay_raw_url}" if relay_raw_url is not None else "relay raw"
+                source_local.source = (
+                    f"relay-raw::{relay_raw_url}" if relay_raw_url is not None else "relay raw"
+                )
             return result
 
         def patched_local_archive(self, hour, *, batch_size):
@@ -420,7 +444,9 @@ def install_timing() -> None:
             if result is not None:
                 archive_paths = self._local_archive_paths_for_hour(hour)
                 existing_path = next((path for path in archive_paths if path.exists()), None)
-                source_local.source = f"local-raw::{existing_path}" if existing_path is not None else "local raw"
+                source_local.source = (
+                    f"local-raw::{existing_path}" if existing_path is not None else "local raw"
+                )
             return result
 
         def patched_remote(self, hour, *, batch_size):
@@ -448,7 +474,9 @@ def install_timing() -> None:
             with pbar_lock:
                 bar = pbar_state["bar"]
                 if bar is not None:
-                    bar.write(_format_completed_hour_line(hour, elapsed=elapsed, rows=rows, source=source))
+                    bar.write(
+                        _format_completed_hour_line(hour, elapsed=elapsed, rows=rows, source=source)
+                    )
                     _mark_hour_completed(hour)
                     _refresh_transfer_status()
             return result
@@ -468,7 +496,9 @@ def install_timing() -> None:
                 )
                 pbar_state["bar"] = tqdm(
                     total=_progress_bar_total(len(hours)),
-                    desc=_progress_bar_description(total_hours=len(hours), started_hours=0, completed_hours=0),
+                    desc=_progress_bar_description(
+                        total_hours=len(hours), started_hours=0, completed_hours=0
+                    ),
                     unit="hr",
                     leave=False,
                     bar_format=("{l_bar}{bar}| [{elapsed}<{remaining}]{postfix}"),
@@ -477,7 +507,9 @@ def install_timing() -> None:
                 previous_scan_callback = getattr(self, "_pmxt_scan_progress_callback", None)
                 self._pmxt_download_progress_callback = _download_progress
                 self._pmxt_scan_progress_callback = _scan_progress
-                transfer_state["parallel"] = min(getattr(self, "_pmxt_prefetch_workers", 1), len(hours)) > 1
+                transfer_state["parallel"] = (
+                    min(getattr(self, "_pmxt_prefetch_workers", 1), len(hours)) > 1
+                )
                 heartbeat_thread.start()
             try:
                 yield from orig_iter(self, hours, batch_size=batch_size)
@@ -523,7 +555,9 @@ def install_timing() -> None:
                 else:
                     archive_paths = self._local_archive_paths_for_hour(hour)
                     existing_path = next((path for path in archive_paths if path.exists()), None)
-                    source_local.source = f"local-raw::{existing_path}" if existing_path is not None else "local raw"
+                    source_local.source = (
+                        f"local-raw::{existing_path}" if existing_path is not None else "local raw"
+                    )
             return result
 
         loader_cls._load_local_archive_market_batches = patched_local_archive

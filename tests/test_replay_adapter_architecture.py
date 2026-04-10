@@ -10,8 +10,12 @@ from prediction_market_extensions.backtesting._experiments import build_backtest
 from prediction_market_extensions.backtesting._experiments import build_replay_experiment
 from prediction_market_extensions.backtesting._market_data_support import MarketDataSupport
 from prediction_market_extensions.backtesting._market_data_support import build_single_market_replay
-from prediction_market_extensions.backtesting._market_data_support import register_market_data_support
-from prediction_market_extensions.backtesting._market_data_support import unregister_market_data_support
+from prediction_market_extensions.backtesting._market_data_support import (
+    register_market_data_support,
+)
+from prediction_market_extensions.backtesting._market_data_support import (
+    unregister_market_data_support,
+)
 from prediction_market_extensions.backtesting._prediction_market_runner import MarketDataConfig
 from prediction_market_extensions.adapters.prediction_market import HistoricalReplayAdapter
 from prediction_market_extensions.adapters.prediction_market import ReplayAdapterKey
@@ -75,14 +79,22 @@ def test_new_adapter_registers_without_core_executor_changes(monkeypatch) -> Non
     monkeypatch.setattr(backtest_module, "BacktestEngine", _EngineStub)
 
     try:
-        replay = build_single_market_replay(support=support, field_values={"market_slug": "demo-market"})
+        replay = build_single_market_replay(
+            support=support, field_values={"market_slug": "demo-market"}
+        )
         experiment = build_replay_experiment(
             name="demo-fake-runner",
             description="Fake adapter acceptance test",
-            data=MarketDataConfig(platform="demo", data_type="trade_tick", vendor="fake", sources=("fake:memory",)),
+            data=MarketDataConfig(
+                platform="demo", data_type="trade_tick", vendor="fake", sources=("fake:memory",)
+            ),
             replays=(replay,),
             strategy_configs=[
-                {"strategy_path": "strategies:DemoStrategy", "config_path": "strategies:DemoConfig", "config": {}}
+                {
+                    "strategy_path": "strategies:DemoStrategy",
+                    "config_path": "strategies:DemoConfig",
+                    "config": {},
+                }
             ],
             initial_cash=100.0,
             probability_window=5,

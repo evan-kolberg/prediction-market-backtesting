@@ -29,7 +29,9 @@ from prediction_market_extensions.backtesting.data_sources import Native, Polyma
 
 NAME = "polymarket_trade_tick_independent_multi_replay_runner"
 
-DESCRIPTION = "Independent VWAP-reversion backtests on a fixed Polymarket basket pinned to market close"
+DESCRIPTION = (
+    "Independent VWAP-reversion backtests on a fixed Polymarket basket pinned to market close"
+)
 
 EMIT_HTML = True
 CHART_OUTPUT_PATH = "output"

@@ -16,7 +16,9 @@ from prediction_market_extensions.backtesting._timing_test import _transfer_labe
 
 
 def test_transfer_label_identifies_local_raw_paths() -> None:
-    label = _transfer_label("/Volumes/LaCie/pmxt_raws/2026/02/22/polymarket_orderbook_2026-02-22T11.parquet")
+    label = _transfer_label(
+        "/Volumes/LaCie/pmxt_raws/2026/02/22/polymarket_orderbook_2026-02-22T11.parquet"
+    )
 
     assert label == "local raw 2026-02-22T11"
 
@@ -75,7 +77,9 @@ def test_progress_bar_description_reports_completion_and_active_work() -> None:
 
 
 def test_progress_bar_description_uses_actual_active_transfer_count() -> None:
-    description = _progress_bar_description(total_hours=44, started_hours=39, completed_hours=0, active_hours=8)
+    description = _progress_bar_description(
+        total_hours=44, started_hours=39, completed_hours=0, active_hours=8
+    )
 
     assert description == "Fetching hours (39/44 started, 8 active)"
 
@@ -86,11 +90,18 @@ def test_progress_bar_total_matches_total_hours() -> None:
 
 def test_progress_bar_position_includes_active_transfer_progress() -> None:
     assert _progress_bar_position(total_hours=7, completed_hours=0, active_hours_progress=0.0) == 0
-    assert _progress_bar_position(total_hours=7, completed_hours=3, active_hours_progress=1.5) == 4.5
+    assert (
+        _progress_bar_position(total_hours=7, completed_hours=3, active_hours_progress=1.5) == 4.5
+    )
 
 
 def test_transfer_progress_fraction_uses_download_bytes() -> None:
-    assert _transfer_progress_fraction(mode="download", downloaded_bytes=50, total_bytes=100, scanned_batches=0) == 0.45
+    assert (
+        _transfer_progress_fraction(
+            mode="download", downloaded_bytes=50, total_bytes=100, scanned_batches=0
+        )
+        == 0.45
+    )
 
 
 def test_transfer_progress_fraction_does_not_front_load_local_scan() -> None:
@@ -141,7 +152,9 @@ def test_active_transfer_progress_dedupes_by_hour() -> None:
 
 def test_install_timing_patches_runner_loader_override() -> None:
     from prediction_market_extensions.backtesting import _timing_test as timing_module
-    from prediction_market_extensions.backtesting.data_sources.pmxt import RunnerPolymarketPMXTDataLoader
+    from prediction_market_extensions.backtesting.data_sources.pmxt import (
+        RunnerPolymarketPMXTDataLoader,
+    )
     from prediction_market_extensions.adapters.polymarket.pmxt import PolymarketPMXTDataLoader
 
     timing_module = importlib.reload(timing_module)
@@ -156,15 +169,28 @@ def test_install_timing_patches_runner_loader_override() -> None:
         "_iter_market_batches",
     )
     base_originals = {name: getattr(PolymarketPMXTDataLoader, name) for name in method_names}
-    runner_originals = {name: getattr(RunnerPolymarketPMXTDataLoader, name) for name in method_names}
-    runner_had_own = {name: name in RunnerPolymarketPMXTDataLoader.__dict__ for name in method_names}
+    runner_originals = {
+        name: getattr(RunnerPolymarketPMXTDataLoader, name) for name in method_names
+    }
+    runner_had_own = {
+        name: name in RunnerPolymarketPMXTDataLoader.__dict__ for name in method_names
+    }
 
     try:
         timing_module.install_timing()
 
-        assert RunnerPolymarketPMXTDataLoader._load_market_batches is not runner_originals["_load_market_batches"]
-        assert RunnerPolymarketPMXTDataLoader._iter_market_batches is not runner_originals["_iter_market_batches"]
-        assert PolymarketPMXTDataLoader._load_market_batches is not base_originals["_load_market_batches"]
+        assert (
+            RunnerPolymarketPMXTDataLoader._load_market_batches
+            is not runner_originals["_load_market_batches"]
+        )
+        assert (
+            RunnerPolymarketPMXTDataLoader._iter_market_batches
+            is not runner_originals["_iter_market_batches"]
+        )
+        assert (
+            PolymarketPMXTDataLoader._load_market_batches
+            is not base_originals["_load_market_batches"]
+        )
     finally:
         timing_module._installed = False
         for name, original in base_originals.items():

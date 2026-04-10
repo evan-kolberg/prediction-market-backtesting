@@ -76,7 +76,10 @@ def _passes_filters(
 
 
 def _extend_with_event_markets(
-    all_markets: list[dict[str, Any]], events: list[dict[str, Any]], *, exclude_ticker_prefixes: tuple[str, ...]
+    all_markets: list[dict[str, Any]],
+    events: list[dict[str, Any]],
+    *,
+    exclude_ticker_prefixes: tuple[str, ...],
 ) -> None:
     for event in events:
         series_ticker = event.get("series_ticker", "")
@@ -93,11 +96,16 @@ def _extend_with_event_markets(
 
 
 def _default_http_client(*, quota_rate_per_second: int) -> nautilus_pyo3.HttpClient:
-    return nautilus_pyo3.HttpClient(default_quota=nautilus_pyo3.Quota.rate_per_second(quota_rate_per_second))
+    return nautilus_pyo3.HttpClient(
+        default_quota=nautilus_pyo3.Quota.rate_per_second(quota_rate_per_second)
+    )
 
 
 async def fetch_market_by_ticker(
-    ticker: str, *, http_client: nautilus_pyo3.HttpClient | None = None, quota_rate_per_second: int = 10
+    ticker: str,
+    *,
+    http_client: nautilus_pyo3.HttpClient | None = None,
+    quota_rate_per_second: int = 10,
 ) -> dict[str, Any]:
     """
     Fetch one Kalshi market by ticker.
@@ -105,7 +113,9 @@ async def fetch_market_by_ticker(
     client = http_client or _default_http_client(quota_rate_per_second=quota_rate_per_second)
     resp = await client.get(url=f"{KALSHI_REST_BASE}/markets/{ticker}")
     if resp.status != 200:
-        raise RuntimeError(f"HTTP {resp.status} while fetching market {ticker}: {resp.body.decode('utf-8')}")
+        raise RuntimeError(
+            f"HTTP {resp.status} while fetching market {ticker}: {resp.body.decode('utf-8')}"
+        )
 
     data = msgspec.json.decode(resp.body)
     market = data.get("market")
@@ -160,7 +170,9 @@ async def discover_markets(
         if not events:
             break
 
-        _extend_with_event_markets(all_markets, events, exclude_ticker_prefixes=exclude_ticker_prefixes)
+        _extend_with_event_markets(
+            all_markets, events, exclude_ticker_prefixes=exclude_ticker_prefixes
+        )
         page_count += 1
 
         cursor = data.get("cursor")
@@ -267,7 +279,11 @@ def _analysis_window_end(*, market: Mapping[str, Any], now: datetime) -> datetim
 
 
 async def analyze_market_trade_window(
-    *, market: Mapping[str, Any], lookback_days: int, entry_price: float, now: datetime | None = None
+    *,
+    market: Mapping[str, Any],
+    lookback_days: int,
+    entry_price: float,
+    now: datetime | None = None,
 ) -> dict[str, Any] | None:
     """
     Load a market's trade path over the analysis window and attach threshold diagnostics.
@@ -296,7 +312,9 @@ async def analyze_market_trade_window(
         current_price = float(current_trade.price)
         if previous_price < entry_price <= current_price:
             crossed_entry = True
-            entry_cross_time = pd.Timestamp(int(current_trade.ts_event), unit="ns", tz="UTC").isoformat()
+            entry_cross_time = pd.Timestamp(
+                int(current_trade.ts_event), unit="ns", tz="UTC"
+            ).isoformat()
             break
 
     snapshot = dict(market)
@@ -325,7 +343,9 @@ async def select_breakout_markets_per_game(
     normalized_now = now if now is not None else datetime.now(UTC)
     grouped: defaultdict[str, list[dict[str, Any]]] = defaultdict(list)
     for market in markets:
-        event_key = str(market.get("event_ticker") or market.get("event_title") or market.get("ticker") or "").strip()
+        event_key = str(
+            market.get("event_ticker") or market.get("event_title") or market.get("ticker") or ""
+        ).strip()
         if event_key:
             grouped[event_key].append(market)
 
@@ -340,7 +360,10 @@ async def select_breakout_markets_per_game(
             for market in event_markets
             for snapshot in [
                 await analyze_market_trade_window(
-                    market=market, lookback_days=lookback_days, entry_price=entry_price, now=normalized_now
+                    market=market,
+                    lookback_days=lookback_days,
+                    entry_price=entry_price,
+                    now=normalized_now,
                 )
             ]
             if snapshot is not None and snapshot.get("window_trades")
@@ -353,7 +376,10 @@ async def select_breakout_markets_per_game(
         if crossed:
             chosen = min(
                 crossed,
-                key=lambda market: (str(market.get("entry_cross_time") or ""), -float(market.get("volume") or 0.0)),
+                key=lambda market: (
+                    str(market.get("entry_cross_time") or ""),
+                    -float(market.get("volume") or 0.0),
+                ),
             )
         else:
             chosen = min(
@@ -372,7 +398,8 @@ async def select_breakout_markets_per_game(
         selected.append(chosen)
 
     selected.sort(
-        key=lambda market: float(market.get("event_total_volume") or market.get("volume") or 0.0), reverse=True
+        key=lambda market: float(market.get("event_total_volume") or market.get("volume") or 0.0),
+        reverse=True,
     )
     return selected[:max_results] if max_results is not None else selected
 
@@ -397,7 +424,9 @@ async def load_market_bars(
     try:
         instrument = market_dict_to_instrument(dict(market))
         series_ticker = str(market.get("series_ticker", ""))
-        loader = KalshiDataLoader(instrument=instrument, series_ticker=series_ticker, http_client=http_client)
+        loader = KalshiDataLoader(
+            instrument=instrument, series_ticker=series_ticker, http_client=http_client
+        )
 
         bars: list[Bar] = []
         chunk_delta = pd.Timedelta(minutes=chunk_minutes)
@@ -406,7 +435,9 @@ async def load_market_bars(
             chunk_end = min(chunk_start + chunk_delta, end)
             for attempt in range(max_retries + 1):
                 try:
-                    bars.extend(await loader.load_bars(start=chunk_start, end=chunk_end, interval=interval))
+                    bars.extend(
+                        await loader.load_bars(start=chunk_start, end=chunk_end, interval=interval)
+                    )
                     break
                 except RuntimeError as rt_err:
                     if "429" not in str(rt_err) or attempt >= max_retries:

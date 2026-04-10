@@ -36,7 +36,8 @@ def test_to_naive_utc_truncates_nanoseconds_without_warning() -> None:
 
 def test_build_portfolio_snapshots_truncates_nanoseconds_without_warning() -> None:
     account_report = pd.DataFrame(
-        {"total": [100.0], "free": [100.0]}, index=pd.DatetimeIndex([pd.Timestamp("2026-02-22T12:55:24.290235905Z")])
+        {"total": [100.0], "free": [100.0]},
+        index=pd.DatetimeIndex([pd.Timestamp("2026-02-22T12:55:24.290235905Z")]),
     )
     models_module = SimpleNamespace(PortfolioSnapshot=lambda **kwargs: SimpleNamespace(**kwargs))
 
@@ -102,7 +103,9 @@ def test_apply_layout_overrides_downsamples_yes_price_fill_markers_when_enabled(
         )
     )
 
-    adapter._apply_layout_overrides(_DummyLayout(children=[fig]), initial_cash=1_000.0, max_yes_price_fill_markers=3)
+    adapter._apply_layout_overrides(
+        _DummyLayout(children=[fig]), initial_cash=1_000.0, max_yes_price_fill_markers=3
+    )
 
     glyph_renderers = [renderer for renderer in fig.renderers if hasattr(renderer, "data_source")]
     assert price_renderer in glyph_renderers
@@ -126,7 +129,10 @@ def test_apply_layout_overrides_removes_yes_price_fill_markers_when_enabled() ->
     price_source = bokeh_models.ColumnDataSource(
         {
             "index": [0, 1],
-            "datetime": [pd.Timestamp("2026-03-02T14:05:00Z"), pd.Timestamp("2026-03-02T14:10:00Z")],
+            "datetime": [
+                pd.Timestamp("2026-03-02T14:05:00Z"),
+                pd.Timestamp("2026-03-02T14:10:00Z"),
+            ],
             "price_test_market": [0.48, 0.52],
         }
     )
@@ -161,11 +167,15 @@ def test_apply_layout_overrides_removes_yes_price_fill_markers_when_enabled() ->
     assert price_renderer in glyph_renderers
     assert fill_renderer not in glyph_renderers
     assert all(
-        "fills" not in adapter._legend_item_label_text(item).lower() for legend in fig.legend for item in legend.items
+        "fills" not in adapter._legend_item_label_text(item).lower()
+        for legend in fig.legend
+        for item in legend.items
     )
 
 
-@pytest.mark.parametrize(("fill_count", "expected_marker_limit"), [(250, None), (251, 250), (1_667, 250)])
+@pytest.mark.parametrize(
+    ("fill_count", "expected_marker_limit"), [(250, None), (251, 250), (1_667, 250)]
+)
 def test_build_legacy_backtest_layout_auto_limits_yes_price_fill_markers_for_high_fill_counts(
     monkeypatch: pytest.MonkeyPatch, tmp_path, fill_count: int, expected_marker_limit: int | None
 ) -> None:
@@ -180,12 +190,16 @@ def test_build_legacy_backtest_layout_auto_limits_yes_price_fill_markers_for_hig
     engine = SimpleNamespace(trader=SimpleNamespace(generate_order_fills_report=list))
 
     monkeypatch.setattr(
-        adapter, "_load_legacy_modules", lambda *_: (SimpleNamespace(BacktestResult=_BacktestResult), plotting_module)
+        adapter,
+        "_load_legacy_modules",
+        lambda *_: (SimpleNamespace(BacktestResult=_BacktestResult), plotting_module),
     )
     monkeypatch.setattr(adapter, "_configure_legacy_downsampling", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(adapter, "_extract_account_report", lambda *_: object())
     monkeypatch.setattr(
-        adapter, "_convert_fills", lambda *_: [SimpleNamespace(market_id="test-market") for _ in range(fill_count)]
+        adapter,
+        "_convert_fills",
+        lambda *_: [SimpleNamespace(market_id="test-market") for _ in range(fill_count)],
     )
     monkeypatch.setattr(adapter, "_build_portfolio_snapshots", lambda *args, **kwargs: [])
     monkeypatch.setattr(adapter, "_market_prices_with_fill_points", lambda *args, **kwargs: {})
@@ -202,9 +216,13 @@ def test_build_legacy_backtest_layout_auto_limits_yes_price_fill_markers_for_hig
     monkeypatch.setattr(
         adapter,
         "_apply_layout_overrides",
-        lambda layout, initial_cash, **kwargs: apply_calls.append(kwargs.get("max_yes_price_fill_markers")) or layout,
+        lambda layout, initial_cash, **kwargs: (
+            apply_calls.append(kwargs.get("max_yes_price_fill_markers")) or layout
+        ),
     )
-    monkeypatch.setattr(adapter, "prepare_cumulative_brier_advantage", lambda **kwargs: pd.DataFrame())
+    monkeypatch.setattr(
+        adapter, "prepare_cumulative_brier_advantage", lambda **kwargs: pd.DataFrame()
+    )
 
     layout, title = adapter.build_legacy_backtest_layout(
         engine=engine,
@@ -219,7 +237,9 @@ def test_build_legacy_backtest_layout_auto_limits_yes_price_fill_markers_for_hig
     assert apply_calls == [expected_marker_limit]
 
 
-def test_build_legacy_backtest_layout_skips_brier_when_not_requested(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+def test_build_legacy_backtest_layout_skips_brier_when_not_requested(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
     plotting_calls: list[dict[str, object]] = []
 
     class _BacktestResult:
@@ -235,7 +255,10 @@ def test_build_legacy_backtest_layout_skips_brier_when_not_requested(monkeypatch
     monkeypatch.setattr(
         adapter,
         "_load_legacy_modules",
-        lambda *_: (SimpleNamespace(BacktestResult=_BacktestResult), SimpleNamespace(plot=_fake_plot)),
+        lambda *_: (
+            SimpleNamespace(BacktestResult=_BacktestResult),
+            SimpleNamespace(plot=_fake_plot),
+        ),
     )
     monkeypatch.setattr(adapter, "_configure_legacy_downsampling", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(adapter, "_extract_account_report", lambda *_: object())
@@ -252,11 +275,15 @@ def test_build_legacy_backtest_layout_skips_brier_when_not_requested(monkeypatch
     )
     monkeypatch.setattr(adapter, "_build_metrics", lambda *args, **kwargs: {})
     monkeypatch.setattr(adapter, "_platform_enum", lambda *args, **kwargs: "KALSHI")
-    monkeypatch.setattr(adapter, "_apply_layout_overrides", lambda layout, initial_cash, **kwargs: layout)
+    monkeypatch.setattr(
+        adapter, "_apply_layout_overrides", lambda layout, initial_cash, **kwargs: layout
+    )
     monkeypatch.setattr(
         adapter,
         "prepare_cumulative_brier_advantage",
-        lambda **kwargs: pytest.fail("Brier inputs should not be prepared when the panel is not requested"),
+        lambda **kwargs: pytest.fail(
+            "Brier inputs should not be prepared when the panel is not requested"
+        ),
     )
 
     adapter.build_legacy_backtest_layout(
@@ -280,7 +307,9 @@ def test_build_legacy_backtest_layout_skips_brier_when_not_requested(monkeypatch
     ]
 
 
-def test_build_legacy_backtest_layout_rejects_unknown_plot_panels(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+def test_build_legacy_backtest_layout_rejects_unknown_plot_panels(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
     class _BacktestResult:
         def __init__(self, **kwargs) -> None:
             self.kwargs = kwargs

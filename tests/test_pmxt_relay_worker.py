@@ -61,7 +61,11 @@ def test_mirror_hour_falls_back_to_get_when_head_is_rejected(tmp_path: Path, mon
                 raise HTTPError(request.full_url, 403, "Forbidden", hdrs=None, fp=None)
             return _FakeResponse(
                 b"raw-payload",
-                headers={"ETag": '"abc123"', "Last-Modified": "Sun, 21 Mar 2026 12:59:59 GMT", "Content-Length": "11"},
+                headers={
+                    "ETag": '"abc123"',
+                    "Last-Modified": "Sun, 21 Mar 2026 12:59:59 GMT",
+                    "Content-Length": "11",
+                },
             )
 
         monkeypatch.setattr("pmxt_relay.worker.urlopen", fake_urlopen)

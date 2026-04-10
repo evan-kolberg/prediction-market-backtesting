@@ -29,7 +29,9 @@ from prediction_market_extensions.backtesting.data_sources import Native, Polyma
 
 NAME = "polymarket_trade_tick_joint_portfolio_runner"
 
-DESCRIPTION = "Joint-portfolio VWAP-reversion backtest on a fixed Polymarket basket pinned to market close"
+DESCRIPTION = (
+    "Joint-portfolio VWAP-reversion backtest on a fixed Polymarket basket pinned to market close"
+)
 
 EMIT_HTML = True
 CHART_OUTPUT_PATH = "output"
@@ -70,7 +72,9 @@ DATA = MarketDataConfig(
 FIXED_LOOKBACK_DAYS = 7
 
 SUMMARY_REPORT_PATH = f"output/{NAME}_joint_portfolio.html"
-EMPTY_MESSAGE = "No fixed joint-portfolio Polymarket basket replays met the trade-tick requirements."
+EMPTY_MESSAGE = (
+    "No fixed joint-portfolio Polymarket basket replays met the trade-tick requirements."
+)
 PARTIAL_MESSAGE = "Completed {completed} of {total} joint-portfolio basket replays."
 
 REPLAYS = (

@@ -11,7 +11,8 @@ EXPECTED_MARKET_SLUG = "will-openai-launch-a-new-consumer-hardware-product-by-ma
 
 
 @pytest.mark.skipif(
-    os.getenv("RUN_PMXT_INTEGRATION") != "1", reason="Set RUN_PMXT_INTEGRATION=1 to exercise the live PMXT archive"
+    os.getenv("RUN_PMXT_INTEGRATION") != "1",
+    reason="Set RUN_PMXT_INTEGRATION=1 to exercise the live PMXT archive",
 )
 def test_pmxt_loader_returns_quotes_and_book_deltas():
     from prediction_market_extensions.adapters.polymarket.pmxt import PolymarketPMXTDataLoader

@@ -13,7 +13,11 @@ from pmxt_relay.storage import parse_archive_hour
 
 
 LOG = logging.getLogger(__name__)
-_LOCKED_ERROR_SNIPPETS = ("database is locked", "database schema is locked", "database table is locked")
+_LOCKED_ERROR_SNIPPETS = (
+    "database is locked",
+    "database schema is locked",
+    "database table is locked",
+)
 _DUPLICATE_COLUMN_ERROR_SNIPPET = "duplicate column name"
 _LEGACY_ACTIVE_STATUS = "processing"
 
@@ -53,7 +57,9 @@ class RelayIndex:
         }
     )
 
-    def __init__(self, db_path: Path, *, event_retention: int = 50000, lock_retry_delay_secs: float = 0.25) -> None:
+    def __init__(
+        self, db_path: Path, *, event_retention: int = 50000, lock_retry_delay_secs: float = 0.25
+    ) -> None:
         db_path.parent.mkdir(parents=True, exist_ok=True)
         self._conn = sqlite3.connect(db_path, timeout=60, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
@@ -91,7 +97,11 @@ class RelayIndex:
             pass
 
     def initialize(
-        self, *, apply_maintenance: bool = True, reset_inflight: bool = False, reset_mirror_inflight: bool = True
+        self,
+        *,
+        apply_maintenance: bool = True,
+        reset_inflight: bool = False,
+        reset_mirror_inflight: bool = True,
     ) -> int:
         schema_needs_bootstrap = self._schema_needs_bootstrap()
         if schema_needs_bootstrap or apply_maintenance:
@@ -171,7 +181,9 @@ class RelayIndex:
                 raise
 
     def _schema_needs_bootstrap(self) -> bool:
-        tables = {row[0] for row in self._fetchall("SELECT name FROM sqlite_master WHERE type='table'")}
+        tables = {
+            row[0] for row in self._fetchall("SELECT name FROM sqlite_master WHERE type='table'")
+        }
         if not self._REQUIRED_TABLES.issubset(tables):
             return True
         archive_columns = {row[1] for row in self._fetchall("PRAGMA table_info(archive_hours)")}
@@ -183,7 +195,9 @@ class RelayIndex:
         except sqlite3.Error:
             pass
 
-    def _run_with_lock_retry(self, operation, *, swallow_after_secs: float | None = None, default=None):
+    def _run_with_lock_retry(
+        self, operation, *, swallow_after_secs: float | None = None, default=None
+    ):
         delay = self._lock_retry_delay_secs
         started = time.monotonic()
         while True:
@@ -195,7 +209,10 @@ class RelayIndex:
                 if not any(snippet in message for snippet in _LOCKED_ERROR_SNIPPETS):
                     raise
                 self._rollback_quietly()
-                if swallow_after_secs is not None and (time.monotonic() - started) >= swallow_after_secs:
+                if (
+                    swallow_after_secs is not None
+                    and (time.monotonic() - started) >= swallow_after_secs
+                ):
                     LOG.warning(
                         "Skipping best-effort relay index write after %.1fs of lock contention",
                         time.monotonic() - started,
@@ -210,7 +227,9 @@ class RelayIndex:
     def _fetchone(self, sql: str, params: tuple[object, ...] = ()) -> sqlite3.Row | None:
         return self._run_with_lock_retry(lambda: self._conn.execute(sql, params).fetchone())
 
-    def _fetchscalar(self, sql: str, params: tuple[object, ...] = (), *, default: object = None) -> object:
+    def _fetchscalar(
+        self, sql: str, params: tuple[object, ...] = (), *, default: object = None
+    ) -> object:
         row = self._fetchone(sql, params)
         if row is None:
             return default
@@ -237,7 +256,9 @@ class RelayIndex:
                     (self._event_retention,),
                 )
 
-        result = self._run_with_lock_retry(operation, swallow_after_secs=10.0 if best_effort else None, default=False)
+        result = self._run_with_lock_retry(
+            operation, swallow_after_secs=10.0 if best_effort else None, default=False
+        )
         if result is not False:
             self._events_since_prune = 0
 
@@ -375,7 +396,13 @@ class RelayIndex:
         )
 
     def mark_mirrored(
-        self, filename: str, *, local_path: str, etag: str | None, content_length: int | None, last_modified: str | None
+        self,
+        filename: str,
+        *,
+        local_path: str,
+        etag: str | None,
+        content_length: int | None,
+        last_modified: str | None,
     ) -> None:
         self._run_with_lock_retry(
             lambda: self._write_single_update(
@@ -399,7 +426,13 @@ class RelayIndex:
         )
 
     def register_local_raw(
-        self, filename: str, *, local_path: str, content_length: int | None, source_url: str, archive_page: int = 0
+        self,
+        filename: str,
+        *,
+        local_path: str,
+        content_length: int | None,
+        source_url: str,
+        archive_page: int = 0,
     ) -> bool:
         hour = parse_archive_hour(filename).isoformat()
         mirrored_at = _utc_now()
@@ -421,7 +454,16 @@ class RelayIndex:
                         error_count
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, 'ready', ?, 0)
                     """,
-                    (filename, hour, source_url, archive_page, mirrored_at, local_path, content_length, mirrored_at),
+                    (
+                        filename,
+                        hour,
+                        source_url,
+                        archive_page,
+                        mirrored_at,
+                        local_path,
+                        content_length,
+                        mirrored_at,
+                    ),
                 )
                 update_cursor = self._conn.execute(
                     """

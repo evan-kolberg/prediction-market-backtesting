@@ -146,7 +146,12 @@ def _format_mib(size_bytes: int) -> str:
 
 
 def _active_status_text(
-    *, source: str, hour_label: str, written_bytes: int, total_bytes: int | None, elapsed_secs: float
+    *,
+    source: str,
+    hour_label: str,
+    written_bytes: int,
+    total_bytes: int | None,
+    elapsed_secs: float,
 ) -> str:
     if total_bytes is None:
         transfer = _format_mib(written_bytes)
@@ -159,7 +164,9 @@ def _hour_result_text(*, hour_label: str, elapsed_secs: float, detail: str, sour
     return f"  {hour_label:>13s}  {elapsed_secs:6.3f}s  {detail:>10s}  {source}"
 
 
-def _source_priority_summary(*, source_sequence: list[str], archive_base_url: str, relay_base_url: str) -> str:
+def _source_priority_summary(
+    *, source_sequence: list[str], archive_base_url: str, relay_base_url: str
+) -> str:
     parts: list[str] = []
     for source in source_sequence:
         if source == "archive":
@@ -292,7 +299,11 @@ def _download_one(
             completed_hours=completed_hours,
             active_hours=1,
             status=_active_status_text(
-                source=source, hour_label=hour_label, written_bytes=0, total_bytes=None, elapsed_secs=0.0
+                source=source,
+                hour_label=hour_label,
+                written_bytes=0,
+                total_bytes=None,
+                elapsed_secs=0.0,
             ),
             force=True,
         )
@@ -371,13 +382,18 @@ def download_raw_hours(
             stale_pages=discovery_stale_pages,
             max_pages=discovery_max_pages,
         )
-        filenames = [f"polymarket_orderbook_{hour.strftime('%Y-%m-%dT%H')}.parquet" for hour in discovered_hours]
+        filenames = [
+            f"polymarket_orderbook_{hour.strftime('%Y-%m-%dT%H')}.parquet"
+            for hour in discovered_hours
+        ]
         filenames = _filter_filenames_to_window(filenames, start_hour=start_hour, end_hour=end_hour)
 
     if show_progress:
         print(
             _source_priority_summary(
-                source_sequence=source_sequence, archive_base_url=archive_base_url, relay_base_url=relay_base_url
+                source_sequence=source_sequence,
+                archive_base_url=archive_base_url,
+                relay_base_url=relay_base_url,
             )
         )
         window_start_label, window_end_label = _window_label_from_filenames(filenames)
@@ -386,12 +402,16 @@ def download_raw_hours(
             window_parts.append(f"window_start={window_start_label}")
         if window_end_label is not None:
             window_parts.append(f"window_end={window_end_label}")
-        print(f"Downloading PMXT raw hours to {normalized_destination} ({', '.join(window_parts)})...")
+        print(
+            f"Downloading PMXT raw hours to {normalized_destination} ({', '.join(window_parts)})..."
+        )
 
     progress_bar = (
         tqdm(
             total=len(filenames),
-            desc=_progress_bar_description(total_hours=len(filenames), completed_hours=0, active_hours=0),
+            desc=_progress_bar_description(
+                total_hours=len(filenames), completed_hours=0, active_hours=0
+            ),
             unit="hr",
             leave=False,
             bar_format=("{l_bar}{bar}| [{elapsed}<{remaining}]{postfix}"),
@@ -414,7 +434,9 @@ def download_raw_hours(
                 skipped_existing_hours += 1
                 _write_progress_line(
                     progress_bar,
-                    _hour_result_text(hour_label=hour_label, elapsed_secs=0.0, detail="existing", source="skip"),
+                    _hour_result_text(
+                        hour_label=hour_label, elapsed_secs=0.0, detail="existing", source="skip"
+                    ),
                 )
                 if progress_bar is not None:
                     progress_bar.update(1)

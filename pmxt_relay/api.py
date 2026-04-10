@@ -19,7 +19,9 @@ from aiohttp import web
 from pmxt_relay.config import RelayConfig
 from pmxt_relay.index_db import RelayIndex
 
-_RAW_FILENAME_RE = re.compile(r"^\d{4}/\d{2}/\d{2}/polymarket_orderbook_\d{4}-\d{2}-\d{2}T\d{2}\.parquet$")
+_RAW_FILENAME_RE = re.compile(
+    r"^\d{4}/\d{2}/\d{2}/polymarket_orderbook_\d{4}-\d{2}-\d{2}T\d{2}\.parquet$"
+)
 _CACHE_CONTROL_FILE = "public, max-age=31536000, immutable"
 _CACHE_CONTROL_JSON = "no-store"
 _SECURITY_HEADERS = {
@@ -98,7 +100,11 @@ def _badge_svg(payload: dict[str, object]) -> str:
 
 
 def _badge_svg_response(payload: dict[str, object]) -> web.Response:
-    return web.Response(text=_badge_svg(payload), content_type="image/svg+xml", headers={"Cache-Control": "no-store"})
+    return web.Response(
+        text=_badge_svg(payload),
+        content_type="image/svg+xml",
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 def _usage_color(percent: float) -> str:
@@ -141,7 +147,10 @@ def _system_metrics_snapshot(config: RelayConfig) -> dict[str, float]:
     now = time.monotonic()
     with _SYSTEM_METRICS_CACHE_LOCK:
         cached = _SYSTEM_METRICS_CACHE
-        if cached is not None and (now - _SYSTEM_METRICS_CACHE_AT) <= _SYSTEM_METRICS_CACHE_TTL_SECS:
+        if (
+            cached is not None
+            and (now - _SYSTEM_METRICS_CACHE_AT) <= _SYSTEM_METRICS_CACHE_TTL_SECS
+        ):
             return _clone_system_metrics_snapshot(cached)
 
         snapshot = _sample_system_metrics_snapshot(config)
@@ -182,7 +191,14 @@ def _read_process_cpu_jiffies(pid: int) -> int | None:
 def _read_systemd_service_state(service_name: str) -> dict[str, str]:
     try:
         result = subprocess.run(
-            ["systemctl", "show", "--property=MainPID", "--property=ActiveState", "--property=SubState", service_name],
+            [
+                "systemctl",
+                "show",
+                "--property=MainPID",
+                "--property=ActiveState",
+                "--property=SubState",
+                service_name,
+            ],
             check=False,
             capture_output=True,
             text=True,
@@ -219,13 +235,17 @@ def _sample_system_metrics_snapshot(config: RelayConfig) -> dict[str, object]:
         }
 
     process_cpu_before = {
-        key: _read_process_cpu_jiffies(int(metric["pid"])) for key, metric in services.items() if int(metric["pid"]) > 0
+        key: _read_process_cpu_jiffies(int(metric["pid"]))
+        for key, metric in services.items()
+        if int(metric["pid"]) > 0
     }
     total_before, iowait_before = _read_proc_stat_totals()
     time.sleep(_SYSTEM_METRICS_SAMPLE_SECS)
     total_after, iowait_after = _read_proc_stat_totals()
     process_cpu_after = {
-        key: _read_process_cpu_jiffies(int(metric["pid"])) for key, metric in services.items() if int(metric["pid"]) > 0
+        key: _read_process_cpu_jiffies(int(metric["pid"]))
+        for key, metric in services.items()
+        if int(metric["pid"]) > 0
     }
 
     cpu_count = os.cpu_count() or 1
@@ -240,7 +260,9 @@ def _sample_system_metrics_snapshot(config: RelayConfig) -> dict[str, object]:
         end = process_cpu_after.get(key)
         if start is None or end is None or end < start:
             continue
-        metric["cpu_percent"] = round(max(0.0, ((end - start) / total_delta) * cpu_count * 100.0), 1)
+        metric["cpu_percent"] = round(
+            max(0.0, ((end - start) / total_delta) * cpu_count * 100.0), 1
+        )
 
     return {
         "cpu_percent": round(_cpu_percent_from_loadavg(), 1),
@@ -273,7 +295,9 @@ def _service_badge_payload(service_metrics: dict[str, object] | None) -> dict[st
     return _badge_payload(label=label, message=active_state, color="lightgrey")
 
 
-def _stage_badge_payload(*, label: str, active_count: int, queued_count: int, error_count: int) -> dict[str, object]:
+def _stage_badge_payload(
+    *, label: str, active_count: int, queued_count: int, error_count: int
+) -> dict[str, object]:
     if active_count > 0:
         return _badge_payload(label=label, message=f"active {active_count}", color="brightgreen")
     if queued_count > 0:
@@ -311,7 +335,12 @@ def _parse_db_timestamp(value: str | None) -> datetime | None:
 
 
 def _badge_payload(*, label: str, message: str, color: str) -> dict[str, object]:
-    return {"schemaVersion": _BADGE_SCHEMA_VERSION, "label": label, "message": message, "color": color}
+    return {
+        "schemaVersion": _BADGE_SCHEMA_VERSION,
+        "label": label,
+        "message": message,
+        "color": color,
+    }
 
 
 def _progress_color(*, numerator: int, denominator: int) -> str:
@@ -414,12 +443,16 @@ def _ratio_badge_payload(*, label: str, numerator: int, denominator: int) -> dic
 def _mirrored_badge_payload(*, stats: dict[str, int | str | None]) -> dict[str, object]:
     mirrored_hours = int(stats.get("mirrored_hours") or 0)
     archive_hours = int(stats.get("archive_hours") or 0)
-    return _ratio_badge_payload(label="Hours mirrored", numerator=mirrored_hours, denominator=archive_hours)
+    return _ratio_badge_payload(
+        label="Hours mirrored", numerator=mirrored_hours, denominator=archive_hours
+    )
 
 
 def _latest_file_badge_payload(*, queue: dict[str, int | str | None]) -> dict[str, object]:
     latest_filename = queue.get("latest_mirrored_filename")
-    filename_label = latest_filename if isinstance(latest_filename, str) and latest_filename else None
+    filename_label = (
+        latest_filename if isinstance(latest_filename, str) and latest_filename else None
+    )
     return _badge_payload(
         label="Latest file",
         message=filename_label or "none",
@@ -655,7 +688,9 @@ async def badge_status(request: web.Request) -> web.Response:
     stats_payload, system_payload = await asyncio.gather(
         _index_stats_async(index), asyncio.to_thread(_system_metrics_snapshot, config)
     )
-    return web.json_response(_status_badge_payload(stats=stats_payload, system=system_payload, config=config))
+    return web.json_response(
+        _status_badge_payload(stats=stats_payload, system=system_payload, config=config)
+    )
 
 
 async def badge_mirrored(request: web.Request) -> web.Response:
@@ -691,7 +726,9 @@ async def badge_iowait_svg(request: web.Request) -> web.Response:
     return _badge_svg_response(_system_badge_payload("I/O wait", float(metrics["iowait_percent"])))
 
 
-def _service_metrics_for_badge(metrics: dict[str, object], service_key: str) -> dict[str, object] | None:
+def _service_metrics_for_badge(
+    metrics: dict[str, object], service_key: str
+) -> dict[str, object] | None:
     services = metrics.get("services")
     if not isinstance(services, dict):
         return None
@@ -710,7 +747,9 @@ async def badge_api_svg(request: web.Request) -> web.Response:
 async def badge_worker_svg(request: web.Request) -> web.Response:
     config = request.app[CONFIG_APP_KEY]
     metrics = await asyncio.to_thread(_system_metrics_snapshot, config)
-    return _badge_svg_response(_service_badge_payload(_service_metrics_for_badge(metrics, "worker")))
+    return _badge_svg_response(
+        _service_badge_payload(_service_metrics_for_badge(metrics, "worker"))
+    )
 
 
 async def badge_mirroring_svg(request: web.Request) -> web.Response:
@@ -732,21 +771,31 @@ async def badge_status_svg(request: web.Request) -> web.Response:
     stats_payload, system_payload = await asyncio.gather(
         _index_stats_async(index), asyncio.to_thread(_system_metrics_snapshot, config)
     )
-    return _badge_svg_response(_status_badge_payload(stats=stats_payload, system=system_payload, config=config))
+    return _badge_svg_response(
+        _status_badge_payload(stats=stats_payload, system=system_payload, config=config)
+    )
 
 
 async def badge_upstream(request: web.Request) -> web.Response:
     config = request.app[CONFIG_APP_KEY]
     index = request.app[INDEX_APP_KEY]
-    stats_payload, queue_payload = await asyncio.gather(_index_stats_async(index), _index_queue_summary_async(index))
-    return web.json_response(_upstream_badge_payload(stats=stats_payload, queue=queue_payload, config=config))
+    stats_payload, queue_payload = await asyncio.gather(
+        _index_stats_async(index), _index_queue_summary_async(index)
+    )
+    return web.json_response(
+        _upstream_badge_payload(stats=stats_payload, queue=queue_payload, config=config)
+    )
 
 
 async def badge_upstream_svg(request: web.Request) -> web.Response:
     config = request.app[CONFIG_APP_KEY]
     index = request.app[INDEX_APP_KEY]
-    stats_payload, queue_payload = await asyncio.gather(_index_stats_async(index), _index_queue_summary_async(index))
-    return _badge_svg_response(_upstream_badge_payload(stats=stats_payload, queue=queue_payload, config=config))
+    stats_payload, queue_payload = await asyncio.gather(
+        _index_stats_async(index), _index_queue_summary_async(index)
+    )
+    return _badge_svg_response(
+        _upstream_badge_payload(stats=stats_payload, queue=queue_payload, config=config)
+    )
 
 
 async def badge_mirrored_svg(request: web.Request) -> web.Response:
@@ -756,7 +805,9 @@ async def badge_mirrored_svg(request: web.Request) -> web.Response:
 
 async def badge_latest_file_svg(request: web.Request) -> web.Response:
     index = request.app[INDEX_APP_KEY]
-    return _badge_svg_response(_latest_file_badge_payload(queue=await _index_queue_summary_async(index)))
+    return _badge_svg_response(
+        _latest_file_badge_payload(queue=await _index_queue_summary_async(index))
+    )
 
 
 async def serve_raw(request: web.Request) -> web.StreamResponse:

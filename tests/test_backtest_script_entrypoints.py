@@ -15,13 +15,15 @@ BACKTESTS_ROOT = REPO_ROOT / "backtests"
 PUBLIC_RUNNER_PATHS = sorted(
     path.relative_to(REPO_ROOT)
     for path in (*BACKTESTS_ROOT.glob("*.py"), *BACKTESTS_ROOT.glob("*.ipynb"))
-    if path.name not in {"__init__.py", "_script_helpers.py", "sitecustomize.py"} and not path.name.startswith("_")
+    if path.name not in {"__init__.py", "_script_helpers.py", "sitecustomize.py"}
+    and not path.name.startswith("_")
 )
 
 PUBLIC_SCRIPT_RUNNER_PATHS = sorted(
     path.relative_to(REPO_ROOT)
     for path in BACKTESTS_ROOT.glob("*.py")
-    if path.name not in {"__init__.py", "_script_helpers.py", "sitecustomize.py"} and not path.name.startswith("_")
+    if path.name not in {"__init__.py", "_script_helpers.py", "sitecustomize.py"}
+    and not path.name.startswith("_")
 )
 
 EXPECTED_PUBLIC_RUNNER_PATHS = [
@@ -60,9 +62,13 @@ SCRIPT_ENTRYPOINT_PATHS = [Path("scripts/pmxt_download_raws.py")]
 REPO_BOOTSTRAP_HELPERS = {Path("backtests/_script_helpers.py"), Path("scripts/_script_helpers.py")}
 
 
-PUBLIC_NOTEBOOK_RUNNER_PATHS = [path for path in EXPECTED_PUBLIC_RUNNER_PATHS if path.suffix == ".ipynb"]
+PUBLIC_NOTEBOOK_RUNNER_PATHS = [
+    path for path in EXPECTED_PUBLIC_RUNNER_PATHS if path.suffix == ".ipynb"
+]
 
-EXPECTED_PUBLIC_SCRIPT_RUNNER_PATHS = [path for path in EXPECTED_PUBLIC_RUNNER_PATHS if path.suffix == ".py"]
+EXPECTED_PUBLIC_SCRIPT_RUNNER_PATHS = [
+    path for path in EXPECTED_PUBLIC_RUNNER_PATHS if path.suffix == ".py"
+]
 
 
 @pytest.mark.parametrize("relative_path", EXPECTED_PUBLIC_SCRIPT_RUNNER_PATHS)
@@ -95,7 +101,11 @@ def test_repo_scripts_import_without_repo_root_on_sys_path(
 
 
 def test_backtests_tree_keeps_public_runners_flat() -> None:
-    top_level_dirs = {path.name for path in BACKTESTS_ROOT.iterdir() if path.is_dir() and path.name != "__pycache__"}
+    top_level_dirs = {
+        path.name
+        for path in BACKTESTS_ROOT.iterdir()
+        if path.is_dir() and path.name != "__pycache__"
+    }
     assert top_level_dirs <= {"private"}
 
     unexpected_nested_runners = [
@@ -121,7 +131,9 @@ def test_repo_keeps_script_bootstrap_helpers_only_next_to_entrypoints() -> None:
 
 
 @pytest.mark.parametrize("relative_path", PUBLIC_SCRIPT_RUNNER_PATHS)
-def test_public_runner_modules_expose_metadata_contract(monkeypatch: pytest.MonkeyPatch, relative_path: Path) -> None:
+def test_public_runner_modules_expose_metadata_contract(
+    monkeypatch: pytest.MonkeyPatch, relative_path: Path
+) -> None:
     script_path = REPO_ROOT / relative_path
     normalized_sys_path = [entry for entry in sys.path if Path(entry or ".").resolve() != REPO_ROOT]
     monkeypatch.setattr(sys, "path", [str(script_path.parent), *normalized_sys_path])
@@ -145,16 +157,25 @@ def test_public_runner_modules_expose_metadata_contract(monkeypatch: pytest.Monk
         optimization = getattr(experiment, "optimization", None)
         if optimization is not None:
             assert getattr(optimization, "emit_html", None) == globals_dict["EMIT_HTML"]
-            assert getattr(optimization, "chart_output_path", object()) == globals_dict["CHART_OUTPUT_PATH"]
+            assert (
+                getattr(optimization, "chart_output_path", object())
+                == globals_dict["CHART_OUTPUT_PATH"]
+            )
         else:
             assert getattr(experiment, "emit_html", None) == globals_dict["EMIT_HTML"]
-            assert getattr(experiment, "chart_output_path", object()) == globals_dict["CHART_OUTPUT_PATH"]
+            assert (
+                getattr(experiment, "chart_output_path", object())
+                == globals_dict["CHART_OUTPUT_PATH"]
+            )
     parameter_search = globals_dict.get(
         "PARAMETER_SEARCH", globals_dict.get("OPTIMIZER", globals_dict.get("OPTIMIZATION"))
     )
     if parameter_search is not None:
         assert getattr(parameter_search, "emit_html", None) == globals_dict["EMIT_HTML"]
-        assert getattr(parameter_search, "chart_output_path", object()) == globals_dict["CHART_OUTPUT_PATH"]
+        assert (
+            getattr(parameter_search, "chart_output_path", object())
+            == globals_dict["CHART_OUTPUT_PATH"]
+        )
     assert callable(globals_dict.get("run"))
 
 
@@ -171,12 +192,16 @@ def test_public_notebook_runners_expose_metadata_contract(relative_path: Path) -
     assert metadata["relative_parts"] == (relative_path.name,)
 
 
-@pytest.mark.parametrize("module_name", ["backtests.kalshi_trade_tick_breakout", "scripts.pmxt_download_raws"])
+@pytest.mark.parametrize(
+    "module_name", ["backtests.kalshi_trade_tick_breakout", "scripts.pmxt_download_raws"]
+)
 def test_entrypoint_modules_import_as_packages_without_root_helper_shim(
     monkeypatch: pytest.MonkeyPatch, module_name: str
 ) -> None:
     normalized_sys_path = [
-        entry for entry in sys.path if Path(entry or ".").resolve() not in {REPO_ROOT, BACKTESTS_ROOT}
+        entry
+        for entry in sys.path
+        if Path(entry or ".").resolve() not in {REPO_ROOT, BACKTESTS_ROOT}
     ]
     monkeypatch.setattr(sys, "path", [str(REPO_ROOT), *normalized_sys_path])
 
@@ -307,7 +332,13 @@ def test_pmxt_quote_tick_optimizer_runners_expose_explicit_search_configuration(
     assert base_replay.token_index == 0
     assert len(train_windows) == 3
     assert len(holdout_windows) == 1
-    assert set(parameter_grid) == {"fast_period", "slow_period", "entry_buffer", "take_profit", "stop_loss"}
+    assert set(parameter_grid) == {
+        "fast_period",
+        "slow_period",
+        "entry_buffer",
+        "take_profit",
+        "stop_loss",
+    }
     assert optimizer is parameter_search
     assert globals_dict["OPTIMIZATION"] is parameter_search
     assert parameter_search.optimizer_type == "parameter_search"
@@ -349,7 +380,9 @@ def test_trade_tick_independent_runners_emit_summary_contract(
 
 
 @pytest.mark.parametrize("relative_path", TRADE_TICK_JOINT_RUNNERS)
-def test_trade_tick_joint_runners_emit_summary_contract(monkeypatch: pytest.MonkeyPatch, relative_path: Path) -> None:
+def test_trade_tick_joint_runners_emit_summary_contract(
+    monkeypatch: pytest.MonkeyPatch, relative_path: Path
+) -> None:
     script_path = REPO_ROOT / relative_path
     normalized_sys_path = [entry for entry in sys.path if Path(entry or ".").resolve() != REPO_ROOT]
     monkeypatch.setattr(sys, "path", [str(script_path.parent), *normalized_sys_path])

@@ -45,11 +45,15 @@ KALSHI_SINGLE_RUNNER = BACKTESTS_ROOT / "kalshi_trade_tick_breakout.py"
 KALSHI_INDEPENDENT_RUNNER = BACKTESTS_ROOT / "kalshi_trade_tick_independent_multi_replay_runner.py"
 KALSHI_JOINT_RUNNER = BACKTESTS_ROOT / "kalshi_trade_tick_joint_portfolio_runner.py"
 POLYMARKET_SINGLE_RUNNER = BACKTESTS_ROOT / "polymarket_trade_tick_vwap_reversion.py"
-POLYMARKET_INDEPENDENT_RUNNER = BACKTESTS_ROOT / "polymarket_trade_tick_independent_multi_replay_runner.py"
+POLYMARKET_INDEPENDENT_RUNNER = (
+    BACKTESTS_ROOT / "polymarket_trade_tick_independent_multi_replay_runner.py"
+)
 POLYMARKET_JOINT_RUNNER = BACKTESTS_ROOT / "polymarket_trade_tick_joint_portfolio_runner.py"
 
 EXPECTED_KALSHI_SINGLE_REPLAY = TradeReplay(
-    market_ticker="KXLAYOFFSYINFO-26-494000", start_time="2026-03-15T00:00:00Z", end_time="2026-04-08T23:59:59Z"
+    market_ticker="KXLAYOFFSYINFO-26-494000",
+    start_time="2026-03-15T00:00:00Z",
+    end_time="2026-04-08T23:59:59Z",
 )
 EXPECTED_KALSHI_MULTI_REPLAYS = (
     TradeReplay(

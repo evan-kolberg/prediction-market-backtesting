@@ -25,7 +25,13 @@ _MIRROR_QUARANTINE_RETRY_SECS = 3600
 
 
 class RelayWorker:
-    def __init__(self, config: RelayConfig, *, reset_inflight: bool = True, reset_mirror_inflight: bool = True) -> None:
+    def __init__(
+        self,
+        config: RelayConfig,
+        *,
+        reset_inflight: bool = True,
+        reset_mirror_inflight: bool = True,
+    ) -> None:
         self._config = config
         self._config.ensure_directories()
         self._index = RelayIndex(config.db_path, event_retention=config.event_retention)
@@ -50,7 +56,9 @@ class RelayWorker:
         filename: str | None = None,
         payload: dict[str, object] | None = None,
     ) -> None:
-        self._index.log_event(level=level, event_type=event_type, message=message, filename=filename, payload=payload)
+        self._index.log_event(
+            level=level, event_type=event_type, message=message, filename=filename, payload=payload
+        )
 
     def close(self) -> None:
         self._index.close()
@@ -72,7 +80,9 @@ class RelayWorker:
             while True:
                 progress = self.run_once()
                 if progress == 0:
-                    LOG.info("No relay work pending, sleeping for %ss", self._config.poll_interval_secs)
+                    LOG.info(
+                        "No relay work pending, sleeping for %ss", self._config.poll_interval_secs
+                    )
                     time.sleep(self._config.poll_interval_secs)
         finally:
             self.close()
@@ -88,7 +98,12 @@ class RelayWorker:
             message="Relay cycle complete",
             payload={"discovered": discovered, "adopted": adopted, "mirrored": mirrored},
         )
-        LOG.info("Relay cycle complete: discovered=%s adopted=%s mirrored=%s", discovered, adopted, mirrored)
+        LOG.info(
+            "Relay cycle complete: discovered=%s adopted=%s mirrored=%s",
+            discovered,
+            adopted,
+            mirrored,
+        )
         return total
 
     def _discover_archive_hours(self) -> int:
@@ -98,7 +113,9 @@ class RelayWorker:
         while True:
             if self._config.archive_max_pages is not None and page > self._config.archive_max_pages:
                 break
-            html = fetch_archive_page(self._config.archive_listing_url, page, self._config.http_timeout_secs)
+            html = fetch_archive_page(
+                self._config.archive_listing_url, page, self._config.http_timeout_secs
+            )
             filenames = extract_archive_filenames(html)
             if not filenames:
                 break
@@ -191,7 +208,9 @@ class RelayWorker:
                         level="WARNING",
                         event_type="mirror_quarantined",
                         filename=row["filename"],
-                        message=(f"Temporarily quarantined {row['filename']} after repeated mirror failures"),
+                        message=(
+                            f"Temporarily quarantined {row['filename']} after repeated mirror failures"
+                        ),
                         payload={
                             "error": str(exc),
                             "error_count": next_error_count,
@@ -206,7 +225,9 @@ class RelayWorker:
                     )
                     continue
                 next_retry_at = self._next_retry_at(error_count=next_error_count)
-                self._index.mark_mirror_retry(row["filename"], error=str(exc), next_retry_at=next_retry_at.isoformat())
+                self._index.mark_mirror_retry(
+                    row["filename"], error=str(exc), next_retry_at=next_retry_at.isoformat()
+                )
                 self._record_event(
                     level="ERROR",
                     event_type="mirror_error",
@@ -225,14 +246,20 @@ class RelayWorker:
 
     def _next_retry_at(self, *, error_count: int) -> datetime:
         base_delay = max(60, int(self._config.poll_interval_secs))
-        retry_delay = min(base_delay * (2 ** max(0, error_count - 1)), _MIRROR_RETRY_BACKOFF_CAP_SECS)
+        retry_delay = min(
+            base_delay * (2 ** max(0, error_count - 1)), _MIRROR_RETRY_BACKOFF_CAP_SECS
+        )
         return datetime.now(UTC) + timedelta(seconds=retry_delay)
 
     def _quarantine_retry_at(self) -> datetime:
         return datetime.now(UTC) + timedelta(seconds=_MIRROR_QUARANTINE_RETRY_SECS)
 
     def _should_quarantine_error(self, exc: Exception, *, error_count: int) -> bool:
-        return isinstance(exc, HTTPError) and exc.code == 404 and error_count >= _MIRROR_404_QUARANTINE_AFTER
+        return (
+            isinstance(exc, HTTPError)
+            and exc.code == 404
+            and error_count >= _MIRROR_404_QUARANTINE_AFTER
+        )
 
     def _mirror_hour(self, row) -> None:  # type: ignore[no-untyped-def]
         filename = row["filename"]
@@ -269,7 +296,9 @@ class RelayWorker:
         content_length = None
         last_modified = None
         try:
-            head_request = Request(source_url, method="HEAD", headers={"User-Agent": "pmxt-relay/1.0"})
+            head_request = Request(
+                source_url, method="HEAD", headers={"User-Agent": "pmxt-relay/1.0"}
+            )
             with urlopen(head_request, timeout=self._config.http_timeout_secs) as response:
                 etag = response.headers.get("ETag")
                 last_modified = response.headers.get("Last-Modified")
@@ -288,15 +317,24 @@ class RelayWorker:
                 message=f"HEAD metadata probe failed for {filename}; trying GET anyway",
                 payload={"error": head_error},
             )
-            LOG.warning("HEAD metadata probe failed for %s; trying GET anyway: %s", filename, head_error)
+            LOG.warning(
+                "HEAD metadata probe failed for %s; trying GET anyway: %s", filename, head_error
+            )
 
         tmp_path = raw_path.with_name(f"{raw_path.name}.tmp")
         request = Request(source_url, headers={"User-Agent": "pmxt-relay/1.0"})
-        with urlopen(request, timeout=self._config.http_timeout_secs) as response, tmp_path.open("wb") as handle:
+        with (
+            urlopen(request, timeout=self._config.http_timeout_secs) as response,
+            tmp_path.open("wb") as handle,
+        ):
             shutil.copyfileobj(response, handle)
         os.replace(tmp_path, raw_path)
         self._index.mark_mirrored(
-            filename, local_path=str(raw_path), etag=etag, content_length=content_length, last_modified=last_modified
+            filename,
+            local_path=str(raw_path),
+            etag=etag,
+            content_length=content_length,
+            last_modified=last_modified,
         )
         self._record_event(
             level="INFO",

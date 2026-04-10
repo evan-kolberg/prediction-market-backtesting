@@ -19,7 +19,9 @@
 Shared prediction-market adapter helpers.
 """
 
-from prediction_market_extensions.adapters.prediction_market.fill_model import PredictionMarketTakerFillModel
+from prediction_market_extensions.adapters.prediction_market.fill_model import (
+    PredictionMarketTakerFillModel,
+)
 from prediction_market_extensions.adapters.prediction_market.replay import HistoricalReplayAdapter
 from prediction_market_extensions.adapters.prediction_market.replay import LoadedReplay
 from prediction_market_extensions.adapters.prediction_market.replay import ReplayAdapterKey

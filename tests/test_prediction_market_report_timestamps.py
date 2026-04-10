@@ -2,8 +2,12 @@ from __future__ import annotations
 
 import pytest
 
-from prediction_market_extensions.adapters.prediction_market.research import save_aggregate_backtest_report
-from prediction_market_extensions.adapters.prediction_market.research import save_joint_portfolio_backtest_report
+from prediction_market_extensions.adapters.prediction_market.research import (
+    save_aggregate_backtest_report,
+)
+from prediction_market_extensions.adapters.prediction_market.research import (
+    save_joint_portfolio_backtest_report,
+)
 
 
 def test_save_aggregate_backtest_report_accepts_mixed_iso_timestamp_precision(tmp_path) -> None:
@@ -16,7 +20,10 @@ def test_save_aggregate_backtest_report_accepts_mixed_iso_timestamp_precision(tm
             "trades": 10,
             "fills": 1,
             "pnl": 1.0,
-            "price_series": [("2026-03-14T17:57:40+00:00", 0.40), ("2026-03-14T17:57:40.123456+00:00", 0.42)],
+            "price_series": [
+                ("2026-03-14T17:57:40+00:00", 0.40),
+                ("2026-03-14T17:57:40.123456+00:00", 0.42),
+            ],
             "user_probability_series": [
                 ("2026-03-14T17:57:40+00:00", 0.41),
                 ("2026-03-14T17:57:40.123456+00:00", 0.43),
@@ -25,7 +32,10 @@ def test_save_aggregate_backtest_report_accepts_mixed_iso_timestamp_precision(tm
                 ("2026-03-14T17:57:40+00:00", 0.40),
                 ("2026-03-14T17:57:40.123456+00:00", 0.42),
             ],
-            "outcome_series": [("2026-03-14T17:57:40+00:00", 1.0), ("2026-03-14T17:57:40.123456+00:00", 1.0)],
+            "outcome_series": [
+                ("2026-03-14T17:57:40+00:00", 1.0),
+                ("2026-03-14T17:57:40.123456+00:00", 1.0),
+            ],
             "fill_events": [
                 {
                     "order_id": "fill-mixed",
@@ -38,9 +48,18 @@ def test_save_aggregate_backtest_report_accepts_mixed_iso_timestamp_precision(tm
                     "commission": 0.0,
                 }
             ],
-            "pnl_series": [("2026-03-14T17:57:40+00:00", 0.0), ("2026-03-14T17:57:40.123456+00:00", 1.0)],
-            "equity_series": [("2026-03-14T17:57:40+00:00", 100.0), ("2026-03-14T17:57:40.123456+00:00", 101.0)],
-            "cash_series": [("2026-03-14T17:57:40+00:00", 96.0), ("2026-03-14T17:57:40.123456+00:00", 96.0)],
+            "pnl_series": [
+                ("2026-03-14T17:57:40+00:00", 0.0),
+                ("2026-03-14T17:57:40.123456+00:00", 1.0),
+            ],
+            "equity_series": [
+                ("2026-03-14T17:57:40+00:00", 100.0),
+                ("2026-03-14T17:57:40.123456+00:00", 101.0),
+            ],
+            "cash_series": [
+                ("2026-03-14T17:57:40+00:00", 96.0),
+                ("2026-03-14T17:57:40.123456+00:00", 96.0),
+            ],
         }
     ]
 
@@ -58,7 +77,9 @@ def test_save_aggregate_backtest_report_accepts_mixed_iso_timestamp_precision(tm
     assert "market-mixed" in html
 
 
-def test_save_joint_portfolio_backtest_report_accepts_mixed_iso_timestamp_precision(tmp_path) -> None:
+def test_save_joint_portfolio_backtest_report_accepts_mixed_iso_timestamp_precision(
+    tmp_path,
+) -> None:
     pytest.importorskip("bokeh")
 
     output_path = tmp_path / "joint_mixed_timestamps.html"
@@ -68,7 +89,10 @@ def test_save_joint_portfolio_backtest_report_accepts_mixed_iso_timestamp_precis
             "trades": 10,
             "fills": 1,
             "pnl": 1.0,
-            "price_series": [("2026-03-14T17:57:40+00:00", 0.40), ("2026-03-14T17:57:40.123456+00:00", 0.42)],
+            "price_series": [
+                ("2026-03-14T17:57:40+00:00", 0.40),
+                ("2026-03-14T17:57:40.123456+00:00", 0.42),
+            ],
             "user_probability_series": [
                 ("2026-03-14T17:57:40+00:00", 0.41),
                 ("2026-03-14T17:57:40.123456+00:00", 0.43),
@@ -77,7 +101,10 @@ def test_save_joint_portfolio_backtest_report_accepts_mixed_iso_timestamp_precis
                 ("2026-03-14T17:57:40+00:00", 0.40),
                 ("2026-03-14T17:57:40.123456+00:00", 0.42),
             ],
-            "outcome_series": [("2026-03-14T17:57:40+00:00", 1.0), ("2026-03-14T17:57:40.123456+00:00", 1.0)],
+            "outcome_series": [
+                ("2026-03-14T17:57:40+00:00", 1.0),
+                ("2026-03-14T17:57:40.123456+00:00", 1.0),
+            ],
             "fill_events": [
                 {
                     "order_id": "fill-a",
@@ -108,7 +135,10 @@ def test_save_joint_portfolio_backtest_report_accepts_mixed_iso_timestamp_precis
             "trades": 8,
             "fills": 1,
             "pnl": 0.5,
-            "price_series": [("2026-03-14T17:57:40+00:00", 0.55), ("2026-03-14T17:57:40.123456+00:00", 0.57)],
+            "price_series": [
+                ("2026-03-14T17:57:40+00:00", 0.55),
+                ("2026-03-14T17:57:40.123456+00:00", 0.57),
+            ],
             "user_probability_series": [
                 ("2026-03-14T17:57:40+00:00", 0.54),
                 ("2026-03-14T17:57:40.123456+00:00", 0.56),
@@ -117,7 +147,10 @@ def test_save_joint_portfolio_backtest_report_accepts_mixed_iso_timestamp_precis
                 ("2026-03-14T17:57:40+00:00", 0.55),
                 ("2026-03-14T17:57:40.123456+00:00", 0.57),
             ],
-            "outcome_series": [("2026-03-14T17:57:40+00:00", 0.0), ("2026-03-14T17:57:40.123456+00:00", 0.0)],
+            "outcome_series": [
+                ("2026-03-14T17:57:40+00:00", 0.0),
+                ("2026-03-14T17:57:40.123456+00:00", 0.0),
+            ],
             "fill_events": [
                 {
                     "order_id": "fill-b",

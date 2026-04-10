@@ -52,12 +52,17 @@ DETAIL_PLOT_PANELS = (
 )
 
 DATA = MarketDataConfig(
-    platform=Kalshi, data_type=TradeTick, vendor=Native, sources=("rest:https://api.elections.kalshi.com/trade-api/v2",)
+    platform=Kalshi,
+    data_type=TradeTick,
+    vendor=Native,
+    sources=("rest:https://api.elections.kalshi.com/trade-api/v2",),
 )
 
 REPLAYS = (
     TradeReplay(
-        market_ticker="KXLAYOFFSYINFO-26-494000", start_time="2026-03-15T00:00:00Z", end_time="2026-04-08T23:59:59Z"
+        market_ticker="KXLAYOFFSYINFO-26-494000",
+        start_time="2026-03-15T00:00:00Z",
+        end_time="2026-04-08T23:59:59Z",
     ),
 )
 

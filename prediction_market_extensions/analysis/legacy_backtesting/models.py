@@ -99,7 +99,9 @@ DEFAULT_SUMMARY_PLOT_PANELS = (
 )
 
 
-def normalize_plot_panels(panels: Sequence[str] | None, *, default: Sequence[str]) -> tuple[str, ...]:
+def normalize_plot_panels(
+    panels: Sequence[str] | None, *, default: Sequence[str]
+) -> tuple[str, ...]:
     requested = tuple(default if panels is None else panels)
     normalized: list[str] = []
     seen: set[str] = set()
@@ -109,7 +111,9 @@ def normalize_plot_panels(panels: Sequence[str] | None, *, default: Sequence[str
         if not panel_id:
             continue
         if panel_id not in ALL_PLOT_PANELS:
-            raise ValueError(f"Unknown plot panel {panel_id!r}. Valid panels: {', '.join(ALL_PLOT_PANELS)}.")
+            raise ValueError(
+                f"Unknown plot panel {panel_id!r}. Valid panels: {', '.join(ALL_PLOT_PANELS)}."
+            )
         if panel_id in seen:
             continue
         normalized.append(panel_id)

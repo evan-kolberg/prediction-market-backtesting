@@ -85,7 +85,9 @@ class _EMACrossoverBase(LongOnlyPredictionMarketStrategy):
         self._alpha_fast = 2.0 / (float(self.config.fast_period) + 1.0)
         self._alpha_slow = 2.0 / (float(self.config.slow_period) + 1.0)
 
-    def _on_price(self, price: float, *, entry_price: float | None = None, visible_size: float | None = None) -> None:
+    def _on_price(
+        self, price: float, *, entry_price: float | None = None, visible_size: float | None = None
+    ) -> None:
         if self._fast_ema is None or self._slow_ema is None:
             self._fast_ema = price
             self._slow_ema = price
@@ -108,7 +110,9 @@ class _EMACrossoverBase(LongOnlyPredictionMarketStrategy):
                 self._submit_entry(reference_price=reference_price, visible_size=visible_size)
             return
 
-        if self._risk_exit(price=price, take_profit=self.config.take_profit, stop_loss=self.config.stop_loss):
+        if self._risk_exit(
+            price=price, take_profit=self.config.take_profit, stop_loss=self.config.stop_loss
+        ):
             return
 
         if self._fast_ema <= self._slow_ema - self.config.entry_buffer:

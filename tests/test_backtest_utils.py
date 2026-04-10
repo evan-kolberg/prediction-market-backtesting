@@ -6,8 +6,12 @@
 from datetime import datetime
 import warnings
 
-from prediction_market_extensions.adapters.prediction_market.backtest_utils import compute_binary_settlement_pnl
-from prediction_market_extensions.adapters.prediction_market.backtest_utils import extract_price_points
+from prediction_market_extensions.adapters.prediction_market.backtest_utils import (
+    compute_binary_settlement_pnl,
+)
+from prediction_market_extensions.adapters.prediction_market.backtest_utils import (
+    extract_price_points,
+)
 from prediction_market_extensions.adapters.prediction_market.backtest_utils import to_naive_utc
 
 

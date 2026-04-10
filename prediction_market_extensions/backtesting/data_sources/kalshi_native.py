@@ -64,7 +64,9 @@ class RunnerKalshiDataLoader(KalshiDataLoader):
         if response.status == 404:
             raise ValueError(f"Market ticker '{ticker}' not found")
         if response.status != 200:
-            raise RuntimeError(f"HTTP request failed with status {response.status}: {response.body.decode('utf-8')}")
+            raise RuntimeError(
+                f"HTTP request failed with status {response.status}: {response.body.decode('utf-8')}"
+            )
 
         data = msgspec.json.decode(response.body)
         market = data["market"]
@@ -100,7 +102,9 @@ class RunnerKalshiDataLoader(KalshiDataLoader):
             if cursor:
                 params["cursor"] = cursor
 
-            response = await self._http_client.get(url=f"{rest_base_url}/markets/trades", params=params)
+            response = await self._http_client.get(
+                url=f"{rest_base_url}/markets/trades", params=params
+            )
             if response.status != 200:
                 raise RuntimeError(
                     f"HTTP request failed with status {response.status}: {response.body.decode('utf-8')}"
@@ -120,7 +124,9 @@ class RunnerKalshiDataLoader(KalshiDataLoader):
         self, start_ts: int | None = None, end_ts: int | None = None, interval: str = "Minutes1"
     ) -> list[dict[str, Any]]:
         if interval not in self._INTERVAL_MAP:
-            raise ValueError(f"Invalid interval '{interval}'. Must be one of: {list(self._INTERVAL_MAP.keys())}")
+            raise ValueError(
+                f"Invalid interval '{interval}'. Must be one of: {list(self._INTERVAL_MAP.keys())}"
+            )
 
         ticker = self._instrument.id.symbol.value
         rest_base_url = self._configured_rest_base_url()
@@ -132,10 +138,13 @@ class RunnerKalshiDataLoader(KalshiDataLoader):
         params = {key: value for key, value in params.items() if value is not None}
 
         response = await self._http_client.get(
-            url=f"{rest_base_url}/series/{self._series_ticker}/markets/{ticker}/candlesticks", params=params
+            url=f"{rest_base_url}/series/{self._series_ticker}/markets/{ticker}/candlesticks",
+            params=params,
         )
         if response.status != 200:
-            raise RuntimeError(f"HTTP request failed with status {response.status}: {response.body.decode('utf-8')}")
+            raise RuntimeError(
+                f"HTTP request failed with status {response.status}: {response.body.decode('utf-8')}"
+            )
         data = msgspec.json.decode(response.body)
         return data.get("candlesticks", [])
 

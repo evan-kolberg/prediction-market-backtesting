@@ -50,7 +50,12 @@ class PinnedProgress(Generic[T]):
     """
 
     def __init__(
-        self, iterable: Iterable[T], total: int, desc: str = "", unit: str = " it", refresh_interval: float = 0.05
+        self,
+        iterable: Iterable[T],
+        total: int,
+        desc: str = "",
+        unit: str = " it",
+        refresh_interval: float = 0.05,
     ):
         self._iter = iter(iterable)
         self.total = total

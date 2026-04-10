@@ -61,7 +61,9 @@ class RelayConfig:
             archive_stale_pages=max(1, _env_int("PMXT_RELAY_ARCHIVE_STALE_PAGES", 1)),
             archive_max_pages=archive_max_pages or None,
             event_retention=max(100, _env_int("PMXT_RELAY_EVENT_RETENTION", 50000)),
-            api_rate_limit_per_minute=max(0, _env_int("PMXT_RELAY_API_RATE_LIMIT_PER_MINUTE", 2400)),
+            api_rate_limit_per_minute=max(
+                0, _env_int("PMXT_RELAY_API_RATE_LIMIT_PER_MINUTE", 2400)
+            ),
             trusted_proxy_ips=_env_csv("PMXT_RELAY_TRUSTED_PROXY_IPS", ("127.0.0.1", "::1")),
         )
 

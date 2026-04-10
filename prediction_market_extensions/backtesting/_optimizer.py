@@ -26,10 +26,14 @@ from prediction_market_extensions.backtesting._execution_config import Execution
 from prediction_market_extensions.backtesting._market_data_config import MarketDataConfig
 from prediction_market_extensions.backtesting._replay_specs import ReplaySpec
 from prediction_market_extensions.backtesting._strategy_configs import StrategyConfigSpec
-from prediction_market_extensions.backtesting.data_sources.registry import resolve_market_data_support
+from prediction_market_extensions.backtesting.data_sources.registry import (
+    resolve_market_data_support,
+)
 
 if TYPE_CHECKING:
-    from prediction_market_extensions.backtesting._prediction_market_backtest import PredictionMarketBacktest
+    from prediction_market_extensions.backtesting._prediction_market_backtest import (
+        PredictionMarketBacktest,
+    )
 
 
 SEARCH_PLACEHOLDER_PREFIX = "__SEARCH__:"
@@ -82,12 +86,16 @@ class ParameterSearchConfig:
         return OPTIMIZER_TYPE_PARAMETER_SEARCH
 
     def __post_init__(self) -> None:
-        resolve_market_data_support(platform=self.data.platform, data_type=self.data.data_type, vendor=self.data.vendor)
+        resolve_market_data_support(
+            platform=self.data.platform, data_type=self.data.data_type, vendor=self.data.vendor
+        )
 
         market_slug = getattr(self.base_replay, "market_slug", None)
         market_ticker = getattr(self.base_replay, "market_ticker", None)
         if market_slug is None and market_ticker is None:
-            raise ValueError("ParameterSearchConfig.base_replay must define market_slug or market_ticker.")
+            raise ValueError(
+                "ParameterSearchConfig.base_replay must define market_slug or market_ticker."
+            )
         if self.max_trials <= 0:
             raise ValueError("max_trials must be positive.")
         if self.holdout_top_k <= 0:
@@ -106,15 +114,22 @@ class ParameterSearchConfig:
 
         placeholders = _collect_search_placeholders(self.strategy_spec)
         if not placeholders:
-            raise ValueError("strategy_spec must contain at least one __SEARCH__:<name> placeholder.")
+            raise ValueError(
+                "strategy_spec must contain at least one __SEARCH__:<name> placeholder."
+            )
 
         missing_keys = placeholders.difference(normalized_grid)
         if missing_keys:
-            raise ValueError("parameter_grid is missing values for placeholders: " + ", ".join(sorted(missing_keys)))
+            raise ValueError(
+                "parameter_grid is missing values for placeholders: "
+                + ", ".join(sorted(missing_keys))
+            )
 
         unused_keys = set(normalized_grid).difference(placeholders)
         if unused_keys:
-            raise ValueError("parameter_grid includes unused keys: " + ", ".join(sorted(unused_keys)))
+            raise ValueError(
+                "parameter_grid includes unused keys: " + ", ".join(sorted(unused_keys))
+            )
 
         object.__setattr__(self, "parameter_grid", MappingProxyType(normalized_grid))
         object.__setattr__(self, "train_windows", tuple(self.train_windows))
@@ -249,9 +264,15 @@ def _windowed_replay(*, base_replay: ReplaySpec, window: ParameterSearchWindow) 
 
 
 def _build_backtest(
-    *, config: ParameterSearchConfig, trial_id: int, window: ParameterSearchWindow, params: ParameterValues
+    *,
+    config: ParameterSearchConfig,
+    trial_id: int,
+    window: ParameterSearchWindow,
+    params: ParameterValues,
 ) -> PredictionMarketBacktest:
-    from prediction_market_extensions.backtesting._prediction_market_backtest import PredictionMarketBacktest
+    from prediction_market_extensions.backtesting._prediction_market_backtest import (
+        PredictionMarketBacktest,
+    )
 
     return PredictionMarketBacktest(
         **_build_backtest_kwargs(config=config, trial_id=trial_id, window=window, params=params)
@@ -277,10 +298,14 @@ def build_parameter_search_window_backtest(
     chart_output_path: str | Path | None = None,
     return_summary_series: bool | None = None,
 ) -> PredictionMarketBacktest:
-    from prediction_market_extensions.backtesting._prediction_market_backtest import PredictionMarketBacktest
+    from prediction_market_extensions.backtesting._prediction_market_backtest import (
+        PredictionMarketBacktest,
+    )
 
     normalized_params = _coerce_parameter_values(config=config, params=params)
-    kwargs = _build_backtest_kwargs(config=config, trial_id=trial_id, window=window, params=normalized_params)
+    kwargs = _build_backtest_kwargs(
+        config=config, trial_id=trial_id, window=window, params=normalized_params
+    )
     if name is not None:
         kwargs["name"] = name
     if emit_html is not None:
@@ -293,7 +318,11 @@ def build_parameter_search_window_backtest(
 
 
 def _build_backtest_kwargs(
-    *, config: ParameterSearchConfig, trial_id: int, window: ParameterSearchWindow, params: ParameterValues
+    *,
+    config: ParameterSearchConfig,
+    trial_id: int,
+    window: ParameterSearchWindow,
+    params: ParameterValues,
 ) -> dict[str, Any]:
     params_map = dict(params)
     bound_strategy_spec = _replace_search_placeholders(config.strategy_spec, params_map)
@@ -317,7 +346,9 @@ def _build_backtest_kwargs(
     }
 
 
-def _default_evaluation_worker(worker_kwargs: dict[str, Any], result_path: str, send_conn: Any) -> None:
+def _default_evaluation_worker(
+    worker_kwargs: dict[str, Any], result_path: str, send_conn: Any
+) -> None:
     try:
         from prediction_market_extensions import install_commission_patch
         from prediction_market_extensions.backtesting._timing_harness import install_timing_harness
@@ -325,7 +356,9 @@ def _default_evaluation_worker(worker_kwargs: dict[str, Any], result_path: str, 
         install_commission_patch()
         install_timing_harness()
 
-        from prediction_market_extensions.backtesting._prediction_market_backtest import PredictionMarketBacktest
+        from prediction_market_extensions.backtesting._prediction_market_backtest import (
+            PredictionMarketBacktest,
+        )
 
         result = PredictionMarketBacktest(**worker_kwargs).run()
         with open(result_path, "wb") as result_file:
@@ -340,9 +373,15 @@ def _default_evaluation_worker(worker_kwargs: dict[str, Any], result_path: str, 
 def _run_default_evaluator_in_subprocess(*, worker_kwargs: dict[str, Any]) -> object:
     ctx = multiprocessing.get_context("spawn")
     recv_conn, send_conn = ctx.Pipe(duplex=False)
-    with tempfile.NamedTemporaryFile(prefix="optimizer-window-", suffix=".pkl", delete=False) as result_file:
+    with tempfile.NamedTemporaryFile(
+        prefix="optimizer-window-", suffix=".pkl", delete=False
+    ) as result_file:
         result_path = result_file.name
-    process = ctx.Process(target=_default_evaluation_worker, args=(worker_kwargs, result_path, send_conn), daemon=False)
+    process = ctx.Process(
+        target=_default_evaluation_worker,
+        args=(worker_kwargs, result_path, send_conn),
+        daemon=False,
+    )
     process.start()
     send_conn.close()
 
@@ -373,7 +412,9 @@ def _run_default_evaluator_in_subprocess(*, worker_kwargs: dict[str, Any]) -> ob
 
             raise RuntimeError(f"Unexpected optimizer worker payload status {status!r}")
 
-        raise RuntimeError(f"Optimizer worker exited without returning a result. Process exit code: {process.exitcode}")
+        raise RuntimeError(
+            f"Optimizer worker exited without returning a result. Process exit code: {process.exitcode}"
+        )
     finally:
         with contextlib.suppress(FileNotFoundError):
             Path(result_path).unlink()
@@ -386,7 +427,9 @@ def _coerce_results(value: object) -> list[dict[str, Any]]:
         results: list[dict[str, Any]] = []
         for item in value:
             if not isinstance(item, Mapping):
-                raise TypeError("optimizer evaluator must return mappings or a sequence of mappings")
+                raise TypeError(
+                    "optimizer evaluator must return mappings or a sequence of mappings"
+                )
             results.append(dict(item))
         return results
     raise TypeError("optimizer evaluator must return a mapping or a sequence of mappings")
@@ -447,7 +490,9 @@ def _score_result(
     terminated_penalty = initial_cash if terminated_early else 0.0
     coverage_penalty = initial_cash * max(0.0, 0.98 - requested_coverage_ratio) * 10.0
     fill_penalty = 2.0 if fills < min_fills_per_window else 0.0
-    return pnl - (0.5 * max_drawdown_currency) - terminated_penalty - coverage_penalty - fill_penalty
+    return (
+        pnl - (0.5 * max_drawdown_currency) - terminated_penalty - coverage_penalty - fill_penalty
+    )
 
 
 def _evaluate_window(
@@ -461,10 +506,14 @@ def _evaluate_window(
     try:
         if evaluator is None:
             raw_results = _run_default_evaluator_in_subprocess(
-                worker_kwargs=_build_backtest_kwargs(config=config, trial_id=trial_id, window=window, params=params)
+                worker_kwargs=_build_backtest_kwargs(
+                    config=config, trial_id=trial_id, window=window, params=params
+                )
             )
         else:
-            raw_results = evaluator(_build_backtest(config=config, trial_id=trial_id, window=window, params=params))
+            raw_results = evaluator(
+                _build_backtest(config=config, trial_id=trial_id, window=window, params=params)
+            )
         results = _coerce_results(raw_results)
     except Exception as exc:  # noqa: BLE001
         return _WindowEvaluation(
@@ -541,23 +590,33 @@ def _build_leaderboard_row(
         holdout_median_score=(_median_metric(holdout_scores) if holdout_scores else None),
         train_median_pnl=_median_metric([evaluation.pnl for evaluation in train_evaluations]),
         holdout_median_pnl=(
-            _median_metric([evaluation.pnl for evaluation in holdout_evaluations]) if holdout_evaluations else None
+            _median_metric([evaluation.pnl for evaluation in holdout_evaluations])
+            if holdout_evaluations
+            else None
         ),
-        train_median_drawdown=_median_metric([evaluation.max_drawdown_currency for evaluation in train_evaluations]),
+        train_median_drawdown=_median_metric(
+            [evaluation.max_drawdown_currency for evaluation in train_evaluations]
+        ),
         holdout_median_drawdown=(
             _median_metric([evaluation.max_drawdown_currency for evaluation in holdout_evaluations])
             if holdout_evaluations
             else None
         ),
-        train_median_fills=_median_metric([float(evaluation.fills) for evaluation in train_evaluations]),
+        train_median_fills=_median_metric(
+            [float(evaluation.fills) for evaluation in train_evaluations]
+        ),
         holdout_median_fills=(
             _median_metric([float(evaluation.fills) for evaluation in holdout_evaluations])
             if holdout_evaluations
             else None
         ),
-        train_median_coverage=_median_metric([evaluation.requested_coverage_ratio for evaluation in train_evaluations]),
+        train_median_coverage=_median_metric(
+            [evaluation.requested_coverage_ratio for evaluation in train_evaluations]
+        ),
         holdout_median_coverage=(
-            _median_metric([evaluation.requested_coverage_ratio for evaluation in holdout_evaluations])
+            _median_metric(
+                [evaluation.requested_coverage_ratio for evaluation in holdout_evaluations]
+            )
             if holdout_evaluations
             else None
         ),
@@ -569,7 +628,9 @@ def _train_row_sort_key(row: ParameterSearchLeaderboardRow) -> tuple[float, int]
 
 
 def _final_row_sort_key(row: ParameterSearchLeaderboardRow) -> tuple[int, float, float, int]:
-    holdout_rank = row.holdout_median_score if row.holdout_median_score is not None else DEFAULT_INVALID_SCORE
+    holdout_rank = (
+        row.holdout_median_score if row.holdout_median_score is not None else DEFAULT_INVALID_SCORE
+    )
     has_holdout = 0 if row.holdout_median_score is not None else 1
     return (has_holdout, -holdout_rank, -row.train_median_score, row.trial_id)
 
@@ -592,7 +653,9 @@ def _json_safe(value: Any) -> Any:
     return str(value)
 
 
-def _write_leaderboard_csv(*, rows: Sequence[ParameterSearchLeaderboardRow], output_path: Path) -> str:
+def _write_leaderboard_csv(
+    *, rows: Sequence[ParameterSearchLeaderboardRow], output_path: Path
+) -> str:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     fieldnames = [
         "trial_id",
@@ -619,21 +682,31 @@ def _write_leaderboard_csv(*, rows: Sequence[ParameterSearchLeaderboardRow], out
                     "trial_id": row.trial_id,
                     "train_median_score": f"{row.train_median_score:.6f}",
                     "holdout_median_score": (
-                        "" if row.holdout_median_score is None else f"{row.holdout_median_score:.6f}"
+                        ""
+                        if row.holdout_median_score is None
+                        else f"{row.holdout_median_score:.6f}"
                     ),
                     "train_median_pnl": f"{row.train_median_pnl:.6f}",
-                    "holdout_median_pnl": ("" if row.holdout_median_pnl is None else f"{row.holdout_median_pnl:.6f}"),
+                    "holdout_median_pnl": (
+                        "" if row.holdout_median_pnl is None else f"{row.holdout_median_pnl:.6f}"
+                    ),
                     "train_median_drawdown": f"{row.train_median_drawdown:.6f}",
                     "holdout_median_drawdown": (
-                        "" if row.holdout_median_drawdown is None else f"{row.holdout_median_drawdown:.6f}"
+                        ""
+                        if row.holdout_median_drawdown is None
+                        else f"{row.holdout_median_drawdown:.6f}"
                     ),
                     "train_median_fills": f"{row.train_median_fills:.3f}",
                     "holdout_median_fills": (
-                        "" if row.holdout_median_fills is None else f"{row.holdout_median_fills:.3f}"
+                        ""
+                        if row.holdout_median_fills is None
+                        else f"{row.holdout_median_fills:.3f}"
                     ),
                     "train_median_coverage": f"{row.train_median_coverage:.6f}",
                     "holdout_median_coverage": (
-                        "" if row.holdout_median_coverage is None else f"{row.holdout_median_coverage:.6f}"
+                        ""
+                        if row.holdout_median_coverage is None
+                        else f"{row.holdout_median_coverage:.6f}"
                     ),
                     "train_scores_json": json.dumps(list(row.train_scores)),
                     "holdout_scores_json": json.dumps(list(row.holdout_scores)),
@@ -643,7 +716,9 @@ def _write_leaderboard_csv(*, rows: Sequence[ParameterSearchLeaderboardRow], out
     return str(output_path.resolve())
 
 
-def _summary_payload(*, config: ParameterSearchConfig, summary: ParameterSearchSummary) -> dict[str, Any]:
+def _summary_payload(
+    *, config: ParameterSearchConfig, summary: ParameterSearchSummary
+) -> dict[str, Any]:
     best_row = summary.best_row
     return {
         "name": summary.name,
@@ -678,7 +753,9 @@ def _summary_payload(*, config: ParameterSearchConfig, summary: ParameterSearchS
     }
 
 
-def _write_summary_json(*, config: ParameterSearchConfig, summary: ParameterSearchSummary, output_path: Path) -> str:
+def _write_summary_json(
+    *, config: ParameterSearchConfig, summary: ParameterSearchSummary, output_path: Path
+) -> str:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     payload = _summary_payload(config=config, summary=summary)
     output_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -691,10 +768,14 @@ def _format_score(value: float | None) -> str:
     return f"{value:10.4f}"
 
 
-def _print_top_candidates(*, rows: Sequence[ParameterSearchLeaderboardRow], holdout_enabled: bool) -> None:
+def _print_top_candidates(
+    *, rows: Sequence[ParameterSearchLeaderboardRow], holdout_enabled: bool
+) -> None:
     print()
     print("Top candidates")
-    print("trial  train_score  holdout_score  median_pnl  median_dd  median_fills  median_cov  params")
+    print(
+        "trial  train_score  holdout_score  median_pnl  median_dd  median_fills  median_cov  params"
+    )
     for row in rows[:_TOP_CANDIDATE_COUNT]:
         holdout_score = row.holdout_median_score if holdout_enabled else None
         print(
@@ -719,7 +800,9 @@ def run_parameter_search(
     train_rows: dict[int, ParameterSearchLeaderboardRow] = {}
     for trial_id, params in enumerate(sampled_params, start=1):
         train_evaluations = tuple(
-            _evaluate_window(config=config, evaluator=evaluator, trial_id=trial_id, params=params, window=window)
+            _evaluate_window(
+                config=config, evaluator=evaluator, trial_id=trial_id, params=params, window=window
+            )
             for window in config.train_windows
         )
         train_evaluations_by_trial[trial_id] = train_evaluations
@@ -736,7 +819,11 @@ def run_parameter_search(
         for row in rows_by_train[:top_k]:
             holdout_evaluations = tuple(
                 _evaluate_window(
-                    config=config, evaluator=evaluator, trial_id=row.trial_id, params=row.params, window=window
+                    config=config,
+                    evaluator=evaluator,
+                    trial_id=row.trial_id,
+                    params=row.params,
+                    window=window,
                 )
                 for window in config.holdout_windows
             )
@@ -775,7 +862,10 @@ def run_parameter_search(
         f"Parameter search complete for {config.name}: "
         f"evaluated {summary.evaluated_trials} of {summary.candidate_pool_size} parameter combinations."
     )
-    print("Selected params: " + json.dumps(_json_safe(_params_dict(summary.selected_params)), sort_keys=True))
+    print(
+        "Selected params: "
+        + json.dumps(_json_safe(_params_dict(summary.selected_params)), sort_keys=True)
+    )
     print(f"Leaderboard CSV: {summary.leaderboard_csv_path}")
     print(f"Summary JSON: {summary.summary_json_path}")
     _print_top_candidates(rows=summary.leaderboard, holdout_enabled=holdout_enabled)

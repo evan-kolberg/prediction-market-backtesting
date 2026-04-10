@@ -23,7 +23,10 @@ def test_verify_local_raw_mirror_reports_missing_and_corrupt_files(tmp_path: Pat
     good_path = raw_root / raw_relative_path(good_name)
     good_path.parent.mkdir(parents=True, exist_ok=True)
     pq.write_table(
-        pa.table({"market_id": ["0xabc"], "update_type": ["book_snapshot"], "data": ['{"token_id":"1"}']}), good_path
+        pa.table(
+            {"market_id": ["0xabc"], "update_type": ["book_snapshot"], "data": ['{"token_id":"1"}']}
+        ),
+        good_path,
     )
 
     corrupt_path = raw_root / raw_relative_path(corrupt_name)

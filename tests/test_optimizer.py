@@ -9,7 +9,9 @@ import pytest
 from prediction_market_extensions.backtesting import _optimizer as optimizer
 from prediction_market_extensions.backtesting._execution_config import ExecutionModelConfig
 from prediction_market_extensions.backtesting._execution_config import StaticLatencyConfig
-from prediction_market_extensions.backtesting._prediction_market_backtest import PredictionMarketBacktest
+from prediction_market_extensions.backtesting._prediction_market_backtest import (
+    PredictionMarketBacktest,
+)
 from prediction_market_extensions.backtesting._prediction_market_runner import MarketDataConfig
 from prediction_market_extensions.backtesting._replay_specs import QuoteReplay
 from prediction_market_extensions.backtesting.data_sources import PMXT, Polymarket, QuoteTick
@@ -69,7 +71,9 @@ def _make_config(
 
     return optimizer.ParameterSearchConfig(
         name=name,
-        data=MarketDataConfig(platform=Polymarket, data_type=QuoteTick, vendor=PMXT, sources=("local:/tmp/pmxt_raws",)),
+        data=MarketDataConfig(
+            platform=Polymarket, data_type=QuoteTick, vendor=PMXT, sources=("local:/tmp/pmxt_raws",)
+        ),
         base_replay=QuoteReplay(market_slug="demo-market", token_index=0),
         strategy_spec=resolved_strategy_spec,
         parameter_grid=resolved_parameter_grid,
@@ -85,7 +89,10 @@ def _make_config(
         execution=ExecutionModelConfig(
             queue_position=True,
             latency_model=StaticLatencyConfig(
-                base_latency_ms=75.0, insert_latency_ms=10.0, update_latency_ms=5.0, cancel_latency_ms=5.0
+                base_latency_ms=75.0,
+                insert_latency_ms=10.0,
+                update_latency_ms=5.0,
+                cancel_latency_ms=5.0,
             ),
         ),
         artifact_root=tmp_path,
@@ -99,7 +106,9 @@ def test_parameter_search_config_carries_explicit_optimizer_type(tmp_path: Path)
 
 
 def test_sample_parameter_sets_is_deterministic_and_unique(tmp_path: Path) -> None:
-    config = _make_config(tmp_path, parameter_grid={"edge": (1, 1, 2, 3)}, max_trials=2, random_seed=11)
+    config = _make_config(
+        tmp_path, parameter_grid={"edge": (1, 1, 2, 3)}, max_trials=2, random_seed=11
+    )
 
     first = optimizer._sample_parameter_sets(config)
     second = optimizer._sample_parameter_sets(config)
@@ -188,7 +197,9 @@ def test_optimizer_builds_repo_layer_backtest_with_summary_series_enabled(tmp_pa
     )
     window = config.train_windows[0]
 
-    backtest = optimizer._build_backtest(config=config, trial_id=7, window=window, params=(("edge", 5),))
+    backtest = optimizer._build_backtest(
+        config=config, trial_id=7, window=window, params=(("edge", 5),)
+    )
 
     assert isinstance(backtest, PredictionMarketBacktest)
     assert backtest.name == "optimizer_test:train-a:trial-007"
@@ -207,7 +218,9 @@ def test_optimizer_builds_repo_layer_backtest_with_summary_series_enabled(tmp_pa
     assert backtest.strategy_configs[0]["config"]["edge"] == 5
 
 
-def test_build_optimization_window_backtest_supports_generic_holdout_replays(tmp_path: Path) -> None:
+def test_build_optimization_window_backtest_supports_generic_holdout_replays(
+    tmp_path: Path,
+) -> None:
     config = _make_config(tmp_path)
     window = config.holdout_windows[0]
 
@@ -235,8 +248,12 @@ def test_build_optimization_window_backtest_supports_generic_holdout_replays(tmp
     assert backtest.strategy_configs[0]["config"]["edge"] == 2
 
 
-def test_optimizer_reruns_only_top_k_train_candidates_on_holdout_and_selects_by_holdout(tmp_path: Path) -> None:
-    config = _make_config(tmp_path, parameter_grid={"edge": (1, 2, 3)}, max_trials=3, holdout_top_k=2)
+def test_optimizer_reruns_only_top_k_train_candidates_on_holdout_and_selects_by_holdout(
+    tmp_path: Path,
+) -> None:
+    config = _make_config(
+        tmp_path, parameter_grid={"edge": (1, 2, 3)}, max_trials=3, holdout_top_k=2
+    )
     scores = {
         1: {"train-a": 10.0, "train-b": 10.0, "holdout-a": 2.0},
         2: {"train-a": 9.0, "train-b": 9.0, "holdout-a": 7.0},
@@ -280,7 +297,9 @@ def test_optimizer_breaks_holdout_ties_with_train_median_score(tmp_path: Path) -
 
 
 def test_optimizer_keeps_failed_trials_visible_on_leaderboard(tmp_path: Path) -> None:
-    config = _make_config(tmp_path, parameter_grid={"edge": (1, 2)}, max_trials=2, holdout_windows=())
+    config = _make_config(
+        tmp_path, parameter_grid={"edge": (1, 2)}, max_trials=2, holdout_windows=()
+    )
 
     def _evaluator(backtest: PredictionMarketBacktest) -> dict[str, object]:
         edge = backtest.strategy_configs[0]["config"]["edge"]
@@ -298,7 +317,11 @@ def test_optimizer_keeps_failed_trials_visible_on_leaderboard(tmp_path: Path) ->
 
 def test_run_parameter_optimization_writes_artifacts(tmp_path: Path) -> None:
     config = _make_config(
-        tmp_path, name="optimizer_artifact_test", parameter_grid={"edge": (1, 2)}, max_trials=2, holdout_top_k=1
+        tmp_path,
+        name="optimizer_artifact_test",
+        parameter_grid={"edge": (1, 2)},
+        max_trials=2,
+        holdout_top_k=1,
     )
 
     def _evaluator(backtest: PredictionMarketBacktest) -> dict[str, object]:

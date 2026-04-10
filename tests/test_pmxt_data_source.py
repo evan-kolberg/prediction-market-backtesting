@@ -18,12 +18,17 @@ from prediction_market_extensions.backtesting.data_sources.pmxt import PMXT_REMO
 from prediction_market_extensions.backtesting.data_sources.pmxt import PMXT_RAW_ROOT_ENV
 from prediction_market_extensions.backtesting.data_sources.pmxt import PMXT_RELAY_BASE_URL_ENV
 from prediction_market_extensions.backtesting.data_sources.pmxt import PMXT_SOURCE_PRIORITY_ENV
-from prediction_market_extensions.backtesting.data_sources.pmxt import RunnerPolymarketPMXTDataLoader
+from prediction_market_extensions.backtesting.data_sources.pmxt import (
+    RunnerPolymarketPMXTDataLoader,
+)
 from prediction_market_extensions.backtesting.data_sources.pmxt import configured_pmxt_data_source
 
 
 def _make_loader(
-    *, cache_dir: Path | None = None, raw_root: Path | None = None, disable_remote_archive: bool = False
+    *,
+    cache_dir: Path | None = None,
+    raw_root: Path | None = None,
+    disable_remote_archive: bool = False,
 ) -> RunnerPolymarketPMXTDataLoader:
     loader = object.__new__(RunnerPolymarketPMXTDataLoader)
     loader._pmxt_cache_dir = cache_dir
@@ -39,7 +44,9 @@ def _make_loader(
     loader._pmxt_download_progress_callback = None
     loader._pmxt_scan_progress_callback = None
     loader._pmxt_progress_size_cache = {}
-    loader._pmxt_temp_download_root = (cache_dir if cache_dir is not None else Path.cwd()) / ".pmxt-temp-downloads"
+    loader._pmxt_temp_download_root = (
+        cache_dir if cache_dir is not None else Path.cwd()
+    ) / ".pmxt-temp-downloads"
     loader._pmxt_raw_root = raw_root
     loader._pmxt_disable_remote_archive = disable_remote_archive
     loader._reset_http_filesystem()
@@ -99,9 +106,18 @@ def test_configured_pmxt_data_source_preserves_explicit_source_order(monkeypatch
             "-> relay https://relay.vendor.test)"
         )
         assert RunnerPolymarketPMXTDataLoader._resolve_raw_root() == mirror_root
-        assert RunnerPolymarketPMXTDataLoader._resolve_remote_base_url() == "https://archive.vendor.test"
-        assert RunnerPolymarketPMXTDataLoader._resolve_relay_base_url() == "https://relay.vendor.test"
-        assert RunnerPolymarketPMXTDataLoader._resolve_source_priority() == ("raw-remote", "raw-local", "relay-raw")
+        assert (
+            RunnerPolymarketPMXTDataLoader._resolve_remote_base_url()
+            == "https://archive.vendor.test"
+        )
+        assert (
+            RunnerPolymarketPMXTDataLoader._resolve_relay_base_url() == "https://relay.vendor.test"
+        )
+        assert RunnerPolymarketPMXTDataLoader._resolve_source_priority() == (
+            "raw-remote",
+            "raw-local",
+            "relay-raw",
+        )
         assert RunnerPolymarketPMXTDataLoader._resolve_prefetch_workers() == 4
 
     assert os.getenv(PMXT_RAW_ROOT_ENV) is None
@@ -110,7 +126,9 @@ def test_configured_pmxt_data_source_preserves_explicit_source_order(monkeypatch
     assert os.getenv(PMXT_SOURCE_PRIORITY_ENV) is None
 
 
-def test_configured_pmxt_data_source_preserves_existing_prefetch_override(monkeypatch, tmp_path) -> None:
+def test_configured_pmxt_data_source_preserves_existing_prefetch_override(
+    monkeypatch, tmp_path
+) -> None:
     mirror_root = tmp_path / "mirror"
     mirror_root.mkdir()
     monkeypatch.setenv(PMXT_PREFETCH_WORKERS_ENV, "7")
@@ -139,13 +157,17 @@ def test_configured_pmxt_data_source_rejects_cache_explicit_source() -> None:
         "relay-raw:https://relay.vendor.test",
     ],
 )
-def test_configured_pmxt_data_source_rejects_legacy_or_unprefixed_explicit_sources(source: str) -> None:
+def test_configured_pmxt_data_source_rejects_legacy_or_unprefixed_explicit_sources(
+    source: str,
+) -> None:
     with pytest.raises(ValueError, match="Use one of: local:, archive:, relay:"):
         with configured_pmxt_data_source(sources=[source]):
             pass
 
 
-def test_configured_pmxt_data_source_isolates_concurrent_loader_config(monkeypatch, tmp_path) -> None:
+def test_configured_pmxt_data_source_isolates_concurrent_loader_config(
+    monkeypatch, tmp_path
+) -> None:
     monkeypatch.delenv(PMXT_REMOTE_BASE_URL_ENV, raising=False)
     monkeypatch.delenv(PMXT_RELAY_BASE_URL_ENV, raising=False)
     monkeypatch.delenv(PMXT_RAW_ROOT_ENV, raising=False)
@@ -155,7 +177,9 @@ def test_configured_pmxt_data_source_isolates_concurrent_loader_config(monkeypat
     mirror_a.mkdir()
     mirror_b.mkdir()
 
-    async def _capture(sources: list[str]) -> tuple[Path | None, str | None, str | None, tuple[str, ...]]:
+    async def _capture(
+        sources: list[str],
+    ) -> tuple[Path | None, str | None, str | None, tuple[str, ...]]:
         with configured_pmxt_data_source(sources=sources):
             await asyncio.sleep(0)
             return (
@@ -170,8 +194,12 @@ def test_configured_pmxt_data_source_isolates_concurrent_loader_config(monkeypat
         tuple[Path | None, str | None, str | None, tuple[str, ...]],
     ]:
         return await asyncio.gather(
-            _capture([f"local:{mirror_a}", "archive:archive-a.vendor.test", "relay:relay-a.vendor.test"]),
-            _capture([f"local:{mirror_b}", "archive:archive-b.vendor.test", "relay:relay-b.vendor.test"]),
+            _capture(
+                [f"local:{mirror_a}", "archive:archive-a.vendor.test", "relay:relay-a.vendor.test"]
+            ),
+            _capture(
+                [f"local:{mirror_b}", "archive:archive-b.vendor.test", "relay:relay-b.vendor.test"]
+            ),
         )
 
     first, second = asyncio.run(_run())
@@ -282,13 +310,19 @@ def test_runner_loader_honors_explicit_source_priority(monkeypatch) -> None:
 
     monkeypatch.setattr(loader, "_load_cached_market_batches", lambda hour: None)
     monkeypatch.setattr(
-        loader, "_load_remote_market_batches", lambda hour, *, batch_size: calls.append("raw-remote") or None
+        loader,
+        "_load_remote_market_batches",
+        lambda hour, *, batch_size: calls.append("raw-remote") or None,
     )
     monkeypatch.setattr(
-        loader, "_load_local_archive_market_batches", lambda hour, *, batch_size: calls.append("raw-local") or []
+        loader,
+        "_load_local_archive_market_batches",
+        lambda hour, *, batch_size: calls.append("raw-local") or [],
     )
     monkeypatch.setattr(
-        loader, "_load_relay_raw_market_batches", lambda hour, *, batch_size: calls.append("relay-raw") or []
+        loader,
+        "_load_relay_raw_market_batches",
+        lambda hour, *, batch_size: calls.append("relay-raw") or [],
     )
 
     assert loader._load_market_batches(pd.Timestamp("2026-03-21T12:00:00Z"), batch_size=1_000) == []
@@ -304,14 +338,19 @@ def test_runner_loader_uses_instance_archive_url_in_threaded_prefetch(monkeypatc
         seen_urls.append(self._archive_url_for_hour(hour))
         return []
 
-    monkeypatch.setattr(RunnerPolymarketPMXTDataLoader, "_load_market_batches", fake_load_market_batches)
+    monkeypatch.setattr(
+        RunnerPolymarketPMXTDataLoader, "_load_market_batches", fake_load_market_batches
+    )
 
     with configured_pmxt_data_source(sources=["archive:archive.vendor.test"]):
         loader = object.__new__(RunnerPolymarketPMXTDataLoader)
         loader._pmxt_prefetch_workers = 2
         loader._pmxt_remote_base_url = RunnerPolymarketPMXTDataLoader._resolve_remote_base_url()
 
-        assert list(loader._iter_market_batches(hours, batch_size=1_000)) == [(hours[0], []), (hours[1], [])]
+        assert list(loader._iter_market_batches(hours, batch_size=1_000)) == [
+            (hours[0], []),
+            (hours[1], []),
+        ]
 
     assert seen_urls == [
         "https://archive.vendor.test/polymarket_orderbook_2026-03-21T11.parquet",
@@ -365,7 +404,9 @@ def test_runner_loader_uses_user_agent_for_remote_downloads(monkeypatch, tmp_pat
     assert total_bytes == len(payload)
     assert destination.read_bytes() == payload
     assert captured_request is not None
-    assert dict(captured_request.header_items())["User-agent"] == ("prediction-market-backtesting/1.0")
+    assert dict(captured_request.header_items())["User-agent"] == (
+        "prediction-market-backtesting/1.0"
+    )
     assert captured_timeout == 30
 
 
@@ -405,12 +446,14 @@ def test_runner_loader_uses_timeout_for_remote_payload_and_head(monkeypatch) -> 
     loader._pmxt_scan_progress_callback = object()
 
     assert (
-        loader._download_payload_with_progress("https://r2.pmxt.dev/polymarket_orderbook_2026-02-22T12.parquet")
+        loader._download_payload_with_progress(
+            "https://r2.pmxt.dev/polymarket_orderbook_2026-02-22T12.parquet"
+        )
         == payload
     )
-    assert loader._progress_total_bytes("https://r2.pmxt.dev/polymarket_orderbook_2026-02-22T12.parquet") == len(
-        payload
-    )
+    assert loader._progress_total_bytes(
+        "https://r2.pmxt.dev/polymarket_orderbook_2026-02-22T12.parquet"
+    ) == len(payload)
 
     assert len(requests) == 2
     assert requests[0][0].get_method() == "GET"

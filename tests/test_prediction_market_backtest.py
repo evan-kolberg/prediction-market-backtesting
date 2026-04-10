@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from prediction_market_extensions.backtesting._prediction_market_backtest import PredictionMarketBacktest
+from prediction_market_extensions.backtesting._prediction_market_backtest import (
+    PredictionMarketBacktest,
+)
 from prediction_market_extensions.backtesting._prediction_market_runner import MarketDataConfig
 from prediction_market_extensions.backtesting._replay_specs import MarketSimConfig
 
@@ -11,7 +13,9 @@ def _build_backtest(**kwargs) -> PredictionMarketBacktest:
         data=MarketDataConfig(platform="polymarket", data_type="quote_tick", vendor="pmxt"),
         sims=(
             MarketSimConfig(
-                market_slug="demo-market", start_time="2026-02-21T16:00:00Z", end_time="2026-02-21T17:00:00Z"
+                market_slug="demo-market",
+                start_time="2026-02-21T16:00:00Z",
+                end_time="2026-02-21T17:00:00Z",
             ),
         ),
         initial_cash=100.0,

@@ -3,7 +3,9 @@ from __future__ import annotations
 import prediction_market_extensions.backtesting.data_sources as data_sources
 
 from prediction_market_extensions.backtesting._market_data_support import build_single_market_replay
-from prediction_market_extensions.backtesting._market_data_support import resolve_market_data_support
+from prediction_market_extensions.backtesting._market_data_support import (
+    resolve_market_data_support,
+)
 from prediction_market_extensions.backtesting._market_data_support import supported_market_data_keys
 from prediction_market_extensions.backtesting._replay_specs import QuoteReplay
 from prediction_market_extensions.backtesting._replay_specs import TradeReplay
@@ -39,7 +41,9 @@ def test_single_market_replay_construction_is_adapter_owned() -> None:
         support=kalshi, field_values={"market_ticker": "KALSHI-TEST", "lookback_days": 2}
     ) == TradeReplay(market_ticker="KALSHI-TEST", lookback_days=2)
 
-    polymarket = resolve_market_data_support(platform=Polymarket, data_type=TradeTick, vendor=Native)
+    polymarket = resolve_market_data_support(
+        platform=Polymarket, data_type=TradeTick, vendor=Native
+    )
     assert build_single_market_replay(
         support=polymarket, field_values={"market_slug": "demo-market", "token_index": 1}
     ) == TradeReplay(market_slug="demo-market", token_index=1)
@@ -54,7 +58,10 @@ def test_single_market_replay_construction_is_adapter_owned() -> None:
             "end_time": "2026-03-24T08:00:00Z",
         },
     ) == QuoteReplay(
-        market_slug="demo-market", token_index=1, start_time="2026-03-24T03:00:00Z", end_time="2026-03-24T08:00:00Z"
+        market_slug="demo-market",
+        token_index=1,
+        start_time="2026-03-24T03:00:00Z",
+        end_time="2026-03-24T08:00:00Z",
     )
 
 

@@ -3,9 +3,13 @@ from __future__ import annotations
 import asyncio
 from types import SimpleNamespace
 
-from prediction_market_extensions.backtesting import _independent_multi_replay_runner as independent_runner
+from prediction_market_extensions.backtesting import (
+    _independent_multi_replay_runner as independent_runner,
+)
 from prediction_market_extensions.backtesting._prediction_market_backtest import MarketSimConfig
-from prediction_market_extensions.backtesting._prediction_market_backtest import PredictionMarketBacktest
+from prediction_market_extensions.backtesting._prediction_market_backtest import (
+    PredictionMarketBacktest,
+)
 from prediction_market_extensions.backtesting._prediction_market_runner import MarketDataConfig
 
 
@@ -23,7 +27,9 @@ def test_independent_pmxt_runner_forwards_nautilus_log_level(monkeypatch) -> Non
         data=MarketDataConfig(platform="polymarket", data_type="quote_tick", vendor="pmxt"),
         sims=(
             MarketSimConfig(
-                market_slug="demo-market", start_time="2026-02-21T16:00:00Z", end_time="2026-02-21T17:00:00Z"
+                market_slug="demo-market",
+                start_time="2026-02-21T16:00:00Z",
+                end_time="2026-02-21T17:00:00Z",
             ),
         ),
         strategy_factory=lambda instrument_id: SimpleNamespace(instrument_id=instrument_id),
@@ -32,7 +38,9 @@ def test_independent_pmxt_runner_forwards_nautilus_log_level(monkeypatch) -> Non
         nautilus_log_level="INFO",
     )
 
-    results = asyncio.run(independent_runner.run_independent_multi_replay_backtest_async(backtest=backtest))
+    results = asyncio.run(
+        independent_runner.run_independent_multi_replay_backtest_async(backtest=backtest)
+    )
 
     assert len(results) == 1
     assert captured[0].nautilus_log_level == "INFO"
@@ -52,7 +60,9 @@ def test_independent_pmxt_runner_defaults_to_info_log_level(monkeypatch) -> None
         data=MarketDataConfig(platform="polymarket", data_type="quote_tick", vendor="pmxt"),
         sims=(
             MarketSimConfig(
-                market_slug="demo-market", start_time="2026-02-21T16:00:00Z", end_time="2026-02-21T17:00:00Z"
+                market_slug="demo-market",
+                start_time="2026-02-21T16:00:00Z",
+                end_time="2026-02-21T17:00:00Z",
             ),
         ),
         strategy_factory=lambda instrument_id: SimpleNamespace(instrument_id=instrument_id),
@@ -60,7 +70,9 @@ def test_independent_pmxt_runner_defaults_to_info_log_level(monkeypatch) -> None
         probability_window=5,
     )
 
-    results = asyncio.run(independent_runner.run_independent_multi_replay_backtest_async(backtest=backtest))
+    results = asyncio.run(
+        independent_runner.run_independent_multi_replay_backtest_async(backtest=backtest)
+    )
 
     assert len(results) == 1
     assert captured[0].nautilus_log_level == "INFO"
@@ -112,7 +124,9 @@ def test_independent_pmxt_runner_emits_unique_chart_paths_for_repeated_markets(m
         return_summary_series=True,
     )
 
-    results = asyncio.run(independent_runner.run_independent_multi_replay_backtest_async(backtest=backtest))
+    results = asyncio.run(
+        independent_runner.run_independent_multi_replay_backtest_async(backtest=backtest)
+    )
 
     assert len(results) == 2
     assert captured[0].emit_html is True

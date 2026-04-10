@@ -9,7 +9,9 @@ from prediction_market_extensions.backtesting._optimizer import ParameterSearchS
 from prediction_market_extensions.backtesting._optimizer import ParameterSearchWindow
 from prediction_market_extensions.backtesting._optimizer import SEARCH_PLACEHOLDER_PREFIX
 from prediction_market_extensions.backtesting._optimizer import build_optimization_window_backtest
-from prediction_market_extensions.backtesting._optimizer import build_parameter_search_window_backtest
+from prediction_market_extensions.backtesting._optimizer import (
+    build_parameter_search_window_backtest,
+)
 from prediction_market_extensions.backtesting._optimizer import run_parameter_optimization
 from prediction_market_extensions.backtesting._optimizer import run_parameter_search
 

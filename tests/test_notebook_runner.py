@@ -12,7 +12,10 @@ def test_load_notebook_metadata_prefers_explicit_notebook_metadata(tmp_path: Pat
     notebook_path.parent.mkdir(parents=True)
     notebook = nbformat.v4.new_notebook(
         metadata={
-            notebook_runner.NOTEBOOK_METADATA_KEY: {"name": "demo_notebook", "description": "Demo notebook runner"}
+            notebook_runner.NOTEBOOK_METADATA_KEY: {
+                "name": "demo_notebook",
+                "description": "Demo notebook runner",
+            }
         },
         cells=[nbformat.v4.new_code_cell("x = 1")],
     )
@@ -64,7 +67,9 @@ def test_execute_notebook_runner_replaces_auto_embed_cell_with_latest_html(tmp_p
                     ]
                 )
             ),
-            nbformat.v4.new_markdown_cell(notebook_runner.AUTO_EMBED_CELL_MARKER + "\nOld content\n"),
+            nbformat.v4.new_markdown_cell(
+                notebook_runner.AUTO_EMBED_CELL_MARKER + "\nOld content\n"
+            ),
         ]
     )
     nbformat.write(notebook, notebook_path)
@@ -73,7 +78,9 @@ def test_execute_notebook_runner_replaces_auto_embed_cell_with_latest_html(tmp_p
 
     executed = nbformat.read(notebook_path, as_version=4)
     auto_embed_cells = [
-        cell for cell in executed.cells if notebook_runner.AUTO_EMBED_CELL_MARKER in cell.get("source", "")
+        cell
+        for cell in executed.cells
+        if notebook_runner.AUTO_EMBED_CELL_MARKER in cell.get("source", "")
     ]
 
     assert len(auto_embed_cells) == 1

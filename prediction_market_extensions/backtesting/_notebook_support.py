@@ -20,7 +20,9 @@ def find_repo_root(start_path: str | Path | None = None) -> Path:
     start = Path.cwd() if start_path is None else Path(start_path)
     path = start.resolve()
     for candidate in (path, *path.parents):
-        if (candidate / "prediction_market_extensions").is_dir() and (candidate / "backtests").is_dir():
+        if (candidate / "prediction_market_extensions").is_dir() and (
+            candidate / "backtests"
+        ).is_dir():
             return candidate
     raise RuntimeError("Could not locate repository root for notebook execution.")
 
@@ -29,7 +31,9 @@ def ensure_notebook_repo_context(start_path: str | Path | None = None) -> Path:
     repo_root = find_repo_root(start_path)
     if str(repo_root) not in sys.path:
         sys.path.insert(0, str(repo_root))
-    install_commission_patch = importlib.import_module("prediction_market_extensions").install_commission_patch
+    install_commission_patch = importlib.import_module(
+        "prediction_market_extensions"
+    ).install_commission_patch
     install_commission_patch()
     return repo_root
 
@@ -75,7 +79,9 @@ def resolve_optimizer_config(module: Any) -> Any:
         optimizer_config = getattr(module, attribute, None)
         if optimizer_config is not None:
             return optimizer_config
-    raise AttributeError(f"{module!r} does not expose OPTIMIZER, PARAMETER_SEARCH, or OPTIMIZATION.")
+    raise AttributeError(
+        f"{module!r} does not expose OPTIMIZER, PARAMETER_SEARCH, or OPTIMIZATION."
+    )
 
 
 def load_optimizer_handle(module_name: str) -> tuple[Any, Any]:
@@ -114,7 +120,9 @@ def snapshot_html_artifacts(output_root: Path) -> dict[Path, tuple[int, int]]:
     return snapshot
 
 
-def find_updated_html_artifacts(output_root: Path, before: Mapping[Path, tuple[int, int]]) -> list[Path]:
+def find_updated_html_artifacts(
+    output_root: Path, before: Mapping[Path, tuple[int, int]]
+) -> list[Path]:
     if not output_root.exists():
         return []
 

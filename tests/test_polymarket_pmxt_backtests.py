@@ -16,7 +16,11 @@ from strategies import QuoteTickVWAPReversionStrategy
 
 
 INSTRUMENT_ID = InstrumentId(Symbol("PM-TEST-YES"), Venue("POLYMARKET"))
-EXPECTED_PMXT_SOURCES = ("local:/Volumes/LaCie/pmxt_raws", "archive:r2.pmxt.dev", "relay:209-209-10-83.sslip.io")
+EXPECTED_PMXT_SOURCES = (
+    "local:/Volumes/LaCie/pmxt_raws",
+    "archive:r2.pmxt.dev",
+    "relay:209-209-10-83.sslip.io",
+)
 EXPECTED_DETAIL_PLOT_PANELS = (
     "equity",
     "market_pnl",
@@ -40,7 +44,12 @@ EXPECTED_MULTI_SIM_SUMMARY_PLOT_PANELS = (
     "monthly_returns",
     "brier_advantage",
 )
-EXPECTED_25_SIM_SUMMARY_PLOT_PANELS = ("total_equity", "periodic_pnl", "allocation", "monthly_returns")
+EXPECTED_25_SIM_SUMMARY_PLOT_PANELS = (
+    "total_equity",
+    "periodic_pnl",
+    "allocation",
+    "monthly_returns",
+)
 EXPECTED_SINGLE_REPLAY = QuoteReplay(
     market_slug="will-ludvig-aberg-win-the-2026-masters-tournament",
     token_index=0,
@@ -49,7 +58,9 @@ EXPECTED_SINGLE_REPLAY = QuoteReplay(
 )
 
 
-def test_pmxt_single_runner_builds_expected_quote_tick_strategy(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_pmxt_single_runner_builds_expected_quote_tick_strategy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     module = importlib.import_module("backtests.polymarket_quote_tick_ema_crossover")
     captured: dict[str, object] = {}
 
@@ -61,7 +72,9 @@ def test_pmxt_single_runner_builds_expected_quote_tick_strategy(monkeypatch: pyt
 
     module.run()
 
-    strategies = build_strategies_from_configs(strategy_configs=module.STRATEGY_CONFIGS, instrument_id=INSTRUMENT_ID)
+    strategies = build_strategies_from_configs(
+        strategy_configs=module.STRATEGY_CONFIGS, instrument_id=INSTRUMENT_ID
+    )
     assert len(strategies) == 1
     strategy = strategies[0]
 
@@ -75,7 +88,9 @@ def test_pmxt_single_runner_builds_expected_quote_tick_strategy(monkeypatch: pyt
 
 
 def test_pmxt_independent_multi_runner_uses_fixed_windows(monkeypatch: pytest.MonkeyPatch) -> None:
-    module = importlib.import_module("backtests.polymarket_quote_tick_independent_multi_replay_runner")
+    module = importlib.import_module(
+        "backtests.polymarket_quote_tick_independent_multi_replay_runner"
+    )
     captured: dict[str, object] = {}
 
     def _fake_run_experiment(experiment):  # type: ignore[no-untyped-def]
@@ -86,7 +101,9 @@ def test_pmxt_independent_multi_runner_uses_fixed_windows(monkeypatch: pytest.Mo
 
     module.run()
 
-    strategies = build_strategies_from_configs(strategy_configs=module.STRATEGY_CONFIGS, instrument_id=INSTRUMENT_ID)
+    strategies = build_strategies_from_configs(
+        strategy_configs=module.STRATEGY_CONFIGS, instrument_id=INSTRUMENT_ID
+    )
     assert len(strategies) == 1
     strategy = strategies[0]
 
@@ -116,7 +133,9 @@ def test_pmxt_joint_multi_runner_uses_fixed_windows(monkeypatch: pytest.MonkeyPa
 
     module.run()
 
-    strategies = build_strategies_from_configs(strategy_configs=module.STRATEGY_CONFIGS, instrument_id=INSTRUMENT_ID)
+    strategies = build_strategies_from_configs(
+        strategy_configs=module.STRATEGY_CONFIGS, instrument_id=INSTRUMENT_ID
+    )
     assert len(strategies) == 1
     strategy = strategies[0]
 
@@ -134,7 +153,9 @@ def test_pmxt_joint_multi_runner_uses_fixed_windows(monkeypatch: pytest.MonkeyPa
     assert captured["experiment"] is module.EXPERIMENT
 
 
-def test_pmxt_independent_25_replay_runner_uses_fixed_windows(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_pmxt_independent_25_replay_runner_uses_fixed_windows(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     module = importlib.import_module("backtests.polymarket_quote_tick_independent_25_replay_runner")
     captured: dict[str, object] = {}
 
@@ -146,7 +167,9 @@ def test_pmxt_independent_25_replay_runner_uses_fixed_windows(monkeypatch: pytes
 
     module.run()
 
-    strategies = build_strategies_from_configs(strategy_configs=module.STRATEGY_CONFIGS, instrument_id=INSTRUMENT_ID)
+    strategies = build_strategies_from_configs(
+        strategy_configs=module.STRATEGY_CONFIGS, instrument_id=INSTRUMENT_ID
+    )
     assert len(strategies) == 1
     strategy = strategies[0]
 

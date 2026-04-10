@@ -94,14 +94,18 @@ def test_upsert_discovered_hour_is_idempotent(tmp_path: Path):
         ).fetchone()
         assert row is not None
         assert row["archive_page"] == 2
-        assert row["source_url"] == ("https://mirror.example.com/polymarket_orderbook_2026-03-21T12.parquet")
+        assert row["source_url"] == (
+            "https://mirror.example.com/polymarket_orderbook_2026-03-21T12.parquet"
+        )
 
 
 def test_initialize_resets_stale_mirror_rows(tmp_path: Path):
     with RelayIndex(tmp_path / "relay.sqlite3") as index:
         index.initialize()
         filename = "polymarket_orderbook_2026-03-21T12.parquet"
-        index.upsert_discovered_hour(filename, "https://r2.pmxt.dev/polymarket_orderbook_2026-03-21T12.parquet", 1)
+        index.upsert_discovered_hour(
+            filename, "https://r2.pmxt.dev/polymarket_orderbook_2026-03-21T12.parquet", 1
+        )
         index.mark_mirroring(filename)
 
     with RelayIndex(tmp_path / "relay.sqlite3") as reopened:
@@ -153,11 +157,18 @@ def test_relay_index_context_manager_closes_connection(tmp_path: Path):
 def test_queue_summary_reports_latest_mirrored_filename(tmp_path: Path):
     with RelayIndex(tmp_path / "relay.sqlite3") as index:
         index.initialize()
-        filenames = ["polymarket_orderbook_2026-03-21T12.parquet", "polymarket_orderbook_2026-03-21T13.parquet"]
+        filenames = [
+            "polymarket_orderbook_2026-03-21T12.parquet",
+            "polymarket_orderbook_2026-03-21T13.parquet",
+        ]
         for filename in filenames:
             index.upsert_discovered_hour(filename, f"https://r2.pmxt.dev/{filename}", 1)
             index.mark_mirrored(
-                filename, local_path=f"/srv/pmxt-relay/raw/{filename}", etag=None, content_length=1, last_modified=None
+                filename,
+                local_path=f"/srv/pmxt-relay/raw/{filename}",
+                etag=None,
+                content_length=1,
+                last_modified=None,
             )
 
         queue = index.queue_summary()
@@ -172,10 +183,16 @@ def test_error_rows_back_off_until_next_retry(tmp_path: Path):
         filename = "polymarket_orderbook_2026-03-21T12.parquet"
         retry_at = "2026-03-21T13:00:00+00:00"
         index.upsert_discovered_hour(filename, f"https://r2.pmxt.dev/{filename}", 1)
-        index.mark_mirror_retry(filename, error="transient upstream failure", next_retry_at=retry_at)
+        index.mark_mirror_retry(
+            filename, error="transient upstream failure", next_retry_at=retry_at
+        )
 
-        due_now = index.list_hours_needing_mirror(now=datetime(2026, 3, 21, 12, 30, tzinfo=timezone.utc))
-        due_later = index.list_hours_needing_mirror(now=datetime(2026, 3, 21, 13, 30, tzinfo=timezone.utc))
+        due_now = index.list_hours_needing_mirror(
+            now=datetime(2026, 3, 21, 12, 30, tzinfo=timezone.utc)
+        )
+        due_later = index.list_hours_needing_mirror(
+            now=datetime(2026, 3, 21, 13, 30, tzinfo=timezone.utc)
+        )
         queue_now = index.queue_summary(now=datetime(2026, 3, 21, 12, 30, tzinfo=timezone.utc))
 
         assert due_now == []
@@ -192,13 +209,20 @@ def test_quarantined_rows_count_as_errors_until_their_retry_window(tmp_path: Pat
         filename = "polymarket_orderbook_2026-03-21T12.parquet"
         retry_at = "2026-03-21T14:00:00+00:00"
         index.upsert_discovered_hour(filename, f"https://r2.pmxt.dev/{filename}", 1)
-        index.mark_mirror_quarantined(filename, error="HTTP Error 404: Not Found", next_retry_at=retry_at)
+        index.mark_mirror_quarantined(
+            filename, error="HTTP Error 404: Not Found", next_retry_at=retry_at
+        )
 
         stats = index.stats()
         queue_now = index.queue_summary(now=datetime(2026, 3, 21, 13, 0, tzinfo=timezone.utc))
-        due_later = index.list_hours_needing_mirror(now=datetime(2026, 3, 21, 14, 30, tzinfo=timezone.utc))
+        due_later = index.list_hours_needing_mirror(
+            now=datetime(2026, 3, 21, 14, 30, tzinfo=timezone.utc)
+        )
 
-        assert index.list_hours_needing_mirror(now=datetime(2026, 3, 21, 13, 0, tzinfo=timezone.utc)) == []
+        assert (
+            index.list_hours_needing_mirror(now=datetime(2026, 3, 21, 13, 0, tzinfo=timezone.utc))
+            == []
+        )
         assert [row["filename"] for row in due_later] == [filename]
         assert stats["mirror_errors"] == 1
         assert stats["mirror_quarantined"] == 1
@@ -256,7 +280,10 @@ def test_initialize_tolerates_duplicate_column_race_during_schema_upgrade(tmp_pa
                 return self._wrapped.executescript(sql)
 
             def execute(self, sql: str, params=()):  # type: ignore[no-untyped-def]
-                if not self._raised and sql.strip() == "ALTER TABLE archive_hours ADD COLUMN last_error_at TEXT":
+                if (
+                    not self._raised
+                    and sql.strip() == "ALTER TABLE archive_hours ADD COLUMN last_error_at TEXT"
+                ):
                     self._wrapped.execute(sql, params)
                     self._raised = True
                     raise sqlite3.OperationalError("duplicate column name: last_error_at")
@@ -265,6 +292,8 @@ def test_initialize_tolerates_duplicate_column_race_during_schema_upgrade(tmp_pa
         index._conn = _DuplicateColumnRaceConn(real_conn)  # type: ignore[assignment]  # noqa: SLF001
         index.initialize(apply_maintenance=False)
 
-        columns = {row[1] for row in real_conn.execute("PRAGMA table_info(archive_hours)").fetchall()}
+        columns = {
+            row[1] for row in real_conn.execute("PRAGMA table_info(archive_hours)").fetchall()
+        }
         assert "last_error_at" in columns
         assert "next_retry_at" in columns

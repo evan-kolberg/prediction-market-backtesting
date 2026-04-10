@@ -5,15 +5,27 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from prediction_market_extensions.adapters.prediction_market.research import print_backtest_summary
-from prediction_market_extensions.adapters.prediction_market.research import save_aggregate_backtest_report
-from prediction_market_extensions.adapters.prediction_market.research import save_joint_portfolio_backtest_report
-from prediction_market_extensions.analysis.legacy_backtesting.models import DEFAULT_SUMMARY_PLOT_PANELS
+from prediction_market_extensions.adapters.prediction_market.research import (
+    save_aggregate_backtest_report,
+)
+from prediction_market_extensions.adapters.prediction_market.research import (
+    save_joint_portfolio_backtest_report,
+)
+from prediction_market_extensions.analysis.legacy_backtesting.models import (
+    DEFAULT_SUMMARY_PLOT_PANELS,
+)
 
-from prediction_market_extensions.backtesting._backtest_runtime import print_backtest_result_warnings
-from prediction_market_extensions.backtesting.prediction_market.artifacts import resolve_repo_relative_path
+from prediction_market_extensions.backtesting._backtest_runtime import (
+    print_backtest_result_warnings,
+)
+from prediction_market_extensions.backtesting.prediction_market.artifacts import (
+    resolve_repo_relative_path,
+)
 
 if TYPE_CHECKING:
-    from prediction_market_extensions.backtesting._prediction_market_backtest import PredictionMarketBacktest
+    from prediction_market_extensions.backtesting._prediction_market_backtest import (
+        PredictionMarketBacktest,
+    )
 
 
 @dataclass(frozen=True)
@@ -51,7 +63,9 @@ def finalize_market_results(
 
     if report.summary_report and report.summary_report_path is not None:
         plot_panels = (
-            DEFAULT_SUMMARY_PLOT_PANELS if report.summary_plot_panels is None else tuple(report.summary_plot_panels)
+            DEFAULT_SUMMARY_PLOT_PANELS
+            if report.summary_plot_panels is None
+            else tuple(report.summary_plot_panels)
         )
         if multi_replay_mode == "joint_portfolio" and len(results) > 1:
             summary_path = save_joint_portfolio_backtest_report(
@@ -90,7 +104,9 @@ def run_reported_backtest(
             print(empty_message)
         return []
 
-    finalize_market_results(name=backtest.name, results=results, report=report, multi_replay_mode=multi_replay_mode)
+    finalize_market_results(
+        name=backtest.name, results=results, report=report, multi_replay_mode=multi_replay_mode
+    )
     return results
 
 

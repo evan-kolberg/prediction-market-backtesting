@@ -32,7 +32,9 @@ from prediction_market_extensions.adapters.polymarket.market_selection import cl
 from prediction_market_extensions.adapters.polymarket.market_selection import end_date_utc
 from prediction_market_extensions.adapters.polymarket.market_selection import event_start_utc
 from prediction_market_extensions.adapters.polymarket.market_selection import is_game_market
-from prediction_market_extensions.adapters.polymarket.market_selection import is_resolved_sports_market
+from prediction_market_extensions.adapters.polymarket.market_selection import (
+    is_resolved_sports_market,
+)
 from prediction_market_extensions.adapters.polymarket.market_selection import is_sports_market
 from prediction_market_extensions.adapters.polymarket.market_selection import volume_24h
 from prediction_market_extensions.adapters.polymarket.market_selection import yes_price
@@ -49,7 +51,9 @@ GAME_BET_TAG_ID = "100639"
 
 
 def _default_http_client(*, quota_rate_per_second: int) -> nautilus_pyo3.HttpClient:
-    return nautilus_pyo3.HttpClient(default_quota=nautilus_pyo3.Quota.rate_per_second(quota_rate_per_second))
+    return nautilus_pyo3.HttpClient(
+        default_quota=nautilus_pyo3.Quota.rate_per_second(quota_rate_per_second)
+    )
 
 
 def _passes_filters(
@@ -179,7 +183,9 @@ async def _discover_resolved_game_markets_from_events(
                     continue
                 if not is_game_market(market):
                     continue
-                if not is_resolved_sports_market(market, now=now, max_days_since_close=max_days_since_close):
+                if not is_resolved_sports_market(
+                    market, now=now, max_days_since_close=max_days_since_close
+                ):
                     continue
                 seen_slugs.add(slug)
                 collected.append(market)
@@ -214,7 +220,9 @@ async def discover_markets(
     """
     client = http_client
     if client is None:
-        client = nautilus_pyo3.HttpClient(default_quota=nautilus_pyo3.Quota.rate_per_second(quota_rate_per_second))
+        client = nautilus_pyo3.HttpClient(
+            default_quota=nautilus_pyo3.Quota.rate_per_second(quota_rate_per_second)
+        )
 
     filters = {"limit": 200}
     if api_filters is None:
@@ -247,7 +255,10 @@ async def discover_markets(
 
 
 async def fetch_market_by_slug(
-    slug: str, *, http_client: nautilus_pyo3.HttpClient | None = None, quota_rate_per_second: int = 10
+    slug: str,
+    *,
+    http_client: nautilus_pyo3.HttpClient | None = None,
+    quota_rate_per_second: int = 10,
 ) -> dict[str, Any]:
     """
     Fetch one Polymarket market by slug from Gamma.
@@ -255,7 +266,9 @@ async def fetch_market_by_slug(
     client = http_client or _default_http_client(quota_rate_per_second=quota_rate_per_second)
     response = await client.get(url=f"https://gamma-api.polymarket.com/markets/slug/{slug}")
     if response.status != 200:
-        raise RuntimeError(f"HTTP {response.status} while fetching market {slug}: {response.body.decode('utf-8')}")
+        raise RuntimeError(
+            f"HTTP {response.status} while fetching market {slug}: {response.body.decode('utf-8')}"
+        )
 
     payload = msgspec.json.decode(response.body)
     market = payload[0] if isinstance(payload, list) and payload else payload
@@ -320,7 +333,10 @@ async def discover_resolved_sports_markets(
     return await discover_markets(
         candidate_limit=candidate_limit,
         http_client=http_client,
-        api_filters={"closed": True, "end_date_min": min_close_dt.isoformat().replace("+00:00", "Z")},
+        api_filters={
+            "closed": True,
+            "end_date_min": min_close_dt.isoformat().replace("+00:00", "Z"),
+        },
         max_results=max_results,
         quota_rate_per_second=quota_rate_per_second,
         min_volume_24h=min_volume_24h,
@@ -340,7 +356,11 @@ def market_trade_window_bounds(
     normalized_now = now if now is not None else datetime.now(UTC)
     window_end = closed_time_utc(market)
     if window_end is None:
-        window_end = normalized_now if normalized_now.tzinfo is not None else normalized_now.replace(tzinfo=UTC)
+        window_end = (
+            normalized_now
+            if normalized_now.tzinfo is not None
+            else normalized_now.replace(tzinfo=UTC)
+        )
 
     activation_start = None
     if active_window_hours > 0:
@@ -348,7 +368,9 @@ def market_trade_window_bounds(
 
     game_start = event_start_utc(market)
     if game_start is not None:
-        activation_start = game_start if activation_start is None else max(game_start, activation_start)
+        activation_start = (
+            game_start if activation_start is None else max(game_start, activation_start)
+        )
 
     if activation_start is not None and activation_start > window_end:
         activation_start = window_end
@@ -368,13 +390,17 @@ async def analyze_market_trade_window(
     """
     Pick the Polymarket token side with the earliest entry breakout in the active window.
     """
-    activation_start, window_end = market_trade_window_bounds(market, active_window_hours=active_window_hours, now=now)
+    activation_start, window_end = market_trade_window_bounds(
+        market, active_window_hours=active_window_hours, now=now
+    )
     if window_end is None:
         return None
 
     start = pd.Timestamp(window_end - timedelta(days=lookback_days))
     end = pd.Timestamp(window_end)
-    activation_start_ns = int(pd.Timestamp(activation_start).value) if activation_start is not None else 0
+    activation_start_ns = (
+        int(pd.Timestamp(activation_start).value) if activation_start is not None else 0
+    )
     slug = str(market.get("slug") or market.get("market_slug") or "")
     if not slug:
         return None
@@ -382,7 +408,9 @@ async def analyze_market_trade_window(
     snapshots: list[dict[str, Any]] = []
     for token_index in (0, 1):
         try:
-            loader = await PolymarketDataLoader.from_market_slug(slug, token_index=token_index, http_client=http_client)
+            loader = await PolymarketDataLoader.from_market_slug(
+                slug, token_index=token_index, http_client=http_client
+            )
             trades = await loader.load_trades(start, end)
         except Exception:
             continue
@@ -392,7 +420,9 @@ async def analyze_market_trade_window(
 
         prices = [float(trade.price) for trade in trades]
         active_trades = [
-            trade for trade in trades if activation_start_ns <= 0 or int(trade.ts_event) >= activation_start_ns
+            trade
+            for trade in trades
+            if activation_start_ns <= 0 or int(trade.ts_event) >= activation_start_ns
         ]
         active_prices = [float(trade.price) for trade in active_trades]
 
@@ -406,13 +436,17 @@ async def analyze_market_trade_window(
             current_price = float(current_trade.price)
             if previous_price < entry_price <= current_price:
                 crossed_entry = True
-                entry_cross_time = pd.Timestamp(int(current_trade.ts_event), unit="ns", tz="UTC").isoformat()
+                entry_cross_time = pd.Timestamp(
+                    int(current_trade.ts_event), unit="ns", tz="UTC"
+                ).isoformat()
                 break
 
         snapshot = dict(market)
         snapshot["analysis_window_start"] = start.isoformat()
         snapshot["analysis_window_end"] = end.isoformat()
-        snapshot["activation_start"] = activation_start.isoformat() if activation_start is not None else None
+        snapshot["activation_start"] = (
+            activation_start.isoformat() if activation_start is not None else None
+        )
         snapshot["window_trades"] = len(trades)
         snapshot["first_window_price"] = prices[0]
         snapshot["max_window_price"] = max(prices)
@@ -452,7 +486,12 @@ async def analyze_market_trade_window(
 
 
 async def load_market_trades(
-    *, slug: str, start: pd.Timestamp, end: pd.Timestamp, min_trades: int = 0, min_price_range: float = 0.0
+    *,
+    slug: str,
+    start: pd.Timestamp,
+    end: pd.Timestamp,
+    min_trades: int = 0,
+    min_price_range: float = 0.0,
 ) -> tuple[PolymarketDataLoader, list[TradeTick]] | None:
     """
     Load and validate trade history for a Polymarket market slug.

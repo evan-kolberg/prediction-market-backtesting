@@ -48,7 +48,9 @@ def _root_notice_paths() -> set[str]:
 
 
 def test_notice_lists_all_root_lgpl_files() -> None:
-    root_lgpl_files = {relative_path for relative_path in _tracked_files() if _has_root_lgpl_header(relative_path)}
+    root_lgpl_files = {
+        relative_path for relative_path in _tracked_files() if _has_root_lgpl_header(relative_path)
+    }
     notice_paths = _root_notice_paths()
 
     assert root_lgpl_files == notice_paths

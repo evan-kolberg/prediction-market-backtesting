@@ -7,7 +7,11 @@ from prediction_market_extensions.backtesting._replay_specs import QuoteReplay
 from prediction_market_extensions.backtesting.optimizers import ParameterSearchWindow
 
 
-EXPECTED_PMXT_SOURCES = ("local:/Volumes/LaCie/pmxt_raws", "archive:r2.pmxt.dev", "relay:209-209-10-83.sslip.io")
+EXPECTED_PMXT_SOURCES = (
+    "local:/Volumes/LaCie/pmxt_raws",
+    "archive:r2.pmxt.dev",
+    "relay:209-209-10-83.sslip.io",
+)
 EXPECTED_PMXT_LATENCY = {
     "base_latency_ms": 75.0,
     "insert_latency_ms": 10.0,
@@ -40,11 +44,18 @@ EXPECTED_MULTI_SIM_SUMMARY_PLOT_PANELS = (
     "monthly_returns",
     "brier_advantage",
 )
-EXPECTED_25_SIM_SUMMARY_PLOT_PANELS = ("total_equity", "periodic_pnl", "allocation", "monthly_returns")
+EXPECTED_25_SIM_SUMMARY_PLOT_PANELS = (
+    "total_equity",
+    "periodic_pnl",
+    "allocation",
+    "monthly_returns",
+)
 
 BACKTESTS_ROOT = Path(__file__).resolve().parents[1] / "backtests"
 SINGLE_RUNNER = BACKTESTS_ROOT / "polymarket_quote_tick_ema_crossover.py"
-INDEPENDENT_MULTI_RUNNER = BACKTESTS_ROOT / "polymarket_quote_tick_independent_multi_replay_runner.py"
+INDEPENDENT_MULTI_RUNNER = (
+    BACKTESTS_ROOT / "polymarket_quote_tick_independent_multi_replay_runner.py"
+)
 JOINT_MULTI_RUNNER = BACKTESTS_ROOT / "polymarket_quote_tick_joint_portfolio_runner.py"
 RUNNER_25 = BACKTESTS_ROOT / "polymarket_quote_tick_independent_25_replay_runner.py"
 OPTIMIZER_RUNNER = BACKTESTS_ROOT / "polymarket_quote_tick_ema_optimizer.py"
@@ -60,18 +71,26 @@ EXPECTED_OPTIMIZER_BASE_REPLAY = QuoteReplay(
 )
 EXPECTED_OPTIMIZER_TRAIN_WINDOWS = (
     ParameterSearchWindow(
-        name="sample-a-full-window", start_time="2026-04-05T00:00:00Z", end_time="2026-04-07T23:59:59Z"
+        name="sample-a-full-window",
+        start_time="2026-04-05T00:00:00Z",
+        end_time="2026-04-07T23:59:59Z",
     ),
     ParameterSearchWindow(
-        name="sample-b-2026-04-06-day", start_time="2026-04-06T00:00:00Z", end_time="2026-04-06T23:59:59Z"
+        name="sample-b-2026-04-06-day",
+        start_time="2026-04-06T00:00:00Z",
+        end_time="2026-04-06T23:59:59Z",
     ),
     ParameterSearchWindow(
-        name="sample-c-2026-04-07-late", start_time="2026-04-07T12:00:00Z", end_time="2026-04-07T23:59:59Z"
+        name="sample-c-2026-04-07-late",
+        start_time="2026-04-07T12:00:00Z",
+        end_time="2026-04-07T23:59:59Z",
     ),
 )
 EXPECTED_OPTIMIZER_HOLDOUT_WINDOWS = (
     ParameterSearchWindow(
-        name="sample-d-close-window", start_time="2026-04-07T00:00:00Z", end_time="2026-04-07T11:59:59Z"
+        name="sample-d-close-window",
+        start_time="2026-04-07T00:00:00Z",
+        end_time="2026-04-07T11:59:59Z",
     ),
 )
 
@@ -121,7 +140,9 @@ def test_quote_tick_independent_runner_uses_explicit_summary_plot_contract() -> 
     assert module.EXPERIMENT.multi_replay_mode == "independent"
     assert len(module.REPLAYS) == 8
     assert len({replay.market_slug for replay in module.REPLAYS}) == 8
-    assert len({str((replay.metadata or {}).get("sim_label")) for replay in module.REPLAYS}) == len(module.REPLAYS)
+    assert len({str((replay.metadata or {}).get("sim_label")) for replay in module.REPLAYS}) == len(
+        module.REPLAYS
+    )
     for replay in module.REPLAYS:
         assert replay.market_slug
         assert replay.token_index == 0
@@ -160,7 +181,9 @@ def test_quote_tick_25_sim_runner_uses_explicit_summary_plot_contract() -> None:
     assert module.EXPERIMENT.multi_replay_mode == "independent"
     assert len(module.REPLAYS) == 25
     assert len({replay.market_slug for replay in module.REPLAYS}) >= 8
-    assert len({str((replay.metadata or {}).get("sim_label")) for replay in module.REPLAYS}) == len(module.REPLAYS)
+    assert len({str((replay.metadata or {}).get("sim_label")) for replay in module.REPLAYS}) == len(
+        module.REPLAYS
+    )
     for replay in module.REPLAYS:
         assert replay.market_slug
         assert replay.token_index == 0

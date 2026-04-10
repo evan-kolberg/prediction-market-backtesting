@@ -87,7 +87,9 @@ def test_plotting_docs_distinguish_portfolio_and_comparison_summary_panels() -> 
 
     assert "portfolio-wide panels collapse the whole basket into one combined series" in normalized
     assert "comparison panels keep one line per market or per labeled sim" in normalized
-    assert ("`total_equity`, `periodic_pnl`, and `monthly_returns` are portfolio-wide summary panels") in normalized
+    assert (
+        "`total_equity`, `periodic_pnl`, and `monthly_returns` are portfolio-wide summary panels"
+    ) in normalized
     assert (
         "`equity`, `allocation`, `drawdown`, `rolling_sharpe`, `cash_equity`, "
         "and `brier_advantage` are comparison panels"

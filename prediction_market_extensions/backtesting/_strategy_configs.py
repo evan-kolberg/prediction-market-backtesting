@@ -16,7 +16,9 @@ type StrategyConfigSpec = Mapping[str, Any]
 _PRIMARY_INSTRUMENT_SENTINELS = {None, "__PRIMARY_INSTRUMENT__", "__PRIMARY_INSTRUMENTS__"}
 
 
-def _normalized_config(*, raw_config: Mapping[str, Any], instrument_id: InstrumentId) -> dict[str, Any]:
+def _normalized_config(
+    *, raw_config: Mapping[str, Any], instrument_id: InstrumentId
+) -> dict[str, Any]:
     config = deepcopy(dict(raw_config))
     instrument_ids = config.get("instrument_ids")
     if instrument_ids is None or instrument_ids == "__PRIMARY_INSTRUMENTS__":
@@ -63,7 +65,9 @@ def build_strategies_from_configs(
     ]
 
 
-def resolve_strategy_factory(*, strategy_factory, strategy_configs: Sequence[StrategyConfigSpec] | None):
+def resolve_strategy_factory(
+    *, strategy_factory, strategy_configs: Sequence[StrategyConfigSpec] | None
+):
     if strategy_factory is not None and strategy_configs:
         raise ValueError("Use strategy_factory or strategy_configs, not both.")
     if strategy_factory is not None:
@@ -72,7 +76,9 @@ def resolve_strategy_factory(*, strategy_factory, strategy_configs: Sequence[Str
         raise ValueError("strategy_configs is required when strategy_factory is not provided.")
 
     def _factory(instrument_id: InstrumentId) -> Strategy:
-        strategies = build_strategies_from_configs(strategy_configs=strategy_configs, instrument_id=instrument_id)
+        strategies = build_strategies_from_configs(
+            strategy_configs=strategy_configs, instrument_id=instrument_id
+        )
         if len(strategies) != 1:
             raise ValueError(
                 "Prediction-market single-market runners currently support exactly one strategy config per run."

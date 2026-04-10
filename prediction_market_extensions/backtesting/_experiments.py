@@ -14,8 +14,12 @@ import pandas as pd
 
 from prediction_market_extensions.backtesting._execution_config import ExecutionModelConfig
 from prediction_market_extensions.backtesting._prediction_market_backtest import MarketReportConfig
-from prediction_market_extensions.backtesting._prediction_market_backtest import PredictionMarketBacktest
-from prediction_market_extensions.backtesting._prediction_market_backtest import finalize_market_results
+from prediction_market_extensions.backtesting._prediction_market_backtest import (
+    PredictionMarketBacktest,
+)
+from prediction_market_extensions.backtesting._prediction_market_backtest import (
+    finalize_market_results,
+)
 from prediction_market_extensions.backtesting._result_policies import ResultPolicy
 from prediction_market_extensions.backtesting._replay_specs import ReplaySpec
 from prediction_market_extensions.backtesting._strategy_configs import StrategyConfigSpec
@@ -209,7 +213,9 @@ def replay_experiment_from_backtest(
 
 async def run_replay_experiment_async(experiment: ReplayExperiment) -> list[dict[str, Any]]:
     backtest = build_backtest_for_experiment(experiment)
-    results = await _run_replay_backtest_async(backtest=backtest, multi_replay_mode=experiment.multi_replay_mode)
+    results = await _run_replay_backtest_async(
+        backtest=backtest, multi_replay_mode=experiment.multi_replay_mode
+    )
     if not results:
         if experiment.empty_message:
             print(experiment.empty_message)
@@ -221,7 +227,9 @@ async def run_replay_experiment_async(experiment: ReplayExperiment) -> list[dict
             results = transformed
 
     if experiment.partial_message and len(results) < len(experiment.replays):
-        print(experiment.partial_message.format(completed=len(results), total=len(experiment.replays)))
+        print(
+            experiment.partial_message.format(completed=len(results), total=len(experiment.replays))
+        )
 
     if experiment.report is not None:
         finalize_market_results(
@@ -241,7 +249,9 @@ def _dispatch_multi_replay_runner(backtest: PredictionMarketBacktest) -> list[di
     return asyncio.run(run_independent_multi_replay_backtest_async(backtest=backtest))
 
 
-async def _dispatch_multi_replay_runner_async(backtest: PredictionMarketBacktest) -> list[dict[str, Any]]:
+async def _dispatch_multi_replay_runner_async(
+    backtest: PredictionMarketBacktest,
+) -> list[dict[str, Any]]:
     from prediction_market_extensions.backtesting._independent_multi_replay_runner import (
         run_independent_multi_replay_backtest_async,
     )
@@ -265,7 +275,9 @@ async def _run_replay_backtest_async(
     return await backtest.run_async()
 
 
-def _finalize_replay_results(experiment: ReplayExperiment, results: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _finalize_replay_results(
+    experiment: ReplayExperiment, results: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
     """Apply result policies, print status messages, and run report finalization."""
     if not results:
         if experiment.empty_message:
@@ -273,7 +285,9 @@ def _finalize_replay_results(experiment: ReplayExperiment, results: list[dict[st
         return []
 
     if experiment.partial_message and len(results) < len(experiment.replays):
-        print(experiment.partial_message.format(completed=len(results), total=len(experiment.replays)))
+        print(
+            experiment.partial_message.format(completed=len(results), total=len(experiment.replays))
+        )
 
     if experiment.result_policy is not None:
         transformed = experiment.result_policy.apply(results)
@@ -309,12 +323,16 @@ def run_experiment(experiment: Experiment) -> list[dict[str, Any]] | ParameterSe
     return _finalize_replay_results(experiment, results)
 
 
-async def run_experiment_async(experiment: Experiment) -> list[dict[str, Any]] | ParameterSearchSummary:
+async def run_experiment_async(
+    experiment: Experiment,
+) -> list[dict[str, Any]] | ParameterSearchSummary:
     if isinstance(experiment, ParameterSearchExperiment):
         return await asyncio.to_thread(run_parameter_search, experiment.parameter_search)
 
     backtest = build_backtest_for_experiment(experiment)
-    results = await _run_replay_backtest_async(backtest=backtest, multi_replay_mode=experiment.multi_replay_mode)
+    results = await _run_replay_backtest_async(
+        backtest=backtest, multi_replay_mode=experiment.multi_replay_mode
+    )
     return _finalize_replay_results(experiment, results)
 
 

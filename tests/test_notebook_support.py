@@ -11,7 +11,9 @@ from prediction_market_extensions.backtesting import _notebook_support as notebo
 from prediction_market_extensions.backtesting._timing_harness import ENABLE_TIMING_ENV
 
 
-def test_ensure_notebook_repo_context_finds_repo_root_and_bootstraps_path(monkeypatch, tmp_path: Path) -> None:
+def test_ensure_notebook_repo_context_finds_repo_root_and_bootstraps_path(
+    monkeypatch, tmp_path: Path
+) -> None:
     repo_root = tmp_path / "repo"
     nested = repo_root / "backtests" / "nested"
     nested.mkdir(parents=True)
@@ -23,7 +25,9 @@ def test_ensure_notebook_repo_context_finds_repo_root_and_bootstraps_path(monkey
     monkeypatch.setattr(
         notebook_support.importlib,
         "import_module",
-        lambda name: SimpleNamespace(install_commission_patch=lambda: commission_calls.append(name)),
+        lambda name: SimpleNamespace(
+            install_commission_patch=lambda: commission_calls.append(name)
+        ),
     )
 
     resolved = notebook_support.ensure_notebook_repo_context()
@@ -36,9 +40,13 @@ def test_ensure_notebook_repo_context_finds_repo_root_and_bootstraps_path(monkey
 
 
 def test_load_optimizer_handle_prefers_optimizer_attribute(monkeypatch) -> None:
-    module = SimpleNamespace(OPTIMIZER="preferred", PARAMETER_SEARCH="secondary", OPTIMIZATION="legacy")
+    module = SimpleNamespace(
+        OPTIMIZER="preferred", PARAMETER_SEARCH="secondary", OPTIMIZATION="legacy"
+    )
     monkeypatch.setattr(
-        notebook_support.importlib, "import_module", lambda name: module if name == "demo.module" else None
+        notebook_support.importlib,
+        "import_module",
+        lambda name: module if name == "demo.module" else None,
     )
 
     loaded_module, optimizer_config = notebook_support.load_optimizer_handle("demo.module")
@@ -107,14 +115,18 @@ class _DummyOptimizerConfig:
 def test_build_research_parameter_search_clamps_limits() -> None:
     config = _DummyOptimizerConfig()
 
-    updated = notebook_support.build_research_parameter_search(config, max_trials=10, holdout_top_k=5)
+    updated = notebook_support.build_research_parameter_search(
+        config, max_trials=10, holdout_top_k=5
+    )
 
     assert updated.name == "demo_research"
     assert updated.max_trials == 4
     assert updated.holdout_top_k == 2
 
 
-def test_display_html_artifacts_prefers_summary_report_and_lists_extras(monkeypatch, tmp_path: Path) -> None:
+def test_display_html_artifacts_prefers_summary_report_and_lists_extras(
+    monkeypatch, tmp_path: Path
+) -> None:
     summary = tmp_path / "demo_joint_portfolio.html"
     detail = tmp_path / "demo_detail_legacy.html"
     summary.write_text("<html><body>summary</body></html>", encoding="utf-8")
@@ -129,7 +141,9 @@ def test_display_html_artifacts_prefers_summary_report_and_lists_extras(monkeypa
     monkeypatch.setitem(sys.modules, "IPython", SimpleNamespace(display=fake_display_module))
     monkeypatch.setitem(sys.modules, "IPython.display", fake_display_module)
 
-    notebook_support.display_html_artifacts([detail.resolve(), summary.resolve()], repo_root=tmp_path)
+    notebook_support.display_html_artifacts(
+        [detail.resolve(), summary.resolve()], repo_root=tmp_path
+    )
 
     assert displayed[0][0] == "Markdown"
     assert "demo_joint_portfolio.html" in displayed[0][1]

@@ -72,7 +72,12 @@ class _VWAPReversionBase(LongOnlyPredictionMarketStrategy):
         self._size_sum += size
 
     def _on_price_size(
-        self, *, price: float, size: float, entry_price: float | None = None, visible_size: float | None = None
+        self,
+        *,
+        price: float,
+        size: float,
+        entry_price: float | None = None,
+        visible_size: float | None = None,
     ) -> None:
         if self._pending:
             return
@@ -88,11 +93,14 @@ class _VWAPReversionBase(LongOnlyPredictionMarketStrategy):
         if not self._in_position():
             if price <= vwap - float(self.config.entry_threshold):
                 self._submit_entry(
-                    reference_price=price if entry_price is None else entry_price, visible_size=visible_size
+                    reference_price=price if entry_price is None else entry_price,
+                    visible_size=visible_size,
                 )
             return
 
-        if self._risk_exit(price=price, take_profit=self.config.take_profit, stop_loss=self.config.stop_loss):
+        if self._risk_exit(
+            price=price, take_profit=self.config.take_profit, stop_loss=self.config.stop_loss
+        ):
             return
 
         if price >= vwap - float(self.config.exit_threshold):

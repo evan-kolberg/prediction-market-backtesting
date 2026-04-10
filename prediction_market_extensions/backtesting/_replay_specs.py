@@ -49,8 +49,14 @@ class MarketSimConfig:
     metadata: Mapping[str, Any] | None = None
 
 
-def coerce_legacy_market_sim_config(*, platform: str, data_type: str, vendor: str, sim: MarketSimConfig) -> ReplaySpec:
-    normalized_key = (platform.strip().casefold(), data_type.strip().casefold(), vendor.strip().casefold())
+def coerce_legacy_market_sim_config(
+    *, platform: str, data_type: str, vendor: str, sim: MarketSimConfig
+) -> ReplaySpec:
+    normalized_key = (
+        platform.strip().casefold(),
+        data_type.strip().casefold(),
+        vendor.strip().casefold(),
+    )
 
     if normalized_key == ("kalshi", "trade_tick", "native"):
         if sim.market_ticker is None:

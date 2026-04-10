@@ -68,5 +68,11 @@ class KalshiLiveDataClientFactory(LiveDataClientFactory):
         """
         provider = KalshiInstrumentProvider(config=config)
         return KalshiDataClient(
-            loop=loop, msgbus=msgbus, cache=cache, clock=clock, instrument_provider=provider, config=config, name=name
+            loop=loop,
+            msgbus=msgbus,
+            cache=cache,
+            clock=clock,
+            instrument_provider=provider,
+            config=config,
+            name=name,
         )

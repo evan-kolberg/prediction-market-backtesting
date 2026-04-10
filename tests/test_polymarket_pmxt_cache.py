@@ -14,7 +14,9 @@ from prediction_market_extensions.adapters.polymarket import pmxt as pmxt_module
 from prediction_market_extensions.adapters.polymarket.pmxt import PolymarketPMXTDataLoader
 
 
-def _make_loader(cache_dir: Path | None, *, local_archive_dir: Path | None = None) -> PolymarketPMXTDataLoader:
+def _make_loader(
+    cache_dir: Path | None, *, local_archive_dir: Path | None = None
+) -> PolymarketPMXTDataLoader:
     loader = object.__new__(PolymarketPMXTDataLoader)
     loader._pmxt_cache_dir = cache_dir
     loader._pmxt_local_archive_dir = local_archive_dir
@@ -27,7 +29,9 @@ def _make_loader(cache_dir: Path | None, *, local_archive_dir: Path | None = Non
     loader._pmxt_download_progress_callback = None
     loader._pmxt_scan_progress_callback = None
     loader._pmxt_progress_size_cache = {}
-    loader._pmxt_temp_download_root = (cache_dir if cache_dir is not None else Path.cwd()) / ".pmxt-temp-downloads"
+    loader._pmxt_temp_download_root = (
+        cache_dir if cache_dir is not None else Path.cwd()
+    ) / ".pmxt-temp-downloads"
     loader._reset_http_filesystem()
     return loader
 
@@ -37,7 +41,9 @@ def test_resolve_cache_dir_defaults_to_xdg_cache_home(monkeypatch, tmp_path):
     monkeypatch.delenv(PolymarketPMXTDataLoader._PMXT_DISABLE_CACHE_ENV, raising=False)
     monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "xdg-cache"))
 
-    assert PolymarketPMXTDataLoader._resolve_cache_dir() == (tmp_path / "xdg-cache" / "nautilus_trader" / "pmxt")
+    assert PolymarketPMXTDataLoader._resolve_cache_dir() == (
+        tmp_path / "xdg-cache" / "nautilus_trader" / "pmxt"
+    )
 
 
 def test_resolve_prefetch_workers_parses_env(monkeypatch):
@@ -55,7 +61,9 @@ def test_resolve_relay_base_url_parses_env(monkeypatch):
     monkeypatch.delenv(PolymarketPMXTDataLoader._PMXT_RELAY_BASE_URL_ENV, raising=False)
     assert PolymarketPMXTDataLoader._resolve_relay_base_url() == "https://209-209-10-83.sslip.io"
 
-    monkeypatch.setenv(PolymarketPMXTDataLoader._PMXT_RELAY_BASE_URL_ENV, "http://relay.local:8080/")
+    monkeypatch.setenv(
+        PolymarketPMXTDataLoader._PMXT_RELAY_BASE_URL_ENV, "http://relay.local:8080/"
+    )
     assert PolymarketPMXTDataLoader._resolve_relay_base_url() == "http://relay.local:8080"
 
     monkeypatch.setenv(PolymarketPMXTDataLoader._PMXT_RELAY_BASE_URL_ENV, "0")
@@ -66,7 +74,9 @@ def test_resolve_local_archive_dir_parses_env(monkeypatch, tmp_path):
     monkeypatch.delenv(PolymarketPMXTDataLoader._PMXT_LOCAL_ARCHIVE_DIR_ENV, raising=False)
     assert PolymarketPMXTDataLoader._resolve_local_archive_dir() is None
 
-    monkeypatch.setenv(PolymarketPMXTDataLoader._PMXT_LOCAL_ARCHIVE_DIR_ENV, str(tmp_path / "pmxt-archive"))
+    monkeypatch.setenv(
+        PolymarketPMXTDataLoader._PMXT_LOCAL_ARCHIVE_DIR_ENV, str(tmp_path / "pmxt-archive")
+    )
     assert PolymarketPMXTDataLoader._resolve_local_archive_dir() == (tmp_path / "pmxt-archive")
 
     monkeypatch.setenv(PolymarketPMXTDataLoader._PMXT_LOCAL_ARCHIVE_DIR_ENV, "0")
@@ -129,7 +139,10 @@ def test_load_market_table_prefers_cached_table(tmp_path):
     loader = _make_loader(tmp_path)
     hour = pd.Timestamp("2026-03-16T13:00:00Z")
     cached_table = pa.table(
-        {"update_type": ["book_snapshot"], "data": ['{"token_id":"token-yes-123","payload":"cached"}']}
+        {
+            "update_type": ["book_snapshot"],
+            "data": ['{"token_id":"token-yes-123","payload":"cached"}'],
+        }
     )
     loader._write_market_cache(hour, cached_table)
 
@@ -194,7 +207,9 @@ def test_load_market_batches_prefers_local_archive_before_relay(tmp_path):
     batches = loader._load_market_batches(hour, batch_size=1_000)
 
     assert batches is not None
-    assert batches[0].column("data")[0].as_py() == ('{"token_id":"token-yes-123","payload":"local-raw"}')
+    assert batches[0].column("data")[0].as_py() == (
+        '{"token_id":"token-yes-123","payload":"local-raw"}'
+    )
 
 
 def test_scan_raw_market_batches_emits_scan_progress(tmp_path):
@@ -216,8 +231,10 @@ def test_scan_raw_market_batches_emits_scan_progress(tmp_path):
 
     events: list[tuple[int, int, int, int | None, bool]] = []
     loader._pmxt_scan_progress_callback = (
-        lambda _source, scanned_batches, scanned_rows, matched_rows, total_bytes, finished: events.append(  # type: ignore[assignment]
-            (scanned_batches, scanned_rows, matched_rows, total_bytes, finished)
+        lambda _source, scanned_batches, scanned_rows, matched_rows, total_bytes, finished: (
+            events.append(  # type: ignore[assignment]
+                (scanned_batches, scanned_rows, matched_rows, total_bytes, finished)
+            )
         )
     )
 
@@ -237,7 +254,10 @@ def test_load_market_batches_falls_back_to_remote_when_relay_errors(tmp_path, mo
     loader._pmxt_relay_base_url = "http://relay.local:8080"
     hour = pd.Timestamp("2026-03-16T13:00:00Z")
     remote_batch = pa.record_batch(
-        [pa.array(["book_snapshot"]), pa.array(['{"token_id":"token-yes-123","payload":"remote"}'])],
+        [
+            pa.array(["book_snapshot"]),
+            pa.array(['{"token_id":"token-yes-123","payload":"remote"}']),
+        ],
         names=["update_type", "data"],
     )
 
@@ -258,11 +278,17 @@ def test_load_market_batches_prefers_remote_before_relay_raw(tmp_path):
     loader._pmxt_relay_base_url = "http://relay.local:8080"
     hour = pd.Timestamp("2026-03-16T13:00:00Z")
     remote_batch = pa.record_batch(
-        [pa.array(["book_snapshot"]), pa.array(['{"token_id":"token-yes-123","payload":"remote"}'])],
+        [
+            pa.array(["book_snapshot"]),
+            pa.array(['{"token_id":"token-yes-123","payload":"remote"}']),
+        ],
         names=["update_type", "data"],
     )
     relay_raw_batch = pa.record_batch(
-        [pa.array(["book_snapshot"]), pa.array(['{"token_id":"token-yes-123","payload":"relay-raw"}'])],
+        [
+            pa.array(["book_snapshot"]),
+            pa.array(['{"token_id":"token-yes-123","payload":"relay-raw"}']),
+        ],
         names=["update_type", "data"],
     )
 
@@ -299,7 +325,10 @@ def test_load_market_batches_prefers_local_archive_before_relay_raw(tmp_path):
     )
 
     relay_raw_batch = pa.record_batch(
-        [pa.array(["book_snapshot"]), pa.array(['{"token_id":"token-yes-123","payload":"relay-raw"}'])],
+        [
+            pa.array(["book_snapshot"]),
+            pa.array(['{"token_id":"token-yes-123","payload":"relay-raw"}']),
+        ],
         names=["update_type", "data"],
     )
     loader._load_relay_market_batches = lambda _hour, *, batch_size: None  # type: ignore[method-assign]
@@ -310,7 +339,9 @@ def test_load_market_batches_prefers_local_archive_before_relay_raw(tmp_path):
     batches = loader._load_market_batches(hour, batch_size=1_000)
 
     assert batches is not None
-    assert batches[0].column("data")[0].as_py() == ('{"token_id":"token-yes-123","payload":"local-raw"}')
+    assert batches[0].column("data")[0].as_py() == (
+        '{"token_id":"token-yes-123","payload":"local-raw"}'
+    )
 
 
 def test_load_market_batches_falls_back_to_direct_relay_download(tmp_path, monkeypatch):
@@ -365,7 +396,9 @@ def test_load_market_batches_falls_back_to_direct_relay_download(tmp_path, monke
 
     assert batches is not None
     assert sum(batch.num_rows for batch in batches) == 2
-    assert batches[0].column("data")[0].as_py() == ('{"token_id":"token-yes-123","payload":"snapshot"}')
+    assert batches[0].column("data")[0].as_py() == (
+        '{"token_id":"token-yes-123","payload":"snapshot"}'
+    )
 
 
 def test_load_relay_raw_market_batches_downloads_to_temp_file(tmp_path, monkeypatch):
@@ -440,7 +473,9 @@ def test_cleanup_stale_temp_downloads_reaps_dead_process_roots(tmp_path, monkeyp
     assert not dead_root.exists()
 
 
-def test_load_remote_market_batches_downloads_to_temp_file_and_emits_progress(tmp_path, monkeypatch):
+def test_load_remote_market_batches_downloads_to_temp_file_and_emits_progress(
+    tmp_path, monkeypatch
+):
     loader = _make_loader(tmp_path)
     hour = pd.Timestamp("2026-03-16T13:00:00Z")
 
@@ -485,12 +520,14 @@ def test_load_remote_market_batches_downloads_to_temp_file_and_emits_progress(tm
 
     download_events: list[tuple[int, int | None, bool]] = []
     scan_events: list[tuple[int, int, int, int | None, bool]] = []
-    loader._pmxt_download_progress_callback = lambda _source, downloaded_bytes, total_bytes, finished: (
-        download_events.append((downloaded_bytes, total_bytes, finished))
+    loader._pmxt_download_progress_callback = (
+        lambda _source, downloaded_bytes, total_bytes, finished: download_events.append(
+            (downloaded_bytes, total_bytes, finished)
+        )
     )
     loader._pmxt_scan_progress_callback = (
-        lambda _source, scanned_batches, scanned_rows, matched_rows, total_bytes, finished: scan_events.append(
-            (scanned_batches, scanned_rows, matched_rows, total_bytes, finished)
+        lambda _source, scanned_batches, scanned_rows, matched_rows, total_bytes, finished: (
+            scan_events.append((scanned_batches, scanned_rows, matched_rows, total_bytes, finished))
         )
     )
 
@@ -547,8 +584,14 @@ def test_load_market_batches_prefers_local_archive_before_remote(tmp_path):
     assert batches is not None
     assert [batch.to_pylist() for batch in batches] == [
         [
-            {"update_type": "book_snapshot", "data": '{"token_id":"token-yes-123","payload":"local-book"}'},
-            {"update_type": "price_change", "data": '{"token_id":"token-yes-123","payload":"local-price"}'},
+            {
+                "update_type": "book_snapshot",
+                "data": '{"token_id":"token-yes-123","payload":"local-book"}',
+            },
+            {
+                "update_type": "price_change",
+                "data": '{"token_id":"token-yes-123","payload":"local-price"}',
+            },
         ]
     ]
 
@@ -573,7 +616,9 @@ def test_load_market_batches_reads_nested_local_archive_layout(tmp_path):
     batches = loader._load_market_batches(hour, batch_size=1_000)
 
     assert batches is not None
-    assert batches[0].column("data")[0].as_py() == ('{"token_id":"token-yes-123","payload":"nested-local"}')
+    assert batches[0].column("data")[0].as_py() == (
+        '{"token_id":"token-yes-123","payload":"nested-local"}'
+    )
 
 
 def test_relay_raw_url_uses_nested_archive_path(tmp_path):
@@ -626,7 +671,9 @@ def test_iter_market_tables_preserves_hour_order(tmp_path):
     yielded = list(loader._iter_market_tables(hours, batch_size=1_000))
 
     assert [hour for hour, _ in yielded] == hours
-    assert [table.to_pylist()[0]["data"] for _, table in yielded] == [hour.isoformat() for hour in hours]
+    assert [table.to_pylist()[0]["data"] for _, table in yielded] == [
+        hour.isoformat() for hour in hours
+    ]
 
 
 def test_event_sort_key_orders_book_updates_before_quotes(monkeypatch):
@@ -683,7 +730,10 @@ def test_load_order_book_and_quotes_keeps_snapshot_before_quote(monkeypatch, tmp
                     hour,
                     [
                         pa.record_batch(
-                            [pa.array(["book_snapshot"]), pa.array(['{"token_id":"token-yes-123"}'])],
+                            [
+                                pa.array(["book_snapshot"]),
+                                pa.array(['{"token_id":"token-yes-123"}']),
+                            ],
                             names=["update_type", "data"],
                         )
                     ],
@@ -731,7 +781,10 @@ def test_iter_market_batches_preserves_hour_order(tmp_path):
     def _load(hour, *, batch_size):  # type: ignore[no-untyped-def]
         time.sleep(delays[hour])
         return [
-            pa.record_batch([pa.array(["book_snapshot"]), pa.array([hour.isoformat()])], names=["update_type", "data"])
+            pa.record_batch(
+                [pa.array(["book_snapshot"]), pa.array([hour.isoformat()])],
+                names=["update_type", "data"],
+            )
         ]
 
     loader._load_market_batches = _load  # type: ignore[method-assign]
@@ -739,4 +792,6 @@ def test_iter_market_batches_preserves_hour_order(tmp_path):
     yielded = list(loader._iter_market_batches(hours, batch_size=1_000))
 
     assert [hour for hour, _ in yielded] == hours
-    assert [batches[0].column("data")[0].as_py() for _, batches in yielded] == [hour.isoformat() for hour in hours]
+    assert [batches[0].column("data")[0].as_py() for _, batches in yielded] == [
+        hour.isoformat() for hour in hours
+    ]

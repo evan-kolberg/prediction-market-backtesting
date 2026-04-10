@@ -58,7 +58,9 @@ def test_commission_patch_installed() -> None:
     from decimal import Decimal
 
     from nautilus_trader.adapters.polymarket.common.parsing import calculate_commission
-    from prediction_market_extensions.adapters.polymarket.parsing import calculate_commission as pm_calculate_commission
+    from prediction_market_extensions.adapters.polymarket.parsing import (
+        calculate_commission as pm_calculate_commission,
+    )
 
     # After conftest.py runs install_commission_patch(), the upstream function
     # should be our corrected version.

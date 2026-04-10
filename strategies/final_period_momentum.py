@@ -89,7 +89,12 @@ class _FinalPeriodMomentumBase(LongOnlyPredictionMarketStrategy):
         return previous_price < float(self.config.entry_price) <= price
 
     def _on_price(
-        self, *, price: float, ts_event_ns: int, entry_price: float | None = None, visible_size: float | None = None
+        self,
+        *,
+        price: float,
+        ts_event_ns: int,
+        entry_price: float | None = None,
+        visible_size: float | None = None,
     ) -> None:
         previous_price = self._last_price
         self._last_price = price
@@ -107,11 +112,15 @@ class _FinalPeriodMomentumBase(LongOnlyPredictionMarketStrategy):
                 self._submit_entry(reference_price=reference_price, visible_size=visible_size)
             return
 
-        if int(self.config.market_close_time_ns) > 0 and ts_event_ns >= int(self.config.market_close_time_ns):
+        if int(self.config.market_close_time_ns) > 0 and ts_event_ns >= int(
+            self.config.market_close_time_ns
+        ):
             self._submit_exit()
             return
 
-        if price >= float(self.config.take_profit_price) or price <= float(self.config.stop_loss_price):
+        if price >= float(self.config.take_profit_price) or price <= float(
+            self.config.stop_loss_price
+        ):
             self._submit_exit()
 
     def on_reset(self) -> None:

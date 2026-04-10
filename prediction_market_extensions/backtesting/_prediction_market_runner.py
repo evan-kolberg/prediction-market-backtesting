@@ -18,8 +18,12 @@ from prediction_market_extensions.backtesting._prediction_market_backtest import
 from prediction_market_extensions.backtesting._result_policies import ResultPolicy
 from prediction_market_extensions.backtesting._market_data_config import MarketDataConfig
 from prediction_market_extensions.backtesting._strategy_configs import StrategyConfigSpec
-from prediction_market_extensions.backtesting.data_sources.registry import build_single_market_replay
-from prediction_market_extensions.backtesting.data_sources.registry import resolve_market_data_support
+from prediction_market_extensions.backtesting.data_sources.registry import (
+    build_single_market_replay,
+)
+from prediction_market_extensions.backtesting.data_sources.registry import (
+    resolve_market_data_support,
+)
 
 
 type StrategyFactory = Callable[[InstrumentId], Strategy]
@@ -57,7 +61,9 @@ async def run_single_market_backtest(
     end_time: pd.Timestamp | datetime | str | None = None,
     execution: ExecutionModelConfig | None = None,
 ) -> dict[str, Any] | None:
-    support = resolve_market_data_support(platform=data.platform, data_type=data.data_type, vendor=data.vendor)
+    support = resolve_market_data_support(
+        platform=data.platform, data_type=data.data_type, vendor=data.vendor
+    )
     replay = build_single_market_replay(
         support=support,
         field_values={

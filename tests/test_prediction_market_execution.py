@@ -4,12 +4,16 @@ import importlib
 from types import SimpleNamespace
 
 from prediction_market_extensions.backtesting._backtest_runtime import build_backtest_run_state
-from prediction_market_extensions.backtesting._backtest_runtime import print_backtest_result_warnings
+from prediction_market_extensions.backtesting._backtest_runtime import (
+    print_backtest_result_warnings,
+)
 from prediction_market_extensions.backtesting import _prediction_market_backtest as backtest_module
 from prediction_market_extensions.backtesting._execution_config import ExecutionModelConfig
 from prediction_market_extensions.backtesting._execution_config import StaticLatencyConfig
 from prediction_market_extensions.backtesting._prediction_market_backtest import MarketSimConfig
-from prediction_market_extensions.backtesting._prediction_market_backtest import PredictionMarketBacktest
+from prediction_market_extensions.backtesting._prediction_market_backtest import (
+    PredictionMarketBacktest,
+)
 from prediction_market_extensions.backtesting._prediction_market_runner import MarketDataConfig
 
 
@@ -35,7 +39,10 @@ def test_prediction_market_backtest_build_engine_forwards_execution(monkeypatch)
         execution=ExecutionModelConfig(
             queue_position=True,
             latency_model=StaticLatencyConfig(
-                base_latency_ms=25.0, insert_latency_ms=10.0, update_latency_ms=5.0, cancel_latency_ms=2.0
+                base_latency_ms=25.0,
+                insert_latency_ms=10.0,
+                update_latency_ms=5.0,
+                cancel_latency_ms=2.0,
             ),
         ),
     )

@@ -86,14 +86,18 @@ def test_raw_path_resolution_requires_known_archive_layout(tmp_path: Path):
     safe_path = _resolve_raw_path(config, "2026/03/21/polymarket_orderbook_2026-03-21T12.parquet")
     blocked_path = _resolve_raw_path(config, "../../etc/passwd")
 
-    assert safe_path == (config.raw_root / "2026" / "03" / "21" / "polymarket_orderbook_2026-03-21T12.parquet")
+    assert safe_path == (
+        config.raw_root / "2026" / "03" / "21" / "polymarket_orderbook_2026-03-21T12.parquet"
+    )
     assert blocked_path is None
 
 
 def test_collect_inflight_downloads_reports_raw_tmp_files(tmp_path: Path):
     config = _make_config(tmp_path)
     config.ensure_directories()
-    tmp_file = config.raw_root / "2026" / "03" / "21" / "polymarket_orderbook_2026-03-21T12.parquet.tmp"
+    tmp_file = (
+        config.raw_root / "2026" / "03" / "21" / "polymarket_orderbook_2026-03-21T12.parquet.tmp"
+    )
     tmp_file.parent.mkdir(parents=True, exist_ok=True)
     tmp_file.write_bytes(b"abc")
 
@@ -109,7 +113,9 @@ def test_raw_route_serves_mirrored_hour(tmp_path: Path):
     async def scenario() -> None:
         config = _make_config(tmp_path)
         config.ensure_directories()
-        raw_path = config.raw_root / "2026" / "03" / "21" / "polymarket_orderbook_2026-03-21T12.parquet"
+        raw_path = (
+            config.raw_root / "2026" / "03" / "21" / "polymarket_orderbook_2026-03-21T12.parquet"
+        )
         raw_path.parent.mkdir(parents=True, exist_ok=True)
         raw_path.write_bytes(b"raw-payload")
 
@@ -118,7 +124,9 @@ def test_raw_route_serves_mirrored_hour(tmp_path: Path):
         client = TestClient(server)
         await client.start_server()
         try:
-            response = await client.get("/v1/raw/2026/03/21/polymarket_orderbook_2026-03-21T12.parquet")
+            response = await client.get(
+                "/v1/raw/2026/03/21/polymarket_orderbook_2026-03-21T12.parquet"
+            )
             payload = await response.read()
         finally:
             await client.close()
@@ -139,7 +147,9 @@ def test_active_api_has_no_filtered_routes(tmp_path: Path):
         await client.start_server()
         try:
             response = await client.get(
-                "/v1/filtered/" + ("0x" + ("ab" * 32)) + "/123456789/polymarket_orderbook_2026-03-21T12.parquet"
+                "/v1/filtered/"
+                + ("0x" + ("ab" * 32))
+                + "/123456789/polymarket_orderbook_2026-03-21T12.parquet"
             )
         finally:
             await client.close()
@@ -226,7 +236,13 @@ def test_worker_badge_reflects_live_service_state(tmp_path: Path):
             with patch(
                 "pmxt_relay.api._system_metrics_snapshot",
                 return_value={
-                    "services": {"worker": {"label": "Worker service", "active_state": "failed", "sub_state": "failed"}}
+                    "services": {
+                        "worker": {
+                            "label": "Worker service",
+                            "active_state": "failed",
+                            "sub_state": "failed",
+                        }
+                    }
                 },
             ):
                 response = await client.get("/v1/badge/worker.svg")
@@ -247,7 +263,9 @@ def test_status_badge_uses_up_for_healthy_mirror_only_relay(tmp_path: Path):
 
     payload = _status_badge_payload(
         stats={"last_event_at": (now - timedelta(minutes=5)).isoformat(), "last_error_at": None},
-        system={"services": {"api": {"active_state": "active"}, "worker": {"active_state": "active"}}},
+        system={
+            "services": {"api": {"active_state": "active"}, "worker": {"active_state": "active"}}
+        },
         config=config,
         now=now,
     )
@@ -262,7 +280,9 @@ def test_status_badge_uses_stale_for_old_last_event(tmp_path: Path):
 
     payload = _status_badge_payload(
         stats={"last_event_at": (now - timedelta(hours=2)).isoformat(), "last_error_at": None},
-        system={"services": {"api": {"active_state": "active"}, "worker": {"active_state": "active"}}},
+        system={
+            "services": {"api": {"active_state": "active"}, "worker": {"active_state": "active"}}
+        },
         config=config,
         now=now,
     )
@@ -280,7 +300,9 @@ def test_status_badge_ignores_fresh_upstream_errors_when_services_are_healthy(tm
             "last_event_at": (now - timedelta(minutes=1)).isoformat(),
             "last_error_at": (now - timedelta(minutes=1)).isoformat(),
         },
-        system={"services": {"api": {"active_state": "active"}, "worker": {"active_state": "active"}}},
+        system={
+            "services": {"api": {"active_state": "active"}, "worker": {"active_state": "active"}}
+        },
         config=config,
         now=now,
     )
@@ -298,7 +320,12 @@ def test_status_badge_uses_degraded_for_inactive_service(tmp_path: Path):
             "last_event_at": (now - timedelta(minutes=1)).isoformat(),
             "last_error_at": (now - timedelta(minutes=1)).isoformat(),
         },
-        system={"services": {"api": {"active_state": "active"}, "worker": {"active_state": "deactivating"}}},
+        system={
+            "services": {
+                "api": {"active_state": "active"},
+                "worker": {"active_state": "deactivating"},
+            }
+        },
         config=config,
         now=now,
     )
@@ -406,9 +433,15 @@ def test_stats_and_queue_payloads_are_mirror_only(tmp_path: Path):
         app = create_app(config)
         index = app[INDEX_APP_KEY]
         filename = "polymarket_orderbook_2026-03-21T12.parquet"
-        index.upsert_discovered_hour(filename, "https://raw.example.com/polymarket_orderbook_2026-03-21T12.parquet", 1)
+        index.upsert_discovered_hour(
+            filename, "https://raw.example.com/polymarket_orderbook_2026-03-21T12.parquet", 1
+        )
         index.mark_mirrored(
-            filename, local_path=str(tmp_path / "hour.parquet"), etag=None, content_length=1, last_modified=None
+            filename,
+            local_path=str(tmp_path / "hour.parquet"),
+            etag=None,
+            content_length=1,
+            last_modified=None,
         )
 
         server = TestServer(app)

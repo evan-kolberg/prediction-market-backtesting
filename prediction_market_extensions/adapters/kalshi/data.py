@@ -116,7 +116,9 @@ class KalshiDataClient(LiveMarketDataClient):
             self._cache.add_currency(currency)
 
     def _log_unsupported(self, action: str) -> None:
-        self._log.error(f"KalshiDataClient does not yet support {action}; only instrument discovery is live")
+        self._log.error(
+            f"KalshiDataClient does not yet support {action}; only instrument discovery is live"
+        )
 
     async def _subscribe_order_book_deltas(self, command: SubscribeOrderBook) -> None:
         self._log_unsupported("order book subscriptions")
@@ -168,7 +170,9 @@ class KalshiDataClient(LiveMarketDataClient):
             for instrument in self._instrument_provider.get_all().values()
             if request.venue is None or instrument.venue == request.venue
         ]
-        self._handle_instruments(request.venue, instruments, request.id, request.start, request.end, request.params)
+        self._handle_instruments(
+            request.venue, instruments, request.id, request.start, request.end, request.params
+        )
 
     async def _request_quote_ticks(self, request: RequestQuoteTicks) -> None:
         self._log_unsupported("historical quote requests")

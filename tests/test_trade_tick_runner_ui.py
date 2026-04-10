@@ -86,7 +86,11 @@ def test_polymarket_trade_tick_runner_uses_unified_summary(monkeypatch, capsys):
                 platform="polymarket",
                 data_type="trade_tick",
                 vendor="native",
-                sources=("gamma-api.polymarket.com", "data-api.polymarket.com/trades", "clob.polymarket.com"),
+                sources=(
+                    "gamma-api.polymarket.com",
+                    "data-api.polymarket.com/trades",
+                    "clob.polymarket.com",
+                ),
             ),
             market_slug="demo-market",
             token_index=0,

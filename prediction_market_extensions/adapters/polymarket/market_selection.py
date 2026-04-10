@@ -177,7 +177,12 @@ def is_game_market(market: Mapping[str, Any]) -> bool:
     event = _event_payload(market)
     text = " ".join(
         str(value or "")
-        for value in (market.get("question"), market.get("groupItemTitle"), event.get("title"), event.get("slug"))
+        for value in (
+            market.get("question"),
+            market.get("groupItemTitle"),
+            event.get("title"),
+            event.get("slug"),
+        )
     )
     if GAME_TEXT_PATTERN.search(text):
         return True
@@ -185,7 +190,9 @@ def is_game_market(market: Mapping[str, Any]) -> bool:
     return bool(re.search(r"\d{4}-\d{2}-\d{2}", slug))
 
 
-def is_sports_market(market: Mapping[str, Any], *, now: datetime, max_hours_to_close: float) -> bool:
+def is_sports_market(
+    market: Mapping[str, Any], *, now: datetime, max_hours_to_close: float
+) -> bool:
     """
     Return True for live Polymarket sports markets near expiry.
     """
@@ -194,7 +201,9 @@ def is_sports_market(market: Mapping[str, Any], *, now: datetime, max_hours_to_c
         return False
 
     normalized_now = now if now.tzinfo is not None else now.replace(tzinfo=UTC)
-    hours_left = (close_dt.astimezone(UTC) - normalized_now.astimezone(UTC)).total_seconds() / 3600.0
+    hours_left = (
+        close_dt.astimezone(UTC) - normalized_now.astimezone(UTC)
+    ).total_seconds() / 3600.0
     if not (0.0 <= hours_left <= max_hours_to_close):
         return False
 
@@ -205,7 +214,9 @@ def is_sports_market(market: Mapping[str, Any], *, now: datetime, max_hours_to_c
     return SPORT_TEXT_PATTERN.search(f"{slug} {question}") is not None
 
 
-def is_resolved_sports_market(market: Mapping[str, Any], *, now: datetime, max_days_since_close: float) -> bool:
+def is_resolved_sports_market(
+    market: Mapping[str, Any], *, now: datetime, max_days_since_close: float
+) -> bool:
     """
     Return True for recently closed Polymarket sports markets.
     """
@@ -214,7 +225,9 @@ def is_resolved_sports_market(market: Mapping[str, Any], *, now: datetime, max_d
         return False
 
     normalized_now = now if now.tzinfo is not None else now.replace(tzinfo=UTC)
-    days_since_close = (normalized_now.astimezone(UTC) - close_dt.astimezone(UTC)).total_seconds() / 86400.0
+    days_since_close = (
+        normalized_now.astimezone(UTC) - close_dt.astimezone(UTC)
+    ).total_seconds() / 86400.0
     if not (0.0 <= days_since_close <= max_days_since_close):
         return False
 

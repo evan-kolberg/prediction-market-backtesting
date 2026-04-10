@@ -29,13 +29,19 @@ class _FakeInstrument:
         self.min_quantity = None if min_quantity is None else _FakeQuantity(min_quantity)
 
     def make_qty(self, value: float, round_down: bool = True) -> _FakeQuantity:
-        quantity = Decimal(str(value)).quantize(Decimal("0.000001"), rounding=ROUND_DOWN if round_down else ROUND_DOWN)
+        quantity = Decimal(str(value)).quantize(
+            Decimal("0.000001"), rounding=ROUND_DOWN if round_down else ROUND_DOWN
+        )
         return _FakeQuantity(quantity)
 
 
 class _EntryQuantityHarness(LongOnlyPredictionMarketStrategy):
-    def __init__(self, *, trade_size: Decimal, free_balance: Decimal, min_quantity: Decimal | None) -> None:
-        super().__init__(QuoteTickVWAPReversionConfig(instrument_id=INSTRUMENT_ID, trade_size=trade_size))
+    def __init__(
+        self, *, trade_size: Decimal, free_balance: Decimal, min_quantity: Decimal | None
+    ) -> None:
+        super().__init__(
+            QuoteTickVWAPReversionConfig(instrument_id=INSTRUMENT_ID, trade_size=trade_size)
+        )
         self._free_balance = free_balance
         self._instrument = _FakeInstrument(min_quantity=min_quantity)
 
@@ -47,7 +53,9 @@ class _EntryQuantityHarness(LongOnlyPredictionMarketStrategy):
 
 
 def test_entry_quantity_skips_clipped_size_below_min_quantity() -> None:
-    strategy = _EntryQuantityHarness(trade_size=Decimal("25"), free_balance=Decimal("0.35"), min_quantity=Decimal("5"))
+    strategy = _EntryQuantityHarness(
+        trade_size=Decimal("25"), free_balance=Decimal("0.35"), min_quantity=Decimal("5")
+    )
 
     quantity = strategy._entry_quantity(reference_price=0.074, visible_size=100.0)
 
@@ -55,7 +63,9 @@ def test_entry_quantity_skips_clipped_size_below_min_quantity() -> None:
 
 
 def test_entry_quantity_keeps_clipped_size_when_no_min_quantity_exists() -> None:
-    strategy = _EntryQuantityHarness(trade_size=Decimal("25"), free_balance=Decimal("0.35"), min_quantity=None)
+    strategy = _EntryQuantityHarness(
+        trade_size=Decimal("25"), free_balance=Decimal("0.35"), min_quantity=None
+    )
 
     quantity = strategy._entry_quantity(reference_price=0.074, visible_size=100.0)
 
@@ -64,7 +74,9 @@ def test_entry_quantity_keeps_clipped_size_when_no_min_quantity_exists() -> None
 
 
 def test_entry_quantity_leaves_cash_headroom_before_min_quantity_boundary() -> None:
-    strategy = _EntryQuantityHarness(trade_size=Decimal("5"), free_balance=Decimal("1"), min_quantity=Decimal("5"))
+    strategy = _EntryQuantityHarness(
+        trade_size=Decimal("5"), free_balance=Decimal("1"), min_quantity=Decimal("5")
+    )
 
     quantity = strategy._entry_quantity(reference_price=0.2, visible_size=100.0)
 

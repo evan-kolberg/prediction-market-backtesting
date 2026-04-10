@@ -110,8 +110,12 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
         self._pmxt_prefetch_workers = self._resolve_prefetch_workers()
         self._pmxt_http_block_size = self._resolve_http_block_size()
         self._pmxt_http_cache_type = self._resolve_http_cache_type()
-        self._pmxt_download_progress_callback: Callable[[str, int, int | None, bool], None] | None = None
-        self._pmxt_scan_progress_callback: Callable[[str, int, int, int, int | None, bool], None] | None = None
+        self._pmxt_download_progress_callback: (
+            Callable[[str, int, int | None, bool], None] | None
+        ) = None
+        self._pmxt_scan_progress_callback: (
+            Callable[[str, int, int, int, int | None, bool], None] | None
+        ) = None
         self._pmxt_progress_size_cache: dict[str, int | None] = {}
         self._pmxt_temp_download_root = self._PMXT_TEMP_DOWNLOAD_ROOT
         self._cleanup_stale_temp_downloads()
@@ -149,7 +153,9 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
     def _archive_relative_path_for_hour(cls, hour: pd.Timestamp) -> str:
         ts = hour.tz_convert(UTC)
         filename = cls._archive_filename_for_hour(ts)
-        return (Path(ts.strftime("%Y")) / ts.strftime("%m") / ts.strftime("%d") / filename).as_posix()
+        return (
+            Path(ts.strftime("%Y")) / ts.strftime("%m") / ts.strftime("%d") / filename
+        ).as_posix()
 
     @staticmethod
     def _env_flag_enabled(value: str | None) -> bool:
@@ -247,17 +253,23 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
         self._pmxt_fs = pafs.PyFileSystem(pafs.FSSpecHandler(self._pmxt_http_fs))
 
     @classmethod
-    def _market_cache_path_for_hour(cls, cache_dir: Path, condition_id: str, token_id: str, hour: pd.Timestamp) -> Path:
+    def _market_cache_path_for_hour(
+        cls, cache_dir: Path, condition_id: str, token_id: str, hour: pd.Timestamp
+    ) -> Path:
         return cache_dir / condition_id / token_id / cls._archive_filename_for_hour(hour)
 
     def _cache_path_for_hour(self, hour: pd.Timestamp) -> Path | None:
         if self._pmxt_cache_dir is None or self.condition_id is None or self.token_id is None:
             return None
 
-        return self._market_cache_path_for_hour(self._pmxt_cache_dir, self.condition_id, self.token_id, hour)
+        return self._market_cache_path_for_hour(
+            self._pmxt_cache_dir, self.condition_id, self.token_id, hour
+        )
 
     @classmethod
-    def _local_archive_candidate_paths_for_hour(cls, archive_dir: Path, hour: pd.Timestamp) -> tuple[Path, ...]:
+    def _local_archive_candidate_paths_for_hour(
+        cls, archive_dir: Path, hour: pd.Timestamp
+    ) -> tuple[Path, ...]:
         ts = hour.tz_convert(UTC)
         filename = cls._archive_filename_for_hour(ts)
         return (archive_dir / filename, archive_dir / ts.strftime("%Y/%m/%d") / filename)
@@ -286,24 +298,31 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
 
     def _market_filter(self):
         return (ds.field("market_id") == self.condition_id) & (
-            (ds.field("update_type") == "book_snapshot") | (ds.field("update_type") == "price_change")
+            (ds.field("update_type") == "book_snapshot")
+            | (ds.field("update_type") == "price_change")
         )
 
     @classmethod
     def _empty_market_table(cls) -> pa.Table:
-        return pa.table({"update_type": pa.array([], type=pa.string()), "data": pa.array([], type=pa.string())})
+        return pa.table(
+            {"update_type": pa.array([], type=pa.string()), "data": pa.array([], type=pa.string())}
+        )
 
     @classmethod
     def _to_market_batch(cls, batch: pa.RecordBatch) -> pa.RecordBatch:
         if batch.schema.names == cls._PMXT_COLUMNS:
             return batch
-        return pa.RecordBatch.from_arrays([batch.column("update_type"), batch.column("data")], names=cls._PMXT_COLUMNS)
+        return pa.RecordBatch.from_arrays(
+            [batch.column("update_type"), batch.column("data")], names=cls._PMXT_COLUMNS
+        )
 
     def _filter_batch_to_token(self, batch: pa.RecordBatch) -> pa.RecordBatch:
         if self.token_id is None or batch.num_rows == 0:
             return self._to_market_batch(batch)
 
-        token_mask = pc.match_substring_regex(batch.column("data"), rf'"token_id"\s*:\s*"{re.escape(self.token_id)}"')
+        token_mask = pc.match_substring_regex(
+            batch.column("data"), rf'"token_id"\s*:\s*"{re.escape(self.token_id)}"'
+        )
         token_mask = pc.fill_null(token_mask, False)
         return self._to_market_batch(batch.filter(token_mask))
 
@@ -316,7 +335,8 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
             market_mask = pc.equal(filtered_batch.column("market_id"), self.condition_id)
             market_mask = pc.fill_null(market_mask, False)
             update_type_mask = pc.is_in(
-                filtered_batch.column("update_type"), value_set=pa.array(["book_snapshot", "price_change"])
+                filtered_batch.column("update_type"),
+                value_set=pa.array(["book_snapshot", "price_change"]),
             )
             update_type_mask = pc.fill_null(update_type_mask, False)
             filtered_batch = filtered_batch.filter(pc.and_(market_mask, update_type_mask))
@@ -362,7 +382,12 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
             tmp_path.unlink(missing_ok=True)
 
     def _scan_raw_market_batches(
-        self, dataset: ds.Dataset, *, batch_size: int, source: str | None = None, total_bytes: int | None = None
+        self,
+        dataset: ds.Dataset,
+        *,
+        batch_size: int,
+        source: str | None = None,
+        total_bytes: int | None = None,
     ) -> list[pa.RecordBatch]:
         scanner = dataset.scanner(
             columns=self._PMXT_REMOTE_COLUMNS, filter=self._market_filter(), batch_size=batch_size
@@ -419,7 +444,9 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
             return self._empty_market_table()
         return pa.Table.from_batches(batches)
 
-    def _load_remote_market_batches(self, hour: pd.Timestamp, *, batch_size: int) -> list[pa.RecordBatch] | None:
+    def _load_remote_market_batches(
+        self, hour: pd.Timestamp, *, batch_size: int
+    ) -> list[pa.RecordBatch] | None:
         archive_url = self._archive_url_for_hour(hour)
         return self._load_raw_market_batches_via_download(archive_url, batch_size=batch_size)
 
@@ -432,7 +459,10 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
                 if total_bytes is None and not download_path.exists():
                     return None
                 return self._load_raw_market_batches_from_local_file(
-                    download_path, batch_size=batch_size, progress_source=archive_url, total_bytes=total_bytes
+                    download_path,
+                    batch_size=batch_size,
+                    progress_source=archive_url,
+                    total_bytes=total_bytes,
                 )
         except FileNotFoundError:
             return None
@@ -443,7 +473,9 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
         except Exception:
             return None
 
-    def _load_local_archive_market_batches(self, hour: pd.Timestamp, *, batch_size: int) -> list[pa.RecordBatch] | None:
+    def _load_local_archive_market_batches(
+        self, hour: pd.Timestamp, *, batch_size: int
+    ) -> list[pa.RecordBatch] | None:
         for archive_path in self._local_archive_paths_for_hour(hour):
             if not archive_path.exists():
                 continue
@@ -465,14 +497,18 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
 
         return None
 
-    def _load_relay_raw_market_batches(self, hour: pd.Timestamp, *, batch_size: int) -> list[pa.RecordBatch] | None:
+    def _load_relay_raw_market_batches(
+        self, hour: pd.Timestamp, *, batch_size: int
+    ) -> list[pa.RecordBatch] | None:
         relay_url = self._relay_raw_url_for_hour(hour)
         if relay_url is None:
             return None
 
         return self._load_raw_market_batches_via_download(relay_url, batch_size=batch_size)
 
-    def _load_relay_market_batches(self, hour: pd.Timestamp, *, batch_size: int) -> list[pa.RecordBatch] | None:
+    def _load_relay_market_batches(
+        self, hour: pd.Timestamp, *, batch_size: int
+    ) -> list[pa.RecordBatch] | None:
         relay_url = self._relay_url_for_hour(hour)
         if relay_url is None:
             return None
@@ -511,7 +547,9 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
 
         try:
             parquet_file = pq.ParquetFile(BytesIO(payload))
-            return list(parquet_file.iter_batches(batch_size=batch_size, columns=self._PMXT_COLUMNS))
+            return list(
+                parquet_file.iter_batches(batch_size=batch_size, columns=self._PMXT_COLUMNS)
+            )
         except (OSError, ValueError, pa.ArrowException):
             return None
 
@@ -519,7 +557,9 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
         if self.token_id is None or table.num_rows == 0:
             return table
 
-        token_mask = pc.match_substring_regex(table.column("data"), rf'"token_id"\s*:\s*"{re.escape(self.token_id)}"')
+        token_mask = pc.match_substring_regex(
+            table.column("data"), rf'"token_id"\s*:\s*"{re.escape(self.token_id)}"'
+        )
         token_mask = pc.fill_null(token_mask, False)
         return table.filter(token_mask)
 
@@ -531,7 +571,9 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
         local_archive_batches = self._load_local_archive_market_batches(hour, batch_size=batch_size)
         if local_archive_batches is not None:
             table = (
-                pa.Table.from_batches(local_archive_batches) if local_archive_batches else self._empty_market_table()
+                pa.Table.from_batches(local_archive_batches)
+                if local_archive_batches
+                else self._empty_market_table()
             )
             if self._pmxt_cache_dir is not None:
                 with suppress(OSError, pa.ArrowException):
@@ -540,7 +582,11 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
 
         relay_batches = self._load_relay_market_batches(hour, batch_size=batch_size)
         if relay_batches is not None:
-            table = pa.Table.from_batches(relay_batches) if relay_batches else self._empty_market_table()
+            table = (
+                pa.Table.from_batches(relay_batches)
+                if relay_batches
+                else self._empty_market_table()
+            )
             if self._pmxt_cache_dir is not None:
                 with suppress(OSError, pa.ArrowException):
                     self._write_market_cache(hour, table)
@@ -556,7 +602,11 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
 
         relay_raw_batches = self._load_relay_raw_market_batches(hour, batch_size=batch_size)
         if relay_raw_batches is not None:
-            table = pa.Table.from_batches(relay_raw_batches) if relay_raw_batches else self._empty_market_table()
+            table = (
+                pa.Table.from_batches(relay_raw_batches)
+                if relay_raw_batches
+                else self._empty_market_table()
+            )
             if self._pmxt_cache_dir is not None:
                 with suppress(OSError, pa.ArrowException):
                     self._write_market_cache(hour, table)
@@ -564,7 +614,9 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
 
         return None
 
-    def _load_market_batches(self, hour: pd.Timestamp, *, batch_size: int) -> list[pa.RecordBatch] | None:
+    def _load_market_batches(
+        self, hour: pd.Timestamp, *, batch_size: int
+    ) -> list[pa.RecordBatch] | None:
         batches = self._load_cached_market_batches(hour)
         if batches is not None:
             return batches
@@ -673,7 +725,9 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
             downloaded_bytes = 0
             last_emit = 0.0
             supports_chunked_read = True
-            self._emit_download_progress(url, downloaded_bytes=0, total_bytes=total_bytes, finished=False)
+            self._emit_download_progress(
+                url, downloaded_bytes=0, total_bytes=total_bytes, finished=False
+            )
             while True:
                 if supports_chunked_read:
                     try:
@@ -690,12 +744,17 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
                 now = time.monotonic()
                 if downloaded_bytes == total_bytes or (now - last_emit) >= 0.2:
                     self._emit_download_progress(
-                        url, downloaded_bytes=downloaded_bytes, total_bytes=total_bytes, finished=False
+                        url,
+                        downloaded_bytes=downloaded_bytes,
+                        total_bytes=total_bytes,
+                        finished=False,
                     )
                     last_emit = now
                 if not supports_chunked_read:
                     break
-            self._emit_download_progress(url, downloaded_bytes=downloaded_bytes, total_bytes=total_bytes, finished=True)
+            self._emit_download_progress(
+                url, downloaded_bytes=downloaded_bytes, total_bytes=total_bytes, finished=True
+            )
 
         if total_bytes is None:
             with suppress(OSError):
@@ -715,7 +774,9 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
             last_emit = 0.0
             chunks: list[bytes] = []
             supports_chunked_read = True
-            self._emit_download_progress(url, downloaded_bytes=0, total_bytes=total_bytes, finished=False)
+            self._emit_download_progress(
+                url, downloaded_bytes=0, total_bytes=total_bytes, finished=False
+            )
             while True:
                 if supports_chunked_read:
                     try:
@@ -732,12 +793,17 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
                 now = time.monotonic()
                 if downloaded_bytes == total_bytes or (now - last_emit) >= 0.2:
                     self._emit_download_progress(
-                        url, downloaded_bytes=downloaded_bytes, total_bytes=total_bytes, finished=False
+                        url,
+                        downloaded_bytes=downloaded_bytes,
+                        total_bytes=total_bytes,
+                        finished=False,
                     )
                     last_emit = now
                 if not supports_chunked_read:
                     break
-            self._emit_download_progress(url, downloaded_bytes=downloaded_bytes, total_bytes=total_bytes, finished=True)
+            self._emit_download_progress(
+                url, downloaded_bytes=downloaded_bytes, total_bytes=total_bytes, finished=True
+            )
             return b"".join(chunks)
 
     def _load_raw_market_batches_from_local_file(
@@ -770,7 +836,9 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
 
     @contextmanager
     def _temporary_download_path(self, url: str) -> Iterator[Path]:
-        temp_root = Path(getattr(self, "_pmxt_temp_download_root", self._PMXT_TEMP_DOWNLOAD_ROOT)).expanduser()
+        temp_root = Path(
+            getattr(self, "_pmxt_temp_download_root", self._PMXT_TEMP_DOWNLOAD_ROOT)
+        ).expanduser()
         temp_root.mkdir(parents=True, exist_ok=True)
         process_root = temp_root / f"pid-{os.getpid()}"
         process_root.mkdir(parents=True, exist_ok=True)
@@ -780,7 +848,9 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
             process_root.rmdir()
 
     def _cleanup_stale_temp_downloads(self) -> None:
-        temp_root = Path(getattr(self, "_pmxt_temp_download_root", self._PMXT_TEMP_DOWNLOAD_ROOT)).expanduser()
+        temp_root = Path(
+            getattr(self, "_pmxt_temp_download_root", self._PMXT_TEMP_DOWNLOAD_ROOT)
+        ).expanduser()
         if not temp_root.exists():
             return
 
@@ -825,7 +895,9 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
                     return
                 hour = hours[next_index]
                 next_index += 1
-                futures[hour] = executor.submit(self._load_market_table, hour, batch_size=batch_size)
+                futures[hour] = executor.submit(
+                    self._load_market_table, hour, batch_size=batch_size
+                )
 
             for _ in range(max_workers):
                 _submit_next()
@@ -854,7 +926,9 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
                     return
                 hour = hours[next_index]
                 next_index += 1
-                futures[hour] = executor.submit(self._load_market_batches, hour, batch_size=batch_size)
+                futures[hour] = executor.submit(
+                    self._load_market_batches, hour, batch_size=batch_size
+                )
 
             for _ in range(max_workers):
                 _submit_next()
@@ -869,7 +943,9 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
         return f"{timestamp_secs * 1000:.6f}"
 
     @staticmethod
-    def _quote_from_book(*, instrument, local_book: OrderBook, ts_event_ns: int) -> QuoteTick | None:
+    def _quote_from_book(
+        *, instrument, local_book: OrderBook, ts_event_ns: int
+    ) -> QuoteTick | None:
         bid_price = local_book.best_bid_price()
         ask_price = local_book.best_ask_price()
         bid_size = local_book.best_bid_size()
@@ -959,7 +1035,9 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
             return local_book, has_snapshot
 
         snapshot = self._to_book_snapshot(payload)
-        deltas = snapshot.parse_to_snapshot(instrument=instrument, ts_init=int(payload.timestamp * 1_000_000_000))
+        deltas = snapshot.parse_to_snapshot(
+            instrument=instrument, ts_init=int(payload.timestamp * 1_000_000_000)
+        )
         if deltas is None:
             return local_book, has_snapshot
 
@@ -1001,7 +1079,9 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
             return local_book
 
         quotes = self._to_price_change(payload)
-        deltas = quotes.parse_to_deltas(instrument=instrument, ts_init=int(payload.timestamp * 1_000_000_000))
+        deltas = quotes.parse_to_deltas(
+            instrument=instrument, ts_init=int(payload.timestamp * 1_000_000_000)
+        )
         local_book.apply_deltas(deltas)
 
         event_ns = deltas.ts_event
@@ -1011,7 +1091,9 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
         if include_order_book:
             events.append(deltas)
         if include_quotes:
-            quote = self._quote_from_book(instrument=instrument, local_book=local_book, ts_event_ns=deltas.ts_event)
+            quote = self._quote_from_book(
+                instrument=instrument, local_book=local_book, ts_event_ns=deltas.ts_event
+            )
             if quote is not None:
                 events.append(quote)
 

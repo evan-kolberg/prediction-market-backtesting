@@ -9,12 +9,22 @@ from typing import Any
 
 import pandas as pd
 
-from prediction_market_extensions.adapters.prediction_market import research as prediction_market_research
+from prediction_market_extensions.adapters.prediction_market import (
+    research as prediction_market_research,
+)
 from prediction_market_extensions.adapters.prediction_market import LoadedReplay
-from prediction_market_extensions.adapters.prediction_market.backtest_utils import build_brier_inputs
-from prediction_market_extensions.adapters.prediction_market.backtest_utils import build_market_prices
-from prediction_market_extensions.adapters.prediction_market.backtest_utils import extract_price_points
-from prediction_market_extensions.adapters.prediction_market.backtest_utils import extract_realized_pnl
+from prediction_market_extensions.adapters.prediction_market.backtest_utils import (
+    build_brier_inputs,
+)
+from prediction_market_extensions.adapters.prediction_market.backtest_utils import (
+    build_market_prices,
+)
+from prediction_market_extensions.adapters.prediction_market.backtest_utils import (
+    extract_price_points,
+)
+from prediction_market_extensions.adapters.prediction_market.backtest_utils import (
+    extract_realized_pnl,
+)
 from prediction_market_extensions.analysis.legacy_plot_adapter import build_legacy_backtest_layout
 from prediction_market_extensions.analysis.legacy_plot_adapter import save_legacy_backtest_layout
 from nautilus_trader.backtest.engine import BacktestEngine
@@ -59,7 +69,9 @@ class PredictionMarketArtifactBuilder:
     ) -> dict[str, Any]:
         instrument_id = str(loaded_sim.instrument.id)
         instrument_fills = self._filter_report_rows(fills_report, instrument_id=instrument_id)
-        instrument_positions = self._filter_report_rows(positions_report, instrument_id=instrument_id)
+        instrument_positions = self._filter_report_rows(
+            positions_report, instrument_id=instrument_id
+        )
 
         pnl = extract_realized_pnl(instrument_positions)
         result: dict[str, Any] = {
@@ -93,14 +105,20 @@ class PredictionMarketArtifactBuilder:
         return apply_backtest_run_state(result=result, run_state=run_state or {})
 
     def build_market_artifacts(
-        self, *, engine: BacktestEngine, loaded_sims: Sequence[LoadedReplay], fills_report: pd.DataFrame
+        self,
+        *,
+        engine: BacktestEngine,
+        loaded_sims: Sequence[LoadedReplay],
+        fills_report: pd.DataFrame,
     ) -> dict[str, dict[str, Any]]:
         include_portfolio_series = len(loaded_sims) == 1
         return {
             loaded_sim.market_id: self._build_market_artifacts_for_loaded_sim(
                 engine=engine,
                 loaded_sim=loaded_sim,
-                fills_report=self._filter_report_rows(fills_report, instrument_id=str(loaded_sim.instrument.id)),
+                fills_report=self._filter_report_rows(
+                    fills_report, instrument_id=str(loaded_sim.instrument.id)
+                ),
                 include_portfolio_series=include_portfolio_series,
             )
             for loaded_sim in loaded_sims
@@ -115,7 +133,8 @@ class PredictionMarketArtifactBuilder:
         market_prices_by_market_id: dict[str, list[tuple[datetime, float]]] = {}
         for loaded_sim in loaded_sims:
             price_points = extract_price_points(
-                loaded_sim.records, price_attr="mid_price" if self.data_type == "quote_tick" else "price"
+                loaded_sim.records,
+                price_attr="mid_price" if self.data_type == "quote_tick" else "price",
             )
             market_prices_by_market_id[loaded_sim.market_id] = build_market_prices(
                 price_points, resample_rule=self.chart_resample_rule
@@ -123,7 +142,9 @@ class PredictionMarketArtifactBuilder:
 
         dense_equity_series, dense_cash_series = (
             prediction_market_research._dense_account_series_from_engine_for_markets(
-                engine=engine, market_prices=market_prices_by_market_id, initial_cash=self.initial_cash
+                engine=engine,
+                market_prices=market_prices_by_market_id,
+                initial_cash=self.initial_cash,
             )
         )
         pnl_series = (
@@ -132,13 +153,19 @@ class PredictionMarketArtifactBuilder:
             else prediction_market_research._extract_account_pnl_series(engine)
         )
         return {
-            "joint_portfolio_pnl_series": prediction_market_research._series_to_iso_pairs(pnl_series)
+            "joint_portfolio_pnl_series": prediction_market_research._series_to_iso_pairs(
+                pnl_series
+            )
             if not pnl_series.empty
             else [],
-            "joint_portfolio_equity_series": prediction_market_research._series_to_iso_pairs(dense_equity_series)
+            "joint_portfolio_equity_series": prediction_market_research._series_to_iso_pairs(
+                dense_equity_series
+            )
             if not dense_equity_series.empty
             else [],
-            "joint_portfolio_cash_series": prediction_market_research._series_to_iso_pairs(dense_cash_series)
+            "joint_portfolio_cash_series": prediction_market_research._series_to_iso_pairs(
+                dense_cash_series
+            )
             if not dense_cash_series.empty
             else [],
         }
@@ -152,11 +179,14 @@ class PredictionMarketArtifactBuilder:
         include_portfolio_series: bool,
     ) -> dict[str, Any]:
         price_points = extract_price_points(
-            loaded_sim.records, price_attr="mid_price" if self.data_type == "quote_tick" else "price"
+            loaded_sim.records,
+            price_attr="mid_price" if self.data_type == "quote_tick" else "price",
         )
         market_prices = build_market_prices(price_points, resample_rule=self.chart_resample_rule)
         user_probabilities, market_probabilities, outcomes = build_brier_inputs(
-            price_points, window=self.probability_window, realized_outcome=loaded_sim.realized_outcome
+            price_points,
+            window=self.probability_window,
+            realized_outcome=loaded_sim.realized_outcome,
         )
         artifacts: dict[str, Any] = {}
 
@@ -183,7 +213,9 @@ class PredictionMarketArtifactBuilder:
                 print(f"Unable to save legacy chart for {loaded_sim.market_id}: {exc}")
             else:
                 if self.emit_html:
-                    artifacts["chart_path"] = save_legacy_backtest_layout(chart_layout, str(output_path), chart_title)
+                    artifacts["chart_path"] = save_legacy_backtest_layout(
+                        chart_layout, str(output_path), chart_title
+                    )
                 if self.return_chart_layout:
                     artifacts["chart_layout"] = chart_layout
                     artifacts["chart_title"] = chart_title
@@ -215,7 +247,9 @@ class PredictionMarketArtifactBuilder:
             try:
                 resolved = raw_path.format(name=self.name, market_id=market_id)
             except KeyError as exc:
-                raise ValueError("chart_output_path may only reference {name} and {market_id}.") from exc
+                raise ValueError(
+                    "chart_output_path may only reference {name} and {market_id}."
+                ) from exc
             path = Path(resolved)
             if not path.suffix:
                 path = path / default_filename
@@ -225,7 +259,9 @@ class PredictionMarketArtifactBuilder:
         if path.suffix:
             if self.sim_count == 1:
                 return resolve_repo_relative_path(path)
-            return resolve_repo_relative_path(path.with_name(f"{path.stem}_{market_id}{path.suffix}"))
+            return resolve_repo_relative_path(
+                path.with_name(f"{path.stem}_{market_id}{path.suffix}")
+            )
         return resolve_repo_relative_path(path / default_filename)
 
     def _build_market_summary_series(
@@ -241,21 +277,31 @@ class PredictionMarketArtifactBuilder:
         include_portfolio_series: bool,
     ) -> dict[str, Any]:
         legacy_models, _ = prediction_market_research.legacy_plot_adapter._load_legacy_modules()
-        legacy_fills = prediction_market_research.legacy_plot_adapter._convert_fills(fills_report, legacy_models)
-        market_prices_with_fills = prediction_market_research.legacy_plot_adapter._market_prices_with_fill_points(
-            {loaded_sim.market_id: market_prices}, legacy_fills
-        ).get(loaded_sim.market_id, market_prices)
+        legacy_fills = prediction_market_research.legacy_plot_adapter._convert_fills(
+            fills_report, legacy_models
+        )
+        market_prices_with_fills = (
+            prediction_market_research.legacy_plot_adapter._market_prices_with_fill_points(
+                {loaded_sim.market_id: market_prices}, legacy_fills
+            ).get(loaded_sim.market_id, market_prices)
+        )
         series_artifacts: dict[str, Any] = {
             "price_series": prediction_market_research._series_to_iso_pairs(
                 prediction_market_research._pairs_to_series(market_prices_with_fills)
             ),
-            "user_probability_series": prediction_market_research._series_to_iso_pairs(user_probabilities)
+            "user_probability_series": prediction_market_research._series_to_iso_pairs(
+                user_probabilities
+            )
             if not user_probabilities.empty
             else [],
-            "market_probability_series": prediction_market_research._series_to_iso_pairs(market_probabilities)
+            "market_probability_series": prediction_market_research._series_to_iso_pairs(
+                market_probabilities
+            )
             if not market_probabilities.empty
             else [],
-            "outcome_series": prediction_market_research._series_to_iso_pairs(outcomes) if not outcomes.empty else [],
+            "outcome_series": prediction_market_research._series_to_iso_pairs(outcomes)
+            if not outcomes.empty
+            else [],
             "fill_events": prediction_market_research._serialize_fill_events(
                 market_id=loaded_sim.market_id, fills_report=fills_report
             ),
@@ -263,8 +309,13 @@ class PredictionMarketArtifactBuilder:
         if not include_portfolio_series:
             return series_artifacts
 
-        dense_equity_series, dense_cash_series = prediction_market_research._dense_account_series_from_engine(
-            engine=engine, market_id=loaded_sim.market_id, market_prices=market_prices, initial_cash=self.initial_cash
+        dense_equity_series, dense_cash_series = (
+            prediction_market_research._dense_account_series_from_engine(
+                engine=engine,
+                market_id=loaded_sim.market_id,
+                market_prices=market_prices,
+                initial_cash=self.initial_cash,
+            )
         )
         pnl_series = (
             dense_equity_series - float(dense_equity_series.iloc[0])
@@ -272,7 +323,9 @@ class PredictionMarketArtifactBuilder:
             else prediction_market_research._extract_account_pnl_series(engine)
         )
         series_artifacts["pnl_series"] = (
-            prediction_market_research._series_to_iso_pairs(pnl_series) if not pnl_series.empty else []
+            prediction_market_research._series_to_iso_pairs(pnl_series)
+            if not pnl_series.empty
+            else []
         )
         series_artifacts["equity_series"] = (
             prediction_market_research._series_to_iso_pairs(dense_equity_series)
@@ -280,7 +333,9 @@ class PredictionMarketArtifactBuilder:
             else []
         )
         series_artifacts["cash_series"] = (
-            prediction_market_research._series_to_iso_pairs(dense_cash_series) if not dense_cash_series.empty else []
+            prediction_market_research._series_to_iso_pairs(dense_cash_series)
+            if not dense_cash_series.empty
+            else []
         )
         return series_artifacts
 

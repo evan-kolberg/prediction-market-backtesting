@@ -189,7 +189,9 @@ class PolymarketExecutionClient(LiveExecutionClient):
         # Get the user address (funder) - this is the address that holds positions
         # For proxy wallets, this differs from the signer address
         user_address = (
-            http_client.builder.funder if hasattr(http_client, "builder") else config.funder or wallet_address
+            http_client.builder.funder
+            if hasattr(http_client, "builder")
+            else config.funder or wallet_address
         )
         validate_ethereum_address(user_address)
         self._user_address = user_address
@@ -270,10 +272,16 @@ class PolymarketExecutionClient(LiveExecutionClient):
     async def _update_account_state(self) -> None:
         self._log.info("Checking account balance")
 
-        params = BalanceAllowanceParams(asset_type=AssetType.COLLATERAL, signature_type=self._config.signature_type)
-        response: dict[str, Any] = await asyncio.to_thread(self._http_client.get_balance_allowance, params)
+        params = BalanceAllowanceParams(
+            asset_type=AssetType.COLLATERAL, signature_type=self._config.signature_type
+        )
+        response: dict[str, Any] = await asyncio.to_thread(
+            self._http_client.get_balance_allowance, params
+        )
         total = usdce_from_units(int(response["balance"]))
-        account_balance = AccountBalance(total=total, locked=Money.from_raw(0, USDC_POS), free=total)
+        account_balance = AccountBalance(
+            total=total, locked=Money.from_raw(0, USDC_POS), free=total
+        )
 
         self.generate_account_state(
             balances=[account_balance],
@@ -282,7 +290,9 @@ class PolymarketExecutionClient(LiveExecutionClient):
             ts_event=self._clock.timestamp_ns(),
         )
 
-    async def _fetch_user_positions(self, *, limit: int = 100, size_threshold: int = 0) -> list[dict[str, Any]]:
+    async def _fetch_user_positions(
+        self, *, limit: int = 100, size_threshold: int = 0
+    ) -> list[dict[str, Any]]:
         """
         Fetch all current positions for the configured user using the Polymarket Data
         API.
@@ -359,7 +369,9 @@ class PolymarketExecutionClient(LiveExecutionClient):
                     raw = msgspec.json.encode(json_obj)
                     polymarket_order = self._decoder_order_report.decode(raw)
 
-                    instrument_id = get_polymarket_instrument_id(polymarket_order.market, polymarket_order.asset_id)
+                    instrument_id = get_polymarket_instrument_id(
+                        polymarket_order.market, polymarket_order.asset_id
+                    )
                     instrument = self._cache.instrument(instrument_id)
                     if instrument is None:
                         self._log.warning(
@@ -384,7 +396,9 @@ class PolymarketExecutionClient(LiveExecutionClient):
             await self._retry_manager_pool.release(retry_manager)
 
         if self._config.generate_order_history_from_trades:
-            self._log.warning("Experimental feature not currently recommended: generating order history from trades")
+            self._log.warning(
+                "Experimental feature not currently recommended: generating order history from trades"
+            )
             reported_client_order_ids: set[ClientOrderId] = {r.client_order_id for r in reports}
             for order in self._cache.orders_open(venue=POLYMARKET_VENUE):
                 if order.client_order_id in reported_client_order_ids:
@@ -401,7 +415,9 @@ class PolymarketExecutionClient(LiveExecutionClient):
                 if maybe_report:
                     reports.append(maybe_report)
 
-            known_venue_order_ids: set[VenueOrderId] = {o.venue_order_id for o in self._cache.orders()}
+            known_venue_order_ids: set[VenueOrderId] = {
+                o.venue_order_id for o in self._cache.orders()
+            }
             known_venue_order_ids.update({r.venue_order_id for r in reports})
 
             # Check fills to generate order reports
@@ -415,7 +431,9 @@ class PolymarketExecutionClient(LiveExecutionClient):
             )
             fill_reports = await self.generate_fill_reports(fill_command)
             if fill_reports and not known_venue_order_ids:
-                self._log.warning("No previously known venue order IDs found in cache or from active orders")
+                self._log.warning(
+                    "No previously known venue order IDs found in cache or from active orders"
+                )
 
             venue_order_id_fill_reports: dict[VenueOrderId, list[FillReport]] = defaultdict(list)
             for fill in fill_reports:
@@ -433,7 +451,11 @@ class PolymarketExecutionClient(LiveExecutionClient):
                     )
                     continue
 
-                order_type = OrderType.MARKET if first_fill.liquidity_side == LiquiditySide.TAKER else OrderType.LIMIT
+                order_type = (
+                    OrderType.MARKET
+                    if first_fill.liquidity_side == LiquiditySide.TAKER
+                    else OrderType.LIMIT
+                )
 
                 if order_type == OrderType.LIMIT:
                     price = first_fill.last_px
@@ -487,14 +509,18 @@ class PolymarketExecutionClient(LiveExecutionClient):
 
         return reports
 
-    async def generate_order_status_report(self, command: GenerateOrderStatusReport) -> OrderStatusReport | None:
+    async def generate_order_status_report(
+        self, command: GenerateOrderStatusReport
+    ) -> OrderStatusReport | None:
         await self._maintain_active_market(command.instrument_id)
 
         venue_order_id = command.venue_order_id
         if venue_order_id is None:
             venue_order_id = self._cache.venue_order_id(command.client_order_id)
             if venue_order_id is None:
-                self._log.error("Cannot generate an order status report for Polymarket without the venue order ID")
+                self._log.error(
+                    "Cannot generate an order status report for Polymarket without the venue order ID"
+                )
                 return None  # Failed
 
         self._log.info(
@@ -518,7 +544,9 @@ class PolymarketExecutionClient(LiveExecutionClient):
             # self._log.info(str(response), LogColor.MAGENTA)
             raw_response = msgspec.json.encode(response)
             polymarket_order = self._decoder_order_report.decode(raw_response)
-            instrument_id = get_polymarket_instrument_id(polymarket_order.market, polymarket_order.asset_id)
+            instrument_id = get_polymarket_instrument_id(
+                polymarket_order.market, polymarket_order.asset_id
+            )
             instrument = self._cache.instrument(instrument_id)
             if instrument is None:
                 self._log.warning(
@@ -561,7 +589,11 @@ class PolymarketExecutionClient(LiveExecutionClient):
         retry_manager = await self._retry_manager_pool.acquire()
         try:
             response: list[JSON] | None = await retry_manager.run(
-                "generate_fill_reports", details, asyncio.to_thread, self._http_client.get_trades, params=params
+                "generate_fill_reports",
+                details,
+                asyncio.to_thread,
+                self._http_client.get_trades,
+                params=params,
             )
             if response:
                 # Uncomment for development
@@ -569,7 +601,10 @@ class PolymarketExecutionClient(LiveExecutionClient):
                 parsed_fill_keys: set[tuple[TradeId, VenueOrderId]] = set()
                 for json_obj in response:
                     self._parse_trades_response_object(
-                        command=command, json_obj=json_obj, parsed_fill_keys=parsed_fill_keys, reports=reports
+                        command=command,
+                        json_obj=json_obj,
+                        parsed_fill_keys=parsed_fill_keys,
+                        reports=reports,
                     )
         finally:
             await self._retry_manager_pool.release(retry_manager)
@@ -627,7 +662,9 @@ class PolymarketExecutionClient(LiveExecutionClient):
         raw = msgspec.json.encode(json_obj)
         polymarket_trade = self._decoder_trade_report.decode(raw)
 
-        filled_user_order_ids = polymarket_trade.get_filled_user_order_ids(self._wallet_address, self._api_key)
+        filled_user_order_ids = polymarket_trade.get_filled_user_order_ids(
+            self._wallet_address, self._api_key
+        )
 
         for order_id in filled_user_order_ids:
             asset_id = polymarket_trade.get_asset_id(order_id)
@@ -679,7 +716,9 @@ class PolymarketExecutionClient(LiveExecutionClient):
         self._log.debug("Fetching positions from Gamma API")
 
         # Fetch all user positions once (paginated)
-        positions: list[dict[str, Any]] = await self._fetch_user_positions(limit=100, size_threshold=0)
+        positions: list[dict[str, Any]] = await self._fetch_user_positions(
+            limit=100, size_threshold=0
+        )
 
         # Map asset (token id) -> size (shares)
         size_by_asset: dict[str, float] = {}
@@ -691,7 +730,9 @@ class PolymarketExecutionClient(LiveExecutionClient):
             try:
                 size_by_asset[instrument_id] = float(size_val)
             except Exception as e:
-                self._log.warning(f"Failed to parse position size for instrument {instrument_id}: {e}")
+                self._log.warning(
+                    f"Failed to parse position size for instrument {instrument_id}: {e}"
+                )
                 continue
 
         # Convert to quantities by instrument ID
@@ -704,7 +745,9 @@ class PolymarketExecutionClient(LiveExecutionClient):
 
         return quantities
 
-    async def _fetch_quantities_from_clob_api(self, instrument_ids: list[InstrumentId]) -> dict[InstrumentId, Quantity]:
+    async def _fetch_quantities_from_clob_api(
+        self, instrument_ids: list[InstrumentId]
+    ) -> dict[InstrumentId, Quantity]:
         """
         Fetch position quantities using CLOB API (individual queries).
         """
@@ -715,9 +758,13 @@ class PolymarketExecutionClient(LiveExecutionClient):
             token_id = str(get_polymarket_token_id(instrument_id))
 
             params = BalanceAllowanceParams(
-                asset_type=AssetType.CONDITIONAL, token_id=token_id, signature_type=self._config.signature_type
+                asset_type=AssetType.CONDITIONAL,
+                token_id=token_id,
+                signature_type=self._config.signature_type,
             )
-            response: dict[str, Any] = await asyncio.to_thread(self._http_client.get_balance_allowance, params)
+            response: dict[str, Any] = await asyncio.to_thread(
+                self._http_client.get_balance_allowance, params
+            )
             quantities[instrument_id] = Quantity.from_raw(
                 usdce_from_units(int(response["balance"])).raw, precision=USDC_POS.precision
             )
@@ -727,12 +774,20 @@ class PolymarketExecutionClient(LiveExecutionClient):
     # -- COMMAND HANDLERS -------------------------------------------------------------------------
 
     def _generate_cancel_event(
-        self, strategy_id, instrument_id, client_order_id, venue_order_id, reason: str, ts_event: int
+        self,
+        strategy_id,
+        instrument_id,
+        client_order_id,
+        venue_order_id,
+        reason: str,
+        ts_event: int,
     ) -> None:
         # Venue says order is gone (canceled or matched) - suppress event
         # and let WS deliver the correct terminal event (CANCELLATION or TRADE)
         if POLYMARKET_CANCEL_ALREADY_DONE in reason:
-            self._log.info(f"Cancel rejected for {client_order_id!r}: {reason} - awaiting WS event for terminal state")
+            self._log.info(
+                f"Cancel rejected for {client_order_id!r}: {reason} - awaiting WS event for terminal state"
+            )
             return
 
         self.generate_order_cancel_rejected(
@@ -927,13 +982,17 @@ class PolymarketExecutionClient(LiveExecutionClient):
             else:
                 canceled = response.get("canceled", [])
                 not_canceled = response.get("not_canceled", {})
-                self._log.info(f"Cancel all result: {len(canceled)} canceled, {len(not_canceled)} not canceled")
+                self._log.info(
+                    f"Cancel all result: {len(canceled)} canceled, {len(not_canceled)} not canceled"
+                )
                 for order_id, reason in not_canceled.items():
                     self._log.warning(f"Order {order_id} not canceled: {reason}")
         finally:
             await self._retry_manager_pool.release(retry_manager)
 
-    async def _cancel_market_orders(self, instrument_id: InstrumentId | None = None, asset_id: str = "") -> None:
+    async def _cancel_market_orders(
+        self, instrument_id: InstrumentId | None = None, asset_id: str = ""
+    ) -> None:
         """
         Cancel orders for a specific market using Polymarket's cancel_market_orders
         endpoint.
@@ -958,7 +1017,9 @@ class PolymarketExecutionClient(LiveExecutionClient):
             if not asset_id:
                 asset_id = get_polymarket_token_id(instrument_id)
 
-        self._log.info(f"Canceling orders for market={market or 'ALL'}, asset_id={asset_id or 'ALL'}")
+        self._log.info(
+            f"Canceling orders for market={market or 'ALL'}, asset_id={asset_id or 'ALL'}"
+        )
 
         retry_manager = await self._retry_manager_pool.acquire()
         try:
@@ -1108,7 +1169,9 @@ class PolymarketExecutionClient(LiveExecutionClient):
         for order in orders:
             denial_reason = self._validate_order_for_batch(order)
             if denial_reason:
-                self._log.error(f"Cannot submit order {order.client_order_id}: {denial_reason}", LogColor.RED)
+                self._log.error(
+                    f"Cannot submit order {order.client_order_id}: {denial_reason}", LogColor.RED
+                )
                 self.generate_order_denied(
                     strategy_id=order.strategy_id,
                     instrument_id=order.instrument_id,
@@ -1149,7 +1212,9 @@ class PolymarketExecutionClient(LiveExecutionClient):
         # Submit batch
         await self._post_signed_orders_batch(signed_orders, signed_orders_args)
 
-    async def _sign_orders_for_batch(self, orders: list[Order]) -> tuple[list[Order], list[PostOrdersArgs]]:
+    async def _sign_orders_for_batch(
+        self, orders: list[Order]
+    ) -> tuple[list[Order], list[PostOrdersArgs]]:
         """
         Sign multiple orders for batch submission.
 
@@ -1179,11 +1244,15 @@ class PolymarketExecutionClient(LiveExecutionClient):
                 neg_risk = self._get_neg_risk_for_instrument(instrument)
                 options = PartialCreateOrderOptions(neg_risk=neg_risk)
 
-                signed_order = await asyncio.to_thread(self._http_client.create_order, order_args, options=options)
+                signed_order = await asyncio.to_thread(
+                    self._http_client.create_order, order_args, options=options
+                )
 
                 order_type = convert_tif_to_polymarket_order_type(order.time_in_force)
                 signed_orders_args.append(
-                    PostOrdersArgs(order=signed_order, orderType=order_type, postOnly=order.is_post_only)
+                    PostOrdersArgs(
+                        order=signed_order, orderType=order_type, postOnly=order.is_post_only
+                    )
                 )
                 successfully_signed_orders.append(order)
             except Exception as e:
@@ -1204,7 +1273,9 @@ class PolymarketExecutionClient(LiveExecutionClient):
 
         return successfully_signed_orders, signed_orders_args
 
-    async def _post_signed_orders_batch(self, orders: list[Order], signed_orders_args: list[PostOrdersArgs]) -> None:
+    async def _post_signed_orders_batch(
+        self, orders: list[Order], signed_orders_args: list[PostOrdersArgs]
+    ) -> None:
         """
         Post a batch of signed orders to Polymarket.
         """
@@ -1281,7 +1352,9 @@ class PolymarketExecutionClient(LiveExecutionClient):
                 if trade_event:
                     trade_event.set()
 
-                self._log.debug(f"Order {order.client_order_id} accepted, venue_order_id={venue_order_id}")
+                self._log.debug(
+                    f"Order {order.client_order_id} accepted, venue_order_id={venue_order_id}"
+                )
             else:
                 reason = result.get("errorMsg", "Unknown error")
                 self.generate_order_rejected(
@@ -1294,7 +1367,9 @@ class PolymarketExecutionClient(LiveExecutionClient):
                 self._log.warning(f"Order {order.client_order_id} rejected: {reason}")
 
     def _deny_market_order_quantity(self, order: Order, reason: str) -> None:
-        self._log.error(f"Cannot submit market order {order.client_order_id}: {reason}", LogColor.RED)
+        self._log.error(
+            f"Cannot submit market order {order.client_order_id}: {reason}", LogColor.RED
+        )
         self.generate_order_denied(
             strategy_id=order.strategy_id,
             instrument_id=order.instrument_id,
@@ -1359,7 +1434,10 @@ class PolymarketExecutionClient(LiveExecutionClient):
         order = command.order
 
         if order.is_quote_quantity:
-            self._log.error(f"Cannot submit order {order.client_order_id}: UNSUPPORTED_QUOTE_QUANTITY", LogColor.RED)
+            self._log.error(
+                f"Cannot submit order {order.client_order_id}: UNSUPPORTED_QUOTE_QUANTITY",
+                LogColor.RED,
+            )
             self.generate_order_denied(
                 strategy_id=order.strategy_id,
                 instrument_id=order.instrument_id,
@@ -1381,7 +1459,9 @@ class PolymarketExecutionClient(LiveExecutionClient):
         neg_risk = self._get_neg_risk_for_instrument(instrument)
         options = PartialCreateOrderOptions(neg_risk=neg_risk)
         signing_start = self._clock.timestamp()
-        signed_order = await asyncio.to_thread(self._http_client.create_order, order_args, options=options)
+        signed_order = await asyncio.to_thread(
+            self._http_client.create_order, order_args, options=options
+        )
         interval = self._clock.timestamp() - signing_start
         self._log.info(f"Signed Polymarket order in {interval:.3f}s", LogColor.BLUE)
 
@@ -1433,7 +1513,9 @@ class PolymarketExecutionClient(LiveExecutionClient):
     def _handle_ws_message(self, raw: bytes) -> None:
         try:
             if self._config.log_raw_ws_messages:
-                self._log.info(str(json.dumps(msgspec.json.decode(raw), indent=4)), color=LogColor.MAGENTA)
+                self._log.info(
+                    str(json.dumps(msgspec.json.decode(raw), indent=4)), color=LogColor.MAGENTA
+                )
 
             msg = self._decoder_user_msg.decode(raw)
             if isinstance(msg, PolymarketUserOrder):
@@ -1455,9 +1537,14 @@ class PolymarketExecutionClient(LiveExecutionClient):
         cache_key = get_polymarket_trades_key(msg.taker_order_id, msg.id)
         self._cache.add(cache_key, raw)
         interval_us = self._clock.timestamp_us() - start_us
-        self._log.info(f"Added trade {msg.id} {msg.status.value} to {cache_key} in {interval_us}μs", LogColor.BLUE)
+        self._log.info(
+            f"Added trade {msg.id} {msg.status.value} to {cache_key} in {interval_us}μs",
+            LogColor.BLUE,
+        )
 
-    async def _wait_for_ack_order(self, msg: PolymarketUserOrder, venue_order_id: VenueOrderId) -> None:
+    async def _wait_for_ack_order(
+        self, msg: PolymarketUserOrder, venue_order_id: VenueOrderId
+    ) -> None:
         client_order_id = self._cache.client_order_id(venue_order_id)
         if client_order_id is not None:
             self._handle_ws_order_msg(msg, wait_for_ack=False)
@@ -1478,7 +1565,9 @@ class PolymarketExecutionClient(LiveExecutionClient):
 
         self._handle_ws_order_msg(msg, wait_for_ack=False)
 
-    async def _wait_for_ack_trade(self, msg: PolymarketUserTrade, venue_order_id: VenueOrderId) -> None:
+    async def _wait_for_ack_trade(
+        self, msg: PolymarketUserTrade, venue_order_id: VenueOrderId
+    ) -> None:
         self._log.debug(f"Waiting for trade ack for {venue_order_id!r}...")
 
         client_order_id = self._cache.client_order_id(venue_order_id)
@@ -1499,7 +1588,9 @@ class PolymarketExecutionClient(LiveExecutionClient):
         # Process only this specific order, not the entire trade message
         trade_id = TradeId(msg.id)
         order_id = venue_order_id.value
-        self._handle_user_trade_in_ws_trade_msg(msg, trade_id, wait_for_ack=False, order_id=order_id)
+        self._handle_user_trade_in_ws_trade_msg(
+            msg, trade_id, wait_for_ack=False, order_id=order_id
+        )
 
     def _handle_ws_order_msg(self, msg: PolymarketUserOrder, wait_for_ack: bool):
         self._log.debug(f"Handling order message, {wait_for_ack=}")
@@ -1694,7 +1785,9 @@ class PolymarketExecutionClient(LiveExecutionClient):
             return
 
         if composite_trade_id in order.trade_ids:
-            self._log.debug(f"Trade {composite_trade_id} already processed for {order.client_order_id} - skipping")
+            self._log.debug(
+                f"Trade {composite_trade_id} already processed for {order.client_order_id} - skipping"
+            )
             return
 
         if order.is_closed:

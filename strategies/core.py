@@ -51,14 +51,20 @@ def _estimate_entry_unit_cost(*, reference_price: Decimal, taker_fee: Decimal) -
 
 
 def _cap_entry_size_to_free_balance(
-    *, desired_size: Decimal, reference_price: Decimal | None, taker_fee: Decimal, free_balance: Decimal | None
+    *,
+    desired_size: Decimal,
+    reference_price: Decimal | None,
+    taker_fee: Decimal,
+    free_balance: Decimal | None,
 ) -> Decimal:
     if desired_size <= 0:
         return Decimal("0")
     if reference_price is None or reference_price <= 0 or free_balance is None:
         return desired_size
 
-    unit_cost = _estimate_entry_unit_cost(reference_price=reference_price, taker_fee=max(taker_fee, Decimal("0")))
+    unit_cost = _estimate_entry_unit_cost(
+        reference_price=reference_price, taker_fee=max(taker_fee, Decimal("0"))
+    )
     if unit_cost <= 0:
         return desired_size
 
@@ -68,7 +74,9 @@ def _cap_entry_size_to_free_balance(
     return max(Decimal("0"), min(desired_size, affordable_size))
 
 
-def _cap_entry_size_to_visible_liquidity(*, desired_size: Decimal, visible_size: Decimal | None) -> Decimal:
+def _cap_entry_size_to_visible_liquidity(
+    *, desired_size: Decimal, visible_size: Decimal | None
+) -> Decimal:
     if desired_size <= 0:
         return Decimal("0")
     if visible_size is None:
@@ -78,7 +86,9 @@ def _cap_entry_size_to_visible_liquidity(*, desired_size: Decimal, visible_size:
     return min(desired_size, visible_size)
 
 
-def _effective_entry_reference_price(*, reference_price: Decimal | None, visible_size: Decimal | None) -> Decimal:
+def _effective_entry_reference_price(
+    *, reference_price: Decimal | None, visible_size: Decimal | None
+) -> Decimal:
     if reference_price is not None and visible_size is not None and visible_size > 0:
         return reference_price
 
@@ -124,7 +134,9 @@ class LongOnlyPredictionMarketStrategy(Strategy):
             return None
         return _decimal_or_none(free_balance.as_double())
 
-    def _entry_quantity(self, *, reference_price: float | None = None, visible_size: float | None = None):
+    def _entry_quantity(
+        self, *, reference_price: float | None = None, visible_size: float | None = None
+    ):
         assert self._instrument is not None
         desired_size = _decimal_or_none(self.config.trade_size)
         if desired_size is None or desired_size <= 0:
@@ -166,7 +178,9 @@ class LongOnlyPredictionMarketStrategy(Strategy):
             )
         return quantity
 
-    def _submit_entry(self, *, reference_price: float | None = None, visible_size: float | None = None) -> None:
+    def _submit_entry(
+        self, *, reference_price: float | None = None, visible_size: float | None = None
+    ) -> None:
         quantity = self._entry_quantity(reference_price=reference_price, visible_size=visible_size)
         if quantity is None:
             return

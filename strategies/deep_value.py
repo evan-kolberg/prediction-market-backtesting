@@ -51,7 +51,9 @@ class _DeepValueHoldBase(LongOnlyPredictionMarketStrategy):
         super().__init__(config)
         self._entered_once: bool = False
 
-    def _on_price(self, price: float, *, entry_price: float | None = None, visible_size: float | None = None) -> None:
+    def _on_price(
+        self, price: float, *, entry_price: float | None = None, visible_size: float | None = None
+    ) -> None:
         if self._pending:
             return
 
@@ -62,7 +64,10 @@ class _DeepValueHoldBase(LongOnlyPredictionMarketStrategy):
             return
 
         if price <= float(self.config.entry_price_max):
-            self._submit_entry(reference_price=price if entry_price is None else entry_price, visible_size=visible_size)
+            self._submit_entry(
+                reference_price=price if entry_price is None else entry_price,
+                visible_size=visible_size,
+            )
 
     def on_order_filled(self, event) -> None:  # type: ignore[no-untyped-def]
         super().on_order_filled(event)

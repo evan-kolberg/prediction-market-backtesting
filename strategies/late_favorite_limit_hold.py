@@ -40,19 +40,30 @@ class _LateFavoriteLimitHoldBase(LongOnlyPredictionMarketStrategy):
     remaining position to settlement after the backtest completes.
     """
 
-    def __init__(self, config: TradeTickLateFavoriteLimitHoldConfig | QuoteTickLateFavoriteLimitHoldConfig) -> None:
+    def __init__(
+        self, config: TradeTickLateFavoriteLimitHoldConfig | QuoteTickLateFavoriteLimitHoldConfig
+    ) -> None:
         super().__init__(config)
         self._entered_once = False
 
     def _on_price(
-        self, *, signal_price: float, order_price: float, ts_event_ns: int, visible_size: float | None = None
+        self,
+        *,
+        signal_price: float,
+        order_price: float,
+        ts_event_ns: int,
+        visible_size: float | None = None,
     ) -> None:
         if self._pending or self._in_position() or self._entered_once:
             return
 
-        if int(self.config.activation_start_time_ns) > 0 and ts_event_ns < int(self.config.activation_start_time_ns):
+        if int(self.config.activation_start_time_ns) > 0 and ts_event_ns < int(
+            self.config.activation_start_time_ns
+        ):
             return
-        if int(self.config.market_close_time_ns) > 0 and ts_event_ns > int(self.config.market_close_time_ns):
+        if int(self.config.market_close_time_ns) > 0 and ts_event_ns > int(
+            self.config.market_close_time_ns
+        ):
             return
 
         if signal_price < float(self.config.entry_price):

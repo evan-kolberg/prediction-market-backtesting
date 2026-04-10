@@ -61,7 +61,10 @@ EMPTY_MESSAGE = "No Kalshi basket sims met the trade-tick requirements."
 PARTIAL_MESSAGE = "Completed {completed} of {total} independent Kalshi basket replays."
 
 DATA = MarketDataConfig(
-    platform=Kalshi, data_type=TradeTick, vendor=Native, sources=("rest:https://api.elections.kalshi.com/trade-api/v2",)
+    platform=Kalshi,
+    data_type=TradeTick,
+    vendor=Native,
+    sources=("rest:https://api.elections.kalshi.com/trade-api/v2",),
 )
 
 REPLAYS = (

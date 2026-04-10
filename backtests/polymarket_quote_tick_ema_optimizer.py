@@ -43,26 +43,40 @@ DATA = MarketDataConfig(
     platform=Polymarket,
     data_type=QuoteTick,
     vendor=PMXT,
-    sources=("local:/Volumes/LaCie/pmxt_raws", "archive:r2.pmxt.dev", "relay:209-209-10-83.sslip.io"),
+    sources=(
+        "local:/Volumes/LaCie/pmxt_raws",
+        "archive:r2.pmxt.dev",
+        "relay:209-209-10-83.sslip.io",
+    ),
 )
 
-BASE_REPLAY = QuoteReplay(market_slug="will-ludvig-aberg-win-the-2026-masters-tournament", token_index=0)
+BASE_REPLAY = QuoteReplay(
+    market_slug="will-ludvig-aberg-win-the-2026-masters-tournament", token_index=0
+)
 
 TRAIN_WINDOWS = (
     ParameterSearchWindow(
-        name="sample-a-full-window", start_time="2026-04-05T00:00:00Z", end_time="2026-04-07T23:59:59Z"
+        name="sample-a-full-window",
+        start_time="2026-04-05T00:00:00Z",
+        end_time="2026-04-07T23:59:59Z",
     ),
     ParameterSearchWindow(
-        name="sample-b-2026-04-06-day", start_time="2026-04-06T00:00:00Z", end_time="2026-04-06T23:59:59Z"
+        name="sample-b-2026-04-06-day",
+        start_time="2026-04-06T00:00:00Z",
+        end_time="2026-04-06T23:59:59Z",
     ),
     ParameterSearchWindow(
-        name="sample-c-2026-04-07-late", start_time="2026-04-07T12:00:00Z", end_time="2026-04-07T23:59:59Z"
+        name="sample-c-2026-04-07-late",
+        start_time="2026-04-07T12:00:00Z",
+        end_time="2026-04-07T23:59:59Z",
     ),
 )
 
 HOLDOUT_WINDOWS = (
     ParameterSearchWindow(
-        name="sample-d-close-window", start_time="2026-04-07T00:00:00Z", end_time="2026-04-07T11:59:59Z"
+        name="sample-d-close-window",
+        start_time="2026-04-07T00:00:00Z",
+        end_time="2026-04-07T11:59:59Z",
     ),
 )
 
@@ -120,7 +134,9 @@ OPTIMIZER = PARAMETER_SEARCH
 OPTIMIZATION = PARAMETER_SEARCH
 
 
-EXPERIMENT = ParameterSearchExperiment(name=NAME, description=DESCRIPTION, parameter_search=PARAMETER_SEARCH)
+EXPERIMENT = ParameterSearchExperiment(
+    name=NAME, description=DESCRIPTION, parameter_search=PARAMETER_SEARCH
+)
 
 
 @timing_harness

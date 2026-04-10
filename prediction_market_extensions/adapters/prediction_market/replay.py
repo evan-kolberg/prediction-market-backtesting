@@ -129,7 +129,9 @@ class HistoricalReplayAdapter(ABC):
         raise NotImplementedError
 
     def build_single_market_replay(self, *, field_values: Mapping[str, Any]) -> Any:
-        raise NotImplementedError(f"{type(self).__name__} does not support single-market replay construction.")
+        raise NotImplementedError(
+            f"{type(self).__name__} does not support single-market replay construction."
+        )
 
     @abstractmethod
     def configure_sources(self, *, sources: Sequence[str]) -> AbstractContextManager[Any]:

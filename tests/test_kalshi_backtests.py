@@ -16,7 +16,9 @@ from nautilus_trader.model.identifiers import Venue
 INSTRUMENT_ID = InstrumentId(Symbol("KALSHI-TEST"), Venue("KALSHI"))
 
 EXPECTED_SINGLE_REPLAY = TradeReplay(
-    market_ticker="KXLAYOFFSYINFO-26-494000", start_time="2026-03-15T00:00:00Z", end_time="2026-04-08T23:59:59Z"
+    market_ticker="KXLAYOFFSYINFO-26-494000",
+    start_time="2026-03-15T00:00:00Z",
+    end_time="2026-04-08T23:59:59Z",
 )
 EXPECTED_MULTI_REPLAYS = (
     TradeReplay(
@@ -40,7 +42,9 @@ EXPECTED_MULTI_REPLAYS = (
 )
 
 
-def test_kalshi_single_runner_builds_expected_trade_tick_strategy(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_kalshi_single_runner_builds_expected_trade_tick_strategy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     module = importlib.import_module("backtests.kalshi_trade_tick_breakout")
     captured: dict[str, object] = {}
 
@@ -52,7 +56,9 @@ def test_kalshi_single_runner_builds_expected_trade_tick_strategy(monkeypatch: p
 
     module.run()
 
-    strategies = build_strategies_from_configs(strategy_configs=module.STRATEGY_CONFIGS, instrument_id=INSTRUMENT_ID)
+    strategies = build_strategies_from_configs(
+        strategy_configs=module.STRATEGY_CONFIGS, instrument_id=INSTRUMENT_ID
+    )
     assert len(strategies) == 1
     strategy = strategies[0]
 
@@ -81,7 +87,9 @@ def test_kalshi_independent_runner_uses_fixed_replays(monkeypatch: pytest.Monkey
 
     module.run()
 
-    strategies = build_strategies_from_configs(strategy_configs=module.STRATEGY_CONFIGS, instrument_id=INSTRUMENT_ID)
+    strategies = build_strategies_from_configs(
+        strategy_configs=module.STRATEGY_CONFIGS, instrument_id=INSTRUMENT_ID
+    )
     assert len(strategies) == 1
     strategy = strategies[0]
 

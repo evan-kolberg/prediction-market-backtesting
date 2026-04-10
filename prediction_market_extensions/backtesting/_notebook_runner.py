@@ -20,7 +20,9 @@ def load_notebook_metadata(notebook_path: Path, *, project_root: Path) -> dict[s
         with notebook_path.open("r", encoding="utf-8") as handle:
             notebook = nbformat.read(handle, as_version=4)
     except OSError as exc:
-        raise RuntimeError(f"could not read {notebook_path.relative_to(project_root)}: {exc}") from exc
+        raise RuntimeError(
+            f"could not read {notebook_path.relative_to(project_root)}: {exc}"
+        ) from exc
 
     metadata = getattr(notebook, "metadata", {}) or {}
     runner_metadata = metadata.get(NOTEBOOK_METADATA_KEY, {}) or {}
@@ -54,7 +56,10 @@ def execute_notebook_runner(notebook_path: Path, *, project_root: Path) -> None:
     artifact_snapshot = snapshot_html_artifacts(project_root / "output")
     kernel_name = getattr(notebook, "metadata", {}).get("kernelspec", {}).get("name") or "python3"
     client = nbclient.NotebookClient(
-        notebook, kernel_name=kernel_name, timeout=None, resources={"metadata": {"path": str(project_root)}}
+        notebook,
+        kernel_name=kernel_name,
+        timeout=None,
+        resources={"metadata": {"path": str(project_root)}},
     )
 
     try:
@@ -65,7 +70,10 @@ def execute_notebook_runner(notebook_path: Path, *, project_root: Path) -> None:
 
     html_artifacts = find_updated_html_artifacts(project_root / "output", artifact_snapshot)
     _replace_auto_embed_cell(
-        notebook=notebook, notebook_path=notebook_path, html_artifacts=html_artifacts, nbformat=nbformat
+        notebook=notebook,
+        notebook_path=notebook_path,
+        html_artifacts=html_artifacts,
+        nbformat=nbformat,
     )
     _write_notebook(notebook_path=notebook_path, notebook=notebook, nbformat=nbformat)
 
@@ -102,8 +110,12 @@ def _notebook_description(notebook: Any) -> str:
     return ""
 
 
-def _replace_auto_embed_cell(*, notebook: Any, notebook_path: Path, html_artifacts: list[Path], nbformat: Any) -> None:
-    notebook.cells = [cell for cell in notebook.cells if AUTO_EMBED_CELL_MARKER not in str(cell.get("source", ""))]
+def _replace_auto_embed_cell(
+    *, notebook: Any, notebook_path: Path, html_artifacts: list[Path], nbformat: Any
+) -> None:
+    notebook.cells = [
+        cell for cell in notebook.cells if AUTO_EMBED_CELL_MARKER not in str(cell.get("source", ""))
+    ]
     if not html_artifacts:
         return
 
@@ -127,7 +139,11 @@ def _auto_embed_cell_source(*, notebook_path: Path, html_artifacts: list[Path]) 
     for path in embedded:
         relative = _relative_html_path(notebook_path=notebook_path, html_path=path)
         lines.extend(
-            [f"### {path.name}", f'<iframe src="{relative}" width="100%" height="{_EMBED_HEIGHT_PX}"></iframe>', ""]
+            [
+                f"### {path.name}",
+                f'<iframe src="{relative}" width="100%" height="{_EMBED_HEIGHT_PX}"></iframe>',
+                "",
+            ]
         )
 
     if linked:

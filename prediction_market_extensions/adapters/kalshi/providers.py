@@ -51,7 +51,9 @@ KALSHI_MAKER_FEE_RATE = decimal.Decimal(0)
 
 
 def calculate_kalshi_commission(
-    quantity: decimal.Decimal, price: decimal.Decimal, fee_rate: decimal.Decimal = KALSHI_TAKER_FEE_RATE
+    quantity: decimal.Decimal,
+    price: decimal.Decimal,
+    fee_rate: decimal.Decimal = KALSHI_TAKER_FEE_RATE,
 ) -> decimal.Decimal:
     """
     Calculate Kalshi transaction fee.

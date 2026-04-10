@@ -7,15 +7,21 @@ from types import SimpleNamespace
 import pytest
 
 from prediction_market_extensions.backtesting import _experiments as experiments
-from prediction_market_extensions.backtesting import _independent_multi_replay_runner as independent_runner
+from prediction_market_extensions.backtesting import (
+    _independent_multi_replay_runner as independent_runner,
+)
 from prediction_market_extensions.backtesting._experiments import ReplayExperiment
 from prediction_market_extensions.backtesting._prediction_market_backtest import MarketReportConfig
 from prediction_market_extensions.backtesting._prediction_market_backtest import MarketSimConfig
-from prediction_market_extensions.backtesting._prediction_market_backtest import PredictionMarketBacktest
+from prediction_market_extensions.backtesting._prediction_market_backtest import (
+    PredictionMarketBacktest,
+)
 from prediction_market_extensions.backtesting._prediction_market_runner import MarketDataConfig
 
 
-def test_independent_trade_runner_forwards_explicit_output_paths(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_independent_trade_runner_forwards_explicit_output_paths(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     captured: list[PredictionMarketBacktest] = []
 
     async def _fake_run_async(self):  # type: ignore[no-untyped-def]
@@ -39,7 +45,9 @@ def test_independent_trade_runner_forwards_explicit_output_paths(monkeypatch: py
 
     backtest = PredictionMarketBacktest(
         name="demo",
-        data=MarketDataConfig(platform="polymarket", data_type="trade_tick", vendor="native", sources=("demo-source",)),
+        data=MarketDataConfig(
+            platform="polymarket", data_type="trade_tick", vendor="native", sources=("demo-source",)
+        ),
         sims=(
             MarketSimConfig(
                 market_slug="demo-market",
@@ -65,7 +73,9 @@ def test_independent_trade_runner_forwards_explicit_output_paths(monkeypatch: py
         return_summary_series=True,
     )
 
-    results = asyncio.run(independent_runner.run_independent_multi_replay_backtest_async(backtest=backtest))
+    results = asyncio.run(
+        independent_runner.run_independent_multi_replay_backtest_async(backtest=backtest)
+    )
 
     assert len(results) == 2
     assert captured[0].data.sources == ("demo-source",)
@@ -77,7 +87,9 @@ def test_independent_trade_runner_forwards_explicit_output_paths(monkeypatch: py
     assert "sample-b" in str(captured[1].chart_output_path)
 
 
-def test_run_experiment_applies_result_policy_for_independent_multi_replay(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_run_experiment_applies_result_policy_for_independent_multi_replay(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     captured: dict[str, object] = {}
 
     def _fake_finalize_market_results(**kwargs):  # type: ignore[no-untyped-def]
@@ -127,7 +139,9 @@ def test_run_experiment_applies_result_policy_for_independent_multi_replay(monke
     assert captured["results"] == results
 
 
-def test_run_experiment_uses_joint_portfolio_path_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_run_experiment_uses_joint_portfolio_path_by_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     captured: dict[str, object] = {}
 
     def _fake_run(self):  # type: ignore[no-untyped-def]
@@ -155,8 +169,12 @@ def test_run_experiment_uses_joint_portfolio_path_by_default(monkeypatch: pytest
     assert captured["backtest"].replays[0].market_slug == "demo-market-a"
 
 
-@pytest.mark.parametrize("module_name", ["backtests.polymarket_trade_tick_independent_multi_replay_runner"])
-def test_trade_tick_independent_runner_uses_run_experiment(monkeypatch: pytest.MonkeyPatch, module_name: str) -> None:
+@pytest.mark.parametrize(
+    "module_name", ["backtests.polymarket_trade_tick_independent_multi_replay_runner"]
+)
+def test_trade_tick_independent_runner_uses_run_experiment(
+    monkeypatch: pytest.MonkeyPatch, module_name: str
+) -> None:
     module = importlib.import_module(module_name)
     captured: dict[str, object] = {}
 
@@ -182,7 +200,9 @@ def test_trade_tick_independent_runner_uses_run_experiment(monkeypatch: pytest.M
 
 
 @pytest.mark.parametrize("module_name", ["backtests.polymarket_trade_tick_joint_portfolio_runner"])
-def test_trade_tick_joint_runner_uses_run_experiment(monkeypatch: pytest.MonkeyPatch, module_name: str) -> None:
+def test_trade_tick_joint_runner_uses_run_experiment(
+    monkeypatch: pytest.MonkeyPatch, module_name: str
+) -> None:
     module = importlib.import_module(module_name)
     captured: dict[str, object] = {}
 

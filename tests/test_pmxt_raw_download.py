@@ -112,7 +112,9 @@ def test_discover_archive_hours_reads_listing_pages(monkeypatch) -> None:
     ]
 
 
-def test_download_raw_hours_fetches_archive_then_relay_fallback(monkeypatch, tmp_path: Path) -> None:
+def test_download_raw_hours_fetches_archive_then_relay_fallback(
+    monkeypatch, tmp_path: Path
+) -> None:
     payload = _raw_parquet_payload()
     requested_urls: list[str] = []
 
@@ -128,7 +130,10 @@ def test_download_raw_hours_fetches_archive_then_relay_fallback(monkeypatch, tmp
     def fake_urlopen(request, timeout=60):  # type: ignore[no-untyped-def]
         del timeout
         requested_urls.append(request.full_url)
-        if request.full_url.endswith("2026-03-21T10.parquet") and "/v1/raw/" not in request.full_url:
+        if (
+            request.full_url.endswith("2026-03-21T10.parquet")
+            and "/v1/raw/" not in request.full_url
+        ):
             raise HTTPError(request.full_url, 404, "missing", hdrs=None, fp=None)
         return _Response(payload, headers={"Content-Length": str(len(payload))})
 
@@ -140,19 +145,26 @@ def test_download_raw_hours_fetches_archive_then_relay_fallback(monkeypatch, tmp
     assert summary.downloaded_hours == 2
     assert summary.skipped_existing_hours == 0
     assert summary.failed_hours == []
-    assert summary.source_hits == {"archive:https://r2.pmxt.dev": 1, "relay:https://209-209-10-83.sslip.io": 1}
+    assert summary.source_hits == {
+        "archive:https://r2.pmxt.dev": 1,
+        "relay:https://209-209-10-83.sslip.io": 1,
+    }
     assert requested_urls == [
         "https://r2.pmxt.dev/polymarket_orderbook_2026-03-21T09.parquet",
         "https://r2.pmxt.dev/polymarket_orderbook_2026-03-21T10.parquet",
         "https://209-209-10-83.sslip.io/v1/raw/2026/03/21/polymarket_orderbook_2026-03-21T10.parquet",
     ]
-    assert (tmp_path / "raws" / "2026" / "03" / "21" / "polymarket_orderbook_2026-03-21T09.parquet").exists()
+    assert (
+        tmp_path / "raws" / "2026" / "03" / "21" / "polymarket_orderbook_2026-03-21T09.parquet"
+    ).exists()
 
 
 def test_download_raw_hours_skips_existing_files(monkeypatch, tmp_path: Path) -> None:
     payload = _raw_parquet_payload()
     destination = tmp_path / "raws"
-    existing_path = destination / "2026" / "03" / "21" / "polymarket_orderbook_2026-03-21T09.parquet"
+    existing_path = (
+        destination / "2026" / "03" / "21" / "polymarket_orderbook_2026-03-21T09.parquet"
+    )
     existing_path.parent.mkdir(parents=True, exist_ok=True)
     existing_path.write_bytes(b"existing")
 
@@ -177,9 +189,13 @@ def test_download_raw_hours_skips_existing_files(monkeypatch, tmp_path: Path) ->
     assert existing_path.read_bytes() == b"existing"
 
 
-def test_download_raw_hours_removes_stale_temp_files_before_skipping(monkeypatch, tmp_path: Path) -> None:
+def test_download_raw_hours_removes_stale_temp_files_before_skipping(
+    monkeypatch, tmp_path: Path
+) -> None:
     destination = tmp_path / "raws"
-    existing_path = destination / "2026" / "03" / "21" / "polymarket_orderbook_2026-03-21T09.parquet"
+    existing_path = (
+        destination / "2026" / "03" / "21" / "polymarket_orderbook_2026-03-21T09.parquet"
+    )
     existing_path.parent.mkdir(parents=True, exist_ok=True)
     existing_path.write_bytes(b"existing")
 
@@ -215,7 +231,9 @@ def test_download_raw_hours_removes_stale_temp_files_before_skipping(monkeypatch
     assert not pid_tmp_path.exists()
 
 
-def test_download_raw_hours_progress_output_uses_short_hour_labels(monkeypatch, tmp_path: Path, capsys) -> None:
+def test_download_raw_hours_progress_output_uses_short_hour_labels(
+    monkeypatch, tmp_path: Path, capsys
+) -> None:
     payload = _raw_parquet_payload()
     bars: list[_FakeTqdm] = []
 
@@ -235,7 +253,10 @@ def test_download_raw_hours_progress_output_uses_short_hour_labels(monkeypatch, 
 
     def fake_urlopen(request, timeout=60):  # type: ignore[no-untyped-def]
         del timeout
-        if request.full_url.endswith("2026-03-21T10.parquet") and "/v1/raw/" not in request.full_url:
+        if (
+            request.full_url.endswith("2026-03-21T10.parquet")
+            and "/v1/raw/" not in request.full_url
+        ):
             raise HTTPError(request.full_url, 404, "missing", hdrs=None, fp=None)
         return _Response(payload, headers={"Content-Length": str(len(payload))})
 

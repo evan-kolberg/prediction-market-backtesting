@@ -298,7 +298,11 @@ def build_brier_inputs(
         return (frame["user_probability"].copy(), frame["market_probability"].copy(), empty)
 
     frame["outcome"] = float(realized_outcome)
-    return (frame["user_probability"].copy(), frame["market_probability"].copy(), frame["outcome"].copy())
+    return (
+        frame["user_probability"].copy(),
+        frame["market_probability"].copy(),
+        frame["outcome"].copy(),
+    )
 
 
 def build_market_prices(

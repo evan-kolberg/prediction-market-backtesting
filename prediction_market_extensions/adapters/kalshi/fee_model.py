@@ -93,7 +93,9 @@ class KalshiProportionalFeeModel(FeeModel):
     """
 
     def __init__(
-        self, fee_rate: Decimal = KALSHI_TAKER_FEE_RATE, config: KalshiProportionalFeeModelConfig | None = None
+        self,
+        fee_rate: Decimal = KALSHI_TAKER_FEE_RATE,
+        config: KalshiProportionalFeeModelConfig | None = None,
     ) -> None:
         if config is not None:
             fee_rate = Decimal(config.fee_rate)
