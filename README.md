@@ -31,10 +31,11 @@
 
 **New in Version 2:**
 - Nautilus 1.225.0, via PyPI in lieu of a subtree
-- Better backtest runner classes
+- Better backtest runner classes via EXPERIMENT objects
 - IPython notebook support (.ipynb files)
-- Joint portfolio multi sim runners
+- Joint portfolio multi replay runners
 - Growing support for statistical optimizers
+
 
 Backtesting framework for prediction market strategies on
 [Kalshi](https://kalshi.com) and [Polymarket](https://polymarket.com), built on
