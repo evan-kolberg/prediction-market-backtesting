@@ -50,11 +50,11 @@ provenance notices with file-specific change dates:
 - `backtests/kalshi_trade_tick_breakout.py`
 - `backtests/kalshi_trade_tick_independent_multi_replay_runner.py`
 - `backtests/kalshi_trade_tick_joint_portfolio_runner.py`
-- `backtests/polymarket_quote_tick_pmxt_independent_25_replay_runner.py`
-- `backtests/polymarket_quote_tick_pmxt_ema_crossover.py`
-- `backtests/polymarket_quote_tick_pmxt_ema_optimizer.py`
-- `backtests/polymarket_quote_tick_pmxt_independent_multi_replay_runner.py`
-- `backtests/polymarket_quote_tick_pmxt_joint_portfolio_runner.py`
+- `backtests/polymarket_quote_tick_independent_25_replay_runner.py`
+- `backtests/polymarket_quote_tick_ema_crossover.py`
+- `backtests/polymarket_quote_tick_ema_optimizer.py`
+- `backtests/polymarket_quote_tick_independent_multi_replay_runner.py`
+- `backtests/polymarket_quote_tick_joint_portfolio_runner.py`
 - `backtests/polymarket_trade_tick_independent_multi_replay_runner.py`
 - `backtests/polymarket_trade_tick_joint_portfolio_runner.py`
 - `backtests/polymarket_trade_tick_vwap_reversion.py`

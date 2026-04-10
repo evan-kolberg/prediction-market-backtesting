@@ -27,7 +27,18 @@
 [![Hours Mirrored](https://209-209-10-83.sslip.io/v1/badge/mirrored.svg)](https://209-209-10-83.sslip.io/v1/stats)
 [![Latest File](https://209-209-10-83.sslip.io/v1/badge/latest-file.svg)](https://209-209-10-83.sslip.io/v1/stats)
 
-**Thanks to [PMXT](https://github.com/pmxt-dev/pmxt) for providing this data for free!**
+Thanks to [PMXT](https://github.com/pmxt-dev/pmxt) for providing this data for free!
+
+**New in Version 2:**
+- Nautilus 1.225.0, via PyPI in lieu of a subtree
+- Explicit joint-portfolio vs independent multi-replay modes — no more ambiguous "multi-sim" runners
+- Experiment-first runner contract: declarative `EXPERIMENT` objects replace imperative runner classes
+- Generic platform dispatch replaces six platform-specific runner modules
+- IPython notebook support (.ipynb files) with inline HTML artifact display
+- Parameter search optimizer with train/holdout window scoring
+- Consolidated data source registry and replay adapter architecture
+
+
 
 Backtesting framework for prediction market strategies on
 [Kalshi](https://kalshi.com) and [Polymarket](https://polymarket.com), built on

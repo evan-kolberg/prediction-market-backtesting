@@ -96,9 +96,9 @@ def test_show_menu_renders_folder_tree(capsys, monkeypatch):
                 "run": object(),
             },
             {
-                "name": "polymarket_quote_tick_pmxt_independent_25_replay_runner",
+                "name": "polymarket_quote_tick_independent_25_replay_runner",
                 "description": "PMXT 25 sims",
-                "relative_parts": ("polymarket_quote_tick_pmxt_independent_25_replay_runner.py",),
+                "relative_parts": ("polymarket_quote_tick_independent_25_replay_runner.py",),
                 "run": object(),
             },
         ]
@@ -110,7 +110,7 @@ def test_show_menu_renders_folder_tree(capsys, monkeypatch):
     assert "backtests/" in rendered
     assert "├── 1. kalshi_trade_tick_breakout.py — Kalshi breakout" in rendered
     assert "├── 2. kalshi_trade_tick_independent_multi_replay_runner.py — Kalshi basket" in rendered
-    assert "└── 3. polymarket_quote_tick_pmxt_independent_25_replay_runner.py — PMXT 25 sims" in rendered
+    assert "└── 3. polymarket_quote_tick_independent_25_replay_runner.py — PMXT 25 sims" in rendered
 
 
 def test_assign_shortcuts_prefers_unique_letters_and_avoids_quit_key():
@@ -128,9 +128,9 @@ def test_assign_shortcuts_prefers_unique_letters_and_avoids_quit_key():
             "run": object(),
         },
         {
-            "name": "polymarket_quote_tick_pmxt_ema_crossover",
+            "name": "polymarket_quote_tick_ema_crossover",
             "description": "PMXT EMA",
-            "relative_parts": ("polymarket_quote_tick_pmxt_ema_crossover.py",),
+            "relative_parts": ("polymarket_quote_tick_ema_crossover.py",),
             "run": object(),
         },
     ]

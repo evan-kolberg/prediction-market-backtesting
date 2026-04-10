@@ -3,7 +3,7 @@
 # Modified in this repository on 2026-03-29, 2026-03-31, 2026-04-03, 2026-04-04, and 2026-04-05.
 # See the repository NOTICE file for provenance and licensing scope.
 
-"""Independent PMXT quote-tick backtests using 25 fixed historical replays."""
+"""Independent PMXT quote-tick backtests using fixed historical replays."""
 
 # ruff: noqa: E402
 
@@ -29,9 +29,9 @@ from prediction_market_extensions.backtesting._timing_harness import timing_harn
 from prediction_market_extensions.backtesting.data_sources import PMXT, Polymarket, QuoteTick
 
 
-NAME = "polymarket_quote_tick_pmxt_independent_25_replay_runner"
+NAME = "polymarket_quote_tick_independent_multi_replay_runner"
 
-DESCRIPTION = "Independent PMXT quote-tick backtests using 25 varied historical replays"
+DESCRIPTION = "Independent PMXT quote-tick backtests using varied historical replays"
 
 EMIT_HTML = True
 CHART_OUTPUT_PATH = "output"
@@ -48,7 +48,17 @@ DETAIL_PLOT_PANELS = (
     "brier_advantage",
 )
 SUMMARY_REPORT_PATH = f"output/{NAME}_independent_aggregate.html"
-SUMMARY_PLOT_PANELS = ("total_equity", "periodic_pnl", "allocation", "monthly_returns")
+SUMMARY_PLOT_PANELS = (
+    "total_equity",
+    "equity",
+    "periodic_pnl",
+    "allocation",
+    "drawdown",
+    "rolling_sharpe",
+    "cash_equity",
+    "monthly_returns",
+    "brier_advantage",
+)
 EMPTY_MESSAGE = "No PMXT independent-replay example windows met the quote-tick requirements."
 PARTIAL_MESSAGE = "Completed {completed} of {total} independent example replays."
 
@@ -84,9 +94,9 @@ REPLAYS = (
     QuoteReplay(
         market_slug="will-fc-heidenheim-be-relegated-from-the-bundesliga-after-the-202526-season-382",
         token_index=0,
-        start_time="2026-04-06T00:00:00Z",
+        start_time="2026-04-07T12:00:00Z",
         end_time="2026-04-07T23:59:59Z",
-        metadata={"sim_label": "heidenheim-two-day-window"},
+        metadata={"sim_label": "heidenheim-late-session"},
     ),
     QuoteReplay(
         market_slug="will-the-south-african-reserve-bank-decrease-the-repo-rate-after-the-may-meeting",
@@ -115,125 +125,6 @@ REPLAYS = (
         start_time="2026-04-07T00:00:00Z",
         end_time="2026-04-07T23:59:59Z",
         metadata={"sim_label": "agarwal-election-day"},
-    ),
-    QuoteReplay(
-        market_slug="will-openai-launch-a-new-consumer-hardware-product-by-march-31-2026",
-        token_index=0,
-        start_time="2026-03-25T00:00:00Z",
-        end_time="2026-03-26T23:59:59Z",
-        metadata={"sim_label": "openai-launch-mar-25-26"},
-    ),
-    QuoteReplay(
-        market_slug="will-openai-launch-a-new-consumer-hardware-product-by-march-31-2026",
-        token_index=0,
-        start_time="2026-03-27T00:00:00Z",
-        end_time="2026-03-28T23:59:59Z",
-        metadata={"sim_label": "openai-launch-mar-27-28"},
-    ),
-    QuoteReplay(
-        market_slug="will-openai-launch-a-new-consumer-hardware-product-by-march-31-2026",
-        token_index=0,
-        start_time="2026-03-29T00:00:00Z",
-        end_time="2026-03-31T23:59:59Z",
-        metadata={"sim_label": "openai-launch-mar-29-31"},
-    ),
-    QuoteReplay(
-        market_slug="will-ludvig-aberg-win-the-2026-masters-tournament",
-        token_index=0,
-        start_time="2026-04-05T00:00:00Z",
-        end_time="2026-04-05T23:59:59Z",
-        metadata={"sim_label": "aberg-masters-day-one"},
-    ),
-    QuoteReplay(
-        market_slug="will-ludvig-aberg-win-the-2026-masters-tournament",
-        token_index=0,
-        start_time="2026-04-06T00:00:00Z",
-        end_time="2026-04-06T23:59:59Z",
-        metadata={"sim_label": "aberg-masters-day-two"},
-    ),
-    QuoteReplay(
-        market_slug="will-ludvig-aberg-win-the-2026-masters-tournament",
-        token_index=0,
-        start_time="2026-04-07T00:00:00Z",
-        end_time="2026-04-07T23:59:59Z",
-        metadata={"sim_label": "aberg-masters-day-three"},
-    ),
-    QuoteReplay(
-        market_slug="will-drake-release-an-album-in-2026",
-        token_index=0,
-        start_time="2026-04-05T12:00:00Z",
-        end_time="2026-04-06T11:59:59Z",
-        metadata={"sim_label": "drake-weekend-day-one"},
-    ),
-    QuoteReplay(
-        market_slug="will-drake-release-an-album-in-2026",
-        token_index=0,
-        start_time="2026-04-06T00:00:00Z",
-        end_time="2026-04-06T23:59:59Z",
-        metadata={"sim_label": "drake-sunday-window"},
-    ),
-    QuoteReplay(
-        market_slug="will-drake-release-an-album-in-2026",
-        token_index=0,
-        start_time="2026-04-07T00:00:00Z",
-        end_time="2026-04-07T23:59:59Z",
-        metadata={"sim_label": "drake-monday-window"},
-    ),
-    QuoteReplay(
-        market_slug="will-the-tennessee-titans-draft-a-quarterback-in-the-first-round-of-the-2026-nfl-draft",
-        token_index=0,
-        start_time="2026-04-06T00:00:00Z",
-        end_time="2026-04-06T23:59:59Z",
-        metadata={"sim_label": "titans-draft-day-one"},
-    ),
-    QuoteReplay(
-        market_slug="will-the-tennessee-titans-draft-a-quarterback-in-the-first-round-of-the-2026-nfl-draft",
-        token_index=0,
-        start_time="2026-04-06T12:00:00Z",
-        end_time="2026-04-07T11:59:59Z",
-        metadata={"sim_label": "titans-draft-overnight-window"},
-    ),
-    QuoteReplay(
-        market_slug="will-fc-heidenheim-be-relegated-from-the-bundesliga-after-the-202526-season-382",
-        token_index=0,
-        start_time="2026-04-06T00:00:00Z",
-        end_time="2026-04-06T23:59:59Z",
-        metadata={"sim_label": "heidenheim-day-one"},
-    ),
-    QuoteReplay(
-        market_slug="will-fc-heidenheim-be-relegated-from-the-bundesliga-after-the-202526-season-382",
-        token_index=0,
-        start_time="2026-04-07T12:00:00Z",
-        end_time="2026-04-07T23:59:59Z",
-        metadata={"sim_label": "heidenheim-late-session"},
-    ),
-    QuoteReplay(
-        market_slug="will-the-south-african-reserve-bank-decrease-the-repo-rate-after-the-may-meeting",
-        token_index=0,
-        start_time="2026-04-06T12:00:00Z",
-        end_time="2026-04-06T23:59:59Z",
-        metadata={"sim_label": "sarb-afternoon-session"},
-    ),
-    QuoteReplay(
-        market_slug="will-the-south-african-reserve-bank-decrease-the-repo-rate-after-the-may-meeting",
-        token_index=0,
-        start_time="2026-04-07T00:00:00Z",
-        end_time="2026-04-07T23:59:59Z",
-        metadata={"sim_label": "sarb-full-day-followthrough"},
-    ),
-    QuoteReplay(
-        market_slug="will-nana-araba-wilmot-win-top-chef-season-23",
-        token_index=0,
-        start_time="2026-04-06T06:00:00Z",
-        end_time="2026-04-06T23:59:59Z",
-        metadata={"sim_label": "top-chef-premiere-day"},
-    ),
-    QuoteReplay(
-        market_slug="will-nana-araba-wilmot-win-top-chef-season-23",
-        token_index=0,
-        start_time="2026-04-07T00:00:00Z",
-        end_time="2026-04-07T18:00:00Z",
-        metadata={"sim_label": "top-chef-finale-daylight"},
     ),
 )
 

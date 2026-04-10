@@ -32,7 +32,7 @@ from prediction_market_extensions.backtesting.optimizers import ParameterSearchC
 from prediction_market_extensions.backtesting.optimizers import ParameterSearchWindow
 
 
-NAME = "polymarket_quote_tick_pmxt_ema_optimizer"
+NAME = "polymarket_quote_tick_ema_optimizer"
 
 DESCRIPTION = "Random-search EMA optimizer with explicit train and holdout windows on PMXT L2 data"
 

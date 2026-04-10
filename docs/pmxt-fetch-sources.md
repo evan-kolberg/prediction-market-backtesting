@@ -36,8 +36,8 @@ aggregate progress bar for any hours that are still in flight. A representative
 make backtest
 uv run python main.py
 
-Running: polymarket_quote_tick_pmxt_joint_portfolio_runner
-Running: polymarket_quote_tick_pmxt_ema_crossover
+Running: polymarket_quote_tick_joint_portfolio_runner
+Running: polymarket_quote_tick_ema_crossover
 
 PMXT source: explicit priority (cache -> local /Volumes/LaCie/pmxt_raws -> archive https://r2.pmxt.dev -> relay https://209-209-10-83.sslip.io)
 Loading PMXT Polymarket market will-ludvig-aberg-win-the-2026-masters-tournament (token_index=0, window_start=2026-04-05T00:00:00+00:00, window_end=2026-04-07T23:59:59+00:00)...
@@ -93,13 +93,13 @@ BACKTEST_ENABLE_TIMING=0 make backtest
 Or run any PMXT runner directly:
 
 ```bash
-uv run python backtests/polymarket_quote_tick_pmxt_ema_crossover.py
+uv run python backtests/polymarket_quote_tick_ema_crossover.py
 ```
 
 You can also time a runner explicitly through the harness test helper:
 
 ```bash
-uv run python prediction_market_extensions/backtesting/_timing_test.py backtests/polymarket_quote_tick_pmxt_ema_crossover.py
+uv run python prediction_market_extensions/backtesting/_timing_test.py backtests/polymarket_quote_tick_ema_crossover.py
 ```
 
 Public PMXT examples are pinned to known-good sample windows in code so the

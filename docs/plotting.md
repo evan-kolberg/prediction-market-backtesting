@@ -34,12 +34,12 @@ Every public runner now exposes explicit plotting controls at top level:
 Good examples:
 
 - [`backtests/polymarket_trade_tick_vwap_reversion.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_trade_tick_vwap_reversion.py)
-- [`backtests/polymarket_quote_tick_pmxt_ema_crossover.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_quote_tick_pmxt_ema_crossover.py)
-- [`backtests/polymarket_quote_tick_pmxt_joint_portfolio_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_quote_tick_pmxt_joint_portfolio_runner.py)
-- [`backtests/polymarket_quote_tick_pmxt_independent_multi_replay_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_quote_tick_pmxt_independent_multi_replay_runner.py)
+- [`backtests/polymarket_quote_tick_ema_crossover.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_quote_tick_ema_crossover.py)
+- [`backtests/polymarket_quote_tick_joint_portfolio_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_quote_tick_joint_portfolio_runner.py)
+- [`backtests/polymarket_quote_tick_independent_multi_replay_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_quote_tick_independent_multi_replay_runner.py)
 - [`backtests/polymarket_trade_tick_joint_portfolio_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_trade_tick_joint_portfolio_runner.py)
 - [`backtests/polymarket_trade_tick_independent_multi_replay_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_trade_tick_independent_multi_replay_runner.py)
-- [`backtests/polymarket_quote_tick_pmxt_ema_optimizer.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_quote_tick_pmxt_ema_optimizer.py)
+- [`backtests/polymarket_quote_tick_ema_optimizer.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_quote_tick_ema_optimizer.py)
 
 ## Scaling Model
 
@@ -148,7 +148,7 @@ That means direct script execution still writes to the repo-local `output/`
 directory:
 
 ```bash
-uv run python backtests/polymarket_quote_tick_pmxt_ema_crossover.py
+uv run python backtests/polymarket_quote_tick_ema_crossover.py
 ```
 
 The generated HTML lands under `prediction-market-backtesting/output/`, not
@@ -174,11 +174,11 @@ names when multiple labeled sims reuse the same underlying market slug.
 Charts are written to `output/`, typically with names like:
 
 - `output/<backtest>_<market>_legacy.html`
-- `output/polymarket_quote_tick_pmxt_ema_crossover_<market>_legacy.html`
-- `output/polymarket_quote_tick_pmxt_joint_portfolio_runner_joint_portfolio.html`
-- `output/polymarket_quote_tick_pmxt_independent_multi_replay_runner_independent_aggregate.html`
-- `output/polymarket_quote_tick_pmxt_ema_optimizer_leaderboard.csv`
-- `output/polymarket_quote_tick_pmxt_ema_optimizer_summary.json`
+- `output/polymarket_quote_tick_ema_crossover_<market>_legacy.html`
+- `output/polymarket_quote_tick_joint_portfolio_runner_joint_portfolio.html`
+- `output/polymarket_quote_tick_independent_multi_replay_runner_independent_aggregate.html`
+- `output/polymarket_quote_tick_ema_optimizer_leaderboard.csv`
+- `output/polymarket_quote_tick_ema_optimizer_summary.json`
 
 The default naming rules are:
 
@@ -221,9 +221,9 @@ The clearest multi-market plotting runner files:
 - [`backtests/kalshi_trade_tick_independent_multi_replay_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/kalshi_trade_tick_independent_multi_replay_runner.py)
 - [`backtests/polymarket_trade_tick_joint_portfolio_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_trade_tick_joint_portfolio_runner.py)
 - [`backtests/polymarket_trade_tick_independent_multi_replay_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_trade_tick_independent_multi_replay_runner.py)
-- [`backtests/polymarket_quote_tick_pmxt_joint_portfolio_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_quote_tick_pmxt_joint_portfolio_runner.py)
-- [`backtests/polymarket_quote_tick_pmxt_independent_multi_replay_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_quote_tick_pmxt_independent_multi_replay_runner.py)
-- [`backtests/polymarket_quote_tick_pmxt_independent_25_replay_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_quote_tick_pmxt_independent_25_replay_runner.py)
+- [`backtests/polymarket_quote_tick_joint_portfolio_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_quote_tick_joint_portfolio_runner.py)
+- [`backtests/polymarket_quote_tick_independent_multi_replay_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_quote_tick_independent_multi_replay_runner.py)
+- [`backtests/polymarket_quote_tick_independent_25_replay_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_quote_tick_independent_25_replay_runner.py)
 
 Those runners now write one per-market legacy chart per replay and one basket
 summary chart under `output/`, typically with names like:
@@ -237,8 +237,8 @@ summary chart under `output/`, typically with names like:
 The PMXT basket example runners write per-replay detail charts plus one summary
 chart:
 
-- `output/polymarket_quote_tick_pmxt_joint_portfolio_runner_joint_portfolio.html`
-- `output/polymarket_quote_tick_pmxt_independent_multi_replay_runner_independent_aggregate.html`
+- `output/polymarket_quote_tick_joint_portfolio_runner_joint_portfolio.html`
+- `output/polymarket_quote_tick_independent_multi_replay_runner_independent_aggregate.html`
 
 `SUMMARY_REPORT_PATH` is the basket summary surface. In joint mode it is a true
 shared-account portfolio chart. In independent mode it is a stitched aggregate

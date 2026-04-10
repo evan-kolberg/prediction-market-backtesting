@@ -29,23 +29,23 @@ EXPECTED_PUBLIC_RUNNER_PATHS = [
     Path("backtests/kalshi_trade_tick_breakout.py"),
     Path("backtests/kalshi_trade_tick_independent_multi_replay_runner.py"),
     Path("backtests/kalshi_trade_tick_joint_portfolio_runner.py"),
-    Path("backtests/polymarket_quote_tick_pmxt_ema_crossover.py"),
-    Path("backtests/polymarket_quote_tick_pmxt_ema_optimizer.py"),
-    Path("backtests/polymarket_quote_tick_pmxt_independent_25_replay_runner.py"),
-    Path("backtests/polymarket_quote_tick_pmxt_independent_multi_replay_runner.py"),
-    Path("backtests/polymarket_quote_tick_pmxt_joint_portfolio_runner.py"),
+    Path("backtests/polymarket_quote_tick_ema_crossover.py"),
+    Path("backtests/polymarket_quote_tick_ema_optimizer.py"),
+    Path("backtests/polymarket_quote_tick_independent_25_replay_runner.py"),
+    Path("backtests/polymarket_quote_tick_independent_multi_replay_runner.py"),
+    Path("backtests/polymarket_quote_tick_joint_portfolio_runner.py"),
     Path("backtests/polymarket_trade_tick_independent_multi_replay_runner.py"),
     Path("backtests/polymarket_trade_tick_joint_portfolio_runner.py"),
     Path("backtests/polymarket_trade_tick_vwap_reversion.py"),
 ]
 
-PMXT_SINGLE_MARKET_QUOTE_TICK_RUNNERS = [Path("backtests/polymarket_quote_tick_pmxt_ema_crossover.py")]
+PMXT_SINGLE_MARKET_QUOTE_TICK_RUNNERS = [Path("backtests/polymarket_quote_tick_ema_crossover.py")]
 PMXT_INDEPENDENT_QUOTE_TICK_RUNNERS = [
-    Path("backtests/polymarket_quote_tick_pmxt_independent_multi_replay_runner.py"),
-    Path("backtests/polymarket_quote_tick_pmxt_independent_25_replay_runner.py"),
+    Path("backtests/polymarket_quote_tick_independent_multi_replay_runner.py"),
+    Path("backtests/polymarket_quote_tick_independent_25_replay_runner.py"),
 ]
-PMXT_JOINT_QUOTE_TICK_RUNNERS = [Path("backtests/polymarket_quote_tick_pmxt_joint_portfolio_runner.py")]
-PMXT_QUOTE_TICK_OPTIMIZER_RUNNERS = [Path("backtests/polymarket_quote_tick_pmxt_ema_optimizer.py")]
+PMXT_JOINT_QUOTE_TICK_RUNNERS = [Path("backtests/polymarket_quote_tick_joint_portfolio_runner.py")]
+PMXT_QUOTE_TICK_OPTIMIZER_RUNNERS = [Path("backtests/polymarket_quote_tick_ema_optimizer.py")]
 TRADE_TICK_INDEPENDENT_RUNNERS = [
     Path("backtests/kalshi_trade_tick_independent_multi_replay_runner.py"),
     Path("backtests/polymarket_trade_tick_independent_multi_replay_runner.py"),

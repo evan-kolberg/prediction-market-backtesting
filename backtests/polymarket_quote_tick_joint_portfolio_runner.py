@@ -1,9 +1,9 @@
 # Derived from NautilusTrader prediction-market example code.
 # Distributed under the GNU Lesser General Public License Version 3.0 or later.
-# Modified in this repository on 2026-03-29, 2026-03-31, 2026-04-03, 2026-04-04, and 2026-04-05.
+# Modified in this repository on 2026-04-09.
 # See the repository NOTICE file for provenance and licensing scope.
 
-"""Independent PMXT quote-tick backtests using fixed historical replays."""
+"""Joint-portfolio PMXT quote-tick backtest using fixed historical replays."""
 
 # ruff: noqa: E402
 
@@ -29,9 +29,9 @@ from prediction_market_extensions.backtesting._timing_harness import timing_harn
 from prediction_market_extensions.backtesting.data_sources import PMXT, Polymarket, QuoteTick
 
 
-NAME = "polymarket_quote_tick_pmxt_independent_multi_replay_runner"
+NAME = "polymarket_quote_tick_joint_portfolio_runner"
 
-DESCRIPTION = "Independent PMXT quote-tick backtests using varied historical replays"
+DESCRIPTION = "Joint-portfolio PMXT quote-tick backtest using varied historical replays"
 
 EMIT_HTML = True
 CHART_OUTPUT_PATH = "output"
@@ -47,7 +47,7 @@ DETAIL_PLOT_PANELS = (
     "monthly_returns",
     "brier_advantage",
 )
-SUMMARY_REPORT_PATH = f"output/{NAME}_independent_aggregate.html"
+SUMMARY_REPORT_PATH = f"output/{NAME}_joint_portfolio.html"
 SUMMARY_PLOT_PANELS = (
     "total_equity",
     "equity",
@@ -59,8 +59,8 @@ SUMMARY_PLOT_PANELS = (
     "monthly_returns",
     "brier_advantage",
 )
-EMPTY_MESSAGE = "No PMXT independent-replay example windows met the quote-tick requirements."
-PARTIAL_MESSAGE = "Completed {completed} of {total} independent example replays."
+EMPTY_MESSAGE = "No PMXT joint-portfolio example windows met the quote-tick requirements."
+PARTIAL_MESSAGE = "Completed {completed} of {total} joint-portfolio example replays."
 
 DATA = MarketDataConfig(
     platform=Polymarket,
@@ -144,6 +144,13 @@ STRATEGY_CONFIGS = [
     }
 ]
 
+EXECUTION = ExecutionModelConfig(
+    queue_position=True,
+    latency_model=StaticLatencyConfig(
+        base_latency_ms=75.0, insert_latency_ms=10.0, update_latency_ms=5.0, cancel_latency_ms=5.0
+    ),
+)
+
 REPORT = MarketReportConfig(
     count_key="quotes",
     count_label="Quotes",
@@ -152,13 +159,6 @@ REPORT = MarketReportConfig(
     summary_report=True,
     summary_report_path=SUMMARY_REPORT_PATH,
     summary_plot_panels=SUMMARY_PLOT_PANELS,
-)
-
-EXECUTION = ExecutionModelConfig(
-    queue_position=True,
-    latency_model=StaticLatencyConfig(
-        base_latency_ms=75.0, insert_latency_ms=10.0, update_latency_ms=5.0, cancel_latency_ms=5.0
-    ),
 )
 
 EXPERIMENT = build_replay_experiment(
@@ -179,7 +179,7 @@ EXPERIMENT = build_replay_experiment(
     chart_output_path=CHART_OUTPUT_PATH,
     detail_plot_panels=DETAIL_PLOT_PANELS,
     return_summary_series=True,
-    multi_replay_mode="independent",
+    multi_replay_mode="joint_portfolio",
 )
 
 

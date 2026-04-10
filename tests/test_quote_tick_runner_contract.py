@@ -43,11 +43,11 @@ EXPECTED_MULTI_SIM_SUMMARY_PLOT_PANELS = (
 EXPECTED_25_SIM_SUMMARY_PLOT_PANELS = ("total_equity", "periodic_pnl", "allocation", "monthly_returns")
 
 BACKTESTS_ROOT = Path(__file__).resolve().parents[1] / "backtests"
-SINGLE_RUNNER = BACKTESTS_ROOT / "polymarket_quote_tick_pmxt_ema_crossover.py"
-INDEPENDENT_MULTI_RUNNER = BACKTESTS_ROOT / "polymarket_quote_tick_pmxt_independent_multi_replay_runner.py"
-JOINT_MULTI_RUNNER = BACKTESTS_ROOT / "polymarket_quote_tick_pmxt_joint_portfolio_runner.py"
-RUNNER_25 = BACKTESTS_ROOT / "polymarket_quote_tick_pmxt_independent_25_replay_runner.py"
-OPTIMIZER_RUNNER = BACKTESTS_ROOT / "polymarket_quote_tick_pmxt_ema_optimizer.py"
+SINGLE_RUNNER = BACKTESTS_ROOT / "polymarket_quote_tick_ema_crossover.py"
+INDEPENDENT_MULTI_RUNNER = BACKTESTS_ROOT / "polymarket_quote_tick_independent_multi_replay_runner.py"
+JOINT_MULTI_RUNNER = BACKTESTS_ROOT / "polymarket_quote_tick_joint_portfolio_runner.py"
+RUNNER_25 = BACKTESTS_ROOT / "polymarket_quote_tick_independent_25_replay_runner.py"
+OPTIMIZER_RUNNER = BACKTESTS_ROOT / "polymarket_quote_tick_ema_optimizer.py"
 
 EXPECTED_SINGLE_REPLAY = QuoteReplay(
     market_slug="will-ludvig-aberg-win-the-2026-masters-tournament",

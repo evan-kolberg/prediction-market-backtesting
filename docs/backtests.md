@@ -34,15 +34,15 @@ Good public examples:
 - Polymarket native trade-tick independent basket runner:
   [`backtests/polymarket_trade_tick_independent_multi_replay_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_trade_tick_independent_multi_replay_runner.py)
 - Polymarket quote-tick runner with PMXT vendor data:
-  [`backtests/polymarket_quote_tick_pmxt_ema_crossover.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_quote_tick_pmxt_ema_crossover.py)
+  [`backtests/polymarket_quote_tick_ema_crossover.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_quote_tick_ema_crossover.py)
 - PMXT joint-portfolio basket runner:
-  [`backtests/polymarket_quote_tick_pmxt_joint_portfolio_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_quote_tick_pmxt_joint_portfolio_runner.py)
+  [`backtests/polymarket_quote_tick_joint_portfolio_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_quote_tick_joint_portfolio_runner.py)
 - PMXT independent basket runner:
-  [`backtests/polymarket_quote_tick_pmxt_independent_multi_replay_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_quote_tick_pmxt_independent_multi_replay_runner.py)
+  [`backtests/polymarket_quote_tick_independent_multi_replay_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_quote_tick_independent_multi_replay_runner.py)
 - PMXT independent 25-replay basket runner:
-  [`backtests/polymarket_quote_tick_pmxt_independent_25_replay_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_quote_tick_pmxt_independent_25_replay_runner.py)
+  [`backtests/polymarket_quote_tick_independent_25_replay_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_quote_tick_independent_25_replay_runner.py)
 - PMXT optimizer runner:
-  [`backtests/polymarket_quote_tick_pmxt_ema_optimizer.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_quote_tick_pmxt_ema_optimizer.py)
+  [`backtests/polymarket_quote_tick_ema_optimizer.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_quote_tick_ema_optimizer.py)
 - generic optimizer notebook research runner:
   [`backtests/generic_optimizer_research.ipynb`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/generic_optimizer_research.ipynb)
 
@@ -105,7 +105,7 @@ from prediction_market_extensions.backtesting._replay_specs import QuoteReplay
 from prediction_market_extensions.backtesting._timing_harness import timing_harness
 from prediction_market_extensions.backtesting.data_sources import PMXT, Polymarket, QuoteTick
 
-NAME = "polymarket_quote_tick_pmxt_ema_crossover"
+NAME = "polymarket_quote_tick_ema_crossover"
 DESCRIPTION = "EMA crossover momentum on one Polymarket market"
 EMIT_HTML = True
 CHART_OUTPUT_PATH = "output"
@@ -342,7 +342,7 @@ Current parameter-search helpers live under
 
 The public optimizer example is:
 
-- [`backtests/polymarket_quote_tick_pmxt_ema_optimizer.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_quote_tick_pmxt_ema_optimizer.py)
+- [`backtests/polymarket_quote_tick_ema_optimizer.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_quote_tick_ema_optimizer.py)
 
 That runner is intentionally research-oriented. It writes leaderboard and
 summary artifacts under `output/` by default and keeps `EMIT_HTML = False` so
@@ -414,9 +414,9 @@ Direct script execution is usually better once you know the runner you want:
 ```bash
 uv run python backtests/kalshi_trade_tick_breakout.py
 uv run python backtests/polymarket_trade_tick_vwap_reversion.py
-uv run python backtests/polymarket_quote_tick_pmxt_ema_crossover.py
-uv run python backtests/polymarket_quote_tick_pmxt_joint_portfolio_runner.py
-uv run python backtests/polymarket_quote_tick_pmxt_independent_multi_replay_runner.py
+uv run python backtests/polymarket_quote_tick_ema_crossover.py
+uv run python backtests/polymarket_quote_tick_joint_portfolio_runner.py
+uv run python backtests/polymarket_quote_tick_independent_multi_replay_runner.py
 ```
 
 When a runner keeps `CHART_OUTPUT_PATH="output"`, those direct commands still

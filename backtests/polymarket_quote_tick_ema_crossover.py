@@ -31,7 +31,7 @@ from prediction_market_extensions.backtesting._timing_harness import timing_harn
 from prediction_market_extensions.backtesting.data_sources import PMXT, Polymarket, QuoteTick
 
 
-NAME = "polymarket_quote_tick_pmxt_ema_crossover"
+NAME = "polymarket_quote_tick_ema_crossover"
 
 DESCRIPTION = "EMA crossover momentum on a single Polymarket market using PMXT L2 data"
 

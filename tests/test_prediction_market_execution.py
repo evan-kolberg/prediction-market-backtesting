@@ -91,7 +91,7 @@ def test_build_backtest_run_state_uses_requested_window_for_coverage():
 
 
 def test_quote_tick_pmxt_runner_pins_passive_execution_heuristics():
-    module = importlib.import_module("backtests.polymarket_quote_tick_pmxt_ema_crossover")
+    module = importlib.import_module("backtests.polymarket_quote_tick_ema_crossover")
 
     assert module.EXPERIMENT.execution.queue_position is True
 

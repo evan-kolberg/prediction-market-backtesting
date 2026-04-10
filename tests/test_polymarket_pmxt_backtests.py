@@ -50,7 +50,7 @@ EXPECTED_SINGLE_REPLAY = QuoteReplay(
 
 
 def test_pmxt_single_runner_builds_expected_quote_tick_strategy(monkeypatch: pytest.MonkeyPatch) -> None:
-    module = importlib.import_module("backtests.polymarket_quote_tick_pmxt_ema_crossover")
+    module = importlib.import_module("backtests.polymarket_quote_tick_ema_crossover")
     captured: dict[str, object] = {}
 
     def _fake_run_experiment(experiment):  # type: ignore[no-untyped-def]
@@ -75,7 +75,7 @@ def test_pmxt_single_runner_builds_expected_quote_tick_strategy(monkeypatch: pyt
 
 
 def test_pmxt_independent_multi_runner_uses_fixed_windows(monkeypatch: pytest.MonkeyPatch) -> None:
-    module = importlib.import_module("backtests.polymarket_quote_tick_pmxt_independent_multi_replay_runner")
+    module = importlib.import_module("backtests.polymarket_quote_tick_independent_multi_replay_runner")
     captured: dict[str, object] = {}
 
     def _fake_run_experiment(experiment):  # type: ignore[no-untyped-def]
@@ -105,7 +105,7 @@ def test_pmxt_independent_multi_runner_uses_fixed_windows(monkeypatch: pytest.Mo
 
 
 def test_pmxt_joint_multi_runner_uses_fixed_windows(monkeypatch: pytest.MonkeyPatch) -> None:
-    module = importlib.import_module("backtests.polymarket_quote_tick_pmxt_joint_portfolio_runner")
+    module = importlib.import_module("backtests.polymarket_quote_tick_joint_portfolio_runner")
     captured: dict[str, object] = {}
 
     def _fake_run_experiment(experiment):  # type: ignore[no-untyped-def]
@@ -135,7 +135,7 @@ def test_pmxt_joint_multi_runner_uses_fixed_windows(monkeypatch: pytest.MonkeyPa
 
 
 def test_pmxt_independent_25_replay_runner_uses_fixed_windows(monkeypatch: pytest.MonkeyPatch) -> None:
-    module = importlib.import_module("backtests.polymarket_quote_tick_pmxt_independent_25_replay_runner")
+    module = importlib.import_module("backtests.polymarket_quote_tick_independent_25_replay_runner")
     captured: dict[str, object] = {}
 
     def _fake_run_experiment(experiment):  # type: ignore[no-untyped-def]
