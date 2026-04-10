@@ -20,25 +20,13 @@ else:
 
 ensure_repo_root(__file__)
 
-from prediction_market_extensions.backtesting._experiments import (
-    build_replay_experiment,
-)
+from prediction_market_extensions.backtesting._experiments import build_replay_experiment
 from prediction_market_extensions.backtesting._experiments import run_experiment
-from prediction_market_extensions.backtesting._prediction_market_backtest import (
-    MarketReportConfig,
-)
-from prediction_market_extensions.backtesting._prediction_market_runner import (
-    MarketDataConfig,
-)
-from prediction_market_extensions.backtesting._replay_specs import (
-    PolymarketTradeTickReplay,
-)
+from prediction_market_extensions.backtesting._prediction_market_backtest import MarketReportConfig
+from prediction_market_extensions.backtesting._prediction_market_runner import MarketDataConfig
+from prediction_market_extensions.backtesting._replay_specs import TradeReplay
 from prediction_market_extensions.backtesting._timing_harness import timing_harness
-from prediction_market_extensions.backtesting.data_sources import (
-    Native,
-    Polymarket,
-    TradeTick,
-)
+from prediction_market_extensions.backtesting.data_sources import Native, Polymarket, TradeTick
 
 
 NAME = "polymarket_trade_tick_vwap_reversion"
@@ -72,7 +60,7 @@ DATA = MarketDataConfig(
 )
 
 REPLAYS = (
-    PolymarketTradeTickReplay(
+    TradeReplay(
         market_slug="will-openai-launch-a-new-consumer-hardware-product-by-march-31-2026",
         start_time="2026-02-21T16:00:00Z",
         end_time="2026-03-31T23:59:59Z",
@@ -92,14 +80,10 @@ STRATEGY_CONFIGS = [
             "take_profit": 0.004,
             "stop_loss": 0.004,
         },
-    },
+    }
 ]
 
-REPORT = MarketReportConfig(
-    count_key="trades",
-    count_label="Trades",
-    pnl_label="PnL (USDC)",
-)
+REPORT = MarketReportConfig(count_key="trades", count_label="Trades", pnl_label="PnL (USDC)")
 
 EXPERIMENT = build_replay_experiment(
     name=NAME,

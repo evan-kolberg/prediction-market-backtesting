@@ -3,9 +3,7 @@
 # Modified in this repository on 2026-04-09.
 # See the repository NOTICE file for provenance and licensing scope.
 
-"""
-Breakout strategy on a fixed Kalshi basket using native trade ticks.
-"""
+"""Joint-portfolio breakout backtest on a fixed Kalshi basket using native trade ticks."""
 
 # ruff: noqa: E402
 
@@ -20,33 +18,18 @@ else:
 
 ensure_repo_root(__file__)
 
-from prediction_market_extensions.backtesting._experiments import (
-    build_backtest_for_experiment,
-)
-from prediction_market_extensions.backtesting._experiments import (
-    build_replay_experiment,
-)
-from prediction_market_extensions.backtesting._kalshi_trade_tick_multi_runner import (
-    run_reported_multi_market_trade_backtest,
-)
-from prediction_market_extensions.backtesting._prediction_market_backtest import (
-    MarketReportConfig,
-)
-from prediction_market_extensions.backtesting._prediction_market_runner import (
-    MarketDataConfig,
-)
-from prediction_market_extensions.backtesting._replay_specs import KalshiTradeTickReplay
+from prediction_market_extensions.backtesting._experiments import build_replay_experiment
+from prediction_market_extensions.backtesting._experiments import run_experiment
+from prediction_market_extensions.backtesting._prediction_market_backtest import MarketReportConfig
+from prediction_market_extensions.backtesting._prediction_market_runner import MarketDataConfig
+from prediction_market_extensions.backtesting._replay_specs import TradeReplay
 from prediction_market_extensions.backtesting._timing_harness import timing_harness
-from prediction_market_extensions.backtesting.data_sources import (
-    Kalshi,
-    Native,
-    TradeTick,
-)
+from prediction_market_extensions.backtesting.data_sources import Kalshi, Native, TradeTick
 
 
-NAME = "kalshi_trade_tick_multi_sim_runner"
+NAME = "kalshi_trade_tick_joint_portfolio_runner"
 
-DESCRIPTION = "Breakout strategy on a fixed Kalshi basket using trade ticks"
+DESCRIPTION = "Joint-portfolio breakout backtest on a fixed Kalshi basket using trade ticks"
 
 EMIT_HTML = True
 CHART_OUTPUT_PATH = "output"
@@ -62,7 +45,7 @@ DETAIL_PLOT_PANELS = (
     "monthly_returns",
     "brier_advantage",
 )
-SUMMARY_REPORT_PATH = f"output/{NAME}_multi_market.html"
+SUMMARY_REPORT_PATH = f"output/{NAME}_joint_portfolio.html"
 SUMMARY_PLOT_PANELS = (
     "total_equity",
     "equity",
@@ -75,29 +58,26 @@ SUMMARY_PLOT_PANELS = (
     "brier_advantage",
 )
 EMPTY_MESSAGE = "No Kalshi basket sims met the trade-tick requirements."
-PARTIAL_MESSAGE = "Completed {completed} of {total} fixed Kalshi sims."
+PARTIAL_MESSAGE = "Completed {completed} of {total} joint-portfolio Kalshi replays."
 
 DATA = MarketDataConfig(
-    platform=Kalshi,
-    data_type=TradeTick,
-    vendor=Native,
-    sources=("rest:https://api.elections.kalshi.com/trade-api/v2",),
+    platform=Kalshi, data_type=TradeTick, vendor=Native, sources=("rest:https://api.elections.kalshi.com/trade-api/v2",)
 )
 
 REPLAYS = (
-    KalshiTradeTickReplay(
+    TradeReplay(
         market_ticker="KXLAYOFFSYINFO-26-494000",
         start_time="2026-03-15T00:00:00Z",
         end_time="2026-04-08T23:59:59Z",
         metadata={"sim_label": "layoffs-infotech-window"},
     ),
-    KalshiTradeTickReplay(
+    TradeReplay(
         market_ticker="KXCITRINI-28JUL01",
         start_time="2026-03-18T00:00:00Z",
         end_time="2026-04-08T23:59:59Z",
         metadata={"sim_label": "citrini-jul-window"},
     ),
-    KalshiTradeTickReplay(
+    TradeReplay(
         market_ticker="KXPRESNOMR-28-MR",
         start_time="2026-03-24T00:00:00Z",
         end_time="2026-04-08T23:59:59Z",
@@ -117,7 +97,7 @@ STRATEGY_CONFIGS = [
             "take_profit": 0.025,
             "stop_loss": 0.02,
         },
-    },
+    }
 ]
 
 REPORT = MarketReportConfig(
@@ -147,17 +127,13 @@ EXPERIMENT = build_replay_experiment(
     chart_output_path=CHART_OUTPUT_PATH,
     detail_plot_panels=DETAIL_PLOT_PANELS,
     return_summary_series=True,
+    multi_replay_mode="joint_portfolio",
 )
 
 
 @timing_harness
 def run() -> None:
-    run_reported_multi_market_trade_backtest(
-        backtest=build_backtest_for_experiment(EXPERIMENT),
-        report=REPORT,
-        empty_message=EMPTY_MESSAGE,
-        partial_message=PARTIAL_MESSAGE,
-    )
+    run_experiment(EXPERIMENT)
 
 
 if __name__ == "__main__":

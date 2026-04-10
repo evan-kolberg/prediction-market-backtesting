@@ -3,9 +3,7 @@
 # Modified in this repository on 2026-03-29, 2026-03-31, 2026-04-03, 2026-04-04, and 2026-04-05.
 # See the repository NOTICE file for provenance and licensing scope.
 
-"""
-Example PMXT quote-tick multi-sim runner using fixed historical sims.
-"""
+"""Independent PMXT quote-tick backtests using fixed historical replays."""
 
 # ruff: noqa: E402
 
@@ -20,41 +18,20 @@ else:
 
 ensure_repo_root(__file__)
 
-from prediction_market_extensions.backtesting._execution_config import (
-    ExecutionModelConfig,
-)
-from prediction_market_extensions.backtesting._execution_config import (
-    StaticLatencyConfig,
-)
-from prediction_market_extensions.backtesting._experiments import (
-    build_backtest_for_experiment,
-)
-from prediction_market_extensions.backtesting._experiments import (
-    build_replay_experiment,
-)
-from prediction_market_extensions.backtesting._polymarket_quote_tick_pmxt_multi_runner import (
-    run_reported_multi_sim_pmxt_backtest,
-)
-from prediction_market_extensions.backtesting._prediction_market_backtest import (
-    MarketReportConfig,
-)
-from prediction_market_extensions.backtesting._prediction_market_runner import (
-    MarketDataConfig,
-)
-from prediction_market_extensions.backtesting._replay_specs import (
-    PolymarketPMXTQuoteReplay,
-)
+from prediction_market_extensions.backtesting._execution_config import ExecutionModelConfig
+from prediction_market_extensions.backtesting._execution_config import StaticLatencyConfig
+from prediction_market_extensions.backtesting._experiments import build_replay_experiment
+from prediction_market_extensions.backtesting._experiments import run_experiment
+from prediction_market_extensions.backtesting._prediction_market_backtest import MarketReportConfig
+from prediction_market_extensions.backtesting._prediction_market_runner import MarketDataConfig
+from prediction_market_extensions.backtesting._replay_specs import QuoteReplay
 from prediction_market_extensions.backtesting._timing_harness import timing_harness
-from prediction_market_extensions.backtesting.data_sources import (
-    PMXT,
-    Polymarket,
-    QuoteTick,
-)
+from prediction_market_extensions.backtesting.data_sources import PMXT, Polymarket, QuoteTick
 
 
-NAME = "polymarket_quote_tick_pmxt_multi_sim_runner"
+NAME = "polymarket_quote_tick_pmxt_independent_multi_replay_runner"
 
-DESCRIPTION = "Example PMXT quote-tick multi-sim runner using varied historical sims"
+DESCRIPTION = "Independent PMXT quote-tick backtests using varied historical replays"
 
 EMIT_HTML = True
 CHART_OUTPUT_PATH = "output"
@@ -70,7 +47,7 @@ DETAIL_PLOT_PANELS = (
     "monthly_returns",
     "brier_advantage",
 )
-SUMMARY_REPORT_PATH = f"output/{NAME}_multi_market.html"
+SUMMARY_REPORT_PATH = f"output/{NAME}_independent_aggregate.html"
 SUMMARY_PLOT_PANELS = (
     "total_equity",
     "equity",
@@ -82,71 +59,67 @@ SUMMARY_PLOT_PANELS = (
     "monthly_returns",
     "brier_advantage",
 )
-EMPTY_MESSAGE = "No PMXT multi-sim example windows met the quote-tick requirements."
-PARTIAL_MESSAGE = "Completed {completed} of {total} fixed example sims."
+EMPTY_MESSAGE = "No PMXT independent-replay example windows met the quote-tick requirements."
+PARTIAL_MESSAGE = "Completed {completed} of {total} independent example replays."
 
 DATA = MarketDataConfig(
     platform=Polymarket,
     data_type=QuoteTick,
     vendor=PMXT,
-    sources=(
-        "local:/Volumes/LaCie/pmxt_raws",
-        "archive:r2.pmxt.dev",
-        "relay:209-209-10-83.sslip.io",
-    ),
+    sources=("local:/Volumes/LaCie/pmxt_raws", "archive:r2.pmxt.dev", "relay:209-209-10-83.sslip.io"),
 )
 
 REPLAYS = (
-    PolymarketPMXTQuoteReplay(
+    QuoteReplay(
         market_slug="will-openai-launch-a-new-consumer-hardware-product-by-march-31-2026",
         token_index=0,
         start_time="2026-03-23T00:00:00Z",
         end_time="2026-03-24T23:59:59Z",
         metadata={"sim_label": "openai-launch-mar-23-24"},
     ),
-    PolymarketPMXTQuoteReplay(
+    QuoteReplay(
         market_slug="will-ludvig-aberg-win-the-2026-masters-tournament",
         token_index=0,
         start_time="2026-04-05T00:00:00Z",
         end_time="2026-04-07T23:59:59Z",
         metadata={"sim_label": "aberg-masters-full-window"},
     ),
-    PolymarketPMXTQuoteReplay(
+    QuoteReplay(
         market_slug="will-the-tennessee-titans-draft-a-quarterback-in-the-first-round-of-the-2026-nfl-draft",
         token_index=0,
         start_time="2026-04-06T00:00:00Z",
         end_time="2026-04-07T23:59:59Z",
         metadata={"sim_label": "titans-draft-two-day-window"},
     ),
-    PolymarketPMXTQuoteReplay(
+    QuoteReplay(
         market_slug="will-fc-heidenheim-be-relegated-from-the-bundesliga-after-the-202526-season-382",
         token_index=0,
         start_time="2026-04-07T12:00:00Z",
         end_time="2026-04-07T23:59:59Z",
         metadata={"sim_label": "heidenheim-late-session"},
     ),
-    PolymarketPMXTQuoteReplay(
+    QuoteReplay(
         market_slug="will-the-south-african-reserve-bank-decrease-the-repo-rate-after-the-may-meeting",
         token_index=0,
         start_time="2026-04-06T12:00:00Z",
         end_time="2026-04-07T23:59:59Z",
         metadata={"sim_label": "sarb-rate-watch-window"},
     ),
-    PolymarketPMXTQuoteReplay(
+    QuoteReplay(
         market_slug="will-nana-araba-wilmot-win-top-chef-season-23",
         token_index=0,
         start_time="2026-04-06T06:00:00Z",
         end_time="2026-04-07T18:00:00Z",
         metadata={"sim_label": "top-chef-finale-runup"},
     ),
-    PolymarketPMXTQuoteReplay(
+    QuoteReplay(
         market_slug="will-drake-release-an-album-in-2026",
         token_index=0,
         start_time="2026-04-05T12:00:00Z",
         end_time="2026-04-07T23:59:59Z",
         metadata={"sim_label": "drake-weekend-window"},
     ),
-    PolymarketPMXTQuoteReplay(
+    QuoteReplay(
         market_slug="will-ethan-agarwal-get-the-first-or-second-most-votes-in-the-2026-california-governor-primary-election",
         token_index=0,
         start_time="2026-04-07T00:00:00Z",
@@ -168,7 +141,7 @@ STRATEGY_CONFIGS = [
             "take_profit": 0.004,
             "stop_loss": 0.004,
         },
-    },
+    }
 ]
 
 REPORT = MarketReportConfig(
@@ -184,10 +157,7 @@ REPORT = MarketReportConfig(
 EXECUTION = ExecutionModelConfig(
     queue_position=True,
     latency_model=StaticLatencyConfig(
-        base_latency_ms=75.0,
-        insert_latency_ms=10.0,
-        update_latency_ms=5.0,
-        cancel_latency_ms=5.0,
+        base_latency_ms=75.0, insert_latency_ms=10.0, update_latency_ms=5.0, cancel_latency_ms=5.0
     ),
 )
 
@@ -209,17 +179,13 @@ EXPERIMENT = build_replay_experiment(
     chart_output_path=CHART_OUTPUT_PATH,
     detail_plot_panels=DETAIL_PLOT_PANELS,
     return_summary_series=True,
+    multi_replay_mode="independent",
 )
 
 
 @timing_harness
 def run() -> None:
-    run_reported_multi_sim_pmxt_backtest(
-        backtest=build_backtest_for_experiment(EXPERIMENT),
-        report=REPORT,
-        empty_message=EMPTY_MESSAGE,
-        partial_message=PARTIAL_MESSAGE,
-    )
+    run_experiment(EXPERIMENT)
 
 
 if __name__ == "__main__":

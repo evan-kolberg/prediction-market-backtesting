@@ -99,11 +99,7 @@ DEFAULT_SUMMARY_PLOT_PANELS = (
 )
 
 
-def normalize_plot_panels(
-    panels: Sequence[str] | None,
-    *,
-    default: Sequence[str],
-) -> tuple[str, ...]:
+def normalize_plot_panels(panels: Sequence[str] | None, *, default: Sequence[str]) -> tuple[str, ...]:
     requested = tuple(default if panels is None else panels)
     normalized: list[str] = []
     seen: set[str] = set()
@@ -113,9 +109,7 @@ def normalize_plot_panels(
         if not panel_id:
             continue
         if panel_id not in ALL_PLOT_PANELS:
-            raise ValueError(
-                f"Unknown plot panel {panel_id!r}. Valid panels: {', '.join(ALL_PLOT_PANELS)}."
-            )
+            raise ValueError(f"Unknown plot panel {panel_id!r}. Valid panels: {', '.join(ALL_PLOT_PANELS)}.")
         if panel_id in seen:
             continue
         normalized.append(panel_id)
@@ -242,8 +236,6 @@ class BacktestResult:
         Accepts all keyword arguments supported by
         :func:`prediction_market_extensions.analysis.legacy_backtesting.plotting.plot`.
         """
-        from prediction_market_extensions.analysis.legacy_backtesting.plotting import (
-            plot as _plot,
-        )
+        from prediction_market_extensions.analysis.legacy_backtesting.plotting import plot as _plot
 
         return _plot(self, **kwargs)

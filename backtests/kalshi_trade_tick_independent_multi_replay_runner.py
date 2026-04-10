@@ -1,14 +1,9 @@
 # Derived from NautilusTrader prediction-market example code.
 # Distributed under the GNU Lesser General Public License Version 3.0 or later.
-# Modified in this repository on 2026-03-11 and 2026-04-05.
+# Modified in this repository on 2026-04-09.
 # See the repository NOTICE file for provenance and licensing scope.
 
-"""
-Breakout strategy on one Kalshi market.
-
-Defaults to KXLAYOFFSYINFO-26-494000
-and replays 2026-03-15T00:00:00Z through 2026-04-08T23:59:59Z.
-"""
+"""Independent breakout backtests on a fixed Kalshi basket using native trade ticks."""
 
 # ruff: noqa: E402
 
@@ -32,9 +27,9 @@ from prediction_market_extensions.backtesting._timing_harness import timing_harn
 from prediction_market_extensions.backtesting.data_sources import Kalshi, Native, TradeTick
 
 
-NAME = "kalshi_trade_tick_breakout"
+NAME = "kalshi_trade_tick_independent_multi_replay_runner"
 
-DESCRIPTION = "Volatility breakout strategy on a single Kalshi market using trade ticks"
+DESCRIPTION = "Independent breakout backtests on a fixed Kalshi basket using trade ticks"
 
 EMIT_HTML = True
 CHART_OUTPUT_PATH = "output"
@@ -50,6 +45,20 @@ DETAIL_PLOT_PANELS = (
     "monthly_returns",
     "brier_advantage",
 )
+SUMMARY_REPORT_PATH = f"output/{NAME}_independent_aggregate.html"
+SUMMARY_PLOT_PANELS = (
+    "total_equity",
+    "equity",
+    "periodic_pnl",
+    "allocation",
+    "drawdown",
+    "rolling_sharpe",
+    "cash_equity",
+    "monthly_returns",
+    "brier_advantage",
+)
+EMPTY_MESSAGE = "No Kalshi basket sims met the trade-tick requirements."
+PARTIAL_MESSAGE = "Completed {completed} of {total} independent Kalshi basket replays."
 
 DATA = MarketDataConfig(
     platform=Kalshi, data_type=TradeTick, vendor=Native, sources=("rest:https://api.elections.kalshi.com/trade-api/v2",)
@@ -57,7 +66,22 @@ DATA = MarketDataConfig(
 
 REPLAYS = (
     TradeReplay(
-        market_ticker="KXLAYOFFSYINFO-26-494000", start_time="2026-03-15T00:00:00Z", end_time="2026-04-08T23:59:59Z"
+        market_ticker="KXLAYOFFSYINFO-26-494000",
+        start_time="2026-03-15T00:00:00Z",
+        end_time="2026-04-08T23:59:59Z",
+        metadata={"sim_label": "layoffs-infotech-window"},
+    ),
+    TradeReplay(
+        market_ticker="KXCITRINI-28JUL01",
+        start_time="2026-03-18T00:00:00Z",
+        end_time="2026-04-08T23:59:59Z",
+        metadata={"sim_label": "citrini-jul-window"},
+    ),
+    TradeReplay(
+        market_ticker="KXPRESNOMR-28-MR",
+        start_time="2026-03-24T00:00:00Z",
+        end_time="2026-04-08T23:59:59Z",
+        metadata={"sim_label": "presnomr-window"},
     ),
 )
 
@@ -76,7 +100,15 @@ STRATEGY_CONFIGS = [
     }
 ]
 
-REPORT = MarketReportConfig(count_key="trades", count_label="Trades", pnl_label="PnL (USD)")
+REPORT = MarketReportConfig(
+    count_key="trades",
+    count_label="Trades",
+    pnl_label="PnL (USD)",
+    market_key="sim_label",
+    summary_report=True,
+    summary_report_path=SUMMARY_REPORT_PATH,
+    summary_plot_panels=SUMMARY_PLOT_PANELS,
+)
 
 EXPERIMENT = build_replay_experiment(
     name=NAME,
@@ -89,10 +121,13 @@ EXPERIMENT = build_replay_experiment(
     min_trades=200,
     min_price_range=0.03,
     report=REPORT,
-    empty_message="No Kalshi breakout sims met the trade-tick requirements.",
+    empty_message=EMPTY_MESSAGE,
+    partial_message=PARTIAL_MESSAGE,
     emit_html=EMIT_HTML,
     chart_output_path=CHART_OUTPUT_PATH,
     detail_plot_panels=DETAIL_PLOT_PANELS,
+    return_summary_series=True,
+    multi_replay_mode="independent",
 )
 
 

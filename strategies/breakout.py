@@ -23,9 +23,7 @@ from decimal import Decimal
 from math import sqrt
 from typing import Protocol
 
-from strategies.core import (
-    LongOnlyPredictionMarketStrategy,
-)
+from strategies.core import LongOnlyPredictionMarketStrategy
 from nautilus_trader.model.data import Bar
 from nautilus_trader.model.data import BarType
 from nautilus_trader.model.data import QuoteTick
@@ -128,13 +126,7 @@ class _BreakoutBase(LongOnlyPredictionMarketStrategy):
             or self._reentry_cooldown() > 0
         )
 
-    def _on_price(
-        self,
-        price: float,
-        *,
-        entry_price: float | None = None,
-        visible_size: float | None = None,
-    ) -> None:
+    def _on_price(self, price: float, *, entry_price: float | None = None, visible_size: float | None = None) -> None:
         previous_price = self._last_price
         prior_window = list(self._prices)
         reference_price = price if entry_price is None else entry_price
@@ -144,13 +136,9 @@ class _BreakoutBase(LongOnlyPredictionMarketStrategy):
             return
 
         mean = sum(prior_window) / len(prior_window)
-        variance = sum((value - mean) ** 2 for value in prior_window) / len(
-            prior_window
-        )
+        variance = sum((value - mean) ** 2 for value in prior_window) / len(prior_window)
         std = sqrt(variance)
-        breakout_level = (
-            mean + float(self.config.breakout_std) * std + self._breakout_buffer()
-        )
+        breakout_level = mean + float(self.config.breakout_std) * std + self._breakout_buffer()
         exit_level = mean - self._mean_reversion_buffer()
 
         if not self._in_position():
@@ -159,27 +147,18 @@ class _BreakoutBase(LongOnlyPredictionMarketStrategy):
                 self._append_price(price)
                 return
 
-            crossed_breakout = (
-                previous_price is not None and previous_price < breakout_level
-            )
+            crossed_breakout = previous_price is not None and previous_price < breakout_level
             if (
                 price >= breakout_level
                 and price <= float(self.config.max_entry_price)
                 and (crossed_breakout or not self._requires_fresh_breakout_cross())
             ):
-                self._submit_entry(
-                    reference_price=reference_price,
-                    visible_size=visible_size,
-                )
+                self._submit_entry(reference_price=reference_price, visible_size=visible_size)
             self._append_price(price)
             return
 
         self._holding_periods += 1
-        if self._risk_exit(
-            price=price,
-            take_profit=self.config.take_profit,
-            stop_loss=self.config.stop_loss,
-        ):
+        if self._risk_exit(price=price, take_profit=self.config.take_profit, stop_loss=self.config.stop_loss):
             self._append_price(price)
             return
 

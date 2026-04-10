@@ -35,15 +35,9 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from prediction_market_extensions.analysis.legacy_backtesting.models import (
-    DEFAULT_DETAIL_PLOT_PANELS,
-)
-from prediction_market_extensions.analysis.legacy_backtesting.models import (
-    PANEL_BRIER_ADVANTAGE,
-)
-from prediction_market_extensions.analysis.legacy_backtesting.models import (
-    normalize_plot_panels,
-)
+from prediction_market_extensions.analysis.legacy_backtesting.models import DEFAULT_DETAIL_PLOT_PANELS
+from prediction_market_extensions.analysis.legacy_backtesting.models import PANEL_BRIER_ADVANTAGE
+from prediction_market_extensions.analysis.legacy_backtesting.models import normalize_plot_panels
 from nautilus_trader.analysis.reporter import ReportProvider
 
 
@@ -200,30 +194,19 @@ def resolve_legacy_plot_repo(explicit_path: str | Path | None = None) -> Path:
     _ = explicit_path
     plotting_path = LEGACY_BACKTESTING_ROOT / "plotting.py"
     if not plotting_path.exists():
-        raise FileNotFoundError(
-            f"Vendored legacy plotting module is missing: {plotting_path}"
-        )
+        raise FileNotFoundError(f"Vendored legacy plotting module is missing: {plotting_path}")
     return LEGACY_BACKTESTING_ROOT
 
 
 def _load_legacy_modules(repo_path: Path | None = None) -> tuple[Any, Any]:
     _ = repo_path
     importlib.invalidate_caches()
-    models = importlib.import_module(
-        "prediction_market_extensions.analysis.legacy_backtesting.models"
-    )
-    plotting = importlib.import_module(
-        "prediction_market_extensions.analysis.legacy_backtesting.plotting"
-    )
+    models = importlib.import_module("prediction_market_extensions.analysis.legacy_backtesting.models")
+    plotting = importlib.import_module("prediction_market_extensions.analysis.legacy_backtesting.plotting")
     return models, plotting
 
 
-def _configure_legacy_downsampling(
-    plotting_module: Any,
-    *,
-    adaptive: bool = True,
-    max_points: int = 5000,
-) -> None:
+def _configure_legacy_downsampling(plotting_module: Any, *, adaptive: bool = True, max_points: int = 5000) -> None:
     """
     Configure legacy dataframe downsampling.
     """
@@ -233,14 +216,7 @@ def _configure_legacy_downsampling(
 
     if not adaptive:
 
-        def _identity_downsample(
-            eq,
-            fills_df,
-            market_df,
-            max_points=5000,
-            alloc_df=None,
-            keep_indices=None,
-        ):
+        def _identity_downsample(eq, fills_df, market_df, max_points=5000, alloc_df=None, keep_indices=None):
             return eq, fills_df, market_df, alloc_df
 
         plotting_module._downsample = _identity_downsample
@@ -248,14 +224,7 @@ def _configure_legacy_downsampling(
 
     requested_max_points = max(2, int(max_points))
 
-    def _adaptive_downsample(
-        eq,
-        fills_df,
-        market_df,
-        max_points=5000,
-        alloc_df=None,
-        keep_indices=None,
-    ):
+    def _adaptive_downsample(eq, fills_df, market_df, max_points=5000, alloc_df=None, keep_indices=None):
         total_points = sum(
             len(frame)
             for frame in (eq, fills_df, market_df, alloc_df)
@@ -265,12 +234,7 @@ def _configure_legacy_downsampling(
             return eq, fills_df, market_df, alloc_df
 
         return downsample_fn(
-            eq,
-            fills_df,
-            market_df,
-            max_points=requested_max_points,
-            alloc_df=alloc_df,
-            keep_indices=keep_indices,
+            eq, fills_df, market_df, max_points=requested_max_points, alloc_df=alloc_df, keep_indices=keep_indices
         )
 
     plotting_module._downsample = _adaptive_downsample
@@ -281,14 +245,7 @@ def _disable_legacy_downsampling(plotting_module: Any) -> None:
     Backward-compatible helper for callers that explicitly want dense rendering.
     """
 
-    def _identity_downsample(
-        eq,
-        fills_df,
-        market_df,
-        max_points=5000,
-        alloc_df=None,
-        keep_indices=None,
-    ):
+    def _identity_downsample(eq, fills_df, market_df, max_points=5000, alloc_df=None, keep_indices=None):
         return eq, fills_df, market_df, alloc_df
 
     plotting_module._downsample = _identity_downsample
@@ -357,48 +314,25 @@ def _convert_fills(fills_report: pd.DataFrame, models_module: Any) -> list[Any]:
 
     converted: list[Any] = []
     for idx, (_, row) in enumerate(frame.iterrows(), start=1):
-        market_id = str(
-            _first_value(row, "market_id", "instrument_id", "ticker", "symbol") or "",
-        ).strip()
+        market_id = str(_first_value(row, "market_id", "instrument_id", "ticker", "symbol") or "").strip()
         if not market_id:
             continue
 
-        timestamp = _to_naive_utc(
-            _first_value(
-                row, "ts_event", "ts_init", "ts_last", "timestamp", "datetime"
-            ),
-        )
+        timestamp = _to_naive_utc(_first_value(row, "ts_event", "ts_init", "ts_last", "timestamp", "datetime"))
         if timestamp is None:
             continue
 
-        action_raw = str(
-            _first_value(row, "order_side", "action", "side") or ""
-        ).upper()
-        action = (
-            models_module.OrderAction.BUY
-            if action_raw == "BUY"
-            else models_module.OrderAction.SELL
-        )
+        action_raw = str(_first_value(row, "order_side", "action", "side") or "").upper()
+        action = models_module.OrderAction.BUY if action_raw == "BUY" else models_module.OrderAction.SELL
 
         side = _infer_market_side(models_module, market_id)
-        price = _parse_float(
-            _first_value(row, "last_px", "avg_px", "price"), default=0.0
-        )
-        quantity = _parse_float(
-            _first_value(row, "last_qty", "filled_qty", "quantity", "qty"),
-            default=0.0,
-        )
+        price = _parse_float(_first_value(row, "last_px", "avg_px", "price"), default=0.0)
+        quantity = _parse_float(_first_value(row, "last_qty", "filled_qty", "quantity", "qty"), default=0.0)
         if quantity <= 0:
             continue
 
-        commission = _parse_float(
-            _first_value(row, "commission", "commissions", "fee", "fees"),
-            default=0.0,
-        )
-        order_id = str(
-            _first_value(row, "order_id", "client_order_id", "venue_order_id")
-            or f"fill-{idx}",
-        )
+        commission = _parse_float(_first_value(row, "commission", "commissions", "fee", "fees"), default=0.0)
+        order_id = str(_first_value(row, "order_id", "client_order_id", "venue_order_id") or f"fill-{idx}")
 
         converted.append(
             models_module.Fill(
@@ -410,16 +344,14 @@ def _convert_fills(fills_report: pd.DataFrame, models_module: Any) -> list[Any]:
                 quantity=quantity,
                 timestamp=timestamp,
                 commission=commission,
-            ),
+            )
         )
 
     converted.sort(key=lambda fill: fill.timestamp)
     return converted
 
 
-def _position_count_by_snapshot(
-    snapshot_times: list[datetime], fills: list[Any]
-) -> list[int]:
+def _position_count_by_snapshot(snapshot_times: list[datetime], fills: list[Any]) -> list[int]:
     if not snapshot_times:
         return []
 
@@ -430,9 +362,7 @@ def _position_count_by_snapshot(
     for snapshot_time in snapshot_times:
         while fill_idx < len(fills) and fills[fill_idx].timestamp <= snapshot_time:
             fill = fills[fill_idx]
-            signed_qty = _signed_quantity(
-                fill.action.value, fill.side.value, float(fill.quantity)
-            )
+            signed_qty = _signed_quantity(fill.action.value, fill.side.value, float(fill.quantity))
             if signed_qty != 0.0:
                 market_qty = position_qty.get(fill.market_id, 0.0) + signed_qty
                 if abs(market_qty) < 1e-12:
@@ -446,25 +376,15 @@ def _position_count_by_snapshot(
     return counts
 
 
-def _build_portfolio_snapshots(
-    models_module: Any,
-    account_report: pd.DataFrame,
-    fills: list[Any],
-) -> list[Any]:
-    snapshot_times = [
-        _timestamp_to_naive_utc_datetime(ts) for ts in account_report.index
-    ]
+def _build_portfolio_snapshots(models_module: Any, account_report: pd.DataFrame, fills: list[Any]) -> list[Any]:
+    snapshot_times = [_timestamp_to_naive_utc_datetime(ts) for ts in account_report.index]
     num_positions = _position_count_by_snapshot(snapshot_times, fills)
 
     snapshots: list[Any] = []
     for idx, timestamp in enumerate(snapshot_times):
         row = account_report.iloc[idx]
-        total_equity = _parse_float(
-            row.get("total", row.get("equity", 0.0)), default=0.0
-        )
-        cash = _parse_float(
-            row.get("free", row.get("cash", total_equity)), default=total_equity
-        )
+        total_equity = _parse_float(row.get("total", row.get("equity", 0.0)), default=0.0)
+        cash = _parse_float(row.get("free", row.get("cash", total_equity)), default=total_equity)
         unrealized_pnl = total_equity - cash
 
         snapshots.append(
@@ -474,15 +394,14 @@ def _build_portfolio_snapshots(
                 total_equity=total_equity,
                 unrealized_pnl=unrealized_pnl,
                 num_positions=num_positions[idx] if idx < len(num_positions) else 0,
-            ),
+            )
         )
 
     return snapshots
 
 
 def _build_dense_timeline(
-    fills: list[Any],
-    market_prices: Mapping[str, Sequence[tuple[datetime, float]]],
+    fills: list[Any], market_prices: Mapping[str, Sequence[tuple[datetime, float]]]
 ) -> pd.DatetimeIndex:
     timeline: set[datetime] = set()
     for points in market_prices.values():
@@ -493,18 +412,12 @@ def _build_dense_timeline(
     return pd.DatetimeIndex(sorted(timeline))
 
 
-def _dense_cash_series(
-    sparse_snapshots: list[Any],
-    dense_dt: pd.DatetimeIndex,
-    initial_cash: float,
-) -> np.ndarray:
+def _dense_cash_series(sparse_snapshots: list[Any], dense_dt: pd.DatetimeIndex, initial_cash: float) -> np.ndarray:
     sparse_df = pd.DataFrame(
         {
-            "datetime": pd.to_datetime(
-                [snapshot.timestamp for snapshot in sparse_snapshots]
-            ),
+            "datetime": pd.to_datetime([snapshot.timestamp for snapshot in sparse_snapshots]),
             "cash": [float(snapshot.cash) for snapshot in sparse_snapshots],
-        },
+        }
     ).sort_values("datetime")
     sparse_df = sparse_df.drop_duplicates(subset=["datetime"], keep="last")
 
@@ -515,8 +428,7 @@ def _dense_cash_series(
 
 
 def _replay_fill_position_deltas(
-    fills: list[Any],
-    dense_dts: np.ndarray,
+    fills: list[Any], dense_dts: np.ndarray
 ) -> tuple[dict[str, np.ndarray], dict[str, float]]:
     n_bars = len(dense_dts)
     pos_changes: dict[str, np.ndarray] = {}
@@ -524,9 +436,7 @@ def _replay_fill_position_deltas(
 
     for fill in sorted(fills, key=lambda f: f.timestamp):
         market_id = fill.market_id
-        delta = _signed_quantity(
-            fill.action.value, fill.side.value, float(fill.quantity)
-        )
+        delta = _signed_quantity(fill.action.value, fill.side.value, float(fill.quantity))
         if delta == 0.0:
             continue
         if market_id not in pos_changes:
@@ -591,8 +501,7 @@ def _apply_resolution_cutoffs(
 
 
 def _mark_to_market(
-    pos_qty: Mapping[str, np.ndarray],
-    price_on_bar: Mapping[str, np.ndarray],
+    pos_qty: Mapping[str, np.ndarray], price_on_bar: Mapping[str, np.ndarray]
 ) -> tuple[np.ndarray, np.ndarray]:
     if not pos_qty:
         return np.array([], dtype=float), np.array([], dtype=int)
@@ -602,9 +511,7 @@ def _mark_to_market(
     num_positions = np.zeros(n_bars, dtype=int)
 
     for market_id, qty in pos_qty.items():
-        prices = np.nan_to_num(
-            price_on_bar.get(market_id, np.zeros(n_bars, dtype=float)), nan=0.0
-        )
+        prices = np.nan_to_num(price_on_bar.get(market_id, np.zeros(n_bars, dtype=float)), nan=0.0)
         values = np.where(qty >= 0.0, qty * prices, np.abs(qty) * (1.0 - prices))
         values = np.maximum(values, 0.0)
         total_pos_value += values
@@ -636,9 +543,7 @@ def _build_dense_portfolio_snapshots(
 
     dense_dts = dense_dt.to_numpy(dtype="datetime64[ns]")
     n_bars = len(dense_dt)
-    cash_series = _dense_cash_series(
-        sparse_snapshots, dense_dt, initial_cash=initial_cash
-    )
+    cash_series = _dense_cash_series(sparse_snapshots, dense_dt, initial_cash=initial_cash)
     pos_changes, fill_price_map = _replay_fill_position_deltas(fills, dense_dts)
 
     if not pos_changes:
@@ -694,9 +599,7 @@ def _build_market_pnls(positions_report: pd.DataFrame) -> dict[str, float]:
 
     pnls: dict[str, float] = {}
     for _, row in frame.iterrows():
-        market_id = str(
-            _first_value(row, "market_id", "instrument_id", "ticker", "symbol") or "",
-        ).strip()
+        market_id = str(_first_value(row, "market_id", "instrument_id", "ticker", "symbol") or "").strip()
         if not market_id:
             continue
         realized = _parse_float(_first_value(row, "realized_pnl", "pnl"), default=0.0)
@@ -736,14 +639,10 @@ def _normalize_market_prices(
     return normalized
 
 
-def _market_prices_from_fills(
-    fills: list[Any],
-) -> dict[str, list[tuple[datetime, float]]]:
+def _market_prices_from_fills(fills: list[Any]) -> dict[str, list[tuple[datetime, float]]]:
     market_prices: dict[str, list[tuple[datetime, float]]] = {}
     for fill in fills:
-        market_prices.setdefault(str(fill.market_id), []).append(
-            (fill.timestamp, float(fill.price))
-        )
+        market_prices.setdefault(str(fill.market_id), []).append((fill.timestamp, float(fill.price)))
     return market_prices
 
 
@@ -772,8 +671,7 @@ def _merge_market_price_sources(
 
 
 def _market_prices_with_fill_points(
-    market_prices: Mapping[str, Sequence[tuple[Any, float]]] | None,
-    fills: list[Any],
+    market_prices: Mapping[str, Sequence[tuple[Any, float]]] | None, fills: list[Any]
 ) -> dict[str, list[tuple[datetime, float]]]:
     normalized_market_prices = _normalize_market_prices(market_prices)
     fill_prices = _market_prices_from_fills(fills)
@@ -830,14 +728,10 @@ def _mark_panel_figure(fig: Any, panel_id: str) -> Any:
 
 
 def _brier_unavailable_reason(
-    *,
-    user_probabilities: pd.Series | None,
-    market_probabilities: pd.Series | None,
-    outcomes: pd.Series | None,
+    *, user_probabilities: pd.Series | None, market_probabilities: pd.Series | None, outcomes: pd.Series | None
 ) -> str | None:
     has_probability_inputs = any(
-        series is not None and not series.empty
-        for series in (user_probabilities, market_probabilities)
+        series is not None and not series.empty for series in (user_probabilities, market_probabilities)
     )
     if not has_probability_inputs:
         return None
@@ -864,25 +758,11 @@ def _build_brier_placeholder_panel(message: str) -> Any:
         sizing_mode="stretch_width",
         toolbar_location="right",
     )
-    fig.add_layout(
-        Span(
-            location=0,
-            dimension="width",
-            line_color="#666666",
-            line_dash="dashed",
-            line_width=1,
-        ),
-    )
+    fig.add_layout(Span(location=0, dimension="width", line_color="#666666", line_dash="dashed", line_width=1))
     fig.add_layout(
         Label(
-            x=20,
-            y=105,
-            x_units="screen",
-            y_units="screen",
-            text=message,
-            text_font_size="11pt",
-            text_color="#666666",
-        ),
+            x=20, y=105, x_units="screen", y_units="screen", text=message, text_font_size="11pt", text_color="#666666"
+        )
     )
     fig.xaxis.axis_label = "Date"
     fig.yaxis.axis_label = "Cumulative Brier Advantage"
@@ -927,22 +807,16 @@ def _build_brier_panel(brier_frame: pd.DataFrame) -> Any | None:
     frame = frame.drop_duplicates(keep="last")
     if len(frame.index) > 1:
         pad = (frame.index[-1] - frame.index[0]) / 20
-        x_range: Any = Range1d(
-            frame.index[0],
-            frame.index[-1],
-            bounds=(frame.index[0] - pad, frame.index[-1] + pad),
-        )
+        x_range: Any = Range1d(frame.index[0], frame.index[-1], bounds=(frame.index[0] - pad, frame.index[-1] + pad))
     else:
         x_range = None
 
     source = ColumnDataSource(
         {
             "datetime": frame.index,
-            "cumulative_brier_advantage": frame[
-                "cumulative_brier_advantage"
-            ].to_numpy(),
+            "cumulative_brier_advantage": frame["cumulative_brier_advantage"].to_numpy(),
             "brier_advantage": frame["brier_advantage"].to_numpy(),
-        },
+        }
     )
 
     fig = figure(
@@ -965,15 +839,7 @@ def _build_brier_panel(brier_frame: pd.DataFrame) -> Any | None:
         line_color="#2ca0f0",
         legend_label="Cum. Brier Advantage",
     )
-    fig.add_layout(
-        Span(
-            location=0,
-            dimension="width",
-            line_color="#666666",
-            line_dash="dashed",
-            line_width=1,
-        ),
-    )
+    fig.add_layout(Span(location=0, dimension="width", line_color="#666666", line_dash="dashed", line_width=1))
 
     fig.add_tools(
         HoverTool(
@@ -984,16 +850,14 @@ def _build_brier_panel(brier_frame: pd.DataFrame) -> Any | None:
                 ("Cum Advantage", "@cumulative_brier_advantage{0.0000}"),
                 ("Point Advantage", "@brier_advantage{0.0000}"),
             ],
-        ),
+        )
     )
 
     fig.xaxis.axis_label = "Date"
     fig.yaxis.axis_label = "Cumulative Brier Advantage"
     fig.yaxis.formatter = NumeralTickFormatter(format="0.0000")
     _style_panel_legend(fig)
-    wheel_zoom = next(
-        (tool for tool in fig.tools if isinstance(tool, WheelZoomTool)), None
-    )
+    wheel_zoom = next((tool for tool in fig.tools if isinstance(tool, WheelZoomTool)), None)
     if wheel_zoom is not None:
         wheel_zoom.maintain_focus = False  # type: ignore[attr-defined]
 
@@ -1025,11 +889,7 @@ def _iter_layout_nodes(node: Any):
 
 def _iter_figures(layout: Any):
     for node in _iter_layout_nodes(layout):
-        if (
-            hasattr(node, "renderers")
-            and hasattr(node, "title")
-            and hasattr(node, "yaxis")
-        ):
+        if hasattr(node, "renderers") and hasattr(node, "title") and hasattr(node, "yaxis"):
             yield node
 
 
@@ -1059,9 +919,7 @@ def _filter_tool_container(container: Any, tools_to_remove: set[Any]) -> None:
         proxy_tools = getattr(tool, "tools", None)
         if proxy_tools is not None:
             remaining_proxy_tools = [
-                proxy_tool
-                for proxy_tool in list(proxy_tools)
-                if proxy_tool not in tools_to_remove
+                proxy_tool for proxy_tool in list(proxy_tools) if proxy_tool not in tools_to_remove
             ]
             if len(remaining_proxy_tools) != len(proxy_tools):
                 tool.tools = remaining_proxy_tools
@@ -1090,11 +948,7 @@ def _remove_tools_from_layout(layout: Any, tools_to_remove: set[Any]) -> None:
 
 
 def _remove_hover_tools(fig: Any, *, layout: Any | None = None) -> set[Any]:
-    removed = {
-        tool
-        for tool in getattr(fig, "tools", [])
-        if tool.__class__.__name__ == "HoverTool"
-    }
+    removed = {tool for tool in getattr(fig, "tools", []) if tool.__class__.__name__ == "HoverTool"}
     if not removed:
         return set()
 
@@ -1126,9 +980,7 @@ def _find_figure_with_yaxis_label(layout: Any, predicate: Any) -> Any | None:
     return None
 
 
-def _periodic_pnl_panel_source(
-    target: Any,
-) -> tuple[dict[str, Any] | None, float | None]:
+def _periodic_pnl_panel_source(target: Any) -> tuple[dict[str, Any] | None, float | None]:
     source_data: dict[str, Any] | None = None
     bar_width: float | None = None
 
@@ -1146,9 +998,7 @@ def _periodic_pnl_panel_source(
     return source_data, bar_width
 
 
-def _build_periodic_pnl_panel_source_data(
-    source_data: dict[str, Any],
-) -> dict[str, Any] | None:
+def _build_periodic_pnl_panel_source_data(source_data: dict[str, Any]) -> dict[str, Any] | None:
     x_values = np.asarray(source_data["x"], dtype=float)
     pnl_values = np.asarray(source_data["pnl"], dtype=float)
     dt_start = [_to_naive_utc(value) for value in source_data["dt_start"]]
@@ -1161,17 +1011,12 @@ def _build_periodic_pnl_panel_source_data(
         "pnl": pnl_values,
         "dt_start": dt_start,
         "dt_end": dt_end,
-        "period_label": [
-            _format_period_label(start, end)
-            for start, end in zip(dt_start, dt_end, strict=False)
-        ],
+        "period_label": [_format_period_label(start, end) for start, end in zip(dt_start, dt_end, strict=False)],
         "color": np.where(pnl_values >= 0.0, "#2ecc71", "#e74c3c"),
     }
 
 
-def _resolve_periodic_pnl_bar_width(
-    x_values: np.ndarray, bar_width: float | None
-) -> float:
+def _resolve_periodic_pnl_bar_width(x_values: np.ndarray, bar_width: float | None) -> float:
     if bar_width is not None:
         return bar_width
 
@@ -1311,11 +1156,7 @@ def _remove_yes_price_fill_markers(layout: Any) -> None:  # noqa: C901
             kept_items = []
             for item in list(getattr(legend, "items", [])):
                 lower = _legend_item_label_text(item).lower()
-                item_renderers = [
-                    r
-                    for r in getattr(item, "renderers", [])
-                    if r not in renderers_to_drop
-                ]
+                item_renderers = [r for r in getattr(item, "renderers", []) if r not in renderers_to_drop]
                 if "fills" in lower or not item_renderers:
                     continue
                 item.renderers = item_renderers
@@ -1365,11 +1206,7 @@ def _limit_yes_price_fill_markers(layout: Any, *, max_markers: int) -> None:  # 
         if total <= max_markers:
             continue
 
-        limited = _downsample_frame_rows(
-            frame,
-            max_points=max_markers,
-            extrema_columns=("price", "index"),
-        )
+        limited = _downsample_frame_rows(frame, max_points=max_markers, extrema_columns=("price", "index"))
         source.data = {column: limited[column].tolist() for column in frame.columns}
 
         shown = len(limited)
@@ -1379,10 +1216,7 @@ def _limit_yes_price_fill_markers(layout: Any, *, max_markers: int) -> None:  # 
                     continue
                 if "fills" not in _legend_item_label_text(item).lower():
                     continue
-                _set_legend_item_label_text(
-                    item,
-                    f"Fills ({shown:,} shown of {total:,})",
-                )
+                _set_legend_item_label_text(item, f"Fills ({shown:,} shown of {total:,})")
 
 
 def _standardize_periodic_pnl_panel(layout: Any) -> None:
@@ -1393,9 +1227,7 @@ def _standardize_periodic_pnl_panel(layout: Any) -> None:
     except ImportError:
         return
 
-    target = _find_figure_with_yaxis_label(
-        layout, lambda label: "periodic" in label.lower()
-    )
+    target = _find_figure_with_yaxis_label(layout, lambda label: "periodic" in label.lower())
     if target is None:
         return
 
@@ -1410,24 +1242,13 @@ def _standardize_periodic_pnl_panel(layout: Any) -> None:
     panel_source = ColumnDataSource(panel_data)
     bar_width = _resolve_periodic_pnl_bar_width(panel_data["x"], bar_width)
 
-    target.renderers = [
-        renderer
-        for renderer in target.renderers
-        if not hasattr(renderer, "data_source")
-    ]
+    target.renderers = [renderer for renderer in target.renderers if not hasattr(renderer, "data_source")]
     for legend in getattr(target, "legend", []):
         legend.items = []
         legend.visible = False
     _remove_hover_tools(target, layout=layout)
 
-    renderer = target.vbar(
-        x="x",
-        top="pnl",
-        source=panel_source,
-        width=bar_width,
-        color="color",
-        alpha=0.75,
-    )
+    renderer = target.vbar(x="x", top="pnl", source=panel_source, width=bar_width, color="color", alpha=0.75)
     target.add_tools(
         HoverTool(
             renderers=[renderer],
@@ -1439,7 +1260,7 @@ def _standardize_periodic_pnl_panel(layout: Any) -> None:
                 ("P&L", "@pnl{$0,0.00}"),
             ],
             mode="vline",
-        ),
+        )
     )
     target.yaxis.formatter = NumeralTickFormatter(format="$ 0,0")
 
@@ -1450,9 +1271,7 @@ def _relabel_market_pnl_panel(layout: Any, axis_label: str = "Market P&L") -> No
     except ImportError:
         return
 
-    target = _find_figure_with_yaxis_label(
-        layout, lambda label: label == "Profit / Loss"
-    )
+    target = _find_figure_with_yaxis_label(layout, lambda label: label == "Profit / Loss")
     if target is None:
         return
 
@@ -1474,9 +1293,7 @@ def _relabel_market_pnl_panel(layout: Any, axis_label: str = "Market P&L") -> No
 
 
 def _relabel_periodic_pnl_panel(layout: Any, axis_label: str) -> None:
-    target = _find_figure_with_yaxis_label(
-        layout, lambda label: "periodic" in label.lower()
-    )
+    target = _find_figure_with_yaxis_label(layout, lambda label: "periodic" in label.lower())
     if target is None:
         return
 
@@ -1535,10 +1352,7 @@ def _extract_yes_price_colors(layout: Any) -> dict[str, Any]:
 
 
 def _downsample_frame_rows(
-    frame: pd.DataFrame,
-    *,
-    max_points: int,
-    extrema_columns: Sequence[str] = (),
+    frame: pd.DataFrame, *, max_points: int, extrema_columns: Sequence[str] = ()
 ) -> pd.DataFrame:
     if frame.empty or len(frame) <= max_points:
         return frame
@@ -1568,9 +1382,7 @@ def _build_multi_market_brier_panel(  # noqa: C901
     max_points_per_market: int = 400,
 ) -> Any | None:
     valid_frames = {
-        market_id: frame.copy()
-        for market_id, frame in brier_frames.items()
-        if frame is not None and not frame.empty
+        market_id: frame.copy() for market_id, frame in brier_frames.items() if frame is not None and not frame.empty
     }
     if not valid_frames:
         return None
@@ -1626,19 +1438,15 @@ def _build_multi_market_brier_panel(  # noqa: C901
         frame.index = frame.index.tz_convert("UTC").tz_localize(None)
         frame = frame[~frame.index.duplicated(keep="last")]
         frame = _downsample_frame_rows(
-            frame,
-            max_points=max_points_per_market,
-            extrema_columns=("cumulative_brier_advantage", "brier_advantage"),
+            frame, max_points=max_points_per_market, extrema_columns=("cumulative_brier_advantage", "brier_advantage")
         )
 
         source = ColumnDataSource(
             {
                 "datetime": frame.index,
-                "cumulative_brier_advantage": frame[
-                    "cumulative_brier_advantage"
-                ].to_numpy(dtype=float),
+                "cumulative_brier_advantage": frame["cumulative_brier_advantage"].to_numpy(dtype=float),
                 "brier_advantage": frame["brier_advantage"].to_numpy(dtype=float),
-            },
+            }
         )
         line_color = None
         if color_by_market is not None:
@@ -1665,15 +1473,7 @@ def _build_multi_market_brier_panel(  # noqa: C901
     if not renderers:
         return None
 
-    fig.add_layout(
-        Span(
-            location=0,
-            dimension="width",
-            line_color="#666666",
-            line_dash="dashed",
-            line_width=1,
-        ),
-    )
+    fig.add_layout(Span(location=0, dimension="width", line_color="#666666", line_dash="dashed", line_width=1))
     fig.add_tools(
         HoverTool(
             renderers=renderers,
@@ -1685,15 +1485,13 @@ def _build_multi_market_brier_panel(  # noqa: C901
                 ("Cum Advantage", "@cumulative_brier_advantage{0.0000}"),
                 ("Point Advantage", "@brier_advantage{0.0000}"),
             ],
-        ),
+        )
     )
     fig.xaxis.axis_label = "Date"
     fig.yaxis.axis_label = axis_label
     fig.yaxis.formatter = NumeralTickFormatter(format="0.0000")
     _style_panel_legend(fig)
-    wheel_zoom = next(
-        (tool for tool in fig.tools if isinstance(tool, WheelZoomTool)), None
-    )
+    wheel_zoom = next((tool for tool in fig.tools if isinstance(tool, WheelZoomTool)), None)
     if wheel_zoom is not None:
         wheel_zoom.maintain_focus = False  # type: ignore[attr-defined]
 
@@ -1744,12 +1542,9 @@ def _standardize_yes_price_hover(layout: Any) -> None:
         HoverTool(
             renderers=line_renderers,
             formatters={"@datetime": "datetime"},
-            tooltips=[
-                ("Date", "@datetime{%F %T}"),
-                ("YES Price", yes_price_tooltip),
-            ],
+            tooltips=[("Date", "@datetime{%F %T}"), ("YES Price", yes_price_tooltip)],
             mode="vline",
-        ),
+        )
     )
 
 
@@ -1805,10 +1600,7 @@ def _apply_layout_overrides(
     if hide_yes_price_fill_markers:
         _remove_yes_price_fill_markers(layout)
     elif max_yes_price_fill_markers is not None:
-        _limit_yes_price_fill_markers(
-            layout,
-            max_markers=max_yes_price_fill_markers,
-        )
+        _limit_yes_price_fill_markers(layout, max_markers=max_yes_price_fill_markers)
     _standardize_periodic_pnl_panel(layout)
     if relabel_market_pnl:
         _relabel_market_pnl_panel(layout)
@@ -1830,11 +1622,7 @@ def _save_layout(layout: Any, output_path: Path, title: str) -> None:
     save(layout, filename=str(output_path), title=title)
 
 
-def save_legacy_backtest_layout(
-    layout: Any,
-    output_path: str | Path,
-    title: str,
-) -> str:
+def save_legacy_backtest_layout(layout: Any, output_path: str | Path, title: str) -> str:
     """
     Save a pre-built legacy chart layout and return the absolute output path.
     """
@@ -1867,11 +1655,7 @@ def build_legacy_backtest_layout(
     """
     _ = legacy_repo_path  # Legacy code is vendored in-repo.
     models_module, plotting_module = _load_legacy_modules()
-    _configure_legacy_downsampling(
-        plotting_module,
-        adaptive=adaptive_downsampling,
-        max_points=max_downsample_points,
-    )
+    _configure_legacy_downsampling(plotting_module, adaptive=adaptive_downsampling, max_points=max_downsample_points)
 
     account_report = _extract_account_report(engine)
     fills_report = engine.trader.generate_order_fills_report()
@@ -1891,10 +1675,7 @@ def build_legacy_backtest_layout(
         raise ValueError("No portfolio snapshots were built from the account report.")
 
     metrics = _build_metrics(snapshots, initial_cash)
-    resolved_plot_panels = normalize_plot_panels(
-        plot_panels,
-        default=DEFAULT_DETAIL_PLOT_PANELS,
-    )
+    resolved_plot_panels = normalize_plot_panels(plot_panels, default=DEFAULT_DETAIL_PLOT_PANELS)
 
     result = models_module.BacktestResult(
         equity_curve=snapshots,
@@ -1921,9 +1702,7 @@ def build_legacy_backtest_layout(
     extra_panels: dict[str, Any] = {}
     if PANEL_BRIER_ADVANTAGE in resolved_plot_panels:
         brier_frame = prepare_cumulative_brier_advantage(
-            user_probabilities=user_probabilities,
-            market_probabilities=market_probabilities,
-            outcomes=outcomes,
+            user_probabilities=user_probabilities, market_probabilities=market_probabilities, outcomes=outcomes
         )
         if not brier_frame.empty:
             panel = _build_brier_panel(brier_frame)
@@ -1931,14 +1710,10 @@ def build_legacy_backtest_layout(
                 extra_panels[PANEL_BRIER_ADVANTAGE] = panel
         else:
             unavailable_reason = _brier_unavailable_reason(
-                user_probabilities=user_probabilities,
-                market_probabilities=market_probabilities,
-                outcomes=outcomes,
+                user_probabilities=user_probabilities, market_probabilities=market_probabilities, outcomes=outcomes
             )
             if unavailable_reason is not None:
-                extra_panels[PANEL_BRIER_ADVANTAGE] = _build_brier_placeholder_panel(
-                    unavailable_reason,
-                )
+                extra_panels[PANEL_BRIER_ADVANTAGE] = _build_brier_placeholder_panel(unavailable_reason)
 
     layout = plotting_module.plot(
         result,
@@ -1953,8 +1728,7 @@ def build_legacy_backtest_layout(
         layout,
         initial_cash=float(initial_cash),
         max_yes_price_fill_markers=_yes_price_fill_marker_limit(
-            fill_count=len(fills),
-            max_points=max_downsample_points,
+            fill_count=len(fills), max_points=max_downsample_points
         ),
     )
 

@@ -21,9 +21,7 @@ from __future__ import annotations
 from collections import deque
 from decimal import Decimal
 
-from strategies.core import (
-    LongOnlyPredictionMarketStrategy,
-)
+from strategies.core import LongOnlyPredictionMarketStrategy
 from nautilus_trader.model.data import QuoteTick
 from nautilus_trader.model.data import TradeTick
 from nautilus_trader.model.identifiers import InstrumentId
@@ -57,14 +55,9 @@ class _VWAPReversionBase(LongOnlyPredictionMarketStrategy):
     Trade-tick VWAP reversion strategy suited to intraday prediction-market noise.
     """
 
-    def __init__(
-        self,
-        config: TradeTickVWAPReversionConfig | QuoteTickVWAPReversionConfig,
-    ) -> None:
+    def __init__(self, config: TradeTickVWAPReversionConfig | QuoteTickVWAPReversionConfig) -> None:
         super().__init__(config)
-        self._window: deque[tuple[float, float]] = deque(
-            maxlen=int(self.config.vwap_window)
-        )
+        self._window: deque[tuple[float, float]] = deque(maxlen=int(self.config.vwap_window))
         self._weighted_sum: float = 0.0
         self._size_sum: float = 0.0
 
@@ -79,12 +72,7 @@ class _VWAPReversionBase(LongOnlyPredictionMarketStrategy):
         self._size_sum += size
 
     def _on_price_size(
-        self,
-        *,
-        price: float,
-        size: float,
-        entry_price: float | None = None,
-        visible_size: float | None = None,
+        self, *, price: float, size: float, entry_price: float | None = None, visible_size: float | None = None
     ) -> None:
         if self._pending:
             return
@@ -100,16 +88,11 @@ class _VWAPReversionBase(LongOnlyPredictionMarketStrategy):
         if not self._in_position():
             if price <= vwap - float(self.config.entry_threshold):
                 self._submit_entry(
-                    reference_price=price if entry_price is None else entry_price,
-                    visible_size=visible_size,
+                    reference_price=price if entry_price is None else entry_price, visible_size=visible_size
                 )
             return
 
-        if self._risk_exit(
-            price=price,
-            take_profit=self.config.take_profit,
-            stop_loss=self.config.stop_loss,
-        ):
+        if self._risk_exit(price=price, take_profit=self.config.take_profit, stop_loss=self.config.stop_loss):
             return
 
         if price >= vwap - float(self.config.exit_threshold):
@@ -128,11 +111,7 @@ class TradeTickVWAPReversionStrategy(_VWAPReversionBase):
 
     def on_trade_tick(self, tick: TradeTick) -> None:
         price = float(tick.price)
-        self._on_price_size(
-            price=price,
-            size=float(tick.size),
-            entry_price=price,
-        )
+        self._on_price_size(price=price, size=float(tick.size), entry_price=price)
 
 
 class QuoteTickVWAPReversionStrategy(_VWAPReversionBase):

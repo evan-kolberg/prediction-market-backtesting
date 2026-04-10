@@ -56,46 +56,20 @@ from bokeh.palettes import Category10
 from bokeh.plotting import figure as _figure
 from bokeh.transform import factor_cmap
 
-from prediction_market_extensions.analysis.legacy_backtesting.models import (
-    DEFAULT_DETAIL_PLOT_PANELS,
-)
-from prediction_market_extensions.analysis.legacy_backtesting.models import (
-    normalize_plot_panels,
-)
-from prediction_market_extensions.analysis.legacy_backtesting.models import (
-    PANEL_ALLOCATION,
-)
-from prediction_market_extensions.analysis.legacy_backtesting.models import (
-    PANEL_BRIER_ADVANTAGE,
-)
-from prediction_market_extensions.analysis.legacy_backtesting.models import (
-    PANEL_CASH_EQUITY,
-)
-from prediction_market_extensions.analysis.legacy_backtesting.models import (
-    PANEL_DRAWDOWN,
-)
+from prediction_market_extensions.analysis.legacy_backtesting.models import DEFAULT_DETAIL_PLOT_PANELS
+from prediction_market_extensions.analysis.legacy_backtesting.models import normalize_plot_panels
+from prediction_market_extensions.analysis.legacy_backtesting.models import PANEL_ALLOCATION
+from prediction_market_extensions.analysis.legacy_backtesting.models import PANEL_BRIER_ADVANTAGE
+from prediction_market_extensions.analysis.legacy_backtesting.models import PANEL_CASH_EQUITY
+from prediction_market_extensions.analysis.legacy_backtesting.models import PANEL_DRAWDOWN
 from prediction_market_extensions.analysis.legacy_backtesting.models import PANEL_EQUITY
-from prediction_market_extensions.analysis.legacy_backtesting.models import (
-    PANEL_MARKET_PNL,
-)
-from prediction_market_extensions.analysis.legacy_backtesting.models import (
-    PANEL_MONTHLY_RETURNS,
-)
-from prediction_market_extensions.analysis.legacy_backtesting.models import (
-    PANEL_PERIODIC_PNL,
-)
-from prediction_market_extensions.analysis.legacy_backtesting.models import (
-    PANEL_ROLLING_SHARPE,
-)
-from prediction_market_extensions.analysis.legacy_backtesting.models import (
-    PANEL_TOTAL_EQUITY,
-)
-from prediction_market_extensions.analysis.legacy_backtesting.models import (
-    PANEL_YES_PRICE,
-)
-from prediction_market_extensions.analysis.legacy_backtesting.progress import (
-    PinnedProgress,
-)
+from prediction_market_extensions.analysis.legacy_backtesting.models import PANEL_MARKET_PNL
+from prediction_market_extensions.analysis.legacy_backtesting.models import PANEL_MONTHLY_RETURNS
+from prediction_market_extensions.analysis.legacy_backtesting.models import PANEL_PERIODIC_PNL
+from prediction_market_extensions.analysis.legacy_backtesting.models import PANEL_ROLLING_SHARPE
+from prediction_market_extensions.analysis.legacy_backtesting.models import PANEL_TOTAL_EQUITY
+from prediction_market_extensions.analysis.legacy_backtesting.models import PANEL_YES_PRICE
+from prediction_market_extensions.analysis.legacy_backtesting.progress import PinnedProgress
 
 try:
     from bokeh.models import CustomJSTickFormatter
@@ -103,9 +77,7 @@ except ImportError:
     from bokeh.models import FuncTickFormatter as CustomJSTickFormatter  # type: ignore[no-redef, attr-defined]
 
 if TYPE_CHECKING:
-    from prediction_market_extensions.analysis.legacy_backtesting.models import (
-        BacktestResult,
-    )
+    from prediction_market_extensions.analysis.legacy_backtesting.models import BacktestResult
 
 IS_JUPYTER_NOTEBOOK = "ipykernel" in sys.modules
 if IS_JUPYTER_NOTEBOOK:
@@ -219,11 +191,7 @@ def _downsample(
 
     # Downsample eq and market_df
     eq_ds = eq.iloc[keep_sorted].reset_index(drop=True)
-    market_ds = (
-        market_df.iloc[keep_sorted].reset_index(drop=True)
-        if not market_df.empty
-        else market_df
-    )
+    market_ds = market_df.iloc[keep_sorted].reset_index(drop=True) if not market_df.empty else market_df
 
     # Downsample alloc_df to same rows
     alloc_ds: pd.DataFrame | None = None
@@ -243,9 +211,7 @@ def _downsample(
     return eq_ds, fills_ds, market_ds, alloc_ds
 
 
-def _series_from_pairs(
-    values: pd.Series | Sequence[tuple[Any, float]] | None,
-) -> pd.Series:
+def _series_from_pairs(values: pd.Series | Sequence[tuple[Any, float]] | None) -> pd.Series:
     if values is None:
         return pd.Series(dtype=float)
 
@@ -254,11 +220,7 @@ def _series_from_pairs(
     else:
         if not values:
             return pd.Series(dtype=float)
-        series = pd.Series(
-            [float(value) for _, value in values],
-            index=[ts for ts, _ in values],
-            dtype=float,
-        )
+        series = pd.Series([float(value) for _, value in values], index=[ts for ts, _ in values], dtype=float)
 
     index = pd.to_datetime(series.index, utc=True, errors="coerce")
     if isinstance(index, pd.Timestamp):
@@ -276,9 +238,7 @@ def _series_from_pairs(
     return series.groupby(series.index).last().sort_index()
 
 
-def _normalize_overlay_mapping(
-    values: Mapping[str, pd.Series | Sequence[tuple[Any, float]]],
-) -> dict[str, pd.Series]:
+def _normalize_overlay_mapping(values: Mapping[str, pd.Series | Sequence[tuple[Any, float]]]) -> dict[str, pd.Series]:
     normalized: dict[str, pd.Series] = {}
     for market_id, series_like in values.items():
         series = _series_from_pairs(series_like)
@@ -288,10 +248,7 @@ def _normalize_overlay_mapping(
     return normalized
 
 
-def _align_overlay_series(
-    series: pd.Series,
-    datetimes: pd.Series | pd.DatetimeIndex,
-) -> np.ndarray:
+def _align_overlay_series(series: pd.Series, datetimes: pd.Series | pd.DatetimeIndex) -> np.ndarray:
     target = pd.DatetimeIndex(pd.to_datetime(datetimes))
     if series.empty:
         return np.full(len(target), np.nan, dtype=float)
@@ -334,10 +291,7 @@ def _rolling_sharpe_array(values: np.ndarray) -> tuple[np.ndarray, int | None]:
     return sharpe, window
 
 
-def _overlay_keep_indices(
-    eq_datetimes: pd.Series,
-    overlay_series: Mapping[str, pd.Series],
-) -> set[int]:
+def _overlay_keep_indices(eq_datetimes: pd.Series, overlay_series: Mapping[str, pd.Series]) -> set[int]:
     keep: set[int] = set()
     if not overlay_series:
         return keep
@@ -364,10 +318,7 @@ def _overlay_keep_indices(
 
 
 def _build_dataframes(
-    result: BacktestResult,
-    bar: PinnedProgress[None] | None = None,
-    max_markets: int = 10,
-    max_points: int = 5000,
+    result: BacktestResult, bar: PinnedProgress[None] | None = None, max_markets: int = 10, max_points: int = 5000
 ):
     """Convert a :class:`BacktestResult` into plotting-ready DataFrames.
 
@@ -430,22 +381,11 @@ def _build_dataframes(
         fills_df["datetime"] = pd.to_datetime(fills_df["datetime"])
         fills_df = fills_df.sort_values("datetime").reset_index(drop=True)
         eq_times = eq["datetime"].values
-        bar_idx = (
-            np.searchsorted(eq_times, fills_df["datetime"].values, side="right") - 1
-        )
+        bar_idx = np.searchsorted(eq_times, fills_df["datetime"].values, side="right") - 1
         fills_df["bar"] = np.clip(bar_idx, 0, len(eq) - 1)
     else:
         fills_df = pd.DataFrame(
-            columns=[
-                "datetime",
-                "market_id",
-                "action",
-                "side",
-                "price",
-                "quantity",
-                "commission",
-                "bar",
-            ]
+            columns=["datetime", "market_id", "action", "side", "price", "quantity", "commission", "bar"]
         )
 
     market_prices = getattr(result, "market_prices", {})
@@ -454,12 +394,8 @@ def _build_dataframes(
         # --- select markets: all traded first, then random sample ---
         traded_ids = set(fills_df["market_id"]) if not fills_df.empty else set()
         # Always include every traded market
-        traded_with_data = [
-            mid for mid in traded_ids if mid in market_prices and market_prices[mid]
-        ]
-        non_traded = [
-            mid for mid in market_prices if mid not in traded_ids and market_prices[mid]
-        ]
+        traded_with_data = [mid for mid in traded_ids if mid in market_prices and market_prices[mid]]
+        non_traded = [mid for mid in market_prices if mid not in traded_ids and market_prices[mid]]
         # Fill remaining budget with a random spread of non-traded markets
         budget = max(0, max_markets - len(traded_with_data))
         if budget > 0 and non_traded:
@@ -499,29 +435,18 @@ def _build_dataframes(
     else:
         market_df = pd.DataFrame(index=eq.index)
 
-    overlay_mapping = _normalize_overlay_mapping(
-        getattr(result, "overlay_series", {}).get("equity", {})
-    )
+    overlay_mapping = _normalize_overlay_mapping(getattr(result, "overlay_series", {}).get("equity", {}))
     keep_indices = _overlay_keep_indices(eq["datetime"], overlay_mapping)
 
     # Downsample to keep the Bokeh JSON small enough for the browser
     n_bars_original = len(eq)
-    eq, fills_df, market_df, _ = _downsample(
-        eq,
-        fills_df,
-        market_df,
-        max_points=max_points,
-        keep_indices=keep_indices,
-    )
+    eq, fills_df, market_df, _ = _downsample(eq, fills_df, market_df, max_points=max_points, keep_indices=keep_indices)
 
     return eq, fills_df, market_df, n_bars_original
 
 
 def _build_allocation_data(
-    eq: pd.DataFrame,
-    fills_df: pd.DataFrame,
-    market_prices: dict[str, list[tuple]],
-    top_n: int | None = None,
+    eq: pd.DataFrame, fills_df: pd.DataFrame, market_prices: dict[str, list[tuple]], top_n: int | None = None
 ) -> pd.DataFrame:
     """Reconstruct position-value allocation over time from fills + prices.
 
@@ -584,9 +509,7 @@ def _build_allocation_data(
         recs = market_prices.get(mid, [])
         if recs:
             last_ts = max(ts for ts, _ in recs)
-            market_last_ts[mid] = (
-                pd.Timestamp(last_ts).tz_localize(None).to_datetime64()
-            )
+            market_last_ts[mid] = pd.Timestamp(last_ts).tz_localize(None).to_datetime64()
 
     price_on_bar: dict[str, np.ndarray] = {}
     for mid in pos_qty:
@@ -706,25 +629,18 @@ def plot(
     """
     if not filename and not _is_notebook():
         filename = f"output/backtest_{result.strategy_name}_{result.platform.value}"
-    elif (
-        filename and not filename.startswith("output/") and not filename.startswith("/")
-    ):
+    elif filename and not filename.startswith("output/") and not filename.startswith("/"):
         filename = f"output/{filename}"
     if filename:
         os.makedirs(os.path.dirname(filename) or "output", exist_ok=True)
     _bokeh_reset(filename)
     if plot_monthly_returns is None:
         plot_monthly_returns = bool(getattr(result, "plot_monthly_returns", True))
-    prepend_total_equity_panel = bool(
-        getattr(result, "prepend_total_equity_panel", False)
-    )
+    prepend_total_equity_panel = bool(getattr(result, "prepend_total_equity_panel", False))
 
     stored_plot_panels = tuple(getattr(result, "plot_panels", ()) or ())
     if plot_panels is None and stored_plot_panels:
-        requested_panels = normalize_plot_panels(
-            stored_plot_panels,
-            default=DEFAULT_DETAIL_PLOT_PANELS,
-        )
+        requested_panels = normalize_plot_panels(stored_plot_panels, default=DEFAULT_DETAIL_PLOT_PANELS)
     elif plot_panels is None:
         legacy_panel_defaults: list[str] = []
         if prepend_total_equity_panel:
@@ -744,80 +660,42 @@ def plot(
             legacy_panel_defaults.append(PANEL_CASH_EQUITY)
         if plot_monthly_returns:
             legacy_panel_defaults.append(PANEL_MONTHLY_RETURNS)
-        requested_panels = normalize_plot_panels(
-            legacy_panel_defaults,
-            default=DEFAULT_DETAIL_PLOT_PANELS,
-        )
+        requested_panels = normalize_plot_panels(legacy_panel_defaults, default=DEFAULT_DETAIL_PLOT_PANELS)
     else:
-        requested_panels = normalize_plot_panels(
-            plot_panels,
-            default=DEFAULT_DETAIL_PLOT_PANELS,
-        )
+        requested_panels = normalize_plot_panels(plot_panels, default=DEFAULT_DETAIL_PLOT_PANELS)
 
-    validated_extra_panels = {
-        panel_id: panel
-        for panel_id, panel in (extra_panels or {}).items()
-        if panel is not None
-    }
+    validated_extra_panels = {panel_id: panel for panel_id, panel in (extra_panels or {}).items() if panel is not None}
     if validated_extra_panels:
-        normalize_plot_panels(
-            tuple(validated_extra_panels),
-            default=DEFAULT_DETAIL_PLOT_PANELS,
-        )
+        normalize_plot_panels(tuple(validated_extra_panels), default=DEFAULT_DETAIL_PLOT_PANELS)
 
     use_bar = progress and not _is_notebook()
     bar: PinnedProgress[None] | None = None
 
-    eq, fills_df, market_df, n_bars_original = _build_dataframes(
-        result,
-        bar=None,
-        max_markets=max_markets,
-    )
+    eq, fills_df, market_df, n_bars_original = _build_dataframes(result, bar=None, max_markets=max_markets)
 
     alloc_df: pd.DataFrame | None = None
     n_alloc_positions = 0
     if PANEL_ALLOCATION in requested_panels:
-        alloc_df = _build_allocation_data(
-            eq,
-            fills_df,
-            getattr(result, "market_prices", {}),
-            top_n=None,
-        )
-        n_alloc_positions = len(
-            [c for c in alloc_df.columns if c not in ("Cash", "Other")]
-        )
+        alloc_df = _build_allocation_data(eq, fills_df, getattr(result, "market_prices", {}), top_n=None)
+        n_alloc_positions = len([c for c in alloc_df.columns if c not in ("Cash", "Other")])
 
     n_fills_total = len(result.fills)
     n_total_markets = len(getattr(result, "market_prices", {}))
 
     total_steps = len(requested_panels) + 2
     if use_bar:
-        bar = PinnedProgress(
-            iter([]),
-            total=total_steps,
-            desc="Rendering chart",
-            unit=" steps",
-        )
+        bar = PinnedProgress(iter([]), total=total_steps, desc="Rendering chart", unit=" steps")
         bar._setup()
-        bar.write(
-            f"  {n_bars_original:,} bars, {n_fills_total:,} fills, {n_total_markets:,} markets"
-        )
+        bar.write(f"  {n_bars_original:,} bars, {n_fills_total:,} fills, {n_total_markets:,} markets")
         if n_bars_original > len(eq):
             bar.write(f"  Downsampled: {n_bars_original:,} → {len(eq):,} bars")
     index = eq.index
 
     if not market_df.empty:
-        traded_cols = [
-            c
-            for c in market_df.columns
-            if c in set(fills_df["market_id"])
-            if not fills_df.empty
-        ]
+        traded_cols = [c for c in market_df.columns if c in set(fills_df["market_id"]) if not fills_df.empty]
         if not traded_cols:
             traded_cols = list(market_df.columns)
-        price_range = (
-            market_df[traded_cols].max() - market_df[traded_cols].min()
-        ).sort_values(ascending=False)
+        price_range = (market_df[traded_cols].max() - market_df[traded_cols].min()).sort_values(ascending=False)
         display_markets = price_range.head(max_markets).index.tolist()
     else:
         display_markets = []
@@ -850,25 +728,15 @@ def plot(
     overlay_series = getattr(result, "overlay_series", {}) or {}
     overlay_equity = _normalize_overlay_mapping(overlay_series.get("equity", {}))
     overlay_cash = _normalize_overlay_mapping(overlay_series.get("cash", {}))
-    hide_primary_panel_series = bool(
-        getattr(result, "hide_primary_panel_series", False)
-    )
+    hide_primary_panel_series = bool(getattr(result, "hide_primary_panel_series", False))
     primary_series_name = str(getattr(result, "primary_series_name", "Strategy"))
-    total_equity_panel_label = str(
-        getattr(result, "total_equity_panel_label", "Total Equity")
-    )
+    total_equity_panel_label = str(getattr(result, "total_equity_panel_label", "Total Equity"))
     explicit_overlay_colors = {
-        str(market_id): color
-        for market_id, color in (getattr(result, "overlay_colors", {}) or {}).items()
-        if color
+        str(market_id): color for market_id, color in (getattr(result, "overlay_colors", {}) or {}).items() if color
     }
-    overlay_market_ids = list(overlay_equity) + [
-        mid for mid in overlay_cash if mid not in overlay_equity
-    ]
+    overlay_market_ids = list(overlay_equity) + [mid for mid in overlay_cash if mid not in overlay_equity]
     market_color_map = explicit_overlay_colors.copy()
-    ordered_market_ids = list(
-        dict.fromkeys(display_markets + overlay_market_ids + list(market_df.columns))
-    )
+    ordered_market_ids = list(dict.fromkeys(display_markets + overlay_market_ids + list(market_df.columns)))
     color_cycle = colorgen()
     for market_id in ordered_market_ids:
         if market_id not in market_color_map:
@@ -910,19 +778,8 @@ return this.labels[index] || "";
         fig.tags = tags
         return fig
 
-    def _new_sub(
-        y_label: str,
-        panel_id: str,
-        *,
-        height: int = 90,
-        shared_axis: bool = True,
-        **kwargs,
-    ):
-        fig = new_figure(
-            x_range=shared_x_range if shared_axis else None,
-            height=height,
-            **kwargs,
-        )  # type: ignore[call-arg]
+    def _new_sub(y_label: str, panel_id: str, *, height: int = 90, shared_axis: bool = True, **kwargs):
+        fig = new_figure(x_range=shared_x_range if shared_axis else None, height=height, **kwargs)  # type: ignore[call-arg]
         fig.xaxis.visible = False
         fig.yaxis.minor_tick_line_color = None
         fig.add_layout(Legend(), "center")
@@ -952,11 +809,7 @@ return this.labels[index] || "";
                 continue
 
             points = pd.DataFrame(
-                {
-                    "index": valid_idx,
-                    "datetime": eq["datetime"].iloc[valid_idx].to_numpy(),
-                    "value": values[valid_idx],
-                },
+                {"index": valid_idx, "datetime": eq["datetime"].iloc[valid_idx].to_numpy(), "value": values[valid_idx]}
             )
             renderer = fig.line(
                 x="index",
@@ -999,10 +852,7 @@ return this.labels[index] || "";
                 "index",
                 "eq_dd_patch",
                 source=ColumnDataSource(
-                    {
-                        "index": np.r_[index, index[::-1]],
-                        "eq_dd_patch": np.r_[equity.values, hw.values[::-1]],
-                    }
+                    {"index": np.r_[index, index[::-1]], "eq_dd_patch": np.r_[equity.values, hw.values[::-1]]}
                 ),
                 fill_color="#ffffea",
                 line_color="#ffcb66",
@@ -1057,16 +907,8 @@ return this.labels[index] || "";
             if dd.iloc[dd_end] > 0:
                 dd_start = int(equity.iloc[:dd_end].idxmax())
                 dd_dur = eq["datetime"].iloc[dd_end] - eq["datetime"].iloc[dd_start]
-                label = f"Max Dd Dur. ({dd_dur})".replace(" 00:00:00", "").replace(
-                    "(0 days ", "("
-                )
-                fig.line(
-                    [dd_start, dd_end],
-                    equity.iloc[dd_start],
-                    line_color="red",
-                    line_width=2,
-                    legend_label=label,
-                )
+                label = f"Max Dd Dur. ({dd_dur})".replace(" 00:00:00", "").replace("(0 days ", "(")
+                fig.line([dd_start, dd_end], equity.iloc[dd_start], line_color="red", line_width=2, legend_label=label)
 
                 if not plot_drawdown:
                     fig.scatter(
@@ -1102,32 +944,15 @@ return this.labels[index] || "";
         fig = _new_sub(total_equity_panel_label, PANEL_TOTAL_EQUITY, height=150)
         source.add(eq["equity"].values, "eq_total_plot")
         renderer = fig.line(
-            "index",
-            "eq_total_plot",
-            source=source,
-            line_width=2.0,
-            line_color="#1f77b4",
-            legend_label="Total Equity",
+            "index", "eq_total_plot", source=source, line_width=2.0, line_color="#1f77b4", legend_label="Total Equity"
         )
-        _set_tooltips(
-            fig,
-            [("Equity", "@eq_total_plot{$0,0.00}")],
-            renderers=[renderer],
-        )
+        _set_tooltips(fig, [("Equity", "@eq_total_plot{$0,0.00}")], renderers=[renderer])
         fig.yaxis.formatter = NumeralTickFormatter(format="$ 0,0")
         return fig
 
     def _plot_pl():
         fig = _new_sub("Profit / Loss", PANEL_MARKET_PNL, height=110)
-        fig.add_layout(
-            Span(
-                location=0,
-                dimension="width",
-                line_color="#666666",
-                line_dash="dashed",
-                line_width=1,
-            )
-        )
+        fig.add_layout(Span(location=0, dimension="width", line_color="#666666", line_dash="dashed", line_width=1))
 
         market_pnls = getattr(result, "market_pnls", {})
 
@@ -1136,11 +961,7 @@ return this.labels[index] || "";
             for mid, pnl_val in market_pnls.items():
                 if pnl_val == 0.0:
                     continue
-                mkt_fills = (
-                    fills_df[fills_df["market_id"] == mid]
-                    if not fills_df.empty
-                    else pd.DataFrame()
-                )
+                mkt_fills = fills_df[fills_df["market_id"] == mid] if not fills_df.empty else pd.DataFrame()
                 if mkt_fills.empty:
                     continue
                 pnl_records.append(
@@ -1162,12 +983,8 @@ return this.labels[index] || "";
                         sz = np.interp(sz, (sz.min(), sz.max()), (8, 20))
                     else:
                         sz = np.full_like(sz, 12.0)
-                    pnl_long = np.where(
-                        pnl_df["pnl"].values > 0, pnl_df["pnl"].values, np.nan
-                    )
-                    pnl_short = np.where(
-                        pnl_df["pnl"].values <= 0, pnl_df["pnl"].values, np.nan
-                    )
+                    pnl_long = np.where(pnl_df["pnl"].values > 0, pnl_df["pnl"].values, np.nan)
+                    pnl_short = np.where(pnl_df["pnl"].values <= 0, pnl_df["pnl"].values, np.nan)
                     positive = np.where(pnl_df["pnl"].values > 0, "1", "0")
                     pnl_src = ColumnDataSource(
                         {
@@ -1200,24 +1017,14 @@ return this.labels[index] || "";
                         size="size_marker",
                     )
                     _set_tooltips(
-                        fig,
-                        [("Market", "@market_id"), ("P/L", "@pnl_long{+$0,0.00}")],
-                        vline=False,
-                        renderers=[r1],
+                        fig, [("Market", "@market_id"), ("P/L", "@pnl_long{+$0,0.00}")], vline=False, renderers=[r1]
                     )
                     _set_tooltips(
-                        fig,
-                        [("Market", "@market_id"), ("P/L", "@pnl_short{+$0,0.00}")],
-                        vline=False,
-                        renderers=[r2],
+                        fig, [("Market", "@market_id"), ("P/L", "@pnl_short{+$0,0.00}")], vline=False, renderers=[r2]
                     )
 
         elif not fills_df.empty:
-            relevant_fills = (
-                fills_df[fills_df["market_id"].isin(display_markets)]
-                if display_markets
-                else fills_df
-            )
+            relevant_fills = fills_df[fills_df["market_id"].isin(display_markets)] if display_markets else fills_df
             if relevant_fills.empty:
                 relevant_fills = fills_df.head(200)
             pnl_vals = np.where(
@@ -1264,16 +1071,10 @@ return this.labels[index] || "";
                 size="size_marker",
             )
             _set_tooltips(
-                fig,
-                [("Market", "@market_id"), ("Value", "@pnl_long{+$0,0.00}")],
-                vline=False,
-                renderers=[r1],
+                fig, [("Market", "@market_id"), ("Value", "@pnl_long{+$0,0.00}")], vline=False, renderers=[r1]
             )
             _set_tooltips(
-                fig,
-                [("Market", "@market_id"), ("Value", "@pnl_short{+$0,0.00}")],
-                vline=False,
-                renderers=[r2],
+                fig, [("Market", "@market_id"), ("Value", "@pnl_short{+$0,0.00}")], vline=False, renderers=[r2]
             )
 
         fig.yaxis.formatter = NumeralTickFormatter(format="$ 0,0")
@@ -1281,15 +1082,7 @@ return this.labels[index] || "";
 
     def _plot_pnl_period():
         fig = _new_sub("P&L (periodic)", PANEL_PERIODIC_PNL, height=120)
-        fig.add_layout(
-            Span(
-                location=0,
-                dimension="width",
-                line_color="#666666",
-                line_dash="dashed",
-                line_width=1,
-            )
-        )
+        fig.add_layout(Span(location=0, dimension="width", line_color="#666666", line_dash="dashed", line_width=1))
 
         equity_vals = eq["equity"].values
         n = len(equity_vals)
@@ -1350,10 +1143,7 @@ return this.labels[index] || "";
         fig.add_tools(
             HoverTool(
                 renderers=[r1, r2],
-                tooltips=[
-                    ("Period", "@dt_start{%b %Y} \u2013 @dt_end{%b %Y}"),
-                    ("P&L", "@pnl{$0,0.00}"),
-                ],
+                tooltips=[("Period", "@dt_start{%b %Y} \u2013 @dt_end{%b %Y}"), ("P&L", "@pnl{$0,0.00}")],
                 formatters={"@dt_start": "datetime", "@dt_end": "datetime"},
                 mode="vline",
             )
@@ -1363,12 +1153,7 @@ return this.labels[index] || "";
         return fig
 
     def _plot_monthly_returns():
-        from bokeh.models import (
-            BasicTicker,
-            ColorBar,
-            LinearColorMapper,
-            PrintfTickFormatter,
-        )
+        from bokeh.models import BasicTicker, ColorBar, LinearColorMapper, PrintfTickFormatter
 
         dts = pd.to_datetime(eq["datetime"])
         eqv = eq["equity"].values.copy()
@@ -1377,32 +1162,14 @@ return this.labels[index] || "";
         monthly["month"] = monthly["datetime"].dt.month
 
         # Compute return for each calendar month
-        first_last = monthly.groupby(["year", "month"]).agg(
-            eq_start=("equity", "first"),
-            eq_end=("equity", "last"),
-        )
-        first_last["ret"] = (
-            first_last["eq_end"] - first_last["eq_start"]
-        ) / first_last["eq_start"]  # type: ignore[reportIndexIssue]
+        first_last = monthly.groupby(["year", "month"]).agg(eq_start=("equity", "first"), eq_end=("equity", "last"))
+        first_last["ret"] = (first_last["eq_end"] - first_last["eq_start"]) / first_last["eq_start"]  # type: ignore[reportIndexIssue]
         first_last = first_last.reset_index()
 
         if first_last.empty:
             return None
 
-        month_names = [
-            "Jan",
-            "Feb",
-            "Mar",
-            "Apr",
-            "May",
-            "Jun",
-            "Jul",
-            "Aug",
-            "Sep",
-            "Oct",
-            "Nov",
-            "Dec",
-        ]
+        month_names = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
         first_last["month_name"] = first_last["month"].map(lambda m: month_names[m - 1])
 
         years = sorted(first_last["year"].unique())
@@ -1411,17 +1178,7 @@ return this.labels[index] || "";
 
         max_abs = max(abs(first_last["ret"].max()), abs(first_last["ret"].min()), 0.001)
         mapper = LinearColorMapper(
-            palette=[
-                "#d73027",
-                "#f46d43",
-                "#fdae61",
-                "#fee08b",
-                "#ffffbf",
-                "#d9ef8b",
-                "#a6d96a",
-                "#66bd63",
-                "#1a9850",
-            ],
+            palette=["#d73027", "#f46d43", "#fdae61", "#fee08b", "#ffffbf", "#d9ef8b", "#a6d96a", "#66bd63", "#1a9850"],
             low=-max_abs,
             high=max_abs,
         )
@@ -1460,10 +1217,7 @@ return this.labels[index] || "";
         # Add return % as text labels on each cell
         from bokeh.models import LabelSet
 
-        heat_src.add(
-            [f"{v:+.1f}%" for v in (first_last["ret"] * 100).values],
-            "label",
-        )
+        heat_src.add([f"{v:+.1f}%" for v in (first_last["ret"] * 100).values], "label")
         labels = LabelSet(
             x="month",
             y="year",
@@ -1494,10 +1248,7 @@ return this.labels[index] || "";
 
         hover = fig.select_one(HoverTool)
         if hover is not None:
-            hover.tooltips = [
-                ("Month", "@month @year"),
-                ("Return", "@ret_pct{+0.00}%"),
-            ]
+            hover.tooltips = [("Month", "@month @year"), ("Return", "@ret_pct{+0.00}%")]
 
         return _mark_panel(fig, PANEL_MONTHLY_RETURNS, shared_axis=False)
 
@@ -1509,26 +1260,12 @@ return this.labels[index] || "";
             return None
 
         fig = _new_sub("Rolling Sharpe", PANEL_ROLLING_SHARPE, height=100)
-        fig.add_layout(
-            Span(
-                location=0,
-                dimension="width",
-                line_color="#666666",
-                line_dash="dashed",
-                line_width=1,
-            )
-        )
+        fig.add_layout(Span(location=0, dimension="width", line_color="#666666", line_dash="dashed", line_width=1))
 
         show_primary = not (hide_primary_panel_series and overlay_equity)
         if show_primary and window is not None:
             source.add(primary_sharpe, "rolling_sharpe")
-            r = fig.line(
-                "index",
-                "rolling_sharpe",
-                source=source,
-                line_width=1.3,
-                line_color="#9467bd",
-            )
+            r = fig.line("index", "rolling_sharpe", source=source, line_width=1.3, line_color="#9467bd")
 
             safe_sharpe = np.nan_to_num(primary_sharpe, nan=0.0)
             pos_sharpe = np.maximum(safe_sharpe, 0.0)
@@ -1551,11 +1288,7 @@ return this.labels[index] || "";
                 line_color=None,
             )
 
-            _set_tooltips(
-                fig,
-                [("Rolling Sharpe", "@rolling_sharpe{0.000}")],
-                renderers=[r],
-            )
+            _set_tooltips(fig, [("Rolling Sharpe", "@rolling_sharpe{0.000}")], renderers=[r])
 
         overlay_sharpe: dict[str, np.ndarray] = {}
         overlay_windows: list[int] = []
@@ -1569,16 +1302,10 @@ return this.labels[index] || "";
         if overlay_sharpe and (not show_primary or window is None):
             overlay_frame = pd.DataFrame(overlay_sharpe)
             pos_envelope = (
-                overlay_frame.where(overlay_frame > 0.0)
-                .max(axis=1, skipna=True)
-                .fillna(0.0)
-                .to_numpy(dtype=float)
+                overlay_frame.where(overlay_frame > 0.0).max(axis=1, skipna=True).fillna(0.0).to_numpy(dtype=float)
             )
             neg_envelope = (
-                overlay_frame.where(overlay_frame < 0.0)
-                .min(axis=1, skipna=True)
-                .fillna(0.0)
-                .to_numpy(dtype=float)
+                overlay_frame.where(overlay_frame < 0.0).min(axis=1, skipna=True).fillna(0.0).to_numpy(dtype=float)
             )
             zero_line = np.zeros(n)
             idx_arr = np.arange(n, dtype=float)
@@ -1597,20 +1324,12 @@ return this.labels[index] || "";
                 line_color=None,
             )
 
-        _plot_overlay_lines(
-            fig,
-            overlay_sharpe,
-            line_width=1.2,
-            tooltip_label="Rolling Sharpe",
-            tooltip_format="0.000",
-        )
+        _plot_overlay_lines(fig, overlay_sharpe, line_width=1.2, tooltip_label="Rolling Sharpe", tooltip_format="0.000")
 
         if window is not None:
             fig.yaxis.axis_label = f"Sharpe ({window}-bar)"
         elif overlay_windows:
-            fig.yaxis.axis_label = (
-                f"Sharpe ({min(overlay_windows)}-{max(overlay_windows)} bar)"
-            )
+            fig.yaxis.axis_label = f"Sharpe ({min(overlay_windows)}-{max(overlay_windows)} bar)"
         else:
             fig.yaxis.axis_label = "Rolling Sharpe"
         fig.legend.visible = False
@@ -1633,20 +1352,11 @@ return this.labels[index] || "";
             source.add(arr, col)
             price_extremes[col] = pd.Series(arr).values
             label_tooltip_pairs.append((short, f"@{{{col}}}{{0.[00]%}}"))
-            fig.line(
-                "index",
-                col,
-                source=source,
-                legend_label=short,
-                line_color=color,
-                line_width=2,
-            )
+            fig.line("index", col, source=source, legend_label=short, line_color=color, line_width=2)
 
         if len(market_df.columns) > max_markets:
             hidden = len(market_df.columns) - max_markets
-            fig.line(
-                0, 0, legend_label=f"{hidden} more markets hidden", line_color="black"
-            )
+            fig.line(0, 0, legend_label=f"{hidden} more markets hidden", line_color="black")
 
         _draw_trade_connectors(fig)
         _draw_fill_markers(fig)
@@ -1674,9 +1384,7 @@ return this.labels[index] || "";
                 CustomJS(
                     args={"price_range": fig.y_range, "source": source},
                     code=_AUTOSCALE_JS_TEMPLATE.format(
-                        high_key="price_high",
-                        low_key="price_low",
-                        range_var="price_range",
+                        high_key="price_high", low_key="price_low", range_var="price_range"
                     ),
                 ),
             )
@@ -1746,9 +1454,7 @@ return this.labels[index] || "";
         if relevant.empty:
             return
 
-        fill_color_code = np.where(
-            relevant["action"] == "buy", "1", "0"
-        )  # 1=green, 0=red
+        fill_color_code = np.where(relevant["action"] == "buy", "1", "0")  # 1=green, 0=red
 
         marker_src = ColumnDataSource(
             {
@@ -1788,9 +1494,7 @@ return this.labels[index] || "";
                 eq["drawdown_pct"].iloc[argmax],
                 color="red",
                 size=8,
-                legend_label="Peak (-{:.1f}%)".format(
-                    100 * eq["drawdown_pct"].iloc[argmax]
-                ),
+                legend_label="Peak (-{:.1f}%)".format(100 * eq["drawdown_pct"].iloc[argmax]),
             )
             _set_tooltips(fig, [("Drawdown", "@dd_pct{-0.[0]%}")], renderers=[r])
 
@@ -1798,39 +1502,19 @@ return this.labels[index] || "";
             market_id: _drawdown_array(_align_overlay_series(series, eq["datetime"]))
             for market_id, series in overlay_equity.items()
         }
-        _plot_overlay_lines(
-            fig,
-            overlay_drawdown,
-            line_width=1.2,
-            tooltip_label="Drawdown",
-            tooltip_format="-0.[0]%",
-        )
+        _plot_overlay_lines(fig, overlay_drawdown, line_width=1.2, tooltip_label="Drawdown", tooltip_format="-0.[0]%")
         fig.yaxis.formatter = NumeralTickFormatter(format="-0.[0]%")
         return fig
 
     def _plot_cash():
         fig = _new_sub("Cash / Equity", PANEL_CASH_EQUITY, height=90)
-        show_primary = not (
-            hide_primary_panel_series and (overlay_equity or overlay_cash)
-        )
+        show_primary = not (hide_primary_panel_series and (overlay_equity or overlay_cash))
         if show_primary:
-            r = fig.line(
-                "index",
-                "cash",
-                source=source,
-                line_width=1.3,
-                line_color="#1f77b4",
-                legend_label="Cash",
-            )
+            r = fig.line("index", "cash", source=source, line_width=1.3, line_color="#1f77b4", legend_label="Cash")
 
             source.add(eq["equity"].values, "equity_dollar")
             fig.line(
-                "index",
-                "equity_dollar",
-                source=source,
-                line_width=1.3,
-                line_color="#2ca02c",
-                legend_label="Equity",
+                "index", "equity_dollar", source=source, line_width=1.3, line_color="#2ca02c", legend_label="Equity"
             )
 
             pos_value = (eq["equity"] - eq["cash"]).values
@@ -1857,12 +1541,10 @@ return this.labels[index] || "";
             )
 
         overlay_equity_values = {
-            market_id: _align_overlay_series(series, eq["datetime"])
-            for market_id, series in overlay_equity.items()
+            market_id: _align_overlay_series(series, eq["datetime"]) for market_id, series in overlay_equity.items()
         }
         overlay_cash_values = {
-            market_id: _align_overlay_series(series, eq["datetime"])
-            for market_id, series in overlay_cash.items()
+            market_id: _align_overlay_series(series, eq["datetime"]) for market_id, series in overlay_cash.items()
         }
 
         _plot_overlay_lines(
@@ -1899,12 +1581,7 @@ return this.labels[index] || "";
         # Fallback: if equity is zero or unavailable, use sum of components
         component_total = alloc_df[all_cols].sum(axis=1).values
         row_total = pd.Series(
-            np.where(
-                equity_total > 0,
-                np.maximum(equity_total, component_total),
-                component_total,
-            ),
-            index=alloc_df.index,
+            np.where(equity_total > 0, np.maximum(equity_total, component_total), component_total), index=alloc_df.index
         ).replace(0, 1.0)
         normed = alloc_df[all_cols].div(row_total, axis=0).fillna(0.0).clip(0.0, 1.0)
 
@@ -1944,18 +1621,12 @@ return this.labels[index] || "";
             s = 0.55 + rng.random() * 0.3  # 0.55–0.85
             lit = 0.45 + rng.random() * 0.15  # 0.45–0.60
             r_c, g_c, b_c = hls_to_rgb(h, lit, s)
-            palette.append(
-                f"#{int(r_c * 255):02x}{int(g_c * 255):02x}{int(b_c * 255):02x}"
-            )
+            palette.append(f"#{int(r_c * 255):02x}{int(g_c * 255):02x}{int(b_c * 255):02x}")
         # Cash = neutral grey
         palette.append("#cccccc")
 
         renderers = fig.varea_stack(
-            stackers=stackers,
-            x="index",
-            source=alloc_source,
-            color=palette[: len(stackers)],
-            alpha=0.85,
+            stackers=stackers, x="index", source=alloc_source, color=palette[: len(stackers)], alpha=0.85
         )
 
         # Only add legend entries for a manageable subset; skip if thousands
@@ -1968,9 +1639,7 @@ return this.labels[index] || "";
         if other_col:
             legend_items.append(LegendItem(label="Other", renderers=[renderers[-2]]))
         # Show top positions by peak value
-        for r_obj, lbl in list(zip(renderers, stack_labels))[
-            : MAX_LEGEND - len(legend_items)
-        ]:
+        for r_obj, lbl in list(zip(renderers, stack_labels))[: MAX_LEGEND - len(legend_items)]:
             if lbl in ("Cash", "Other"):
                 continue
             legend_items.append(LegendItem(label=lbl, renderers=[r_obj]))
@@ -2015,11 +1684,7 @@ return this.labels[index] || "";
         elif panel_id == PANEL_YES_PRICE:
             panel = _plot_yes_price()
         elif panel_id == PANEL_ALLOCATION:
-            panel = (
-                _plot_allocation()
-                if alloc_df is not None and len(alloc_df) > 0
-                else None
-            )
+            panel = _plot_allocation() if alloc_df is not None and len(alloc_df) > 0 else None
         elif panel_id == PANEL_DRAWDOWN:
             panel = _plot_drawdown()
         elif panel_id == PANEL_ROLLING_SHARPE:
@@ -2037,11 +1702,7 @@ return this.labels[index] || "";
             bar.set_desc(panel_step_labels.get(panel_id, panel_id))
             bar.advance()
 
-    plots = [
-        panels_by_id[panel_id]
-        for panel_id in requested_panels
-        if panel_id in panels_by_id
-    ]
+    plots = [panels_by_id[panel_id] for panel_id in requested_panels if panel_id in panels_by_id]
     if not plots:
         raise ValueError("No chart panels were rendered for the requested plot_panels.")
 
@@ -2056,11 +1717,7 @@ return this.labels[index] || "";
         PANEL_ROLLING_SHARPE,
         PANEL_CASH_EQUITY,
     }
-    shared_indices = [
-        index
-        for index, fig in enumerate(plots)
-        if getattr(fig, "name", None) in shared_axis_panels
-    ]
+    shared_indices = [index for index, fig in enumerate(plots) if getattr(fig, "name", None) in shared_axis_panels]
     last_shared_index = shared_indices[-1] if shared_indices else None
     for idx, fig in enumerate(plots):
         if getattr(fig, "name", None) in shared_axis_panels:
@@ -2110,22 +1767,16 @@ return this.labels[index] || "";
     if downsampled:
         bar_pct = len(eq) / n_bars_original * 100
         parts_txt.append(f"Bars: {n_bars_original:,}\u2192{len(eq):,} ({bar_pct:.0f}%)")
-    parts_txt.append(
-        f"Fills: {n_fills_total:,}\u2192{len(fills_df):,} ({fills_pct:.0f}%)"
-    )
-    parts_txt.append(
-        f"Markets graphed: {n_price_markets}/{n_total_markets:,} ({mkt_pct:.0f}%)"
-    )
+    parts_txt.append(f"Fills: {n_fills_total:,}\u2192{len(fills_df):,} ({fills_pct:.0f}%)")
+    parts_txt.append(f"Markets graphed: {n_price_markets}/{n_total_markets:,} ({mkt_pct:.0f}%)")
     if n_alloc_positions > 0:
-        parts_txt.append(
-            f"Alloc: {n_alloc_positions}/{n_traded} traded ({alloc_pct:.0f}%)"
-        )
+        parts_txt.append(f"Alloc: {n_alloc_positions}/{n_traded} traded ({alloc_pct:.0f}%)")
     banner = Div(
         text=(
             f"<div style='background:#fff3cd;border:1px solid #ffc107;padding:4px 12px;"
             f"font-size:11px;color:#856404;border-radius:3px;margin-bottom:2px'>"
             f"\u26a0 <b>Data:</b> {' &middot; '.join(parts_txt)}</div>"
-        ),
+        )
     )
 
     grid = gridplot(
@@ -2136,13 +1787,9 @@ return this.labels[index] || "";
         **kwargs,  # type: ignore[arg-type]
     )
     if grid.toolbar is not None:
-        grid.toolbar.active_drag = next(
-            (tool for tool in grid.toolbar.tools if isinstance(tool, PanTool)),
-            None,
-        )
+        grid.toolbar.active_drag = next((tool for tool in grid.toolbar.tools if isinstance(tool, PanTool)), None)
         grid.toolbar.active_scroll = next(
-            (tool for tool in grid.toolbar.tools if isinstance(tool, WheelZoomTool)),
-            None,
+            (tool for tool in grid.toolbar.tools if isinstance(tool, WheelZoomTool)), None
         )
 
     scroll_style = "<style>html{overflow-y:scroll}body{margin:0 8px}</style>"
@@ -2154,9 +1801,7 @@ return this.labels[index] || "";
         banner.sizing_mode = "stretch_width"
         parts.append(banner)
     else:
-        parts.append(
-            Div(text=scroll_style, sizing_mode="stretch_width", height=1, visible=False)
-        )
+        parts.append(Div(text=scroll_style, sizing_mode="stretch_width", height=1, visible=False))
     parts.append(grid)
     if len(parts) == 1:
         layout = parts[0]

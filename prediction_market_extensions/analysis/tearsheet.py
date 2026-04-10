@@ -118,9 +118,7 @@ def _normalize_theme_config(theme_config: dict[str, Any]) -> dict[str, Any]:
     if "table_text" not in colors:
         # Use contrasting color based on background brightness
         bg = colors.get("background", "#ffffff")
-        colors["table_text"] = (
-            "#000000" if bg.lower() in ["#ffffff", "#fff"] else "#eeeeee"
-        )
+        colors["table_text"] = "#000000" if bg.lower() in ["#ffffff", "#fff"] else "#eeeeee"
 
     theme_config["colors"] = colors
     return theme_config
@@ -292,20 +290,11 @@ def _build_allocation_from_fills(fills_df: pd.DataFrame) -> pd.DataFrame:
     if fills.empty:
         return pd.DataFrame()
 
-    side_sign = pd.to_numeric(
-        fills["order_side"].map({"BUY": 1.0, "SELL": -1.0}),
-        errors="coerce",
-    ).fillna(0.0)
+    side_sign = pd.to_numeric(fills["order_side"].map({"BUY": 1.0, "SELL": -1.0}), errors="coerce").fillna(0.0)
     fills["signed_qty"] = fills["last_qty"] * side_sign
 
     position_qty = (
-        fills.pivot_table(
-            index="ts_init",
-            columns="instrument_id",
-            values="signed_qty",
-            aggfunc="sum",
-            fill_value=0.0,
-        )
+        fills.pivot_table(index="ts_init", columns="instrument_id", values="signed_qty", aggfunc="sum", fill_value=0.0)
         .sort_index()
         .cumsum()
     )
@@ -318,9 +307,7 @@ def _build_allocation_from_fills(fills_df: pd.DataFrame) -> pd.DataFrame:
 
     # Cap legend complexity for dense universes while preserving total mass.
     if allocation.shape[1] > 8:
-        top_cols = (
-            allocation.iloc[-1].sort_values(ascending=False).head(8).index.tolist()
-        )
+        top_cols = allocation.iloc[-1].sort_values(ascending=False).head(8).index.tolist()
         other = allocation.drop(columns=top_cols).sum(axis=1)
         allocation = allocation[top_cols]
         allocation["OTHER"] = other
@@ -417,14 +404,12 @@ def get_chart(name: str) -> Callable:
 
         # Suggest close matches
         suggestions = get_close_matches(name, _CHART_REGISTRY.keys(), n=3, cutoff=0.6)
-        suggestion_text = (
-            f" Did you mean: {', '.join(suggestions)}?" if suggestions else ""
-        )
+        suggestion_text = f" Did you mean: {', '.join(suggestions)}?" if suggestions else ""
 
         raise KeyError(
             f"Chart '{name}' not found.{suggestion_text} "
             f"Available charts: {available}. "
-            f"Register custom charts with register_chart().",
+            f"Register custom charts with register_chart()."
         )
 
     return _CHART_REGISTRY[name]
@@ -494,10 +479,7 @@ def create_tearsheet(  # noqa: C901
 
     """
     if not PLOTLY_AVAILABLE:
-        msg = (
-            "plotly is required for visualization. "
-            "Install it with: pip install nautilus_trader[visualization]"
-        )
+        msg = "plotly is required for visualization. Install it with: pip install nautilus_trader[visualization]"
         raise ImportError(msg)
 
     # Extract data from engine
@@ -513,16 +495,12 @@ def create_tearsheet(  # noqa: C901
         run_started = format_optional_iso8601(engine.run_started)
 
         title = f"<b>NautilusTrader</b> v{NAUTILUS_VERSION} - Backtest Results"
-        title += (
-            f"<br><sub>Strategies: {strategy_names} | Run started: {run_started}</sub>"
-        )
+        title += f"<br><sub>Strategies: {strategy_names} | Run started: {run_started}</sub>"
 
     # Extract run information
     total_events = f"{engine.kernel.exec_engine.event_count:_}"
     total_orders = f"{engine.kernel.cache.orders_total_count():_}"
-    positions = list(engine.kernel.cache.positions()) + list(
-        engine.kernel.cache.position_snapshots(),
-    )
+    positions = list(engine.kernel.cache.positions()) + list(engine.kernel.cache.position_snapshots())
     total_positions = f"{len(positions):_}"
 
     elapsed_time = "N/A"
@@ -538,9 +516,7 @@ def create_tearsheet(  # noqa: C901
         "Run started": str(engine.run_started) if engine.run_started else "N/A",
         "Run finished": str(engine.run_finished) if engine.run_finished else "N/A",
         "Elapsed time": elapsed_time,
-        "Backtest start": str(engine.backtest_start)
-        if engine.backtest_start
-        else "N/A",
+        "Backtest start": str(engine.backtest_start) if engine.backtest_start else "N/A",
         "Backtest end": str(engine.backtest_end) if engine.backtest_end else "N/A",
         "Backtest range": backtest_range,
         "Iterations": f"{engine.iteration:_}",
@@ -680,10 +656,7 @@ def create_tearsheet_from_stats(
 
     """
     if not PLOTLY_AVAILABLE:
-        msg = (
-            "plotly is required for visualization. "
-            "Install it with: pip install nautilus_trader[visualization]"
-        )
+        msg = "plotly is required for visualization. Install it with: pip install nautilus_trader[visualization]"
         raise ImportError(msg)
 
     # Use default config if none provided
@@ -693,9 +666,7 @@ def create_tearsheet_from_stats(
         config = TearsheetConfig()
 
     brier_data = _prepare_brier_advantage_data(
-        user_probabilities=user_probabilities,
-        market_probabilities=market_probabilities,
-        outcomes=outcomes,
+        user_probabilities=user_probabilities, market_probabilities=market_probabilities, outcomes=outcomes
     )
 
     # Remove charts that cannot render with the current input set.
@@ -778,10 +749,7 @@ def create_equity_curve(
 
     """
     if not PLOTLY_AVAILABLE:
-        msg = (
-            "plotly is required for visualization. "
-            "Install it with: pip install nautilus_trader[visualization]"
-        )
+        msg = "plotly is required for visualization. Install it with: pip install nautilus_trader[visualization]"
         raise ImportError(msg)
 
     # Calculate cumulative returns (equity curve)
@@ -796,7 +764,7 @@ def create_equity_curve(
             name="Strategy",
             line={"color": "#1f77b4", "width": 2},
             hovertemplate="<b>%{x}</b><br>Strategy: %{y:.4f}<extra></extra>",
-        ),
+        )
     )
 
     # Add benchmark if provided
@@ -810,7 +778,7 @@ def create_equity_curve(
                 name=benchmark_name,
                 line={"color": "#7f7f7f", "width": 2, "dash": "dash"},
                 hovertemplate=f"<b>%{{x}}</b><br>{benchmark_name}: %{{y:.4f}}<extra></extra>",
-            ),
+            )
         )
 
     fig.update_layout(
@@ -830,10 +798,7 @@ def create_equity_curve(
 
 
 def create_drawdown_chart(
-    returns: pd.Series,
-    output_path: str | None = None,
-    title: str = "Drawdown",
-    theme: str = "plotly_white",
+    returns: pd.Series, output_path: str | None = None, title: str = "Drawdown", theme: str = "plotly_white"
 ) -> go.Figure:
     """
     Create an interactive drawdown chart.
@@ -861,10 +826,7 @@ def create_drawdown_chart(
 
     """
     if not PLOTLY_AVAILABLE:
-        msg = (
-            "plotly is required for visualization. "
-            "Install it with: pip install nautilus_trader[visualization]"
-        )
+        msg = "plotly is required for visualization. Install it with: pip install nautilus_trader[visualization]"
         raise ImportError(msg)
 
     from nautilus_trader.analysis.themes import get_theme
@@ -883,7 +845,7 @@ def create_drawdown_chart(
             line={"color": neg_color, "width": 1},
             fillcolor=_hex_to_rgba(neg_color, 0.3),  # 30% opacity
             hovertemplate="<b>%{x}</b><br>Drawdown: %{y:.2f}%<extra></extra>",
-        ),
+        )
     )
 
     fig.update_layout(
@@ -902,9 +864,7 @@ def create_drawdown_chart(
 
 
 def create_monthly_returns_heatmap(
-    returns: pd.Series,
-    output_path: str | None = None,
-    title: str = "Monthly Returns (%)",
+    returns: pd.Series, output_path: str | None = None, title: str = "Monthly Returns (%)"
 ) -> go.Figure:
     """
     Create an interactive monthly returns heatmap.
@@ -930,10 +890,7 @@ def create_monthly_returns_heatmap(
 
     """
     if not PLOTLY_AVAILABLE:
-        msg = (
-            "plotly is required for visualization. "
-            "Install it with: pip install nautilus_trader[visualization]"
-        )
+        msg = "plotly is required for visualization. Install it with: pip install nautilus_trader[visualization]"
         raise ImportError(msg)
 
     if returns.empty:
@@ -947,31 +904,12 @@ def create_monthly_returns_heatmap(
 
     # Pivot to year x month matrix
     monthly_pivot = pd.DataFrame(
-        {
-            "Year": monthly.index.year,
-            "Month": monthly.index.month,
-            "Return": monthly.to_numpy(),
-        },
+        {"Year": monthly.index.year, "Month": monthly.index.month, "Return": monthly.to_numpy()}
     )
-    heatmap_data = monthly_pivot.pivot_table(
-        index="Year", columns="Month", values="Return"
-    )
+    heatmap_data = monthly_pivot.pivot_table(index="Year", columns="Month", values="Return")
 
     # Month names for x-axis
-    month_names = [
-        "Jan",
-        "Feb",
-        "Mar",
-        "Apr",
-        "May",
-        "Jun",
-        "Jul",
-        "Aug",
-        "Sep",
-        "Oct",
-        "Nov",
-        "Dec",
-    ]
+    month_names = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 
     fig = go.Figure(
         data=go.Heatmap(
@@ -984,16 +922,10 @@ def create_monthly_returns_heatmap(
             texttemplate="%{text:.1f}%",
             textfont={"size": 10},
             hovertemplate="<b>%{y} %{x}</b><br>Return: %{z:.2f}%<extra></extra>",
-        ),
+        )
     )
 
-    fig.update_layout(
-        title=title,
-        xaxis_title="Month",
-        yaxis_title="Year",
-        template="plotly_white",
-        height=400,
-    )
+    fig.update_layout(title=title, xaxis_title="Month", yaxis_title="Year", template="plotly_white", height=400)
 
     if output_path:
         fig.write_html(output_path)
@@ -1002,9 +934,7 @@ def create_monthly_returns_heatmap(
 
 
 def create_returns_distribution(
-    returns: pd.Series,
-    output_path: str | None = None,
-    title: str = "Returns Distribution",
+    returns: pd.Series, output_path: str | None = None, title: str = "Returns Distribution"
 ) -> go.Figure:
     """
     Create an interactive returns distribution histogram.
@@ -1030,10 +960,7 @@ def create_returns_distribution(
 
     """
     if not PLOTLY_AVAILABLE:
-        msg = (
-            "plotly is required for visualization. "
-            "Install it with: pip install nautilus_trader[visualization]"
-        )
+        msg = "plotly is required for visualization. Install it with: pip install nautilus_trader[visualization]"
         raise ImportError(msg)
 
     fig = go.Figure()
@@ -1044,16 +971,11 @@ def create_returns_distribution(
             name="Returns",
             marker={"color": "#1f77b4"},
             hovertemplate="Return: %{x:.2f}%<br>Count: %{y}<extra></extra>",
-        ),
+        )
     )
 
     fig.update_layout(
-        title=title,
-        xaxis_title="Return (%)",
-        yaxis_title="Frequency",
-        template="plotly_white",
-        height=400,
-        bargap=0.1,
+        title=title, xaxis_title="Return (%)", yaxis_title="Frequency", template="plotly_white", height=400, bargap=0.1
     )
 
     if output_path:
@@ -1063,10 +985,7 @@ def create_returns_distribution(
 
 
 def create_rolling_sharpe(
-    returns: pd.Series,
-    window: int = 60,
-    output_path: str | None = None,
-    title: str = "Rolling Sharpe Ratio (60-day)",
+    returns: pd.Series, window: int = 60, output_path: str | None = None, title: str = "Rolling Sharpe Ratio (60-day)"
 ) -> go.Figure:
     """
     Create an interactive rolling Sharpe ratio chart.
@@ -1094,10 +1013,7 @@ def create_rolling_sharpe(
 
     """
     if not PLOTLY_AVAILABLE:
-        msg = (
-            "plotly is required for visualization. "
-            "Install it with: pip install nautilus_trader[visualization]"
-        )
+        msg = "plotly is required for visualization. Install it with: pip install nautilus_trader[visualization]"
         raise ImportError(msg)
 
     if returns.empty or len(returns) < window:
@@ -1112,9 +1028,7 @@ def create_rolling_sharpe(
     rolling_std = returns.rolling(window=window).std()
 
     # Avoid division by zero
-    rolling_sharpe = (rolling_mean / rolling_std.replace(0, float("nan"))) * (
-        TRADING_DAYS_PER_YEAR**0.5
-    )
+    rolling_sharpe = (rolling_mean / rolling_std.replace(0, float("nan"))) * (TRADING_DAYS_PER_YEAR**0.5)
 
     fig = go.Figure()
     fig.add_trace(
@@ -1125,7 +1039,7 @@ def create_rolling_sharpe(
             name=f"Rolling Sharpe ({window}d)",
             line={"color": "#2ca02c", "width": 2},
             hovertemplate="<b>%{x}</b><br>Sharpe: %{y:.3f}<extra></extra>",
-        ),
+        )
     )
 
     # Add zero line for reference
@@ -1147,9 +1061,7 @@ def create_rolling_sharpe(
 
 
 def create_yearly_returns(
-    returns: pd.Series,
-    output_path: str | None = None,
-    title: str = "Yearly Returns",
+    returns: pd.Series, output_path: str | None = None, title: str = "Yearly Returns"
 ) -> go.Figure:
     """
     Create an interactive yearly returns bar chart.
@@ -1175,10 +1087,7 @@ def create_yearly_returns(
 
     """
     if not PLOTLY_AVAILABLE:
-        msg = (
-            "plotly is required for visualization. "
-            "Install it with: pip install nautilus_trader[visualization]"
-        )
+        msg = "plotly is required for visualization. Install it with: pip install nautilus_trader[visualization]"
         raise ImportError(msg)
 
     if returns.empty:
@@ -1200,19 +1109,14 @@ def create_yearly_returns(
             y=yearly.values,
             marker={"color": colors},
             hovertemplate="<b>%{x}</b><br>Return: %{y:.2f}%<extra></extra>",
-        ),
+        )
     )
 
     # Add zero line for reference
     fig.add_hline(y=0, line={"color": "gray", "width": 1})
 
     fig.update_layout(
-        title=title,
-        xaxis_title="Year",
-        yaxis_title="Return (%)",
-        template="plotly_white",
-        height=400,
-        showlegend=False,
+        title=title, xaxis_title="Year", yaxis_title="Return (%)", template="plotly_white", height=400, showlegend=False
     )
 
     if output_path:
@@ -1222,19 +1126,13 @@ def create_yearly_returns(
 
 
 def create_pnl_chart(
-    returns: pd.Series,
-    output_path: str | None = None,
-    title: str = "PnL Over Time",
-    theme: str = "plotly_white",
+    returns: pd.Series, output_path: str | None = None, title: str = "PnL Over Time", theme: str = "plotly_white"
 ) -> go.Figure:
     """
     Create an interactive cumulative PnL chart from returns.
     """
     if not PLOTLY_AVAILABLE:
-        msg = (
-            "plotly is required for visualization. "
-            "Install it with: pip install nautilus_trader[visualization]"
-        )
+        msg = "plotly is required for visualization. Install it with: pip install nautilus_trader[visualization]"
         raise ImportError(msg)
 
     from nautilus_trader.analysis.themes import get_theme
@@ -1251,7 +1149,7 @@ def create_pnl_chart(
             name="PnL (%)",
             line={"color": theme_config["colors"]["primary"], "width": 2},
             hovertemplate="<b>%{x}</b><br>PnL: %{y:.2f}%<extra></extra>",
-        ),
+        )
     )
     fig.update_layout(
         title=title,
@@ -1281,19 +1179,14 @@ def create_cumulative_brier_advantage_chart(
     Create an interactive cumulative Brier advantage chart.
     """
     if not PLOTLY_AVAILABLE:
-        msg = (
-            "plotly is required for visualization. "
-            "Install it with: pip install nautilus_trader[visualization]"
-        )
+        msg = "plotly is required for visualization. Install it with: pip install nautilus_trader[visualization]"
         raise ImportError(msg)
 
     from nautilus_trader.analysis.themes import get_theme
 
     theme_config = _normalize_theme_config(get_theme(theme))
     brier_data = _prepare_brier_advantage_data(
-        user_probabilities=user_probabilities,
-        market_probabilities=market_probabilities,
-        outcomes=outcomes,
+        user_probabilities=user_probabilities, market_probabilities=market_probabilities, outcomes=outcomes
     )
 
     fig = go.Figure()
@@ -1306,12 +1199,10 @@ def create_cumulative_brier_advantage_chart(
                 name="Cumulative Advantage",
                 line={"color": theme_config["colors"]["positive"], "width": 2},
                 hovertemplate=(
-                    "<b>%{x}</b><br>"
-                    "Cumulative: %{y:.4f}<br>"
-                    "Step Advantage: %{customdata:.4f}<extra></extra>"
+                    "<b>%{x}</b><br>Cumulative: %{y:.4f}<br>Step Advantage: %{customdata:.4f}<extra></extra>"
                 ),
                 customdata=brier_data["brier_advantage"].to_numpy(),
-            ),
+            )
         )
 
     fig.update_layout(
@@ -1403,11 +1294,8 @@ def _create_tearsheet_figure(
         benchmark_name = config.benchmark_name
 
     # Calculate dynamic grid layout based on selected charts
-    rows, cols, specs, subplot_titles, heights, v_spacing, h_spacing = (
-        _calculate_grid_layout(
-            config.charts,
-            config.layout,
-        )
+    rows, cols, specs, subplot_titles, heights, v_spacing, h_spacing = _calculate_grid_layout(
+        config.charts, config.layout
     )
 
     # Create subplots with dynamic layout
@@ -1466,19 +1354,12 @@ def _create_tearsheet_figure(
 
     # Update global layout
     fig.update_layout(
-        title_text=config.title
-        if config.title != "NautilusTrader Backtest Results"
-        else title,
+        title_text=config.title if config.title != "NautilusTrader Backtest Results" else title,
         title_font_size=20,  # Larger title font
         template=theme_config["template"],
         height=config.height,
         showlegend=benchmark_returns is not None,
-        margin={
-            "t": 150,
-            "b": 50,
-            "l": 50,
-            "r": 50,
-        },  # Increased top margin for more padding
+        margin={"t": 150, "b": 50, "l": 50, "r": 50},  # Increased top margin for more padding
     )
 
     return fig
@@ -1540,9 +1421,7 @@ def _create_stats_table(  # noqa: C901
         for metric, value in section_stats.items():
             metrics.append(metric)
             formatted_value = (
-                f"{value:.4f}"
-                if isinstance(value, numbers.Real) and not isinstance(value, bool)
-                else str(value)
+                f"{value:.4f}" if isinstance(value, numbers.Real) and not isinstance(value, bool) else str(value)
             )
             values.append(formatted_value)
             # Alternate row colors using theme colors
@@ -1722,11 +1601,7 @@ def _render_equity(
                 y=benchmark_equity.values,
                 mode="lines",
                 name=benchmark_name,
-                line={
-                    "color": theme_config["colors"]["neutral"],
-                    "width": 2,
-                    "dash": "dash",
-                },
+                line={"color": theme_config["colors"]["neutral"], "width": 2, "dash": "dash"},
                 showlegend=True,
             ),
             row=row,
@@ -1738,13 +1613,7 @@ def _render_equity(
 
 
 def _render_pnl(
-    fig: go.Figure,
-    row: int,
-    col: int,
-    returns: pd.Series,
-    theme_config: dict[str, Any],
-    engine=None,
-    **kwargs: Any,
+    fig: go.Figure, row: int, col: int, returns: pd.Series, theme_config: dict[str, Any], engine=None, **kwargs: Any
 ) -> None:
     """
     Render PnL over time.
@@ -1756,9 +1625,7 @@ def _render_pnl(
     account_equity, currency = _extract_account_equity_series(engine)
     if not account_equity.empty:
         account_pnl = account_equity - account_equity.iloc[0]
-        account_label = (
-            f"Account PnL [{currency}]" if currency is not None else "Account PnL"
-        )
+        account_label = f"Account PnL [{currency}]" if currency is not None else "Account PnL"
         hovertemplate = (
             f"<b>%{{x}}</b><br>{account_label}: %{{y:.4f}} {currency}<extra></extra>"
             if currency is not None
@@ -1777,11 +1644,7 @@ def _render_pnl(
             row=row,
             col=col,
         )
-        fig.update_yaxes(
-            title_text=f"PnL ({currency})" if currency is not None else "PnL",
-            row=row,
-            col=col,
-        )
+        fig.update_yaxes(title_text=f"PnL ({currency})" if currency is not None else "PnL", row=row, col=col)
     elif not returns.empty:
         cumulative_return = ((1 + returns).cumprod() - 1.0) * 100.0
         fig.add_trace(
@@ -1805,12 +1668,7 @@ def _render_pnl(
 
 
 def _render_allocation(
-    fig: go.Figure,
-    row: int,
-    col: int,
-    theme_config: dict[str, Any],
-    engine=None,
-    **kwargs: Any,
+    fig: go.Figure, row: int, col: int, theme_config: dict[str, Any], engine=None, **kwargs: Any
 ) -> None:
     """
     Render allocation as a stacked area chart based on cumulative fill quantities.
@@ -1845,9 +1703,7 @@ def _render_allocation(
                 stackgroup="allocation",
                 line={"width": 0.8, "color": palette[i % len(palette)]},
                 line_shape="hv",
-                hovertemplate=(
-                    f"<b>%{{x}}</b><br>{instrument_id}: %{{y:.2f}}%<extra></extra>"
-                ),
+                hovertemplate=(f"<b>%{{x}}</b><br>{instrument_id}: %{{y:.2f}}%<extra></extra>"),
                 showlegend=False,
             ),
             row=row,
@@ -1859,12 +1715,7 @@ def _render_allocation(
 
 
 def _render_cumulative_brier_advantage(
-    fig: go.Figure,
-    row: int,
-    col: int,
-    brier_data: pd.DataFrame,
-    theme_config: dict[str, Any],
-    **kwargs: Any,
+    fig: go.Figure, row: int, col: int, brier_data: pd.DataFrame, theme_config: dict[str, Any], **kwargs: Any
 ) -> None:
     """
     Render cumulative Brier advantage (market Brier minus strategy Brier).
@@ -1880,11 +1731,7 @@ def _render_cumulative_brier_advantage(
             name="Cumulative Brier Advantage",
             line={"color": theme_config["colors"]["positive"], "width": 2},
             customdata=brier_data["brier_advantage"].to_numpy(),
-            hovertemplate=(
-                "<b>%{x}</b><br>"
-                "Cumulative: %{y:.4f}<br>"
-                "Step Advantage: %{customdata:.4f}<extra></extra>"
-            ),
+            hovertemplate=("<b>%{x}</b><br>Cumulative: %{y:.4f}<br>Step Advantage: %{customdata:.4f}<extra></extra>"),
             showlegend=False,
         ),
         row=row,
@@ -1892,20 +1739,11 @@ def _render_cumulative_brier_advantage(
     )
 
     fig.update_xaxes(title_text="Date", row=row, col=col)
-    fig.update_yaxes(
-        title_text="Cumulative Brier Advantage",
-        row=row,
-        col=col,
-    )
+    fig.update_yaxes(title_text="Cumulative Brier Advantage", row=row, col=col)
 
 
 def _render_drawdown(
-    fig: go.Figure,
-    row: int,
-    col: int,
-    returns: pd.Series,
-    theme_config: dict[str, Any],
-    **kwargs: Any,
+    fig: go.Figure, row: int, col: int, returns: pd.Series, theme_config: dict[str, Any], **kwargs: Any
 ) -> None:
     """
     Render drawdown chart.
@@ -1932,13 +1770,7 @@ def _render_drawdown(
     fig.update_yaxes(title_text="Drawdown (%)", row=row, col=col)
 
 
-def _render_monthly_returns(
-    fig: go.Figure,
-    row: int,
-    col: int,
-    returns: pd.Series,
-    **kwargs: Any,
-) -> None:
+def _render_monthly_returns(fig: go.Figure, row: int, col: int, returns: pd.Series, **kwargs: Any) -> None:
     """
     Render monthly returns heatmap.
     """
@@ -1947,30 +1779,11 @@ def _render_monthly_returns(
 
     monthly = returns.resample("ME").apply(lambda x: (1 + x).prod() - 1) * 100
     monthly_pivot = pd.DataFrame(
-        {
-            "Year": monthly.index.year,
-            "Month": monthly.index.month,
-            "Return": monthly.to_numpy(),
-        },
+        {"Year": monthly.index.year, "Month": monthly.index.month, "Return": monthly.to_numpy()}
     )
-    heatmap_data = monthly_pivot.pivot_table(
-        index="Year", columns="Month", values="Return"
-    )
+    heatmap_data = monthly_pivot.pivot_table(index="Year", columns="Month", values="Return")
 
-    month_names = [
-        "Jan",
-        "Feb",
-        "Mar",
-        "Apr",
-        "May",
-        "Jun",
-        "Jul",
-        "Aug",
-        "Sep",
-        "Oct",
-        "Nov",
-        "Dec",
-    ]
+    month_names = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 
     fig.add_trace(
         go.Heatmap(
@@ -1993,12 +1806,7 @@ def _render_monthly_returns(
 
 
 def _render_distribution(
-    fig: go.Figure,
-    row: int,
-    col: int,
-    returns: pd.Series,
-    theme_config: dict[str, Any],
-    **kwargs: Any,
+    fig: go.Figure, row: int, col: int, returns: pd.Series, theme_config: dict[str, Any], **kwargs: Any
 ) -> None:
     """
     Render returns distribution histogram.
@@ -2039,9 +1847,7 @@ def _render_rolling_sharpe(
 
     rolling_mean = returns.rolling(window=window).mean()
     rolling_std = returns.rolling(window=window).std()
-    rolling_sharpe = (rolling_mean / rolling_std.replace(0, float("nan"))) * (
-        TRADING_DAYS_PER_YEAR**0.5
-    )
+    rolling_sharpe = (rolling_mean / rolling_std.replace(0, float("nan"))) * (TRADING_DAYS_PER_YEAR**0.5)
 
     fig.add_trace(
         go.Scatter(
@@ -2065,12 +1871,7 @@ def _render_rolling_sharpe(
 
 
 def _render_yearly_returns(
-    fig: go.Figure,
-    row: int,
-    col: int,
-    returns: pd.Series,
-    theme_config: dict[str, Any],
-    **kwargs: Any,
+    fig: go.Figure, row: int, col: int, returns: pd.Series, theme_config: dict[str, Any], **kwargs: Any
 ) -> None:
     """
     Render yearly returns bar chart.
@@ -2080,21 +1881,11 @@ def _render_yearly_returns(
 
     yearly = returns.resample("YE").apply(lambda x: (1 + x).prod() - 1) * 100
     colors = [
-        theme_config["colors"]["positive"]
-        if r >= 0
-        else theme_config["colors"]["negative"]
-        for r in yearly.to_numpy()
+        theme_config["colors"]["positive"] if r >= 0 else theme_config["colors"]["negative"] for r in yearly.to_numpy()
     ]
 
     fig.add_trace(
-        go.Bar(
-            x=yearly.index.year,
-            y=yearly.to_numpy(),
-            marker={"color": colors},
-            showlegend=False,
-        ),
-        row=row,
-        col=col,
+        go.Bar(x=yearly.index.year, y=yearly.to_numpy(), marker={"color": colors}, showlegend=False), row=row, col=col
     )
 
     fig.update_xaxes(title_text="Year", row=row, col=col)
@@ -2139,10 +1930,7 @@ def create_bars_with_fills(
 
     """
     if not PLOTLY_AVAILABLE:
-        msg = (
-            "plotly is required for visualization. "
-            "Install it with: pip install nautilus_trader[visualization]"
-        )
+        msg = "plotly is required for visualization. Install it with: pip install nautilus_trader[visualization]"
         raise ImportError(msg)
 
     from nautilus_trader.analysis.themes import get_theme
@@ -2162,13 +1950,7 @@ def create_bars_with_fills(
         return fig
 
     # Create figure with subplots for rangeslider support
-    fig = make_subplots(
-        rows=1,
-        cols=1,
-        shared_xaxes=True,
-        vertical_spacing=0.03,
-        row_heights=[1.0],
-    )
+    fig = make_subplots(rows=1, cols=1, shared_xaxes=True, vertical_spacing=0.03, row_heights=[1.0])
 
     # Render bars with fills using the shared renderer
     _render_bars_with_fills(
@@ -2189,11 +1971,7 @@ def create_bars_with_fills(
         template=theme_config["template"],
         height=800,
         showlegend=True,
-        xaxis1={
-            "rangeslider": {
-                "visible": True,
-            },
-        },
+        xaxis1={"rangeslider": {"visible": True}},
     )
 
     # Update y-axes to allow zooming
@@ -2294,23 +2072,17 @@ def _render_bars_with_fills(  # noqa: C901
     positions_df = engine.trader.generate_positions_report()
     if not positions_df.empty:
         instrument_id = bar_type.instrument_id
-        positions_df = positions_df[
-            positions_df["instrument_id"] == str(instrument_id)
-        ].copy()
+        positions_df = positions_df[positions_df["instrument_id"] == str(instrument_id)].copy()
         if "is_snapshot" in positions_df.columns:
             positions_df = positions_df[positions_df["is_snapshot"] == False]  # noqa: E712
 
         for col_name in ("avg_px_open", "avg_px_close"):
             if col_name in positions_df.columns:
-                positions_df[col_name] = pd.to_numeric(
-                    positions_df[col_name], errors="coerce"
-                )
+                positions_df[col_name] = pd.to_numeric(positions_df[col_name], errors="coerce")
 
         for ts_col in ("ts_opened", "ts_closed"):
             if ts_col in positions_df.columns:
-                positions_df[ts_col] = pd.to_datetime(
-                    positions_df[ts_col], errors="coerce"
-                )
+                positions_df[ts_col] = pd.to_datetime(positions_df[ts_col], errors="coerce")
 
     # Add candlestick chart
     fig.add_trace(
@@ -2330,16 +2102,8 @@ def _render_bars_with_fills(  # noqa: C901
     # Add order fills as scatter markers if available
     if not fills_df.empty and "ts_init" in fills_df.columns:
         # Separate buy and sell fills
-        buy_fills = (
-            fills_df[fills_df["order_side"] == "BUY"]
-            if "order_side" in fills_df.columns
-            else pd.DataFrame()
-        )
-        sell_fills = (
-            fills_df[fills_df["order_side"] == "SELL"]
-            if "order_side" in fills_df.columns
-            else pd.DataFrame()
-        )
+        buy_fills = fills_df[fills_df["order_side"] == "BUY"] if "order_side" in fills_df.columns else pd.DataFrame()
+        sell_fills = fills_df[fills_df["order_side"] == "SELL"] if "order_side" in fills_df.columns else pd.DataFrame()
 
         # Get theme colors for fills
         positive_color = theme_config["colors"]["positive"]
@@ -2396,9 +2160,7 @@ def _render_bars_with_fills(  # noqa: C901
                         marker_line_width=2,
                         marker_color=positive_color,
                         name="Entries (Buy)",
-                        hovertemplate=(
-                            "<b>%{x}</b><br>Entry Price: %{y:.4f}<extra></extra>"
-                        ),
+                        hovertemplate=("<b>%{x}</b><br>Entry Price: %{y:.4f}<extra></extra>"),
                         showlegend=True,
                     ),
                     row=row,
@@ -2416,22 +2178,15 @@ def _render_bars_with_fills(  # noqa: C901
                         marker_line_width=2,
                         marker_color=negative_color,
                         name="Entries (Sell)",
-                        hovertemplate=(
-                            "<b>%{x}</b><br>Entry Price: %{y:.4f}<extra></extra>"
-                        ),
+                        hovertemplate=("<b>%{x}</b><br>Entry Price: %{y:.4f}<extra></extra>"),
                         showlegend=True,
                     ),
                     row=row,
                     col=col,
                 )
 
-        if (
-            "ts_closed" in positions_df.columns
-            and "avg_px_close" in positions_df.columns
-        ):
-            exits = positions_df[
-                positions_df["ts_closed"].notna() & positions_df["avg_px_close"].notna()
-            ]
+        if "ts_closed" in positions_df.columns and "avg_px_close" in positions_df.columns:
+            exits = positions_df[positions_df["ts_closed"].notna() & positions_df["avg_px_close"].notna()]
             if not exits.empty:
                 fig.add_trace(
                     go.Scatter(
@@ -2443,9 +2198,7 @@ def _render_bars_with_fills(  # noqa: C901
                         marker_line_width=2,
                         marker_color=neutral_color,
                         name="Exits",
-                        hovertemplate=(
-                            "<b>%{x}</b><br>Exit Price: %{y:.4f}<extra></extra>"
-                        ),
+                        hovertemplate=("<b>%{x}</b><br>Exit Price: %{y:.4f}<extra></extra>"),
                         showlegend=True,
                     ),
                     row=row,
@@ -2460,12 +2213,7 @@ def _render_bars_with_fills(  # noqa: C901
             avg_px_open = position.get("avg_px_open")
             avg_px_close = position.get("avg_px_close")
 
-            if (
-                pd.isna(ts_opened)
-                or pd.isna(ts_closed)
-                or pd.isna(avg_px_open)
-                or pd.isna(avg_px_close)
-            ):
+            if pd.isna(ts_opened) or pd.isna(ts_closed) or pd.isna(avg_px_open) or pd.isna(avg_px_close):
                 continue
 
             segment_x.extend([ts_opened, ts_closed, None])
@@ -2478,11 +2226,7 @@ def _render_bars_with_fills(  # noqa: C901
                     y=segment_y,
                     mode="lines",
                     name="Position Paths",
-                    line={
-                        "color": _hex_to_rgba(neutral_color, 0.7),
-                        "width": 1.5,
-                        "dash": "dot",
-                    },
+                    line={"color": _hex_to_rgba(neutral_color, 0.7), "width": 1.5, "dash": "dot"},
                     hoverinfo="skip",
                     showlegend=True,
                 ),
@@ -2491,38 +2235,18 @@ def _render_bars_with_fills(  # noqa: C901
             )
 
     # Update axes with rangeslider for time navigation
-    fig.update_xaxes(
-        title_text="Time",
-        row=row,
-        col=col,
-        rangeslider={"visible": show_rangeslider},
-    )
+    fig.update_xaxes(title_text="Time", row=row, col=col, rangeslider={"visible": show_rangeslider})
     fig.update_yaxes(title_text="Price", row=row, col=col)
     fig.update_yaxes(fixedrange=False, row=row, col=col)
 
 
 def _add_fill_scatter_trace(
-    fig: go.Figure,
-    fills_df: pd.DataFrame,
-    row: int,
-    col: int,
-    marker_symbol: str,
-    marker_color: str,
-    name: str,
+    fig: go.Figure, fills_df: pd.DataFrame, row: int, col: int, marker_symbol: str, marker_color: str, name: str
 ) -> None:
-    if (
-        fills_df.empty
-        or "last_px" not in fills_df.columns
-        or "last_qty" not in fills_df.columns
-    ):
+    if fills_df.empty or "last_px" not in fills_df.columns or "last_qty" not in fills_df.columns:
         return
 
-    required_cols = [
-        "strategy_id",
-        "instrument_id",
-        "order_side",
-        "last_qty",
-    ]
+    required_cols = ["strategy_id", "instrument_id", "order_side", "last_qty"]
     has_all_cols = all(col in fills_df.columns for col in required_cols)
 
     fig.add_trace(
@@ -2530,9 +2254,7 @@ def _add_fill_scatter_trace(
             x=fills_df["ts_init"],
             y=fills_df["last_px"],
             mode="markers",
-            customdata=fills_df[required_cols].to_numpy()
-            if has_all_cols
-            else fills_df.to_numpy(),
+            customdata=fills_df[required_cols].to_numpy() if has_all_cols else fills_df.to_numpy(),
             marker_symbol=marker_symbol,
             marker_size=13,
             marker_line_width=2,
@@ -2549,9 +2271,7 @@ def _add_fill_scatter_trace(
                 "<extra></extra>"
             )
             if has_all_cols
-            else (
-                "<b>%{x}</b><br>Price: %{y:.2f}<br>Quantity: %{customdata}<br><extra></extra>"
-            ),
+            else ("<b>%{x}</b><br>Price: %{y:.2f}<br>Quantity: %{customdata}<br><extra></extra>"),
             showlegend=True,
         ),
         row=row,
@@ -2563,12 +2283,7 @@ def _add_fill_scatter_trace(
 _TEARSHEET_CHART_SPECS: dict[str, dict[str, Any]] = {}
 
 
-def _register_tearsheet_chart(
-    name: str,
-    subplot_type: str,
-    title: str,
-    renderer: Callable,
-) -> None:
+def _register_tearsheet_chart(name: str, subplot_type: str, title: str, renderer: Callable) -> None:
     """
     Register a chart for tearsheet rendering.
 
@@ -2585,16 +2300,11 @@ def _register_tearsheet_chart(
         renderer(fig, row, col, returns, stats_pnls, stats_returns, stats_general, theme_config, benchmark_returns, benchmark_name, **kwargs)
 
     """
-    _TEARSHEET_CHART_SPECS[name] = {
-        "type": subplot_type,
-        "title": title,
-        "renderer": renderer,
-    }
+    _TEARSHEET_CHART_SPECS[name] = {"type": subplot_type, "title": title, "renderer": renderer}
 
 
 def _calculate_grid_layout(
-    charts: list[TearsheetChart],
-    custom_layout: Any = None,
+    charts: list[TearsheetChart], custom_layout: Any = None
 ) -> tuple[int, int, list, list[str], list[float], float, float]:
     """
     Calculate dynamic grid layout based on selected charts.
@@ -2681,37 +2391,16 @@ register_chart("bars_with_fills", create_bars_with_fills)
 
 # Register built-in charts for tearsheet integration
 _register_tearsheet_chart("run_info", "table", "Run Information", _render_run_info)
-_register_tearsheet_chart(
-    "stats_table", "table", "Performance Statistics", _render_stats_table
-)
+_register_tearsheet_chart("stats_table", "table", "Performance Statistics", _render_stats_table)
 _register_tearsheet_chart("equity", "scatter", "Equity Curve", _render_equity)
 _register_tearsheet_chart("pnl", "scatter", "PnL Over Time", _render_pnl)
 _register_tearsheet_chart("drawdown", "scatter", "Drawdown", _render_drawdown)
 _register_tearsheet_chart("allocation", "scatter", "Allocation (%)", _render_allocation)
 _register_tearsheet_chart(
-    "cumulative_brier_advantage",
-    "scatter",
-    "Cumulative Brier Advantage",
-    _render_cumulative_brier_advantage,
+    "cumulative_brier_advantage", "scatter", "Cumulative Brier Advantage", _render_cumulative_brier_advantage
 )
-_register_tearsheet_chart(
-    "monthly_returns", "heatmap", "Monthly Returns", _render_monthly_returns
-)
-_register_tearsheet_chart(
-    "distribution", "histogram", "Returns Distribution", _render_distribution
-)
-_register_tearsheet_chart(
-    "rolling_sharpe",
-    "scatter",
-    "Rolling Sharpe Ratio (60-day)",
-    _render_rolling_sharpe,
-)
-_register_tearsheet_chart(
-    "yearly_returns", "bar", "Yearly Returns", _render_yearly_returns
-)
-_register_tearsheet_chart(
-    "bars_with_fills",
-    "scatter",
-    "Bars with Order Fills",
-    _render_bars_with_fills,
-)
+_register_tearsheet_chart("monthly_returns", "heatmap", "Monthly Returns", _render_monthly_returns)
+_register_tearsheet_chart("distribution", "histogram", "Returns Distribution", _render_distribution)
+_register_tearsheet_chart("rolling_sharpe", "scatter", "Rolling Sharpe Ratio (60-day)", _render_rolling_sharpe)
+_register_tearsheet_chart("yearly_returns", "bar", "Yearly Returns", _render_yearly_returns)
+_register_tearsheet_chart("bars_with_fills", "scatter", "Bars with Order Fills", _render_bars_with_fills)

@@ -20,31 +20,15 @@ else:
 
 ensure_repo_root(__file__)
 
-from prediction_market_extensions.backtesting._execution_config import (
-    ExecutionModelConfig,
-)
-from prediction_market_extensions.backtesting._execution_config import (
-    StaticLatencyConfig,
-)
-from prediction_market_extensions.backtesting._experiments import (
-    build_replay_experiment,
-)
+from prediction_market_extensions.backtesting._execution_config import ExecutionModelConfig
+from prediction_market_extensions.backtesting._execution_config import StaticLatencyConfig
+from prediction_market_extensions.backtesting._experiments import build_replay_experiment
 from prediction_market_extensions.backtesting._experiments import run_experiment
-from prediction_market_extensions.backtesting._prediction_market_backtest import (
-    MarketReportConfig,
-)
-from prediction_market_extensions.backtesting._prediction_market_runner import (
-    MarketDataConfig,
-)
-from prediction_market_extensions.backtesting._replay_specs import (
-    PolymarketPMXTQuoteReplay,
-)
+from prediction_market_extensions.backtesting._prediction_market_backtest import MarketReportConfig
+from prediction_market_extensions.backtesting._prediction_market_runner import MarketDataConfig
+from prediction_market_extensions.backtesting._replay_specs import QuoteReplay
 from prediction_market_extensions.backtesting._timing_harness import timing_harness
-from prediction_market_extensions.backtesting.data_sources import (
-    PMXT,
-    Polymarket,
-    QuoteTick,
-)
+from prediction_market_extensions.backtesting.data_sources import PMXT, Polymarket, QuoteTick
 
 
 NAME = "polymarket_quote_tick_pmxt_ema_crossover"
@@ -70,15 +54,11 @@ DATA = MarketDataConfig(
     platform=Polymarket,
     data_type=QuoteTick,
     vendor=PMXT,
-    sources=(
-        "local:/Volumes/LaCie/pmxt_raws",
-        "archive:r2.pmxt.dev",
-        "relay:209-209-10-83.sslip.io",
-    ),
+    sources=("local:/Volumes/LaCie/pmxt_raws", "archive:r2.pmxt.dev", "relay:209-209-10-83.sslip.io"),
 )
 
 REPLAYS = (
-    PolymarketPMXTQuoteReplay(
+    QuoteReplay(
         market_slug="will-ludvig-aberg-win-the-2026-masters-tournament",
         token_index=0,
         start_time="2026-04-05T00:00:00Z",
@@ -98,22 +78,15 @@ STRATEGY_CONFIGS = [
             "take_profit": 0.01,
             "stop_loss": 0.01,
         },
-    },
+    }
 ]
 
-REPORT = MarketReportConfig(
-    count_key="quotes",
-    count_label="Quotes",
-    pnl_label="PnL (USDC)",
-)
+REPORT = MarketReportConfig(count_key="quotes", count_label="Quotes", pnl_label="PnL (USDC)")
 
 EXECUTION = ExecutionModelConfig(
     queue_position=True,
     latency_model=StaticLatencyConfig(
-        base_latency_ms=75.0,
-        insert_latency_ms=10.0,
-        update_latency_ms=5.0,
-        cancel_latency_ms=5.0,
+        base_latency_ms=75.0, insert_latency_ms=10.0, update_latency_ms=5.0, cancel_latency_ms=5.0
     ),
 )
 

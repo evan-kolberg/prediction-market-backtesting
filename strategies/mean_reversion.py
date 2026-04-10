@@ -22,9 +22,7 @@ from collections import deque
 from decimal import Decimal
 from typing import Protocol
 
-from strategies.core import (
-    LongOnlyPredictionMarketStrategy,
-)
+from strategies.core import LongOnlyPredictionMarketStrategy
 from nautilus_trader.model.data import Bar
 from nautilus_trader.model.data import BarType
 from nautilus_trader.model.data import QuoteTick
@@ -83,13 +81,7 @@ class _MeanReversionBase(LongOnlyPredictionMarketStrategy):
     def _window(self) -> int:
         return int(getattr(self.config, self._window_field))
 
-    def _on_price(
-        self,
-        price: float,
-        *,
-        entry_price: float | None = None,
-        visible_size: float | None = None,
-    ) -> None:
+    def _on_price(self, price: float, *, entry_price: float | None = None, visible_size: float | None = None) -> None:
         self._prices.append(price)
         if len(self._prices) < self._window() or self._pending:
             return
@@ -98,16 +90,11 @@ class _MeanReversionBase(LongOnlyPredictionMarketStrategy):
         if not self._in_position():
             if price <= rolling_avg - self.config.entry_threshold:
                 self._submit_entry(
-                    reference_price=price if entry_price is None else entry_price,
-                    visible_size=visible_size,
+                    reference_price=price if entry_price is None else entry_price, visible_size=visible_size
                 )
             return
 
-        if self._risk_exit(
-            price=price,
-            take_profit=self.config.take_profit,
-            stop_loss=self.config.stop_loss,
-        ):
+        if self._risk_exit(price=price, take_profit=self.config.take_profit, stop_loss=self.config.stop_loss):
             return
 
     def on_reset(self) -> None:

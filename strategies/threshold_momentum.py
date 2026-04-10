@@ -8,9 +8,7 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Protocol
 
-from strategies.core import (
-    LongOnlyPredictionMarketStrategy,
-)
+from strategies.core import LongOnlyPredictionMarketStrategy
 from nautilus_trader.model.data import Bar
 from nautilus_trader.model.data import BarType
 from nautilus_trader.model.data import QuoteTick
@@ -88,12 +86,7 @@ class _ThresholdMomentumBase(LongOnlyPredictionMarketStrategy):
         return True
 
     def _on_price(
-        self,
-        *,
-        price: float,
-        ts_event_ns: int,
-        entry_price: float | None = None,
-        visible_size: float | None = None,
+        self, *, price: float, ts_event_ns: int, entry_price: float | None = None, visible_size: float | None = None
     ) -> None:
         previous_price = self._last_price
         self._last_price = price
@@ -108,21 +101,14 @@ class _ThresholdMomentumBase(LongOnlyPredictionMarketStrategy):
             if not self._entry_window_is_open(ts_event_ns):
                 return
             if self._crossed_above_entry(previous_price, price):
-                self._submit_entry(
-                    reference_price=reference_price,
-                    visible_size=visible_size,
-                )
+                self._submit_entry(reference_price=reference_price, visible_size=visible_size)
             return
 
-        if int(self.config.market_close_time_ns) > 0 and ts_event_ns >= int(
-            self.config.market_close_time_ns,
-        ):
+        if int(self.config.market_close_time_ns) > 0 and ts_event_ns >= int(self.config.market_close_time_ns):
             self._submit_exit()
             return
 
-        if price >= float(self.config.take_profit_price) or price <= float(
-            self.config.stop_loss_price
-        ):
+        if price >= float(self.config.take_profit_price) or price <= float(self.config.stop_loss_price):
             self._submit_exit()
 
     def on_reset(self) -> None:
@@ -142,11 +128,7 @@ class BarThresholdMomentumStrategy(_ThresholdMomentumBase):
 
     def on_bar(self, bar: Bar) -> None:
         close = float(bar.close)
-        self._on_price(
-            price=close,
-            ts_event_ns=int(bar.ts_event),
-            entry_price=close,
-        )
+        self._on_price(price=close, ts_event_ns=int(bar.ts_event), entry_price=close)
 
 
 class TradeTickThresholdMomentumStrategy(_ThresholdMomentumBase):
@@ -155,11 +137,7 @@ class TradeTickThresholdMomentumStrategy(_ThresholdMomentumBase):
 
     def on_trade_tick(self, tick: TradeTick) -> None:
         price = float(tick.price)
-        self._on_price(
-            price=price,
-            ts_event_ns=int(tick.ts_event),
-            entry_price=price,
-        )
+        self._on_price(price=price, ts_event_ns=int(tick.ts_event), entry_price=price)
 
 
 class QuoteTickThresholdMomentumStrategy(_ThresholdMomentumBase):

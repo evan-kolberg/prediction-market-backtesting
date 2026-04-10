@@ -20,28 +20,14 @@ else:
 
 ensure_repo_root(__file__)
 
-from prediction_market_extensions.backtesting._execution_config import (
-    ExecutionModelConfig,
-)
-from prediction_market_extensions.backtesting._execution_config import (
-    StaticLatencyConfig,
-)
-from prediction_market_extensions.backtesting._experiments import (
-    ParameterSearchExperiment,
-)
+from prediction_market_extensions.backtesting._execution_config import ExecutionModelConfig
+from prediction_market_extensions.backtesting._execution_config import StaticLatencyConfig
+from prediction_market_extensions.backtesting._experiments import ParameterSearchExperiment
 from prediction_market_extensions.backtesting._experiments import run_experiment
-from prediction_market_extensions.backtesting._prediction_market_runner import (
-    MarketDataConfig,
-)
-from prediction_market_extensions.backtesting._replay_specs import (
-    PolymarketPMXTQuoteReplay,
-)
+from prediction_market_extensions.backtesting._prediction_market_runner import MarketDataConfig
+from prediction_market_extensions.backtesting._replay_specs import QuoteReplay
 from prediction_market_extensions.backtesting._timing_harness import timing_harness
-from prediction_market_extensions.backtesting.data_sources import (
-    PMXT,
-    Polymarket,
-    QuoteTick,
-)
+from prediction_market_extensions.backtesting.data_sources import PMXT, Polymarket, QuoteTick
 from prediction_market_extensions.backtesting.optimizers import ParameterSearchConfig
 from prediction_market_extensions.backtesting.optimizers import ParameterSearchWindow
 
@@ -57,41 +43,26 @@ DATA = MarketDataConfig(
     platform=Polymarket,
     data_type=QuoteTick,
     vendor=PMXT,
-    sources=(
-        "local:/Volumes/LaCie/pmxt_raws",
-        "archive:r2.pmxt.dev",
-        "relay:209-209-10-83.sslip.io",
-    ),
+    sources=("local:/Volumes/LaCie/pmxt_raws", "archive:r2.pmxt.dev", "relay:209-209-10-83.sslip.io"),
 )
 
-BASE_REPLAY = PolymarketPMXTQuoteReplay(
-    market_slug="will-ludvig-aberg-win-the-2026-masters-tournament",
-    token_index=0,
-)
+BASE_REPLAY = QuoteReplay(market_slug="will-ludvig-aberg-win-the-2026-masters-tournament", token_index=0)
 
 TRAIN_WINDOWS = (
     ParameterSearchWindow(
-        name="sample-a-full-window",
-        start_time="2026-04-05T00:00:00Z",
-        end_time="2026-04-07T23:59:59Z",
+        name="sample-a-full-window", start_time="2026-04-05T00:00:00Z", end_time="2026-04-07T23:59:59Z"
     ),
     ParameterSearchWindow(
-        name="sample-b-2026-04-06-day",
-        start_time="2026-04-06T00:00:00Z",
-        end_time="2026-04-06T23:59:59Z",
+        name="sample-b-2026-04-06-day", start_time="2026-04-06T00:00:00Z", end_time="2026-04-06T23:59:59Z"
     ),
     ParameterSearchWindow(
-        name="sample-c-2026-04-07-late",
-        start_time="2026-04-07T12:00:00Z",
-        end_time="2026-04-07T23:59:59Z",
+        name="sample-c-2026-04-07-late", start_time="2026-04-07T12:00:00Z", end_time="2026-04-07T23:59:59Z"
     ),
 )
 
 HOLDOUT_WINDOWS = (
     ParameterSearchWindow(
-        name="sample-d-close-window",
-        start_time="2026-04-07T00:00:00Z",
-        end_time="2026-04-07T11:59:59Z",
+        name="sample-d-close-window", start_time="2026-04-07T00:00:00Z", end_time="2026-04-07T11:59:59Z"
     ),
 )
 
@@ -119,10 +90,7 @@ PARAMETER_GRID = {
 EXECUTION = ExecutionModelConfig(
     queue_position=True,
     latency_model=StaticLatencyConfig(
-        base_latency_ms=75.0,
-        insert_latency_ms=10.0,
-        update_latency_ms=5.0,
-        cancel_latency_ms=5.0,
+        base_latency_ms=75.0, insert_latency_ms=10.0, update_latency_ms=5.0, cancel_latency_ms=5.0
     ),
 )
 
@@ -152,11 +120,7 @@ OPTIMIZER = PARAMETER_SEARCH
 OPTIMIZATION = PARAMETER_SEARCH
 
 
-EXPERIMENT = ParameterSearchExperiment(
-    name=NAME,
-    description=DESCRIPTION,
-    parameter_search=PARAMETER_SEARCH,
-)
+EXPERIMENT = ParameterSearchExperiment(name=NAME, description=DESCRIPTION, parameter_search=PARAMETER_SEARCH)
 
 
 @timing_harness

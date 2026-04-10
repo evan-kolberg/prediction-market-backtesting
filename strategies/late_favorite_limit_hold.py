@@ -7,9 +7,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from strategies.core import (
-    LongOnlyPredictionMarketStrategy,
-)
+from strategies.core import LongOnlyPredictionMarketStrategy
 from nautilus_trader.model.data import QuoteTick
 from nautilus_trader.model.data import TradeTick
 from nautilus_trader.model.enums import OrderSide
@@ -42,42 +40,26 @@ class _LateFavoriteLimitHoldBase(LongOnlyPredictionMarketStrategy):
     remaining position to settlement after the backtest completes.
     """
 
-    def __init__(
-        self,
-        config: TradeTickLateFavoriteLimitHoldConfig
-        | QuoteTickLateFavoriteLimitHoldConfig,
-    ) -> None:
+    def __init__(self, config: TradeTickLateFavoriteLimitHoldConfig | QuoteTickLateFavoriteLimitHoldConfig) -> None:
         super().__init__(config)
         self._entered_once = False
 
     def _on_price(
-        self,
-        *,
-        signal_price: float,
-        order_price: float,
-        ts_event_ns: int,
-        visible_size: float | None = None,
+        self, *, signal_price: float, order_price: float, ts_event_ns: int, visible_size: float | None = None
     ) -> None:
         if self._pending or self._in_position() or self._entered_once:
             return
 
-        if int(self.config.activation_start_time_ns) > 0 and ts_event_ns < int(
-            self.config.activation_start_time_ns,
-        ):
+        if int(self.config.activation_start_time_ns) > 0 and ts_event_ns < int(self.config.activation_start_time_ns):
             return
-        if int(self.config.market_close_time_ns) > 0 and ts_event_ns > int(
-            self.config.market_close_time_ns,
-        ):
+        if int(self.config.market_close_time_ns) > 0 and ts_event_ns > int(self.config.market_close_time_ns):
             return
 
         if signal_price < float(self.config.entry_price):
             return
 
         assert self._instrument is not None
-        quantity = self._entry_quantity(
-            reference_price=order_price,
-            visible_size=visible_size,
-        )
+        quantity = self._entry_quantity(reference_price=order_price, visible_size=visible_size)
         if quantity is None:
             return
         order = self.order_factory.limit(
@@ -110,9 +92,7 @@ class TradeTickLateFavoriteLimitHoldStrategy(_LateFavoriteLimitHoldBase):
 
     def on_trade_tick(self, tick: TradeTick) -> None:
         price = float(tick.price)
-        self._on_price(
-            signal_price=price, order_price=price, ts_event_ns=int(tick.ts_event)
-        )
+        self._on_price(signal_price=price, order_price=price, ts_event_ns=int(tick.ts_event))
 
 
 class QuoteTickLateFavoriteLimitHoldStrategy(_LateFavoriteLimitHoldBase):

@@ -12,9 +12,7 @@ def ensure_repo_root(script_path: str | Path) -> Path:
             repo_root = parent
             if str(repo_root) not in sys.path:
                 sys.path.insert(0, str(repo_root))
-            install_commission_patch = importlib.import_module(
-                "prediction_market_extensions",
-            ).install_commission_patch
+            install_commission_patch = importlib.import_module("prediction_market_extensions").install_commission_patch
             install_commission_patch()
             return repo_root
     raise RuntimeError(f"Could not determine repository root for {path}")
@@ -31,8 +29,4 @@ def parse_bool_env(raw: str, *, default: bool = True) -> bool:
     return value not in {"0", "false", "no", "off"}
 
 
-__all__ = [
-    "ensure_repo_root",
-    "parse_bool_env",
-    "parse_csv_env",
-]
+__all__ = ["ensure_repo_root", "parse_bool_env", "parse_csv_env"]

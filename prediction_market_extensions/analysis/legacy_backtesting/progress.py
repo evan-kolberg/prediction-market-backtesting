@@ -50,12 +50,7 @@ class PinnedProgress(Generic[T]):
     """
 
     def __init__(
-        self,
-        iterable: Iterable[T],
-        total: int,
-        desc: str = "",
-        unit: str = " it",
-        refresh_interval: float = 0.05,
+        self, iterable: Iterable[T], total: int, desc: str = "", unit: str = " it", refresh_interval: float = 0.05
     ):
         self._iter = iter(iterable)
         self.total = total
@@ -77,9 +72,7 @@ class PinnedProgress(Generic[T]):
         sys.stdout.write(f"{_ESC}{rows};1H")  # move to last row
         sys.stdout.write(f"{_ESC}2K")  # clear it
         sys.stdout.write(f"{_ESC}1;{rows - 1}r")  # set scroll region
-        sys.stdout.write(
-            f"{_ESC}{rows - 1};1H"
-        )  # move cursor to bottom of scroll region
+        sys.stdout.write(f"{_ESC}{rows - 1};1H")  # move cursor to bottom of scroll region
         sys.stdout.flush()
         self._active = True
         self._refresh_bar()
@@ -131,9 +124,7 @@ class PinnedProgress(Generic[T]):
         # Build the bar
         width = _term_width()
         info_left = f"{self.desc}: {pct:>3.0%}|"
-        info_right = (
-            f"| {self._n:,}/{self.total:,} [{elapsed_str}<{remaining_str}, {rate_str}]"
-        )
+        info_right = f"| {self._n:,}/{self.total:,} [{elapsed_str}<{remaining_str}, {rate_str}]"
         bar_width = width - len(self._strip_ansi(info_left)) - len(info_right)
 
         if bar_width > 2:

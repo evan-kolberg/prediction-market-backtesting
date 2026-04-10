@@ -21,9 +21,7 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Protocol
 
-from strategies.core import (
-    LongOnlyPredictionMarketStrategy,
-)
+from strategies.core import LongOnlyPredictionMarketStrategy
 from nautilus_trader.model.data import Bar
 from nautilus_trader.model.data import BarType
 from nautilus_trader.model.data import QuoteTick
@@ -83,31 +81,19 @@ class _EMACrossoverBase(LongOnlyPredictionMarketStrategy):
         self._fast_ema: float | None = None
         self._slow_ema: float | None = None
         self._warmup: int = 0
-        self._warmup_needed = max(
-            int(self.config.fast_period), int(self.config.slow_period)
-        )
+        self._warmup_needed = max(int(self.config.fast_period), int(self.config.slow_period))
         self._alpha_fast = 2.0 / (float(self.config.fast_period) + 1.0)
         self._alpha_slow = 2.0 / (float(self.config.slow_period) + 1.0)
 
-    def _on_price(
-        self,
-        price: float,
-        *,
-        entry_price: float | None = None,
-        visible_size: float | None = None,
-    ) -> None:
+    def _on_price(self, price: float, *, entry_price: float | None = None, visible_size: float | None = None) -> None:
         if self._fast_ema is None or self._slow_ema is None:
             self._fast_ema = price
             self._slow_ema = price
             self._warmup = 1
             return
 
-        self._fast_ema = (
-            self._alpha_fast * price + (1.0 - self._alpha_fast) * self._fast_ema
-        )
-        self._slow_ema = (
-            self._alpha_slow * price + (1.0 - self._alpha_slow) * self._slow_ema
-        )
+        self._fast_ema = self._alpha_fast * price + (1.0 - self._alpha_fast) * self._fast_ema
+        self._slow_ema = self._alpha_slow * price + (1.0 - self._alpha_slow) * self._slow_ema
         self._warmup += 1
 
         if self._warmup < self._warmup_needed or self._pending:
@@ -119,17 +105,10 @@ class _EMACrossoverBase(LongOnlyPredictionMarketStrategy):
 
         if not self._in_position():
             if self._fast_ema >= self._slow_ema + self.config.entry_buffer:
-                self._submit_entry(
-                    reference_price=reference_price,
-                    visible_size=visible_size,
-                )
+                self._submit_entry(reference_price=reference_price, visible_size=visible_size)
             return
 
-        if self._risk_exit(
-            price=price,
-            take_profit=self.config.take_profit,
-            stop_loss=self.config.stop_loss,
-        ):
+        if self._risk_exit(price=price, take_profit=self.config.take_profit, stop_loss=self.config.stop_loss):
             return
 
         if self._fast_ema <= self._slow_ema - self.config.entry_buffer:
