@@ -106,12 +106,7 @@ def build_markets_query(filters: dict[str, Any] | None = None) -> dict[str, Any]
 
 
 async def _request_markets_page(
-    http_client: HttpClient,
-    base_url: str,
-    params: dict[str, Any],
-    offset: int,
-    limit: int,
-    timeout: float,
+    http_client: HttpClient, base_url: str, params: dict[str, Any], offset: int, limit: int, timeout: float
 ) -> list[dict[str, Any]]:
     """
     Fetch a single page of markets using limit/offset pagination.
@@ -125,14 +120,12 @@ async def _request_markets_page(
     effective_params["offset"] = offset
 
     resp: HttpResponse = await http_client.get(
-        base_endpoint,
-        params=effective_params,
-        timeout_secs=max(1, ceil(timeout)),
+        base_endpoint, params=effective_params, timeout_secs=max(1, ceil(timeout))
     )
     if resp.status != 200:
         body = resp.body.decode("utf-8", errors="replace")
         raise RuntimeError(
-            f"Gamma Get Markets failed: {resp.status} for url {base_endpoint} with params {effective_params} and body {body}",
+            f"Gamma Get Markets failed: {resp.status} for url {base_endpoint} with params {effective_params} and body {body}"
         )
 
     data = msgspec.json.decode(resp.body)
@@ -145,10 +138,7 @@ async def _request_markets_page(
 
 
 async def iter_markets(
-    http_client: HttpClient,
-    filters: dict[str, Any] | None = None,
-    base_url: str | None = None,
-    timeout: float = 10.0,
+    http_client: HttpClient, filters: dict[str, Any] | None = None, base_url: str | None = None, timeout: float = 10.0
 ) -> AsyncGenerator[dict[str, Any]]:
     """
     Iterate markets that pass server-side filters, yielding raw market dicts.
@@ -160,12 +150,7 @@ async def iter_markets(
 
     while True:
         markets = await _request_markets_page(
-            http_client=http_client,
-            base_url=base,
-            params=params,
-            offset=offset,
-            limit=limit,
-            timeout=timeout,
+            http_client=http_client, base_url=base, params=params, offset=offset, limit=limit, timeout=timeout
         )
         if not markets:
             break
@@ -184,15 +169,11 @@ def _decode_gamma_list(raw: Any) -> list[Any]:
     return []
 
 
-def infer_gamma_token_winners(
-    gamma_market: dict[str, Any],
-) -> tuple[dict[str, bool], bool]:
+def infer_gamma_token_winners(gamma_market: dict[str, Any]) -> tuple[dict[str, bool], bool]:
     """
     Infer resolved token winners from Gamma outcome prices when available.
     """
-    outcomes = [
-        str(outcome) for outcome in _decode_gamma_list(gamma_market.get("outcomes"))
-    ]
+    outcomes = [str(outcome) for outcome in _decode_gamma_list(gamma_market.get("outcomes"))]
     raw_prices = _decode_gamma_list(gamma_market.get("outcomePrices"))
     prices: list[float] = []
     for price in raw_prices:
@@ -211,16 +192,11 @@ def infer_gamma_token_winners(
     if prices[winner_index] < 0.99:
         return {}, False
 
-    winner_lookup = {
-        outcome.strip().casefold(): index == winner_index
-        for index, outcome in enumerate(outcomes)
-    }
+    winner_lookup = {outcome.strip().casefold(): index == winner_index for index, outcome in enumerate(outcomes)}
     return winner_lookup, False
 
 
-def normalize_gamma_market_to_clob_format(
-    gamma_market: dict[str, Any],
-) -> dict[str, Any]:
+def normalize_gamma_market_to_clob_format(gamma_market: dict[str, Any]) -> dict[str, Any]:
     """
     Normalize Gamma API market format to CLOB API format.
 
@@ -258,9 +234,7 @@ def normalize_gamma_market_to_clob_format(
     outcome_prices = _decode_gamma_list(outcome_prices)
     winner_lookup, is_50_50_outcome = infer_gamma_token_winners(gamma_market)
 
-    for i, (token_id, outcome) in enumerate(
-        zip(clob_token_ids, outcomes, strict=False)
-    ):
+    for i, (token_id, outcome) in enumerate(zip(clob_token_ids, outcomes, strict=False)):
         token_entry = {
             "token_id": token_id,
             "outcome": outcome,
@@ -327,12 +301,7 @@ async def list_markets(
 
     """
     results: list[dict[str, Any]] = []
-    async for market in iter_markets(
-        http_client=http_client,
-        filters=filters,
-        base_url=base_url,
-        timeout=timeout,
-    ):
+    async for market in iter_markets(http_client=http_client, filters=filters, base_url=base_url, timeout=timeout):
         results.append(market)
         if max_results is not None and len(results) >= max_results:
             break

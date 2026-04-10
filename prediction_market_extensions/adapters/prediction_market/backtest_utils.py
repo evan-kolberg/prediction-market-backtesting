@@ -94,10 +94,7 @@ def to_naive_utc(value: object) -> datetime | None:
 
 
 def extract_price_points(
-    records: Sequence[object],
-    *,
-    price_attr: str,
-    ts_attrs: tuple[str, ...] = _DEFAULT_TS_ATTRS,
+    records: Sequence[object], *, price_attr: str, ts_attrs: tuple[str, ...] = _DEFAULT_TS_ATTRS
 ) -> list[PricePoint]:
     """
     Extract ``(timestamp, price)`` pairs from Nautilus records.
@@ -166,9 +163,7 @@ def _probability_frame(points: Sequence[PricePoint]) -> pd.DataFrame:
     return frame
 
 
-def _resolved_outcome_from_result(
-    info: Mapping[object, object], outcome_name: str
-) -> float | None:
+def _resolved_outcome_from_result(info: Mapping[object, object], outcome_name: str) -> float | None:
     result = str(info.get("result", "")).strip().casefold()
     if result not in {"yes", "no"}:
         return None
@@ -181,9 +176,7 @@ def _resolved_outcome_from_result(
     return None
 
 
-def _resolved_outcome_from_numeric_fields(
-    info: Mapping[object, object],
-) -> float | None:
+def _resolved_outcome_from_numeric_fields(info: Mapping[object, object]) -> float | None:
     for key in ("settlement_value", "expiration_value"):
         raw_value = info.get(key)
         if raw_value in (None, ""):
@@ -202,10 +195,7 @@ def _resolved_outcome_from_numeric_fields(
     return None
 
 
-def _resolved_outcome_from_tokens(
-    info: Mapping[object, object],
-    outcome_name: str,
-) -> float | None:
+def _resolved_outcome_from_tokens(info: Mapping[object, object], outcome_name: str) -> float | None:
     tokens = info.get("tokens")
     if not isinstance(tokens, Sequence) or not outcome_name:
         return None
@@ -252,8 +242,7 @@ def infer_realized_outcome(source: object | None) -> float | None:
 
 
 def compute_binary_settlement_pnl(
-    fill_events: Sequence[Mapping[object, object]],
-    resolved_outcome: float | None,
+    fill_events: Sequence[Mapping[object, object]], resolved_outcome: float | None
 ) -> float | None:
     """
     Compute binary-market PnL by marking any remaining position to settlement.
@@ -285,9 +274,7 @@ def compute_binary_settlement_pnl(
 
 
 def build_brier_inputs(
-    points: Sequence[PricePoint],
-    window: int,
-    realized_outcome: float | None = None,
+    points: Sequence[PricePoint], window: int, realized_outcome: float | None = None
 ) -> tuple[pd.Series, pd.Series, pd.Series]:
     """
     Build user/market/outcome probability series for cumulative Brier advantage.
@@ -301,34 +288,21 @@ def build_brier_inputs(
         return empty, empty, empty
 
     frame["user_probability"] = (
-        frame["market_probability"]
-        .rolling(window=window, min_periods=window)
-        .mean()
-        .clip(0.0, 1.0)
+        frame["market_probability"].rolling(window=window, min_periods=window).mean().clip(0.0, 1.0)
     )
     frame = frame.dropna(subset=["user_probability", "market_probability"])
     if frame.empty:
         return empty, empty, empty
 
     if realized_outcome is None:
-        return (
-            frame["user_probability"].copy(),
-            frame["market_probability"].copy(),
-            empty,
-        )
+        return (frame["user_probability"].copy(), frame["market_probability"].copy(), empty)
 
     frame["outcome"] = float(realized_outcome)
-    return (
-        frame["user_probability"].copy(),
-        frame["market_probability"].copy(),
-        frame["outcome"].copy(),
-    )
+    return (frame["user_probability"].copy(), frame["market_probability"].copy(), frame["outcome"].copy())
 
 
 def build_market_prices(
-    points: Sequence[PricePoint],
-    *,
-    resample_rule: str | None = None,
+    points: Sequence[PricePoint], *, resample_rule: str | None = None
 ) -> list[tuple[datetime, float]]:
     """
     Convert ``(timestamp, price)`` pairs into sorted chart points.
@@ -354,9 +328,7 @@ def build_market_prices(
     frame = pd.DataFrame(output, columns=["ts", "price"]).sort_values("ts")
     frame = frame.drop_duplicates(subset=["ts"], keep="last")
     if resample_rule:
-        frame = (
-            frame.set_index("ts").resample(resample_rule).last().dropna().reset_index()
-        )
+        frame = frame.set_index("ts").resample(resample_rule).last().dropna().reset_index()
     return [
         (_timestamp_to_naive_utc_datetime(pd.Timestamp(row.ts)), float(row.price))
         for row in frame.itertuples(index=False)

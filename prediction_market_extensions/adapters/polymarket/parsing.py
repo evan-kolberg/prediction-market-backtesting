@@ -74,11 +74,7 @@ def infer_fee_exponent(fee_rate_bps: Decimal) -> int:
 
 
 def calculate_commission(
-    quantity: Decimal,
-    price: Decimal,
-    fee_rate_bps: Decimal,
-    fee_exponent: int = 1,
-    **_kwargs: object,
+    quantity: Decimal, price: Decimal, fee_rate_bps: Decimal, fee_exponent: int = 1, **_kwargs: object
 ) -> float:
     """
     Calculate commission from trade parameters and fee rate.

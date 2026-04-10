@@ -2,91 +2,39 @@
 
 from prediction_market_extensions.backtesting.data_sources.data_types import Bar
 from prediction_market_extensions.backtesting.data_sources.data_types import BAR_DATA
-from prediction_market_extensions.backtesting.data_sources.data_types import (
-    MarketDataType,
-)
+from prediction_market_extensions.backtesting.data_sources.data_types import MarketDataType
 from prediction_market_extensions.backtesting.data_sources.data_types import QuoteTick
-from prediction_market_extensions.backtesting.data_sources.data_types import (
-    QUOTE_TICK_DATA,
-)
+from prediction_market_extensions.backtesting.data_sources.data_types import QUOTE_TICK_DATA
 from prediction_market_extensions.backtesting.data_sources.data_types import TradeTick
-from prediction_market_extensions.backtesting.data_sources.data_types import (
-    TRADE_TICK_DATA,
-)
-from prediction_market_extensions.backtesting.data_sources.kalshi_native import (
-    KALSHI_REST_BASE_URL_ENV,
-)
-from prediction_market_extensions.backtesting.data_sources.kalshi_native import (
-    KalshiNativeDataSourceSelection,
-)
-from prediction_market_extensions.backtesting.data_sources.kalshi_native import (
-    KalshiNativeLoaderConfig,
-)
-from prediction_market_extensions.backtesting.data_sources.kalshi_native import (
-    RunnerKalshiDataLoader,
-)
-from prediction_market_extensions.backtesting.data_sources.kalshi_native import (
-    configured_kalshi_native_data_source,
-)
-from prediction_market_extensions.backtesting.data_sources.kalshi_native import (
-    resolve_kalshi_native_loader_config,
-)
+from prediction_market_extensions.backtesting.data_sources.data_types import TRADE_TICK_DATA
+from prediction_market_extensions.backtesting.data_sources.kalshi_native import KALSHI_REST_BASE_URL_ENV
+from prediction_market_extensions.backtesting.data_sources.kalshi_native import KalshiNativeDataSourceSelection
+from prediction_market_extensions.backtesting.data_sources.kalshi_native import KalshiNativeLoaderConfig
+from prediction_market_extensions.backtesting.data_sources.kalshi_native import RunnerKalshiDataLoader
+from prediction_market_extensions.backtesting.data_sources.kalshi_native import configured_kalshi_native_data_source
+from prediction_market_extensions.backtesting.data_sources.kalshi_native import resolve_kalshi_native_loader_config
 from prediction_market_extensions.backtesting.data_sources.kalshi_native import (
     resolve_kalshi_native_data_source_selection,
 )
-from prediction_market_extensions.backtesting.data_sources.pmxt import (
-    PMXT_CACHE_DIR_ENV,
-)
-from prediction_market_extensions.backtesting.data_sources.pmxt import (
-    PMXT_DATA_SOURCE_ENV,
-)
-from prediction_market_extensions.backtesting.data_sources.pmxt import (
-    PMXT_DISABLE_CACHE_ENV,
-)
-from prediction_market_extensions.backtesting.data_sources.pmxt import (
-    PMXT_DISABLE_REMOTE_ARCHIVE_ENV,
-)
-from prediction_market_extensions.backtesting.data_sources.pmxt import (
-    PMXT_LOCAL_RAWS_DIR_ENV,
-)
-from prediction_market_extensions.backtesting.data_sources.pmxt import (
-    PMXT_REMOTE_BASE_URL_ENV,
-)
+from prediction_market_extensions.backtesting.data_sources.pmxt import PMXT_CACHE_DIR_ENV
+from prediction_market_extensions.backtesting.data_sources.pmxt import PMXT_DATA_SOURCE_ENV
+from prediction_market_extensions.backtesting.data_sources.pmxt import PMXT_DISABLE_CACHE_ENV
+from prediction_market_extensions.backtesting.data_sources.pmxt import PMXT_DISABLE_REMOTE_ARCHIVE_ENV
+from prediction_market_extensions.backtesting.data_sources.pmxt import PMXT_LOCAL_RAWS_DIR_ENV
+from prediction_market_extensions.backtesting.data_sources.pmxt import PMXT_REMOTE_BASE_URL_ENV
 from prediction_market_extensions.backtesting.data_sources.pmxt import PMXT_RAW_ROOT_ENV
-from prediction_market_extensions.backtesting.data_sources.pmxt import (
-    PMXT_RELAY_BASE_URL_ENV,
-)
-from prediction_market_extensions.backtesting.data_sources.pmxt import (
-    PMXTDataSourceSelection,
-)
+from prediction_market_extensions.backtesting.data_sources.pmxt import PMXT_RELAY_BASE_URL_ENV
+from prediction_market_extensions.backtesting.data_sources.pmxt import PMXTDataSourceSelection
 from prediction_market_extensions.backtesting.data_sources.pmxt import PMXTLoaderConfig
-from prediction_market_extensions.backtesting.data_sources.pmxt import (
-    RunnerPolymarketPMXTDataLoader,
-)
-from prediction_market_extensions.backtesting.data_sources.pmxt import (
-    configured_pmxt_data_source,
-)
-from prediction_market_extensions.backtesting.data_sources.pmxt import (
-    resolve_pmxt_loader_config,
-)
-from prediction_market_extensions.backtesting.data_sources.polymarket_native import (
-    POLYMARKET_CLOB_BASE_URL_ENV,
-)
-from prediction_market_extensions.backtesting.data_sources.polymarket_native import (
-    POLYMARKET_GAMMA_BASE_URL_ENV,
-)
-from prediction_market_extensions.backtesting.data_sources.polymarket_native import (
-    POLYMARKET_TRADE_API_BASE_URL_ENV,
-)
-from prediction_market_extensions.backtesting.data_sources.polymarket_native import (
-    PolymarketNativeDataSourceSelection,
-)
-from prediction_market_extensions.backtesting.data_sources.polymarket_native import (
-    PolymarketNativeLoaderConfig,
-)
-from prediction_market_extensions.backtesting.data_sources.polymarket_native import (
-    RunnerPolymarketDataLoader,
-)
+from prediction_market_extensions.backtesting.data_sources.pmxt import RunnerPolymarketPMXTDataLoader
+from prediction_market_extensions.backtesting.data_sources.pmxt import configured_pmxt_data_source
+from prediction_market_extensions.backtesting.data_sources.pmxt import resolve_pmxt_loader_config
+from prediction_market_extensions.backtesting.data_sources.polymarket_native import POLYMARKET_CLOB_BASE_URL_ENV
+from prediction_market_extensions.backtesting.data_sources.polymarket_native import POLYMARKET_GAMMA_BASE_URL_ENV
+from prediction_market_extensions.backtesting.data_sources.polymarket_native import POLYMARKET_TRADE_API_BASE_URL_ENV
+from prediction_market_extensions.backtesting.data_sources.polymarket_native import PolymarketNativeDataSourceSelection
+from prediction_market_extensions.backtesting.data_sources.polymarket_native import PolymarketNativeLoaderConfig
+from prediction_market_extensions.backtesting.data_sources.polymarket_native import RunnerPolymarketDataLoader
 from prediction_market_extensions.backtesting.data_sources.polymarket_native import (
     configured_polymarket_native_data_source,
 )
@@ -97,56 +45,21 @@ from prediction_market_extensions.backtesting.data_sources.polymarket_native imp
     resolve_polymarket_native_data_source_selection,
 )
 from prediction_market_extensions.backtesting.data_sources.platforms import Kalshi
-from prediction_market_extensions.backtesting.data_sources.platforms import (
-    KALSHI_PLATFORM,
-)
-from prediction_market_extensions.backtesting.data_sources.platforms import (
-    MarketPlatform,
-)
+from prediction_market_extensions.backtesting.data_sources.platforms import KALSHI_PLATFORM
+from prediction_market_extensions.backtesting.data_sources.platforms import MarketPlatform
 from prediction_market_extensions.backtesting.data_sources.platforms import Polymarket
-from prediction_market_extensions.backtesting.data_sources.platforms import (
-    POLYMARKET_PLATFORM,
-)
-from prediction_market_extensions.backtesting.data_sources.pmxt import (
-    resolve_pmxt_data_source_selection,
-)
+from prediction_market_extensions.backtesting.data_sources.platforms import POLYMARKET_PLATFORM
+from prediction_market_extensions.backtesting.data_sources.pmxt import resolve_pmxt_data_source_selection
 from prediction_market_extensions.backtesting.data_sources.registry import MarketDataKey
-from prediction_market_extensions.backtesting.data_sources.registry import (
-    MarketDataSupport,
-)
-from prediction_market_extensions.backtesting.data_sources.registry import (
-    build_single_market_replay,
-)
-from prediction_market_extensions.backtesting.data_sources.registry import (
-    register_market_data_support,
-)
-from prediction_market_extensions.backtesting.data_sources.registry import (
-    resolve_market_data_support,
-)
-from prediction_market_extensions.backtesting.data_sources.registry import (
-    resolve_replay_adapter,
-)
-from prediction_market_extensions.backtesting.data_sources.registry import (
-    supported_market_data_keys,
-)
-from prediction_market_extensions.backtesting.data_sources.registry import (
-    unregister_market_data_support,
-)
-from prediction_market_extensions.backtesting.data_sources.replay_adapters import (
-    BUILTIN_REPLAY_ADAPTERS,
-)
-from prediction_market_extensions.backtesting.data_sources.replay_adapters import (
-    KalshiTradeTickReplayAdapter,
-)
-from prediction_market_extensions.backtesting.data_sources.replay_adapters import (
-    PolymarketPMXTQuoteReplayAdapter,
-)
-from prediction_market_extensions.backtesting.data_sources.replay_adapters import (
-    PolymarketTradeTickReplayAdapter,
-)
-from prediction_market_extensions.backtesting.data_sources.vendors import (
-    MarketDataVendor,
-)
+from prediction_market_extensions.backtesting.data_sources.registry import MarketDataSupport
+from prediction_market_extensions.backtesting.data_sources.registry import build_single_market_replay
+from prediction_market_extensions.backtesting.data_sources.registry import register_market_data_support
+from prediction_market_extensions.backtesting.data_sources.registry import resolve_market_data_support
+from prediction_market_extensions.backtesting.data_sources.registry import resolve_replay_adapter
+from prediction_market_extensions.backtesting.data_sources.registry import supported_market_data_keys
+from prediction_market_extensions.backtesting.data_sources.registry import unregister_market_data_support
+from prediction_market_extensions.backtesting.data_sources.replay_adapters import BUILTIN_REPLAY_ADAPTERS
+from prediction_market_extensions.backtesting.data_sources.vendors import MarketDataVendor
 from prediction_market_extensions.backtesting.data_sources.vendors import Native
 from prediction_market_extensions.backtesting.data_sources.vendors import NATIVE_VENDOR
 from prediction_market_extensions.backtesting.data_sources.vendors import PMXT
@@ -160,7 +73,6 @@ __all__ = [
     "Kalshi",
     "KalshiNativeDataSourceSelection",
     "KalshiNativeLoaderConfig",
-    "KalshiTradeTickReplayAdapter",
     "MarketDataKey",
     "MarketDataType",
     "MarketPlatform",
@@ -187,8 +99,6 @@ __all__ = [
     "Polymarket",
     "PolymarketNativeDataSourceSelection",
     "PolymarketNativeLoaderConfig",
-    "PolymarketPMXTQuoteReplayAdapter",
-    "PolymarketTradeTickReplayAdapter",
     "QuoteTick",
     "QUOTE_TICK_DATA",
     "RunnerKalshiDataLoader",

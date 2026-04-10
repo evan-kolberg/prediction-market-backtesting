@@ -128,21 +128,11 @@ class HistoricalReplayAdapter(ABC):
     def replay_spec_type(self) -> type[Any]:
         raise NotImplementedError
 
-    def build_single_market_replay(
-        self,
-        *,
-        field_values: Mapping[str, Any],
-    ) -> Any:
-        raise NotImplementedError(
-            f"{type(self).__name__} does not support single-market replay construction."
-        )
+    def build_single_market_replay(self, *, field_values: Mapping[str, Any]) -> Any:
+        raise NotImplementedError(f"{type(self).__name__} does not support single-market replay construction.")
 
     @abstractmethod
-    def configure_sources(
-        self,
-        *,
-        sources: Sequence[str],
-    ) -> AbstractContextManager[Any]:
+    def configure_sources(self, *, sources: Sequence[str]) -> AbstractContextManager[Any]:
         raise NotImplementedError
 
     @property
@@ -151,12 +141,7 @@ class HistoricalReplayAdapter(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    async def load_replay(
-        self,
-        replay: Any,
-        *,
-        request: ReplayLoadRequest,
-    ) -> LoadedReplay | None:
+    async def load_replay(self, replay: Any, *, request: ReplayLoadRequest) -> LoadedReplay | None:
         raise NotImplementedError
 
 

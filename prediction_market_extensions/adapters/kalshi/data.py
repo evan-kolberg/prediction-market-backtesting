@@ -21,9 +21,7 @@ import asyncio
 from typing import TYPE_CHECKING
 
 from prediction_market_extensions.adapters.kalshi.config import KalshiDataClientConfig
-from prediction_market_extensions.adapters.kalshi.providers import (
-    KalshiInstrumentProvider,
-)
+from prediction_market_extensions.adapters.kalshi.providers import KalshiInstrumentProvider
 from nautilus_trader.data.messages import RequestBars
 from nautilus_trader.data.messages import RequestInstrument
 from nautilus_trader.data.messages import RequestInstruments
@@ -118,9 +116,7 @@ class KalshiDataClient(LiveMarketDataClient):
             self._cache.add_currency(currency)
 
     def _log_unsupported(self, action: str) -> None:
-        self._log.error(
-            f"KalshiDataClient does not yet support {action}; only instrument discovery is live",
-        )
+        self._log.error(f"KalshiDataClient does not yet support {action}; only instrument discovery is live")
 
     async def _subscribe_order_book_deltas(self, command: SubscribeOrderBook) -> None:
         self._log_unsupported("order book subscriptions")
@@ -134,19 +130,13 @@ class KalshiDataClient(LiveMarketDataClient):
     async def _subscribe_bars(self, command: SubscribeBars) -> None:
         self._log_unsupported("bar subscriptions")
 
-    async def _subscribe_instrument_status(
-        self, command: SubscribeInstrumentStatus
-    ) -> None:
+    async def _subscribe_instrument_status(self, command: SubscribeInstrumentStatus) -> None:
         self._log_unsupported("instrument status subscriptions")
 
-    async def _subscribe_instrument_close(
-        self, command: SubscribeInstrumentClose
-    ) -> None:
+    async def _subscribe_instrument_close(self, command: SubscribeInstrumentClose) -> None:
         self._log_unsupported("instrument close subscriptions")
 
-    async def _unsubscribe_order_book_deltas(
-        self, command: UnsubscribeOrderBook
-    ) -> None:
+    async def _unsubscribe_order_book_deltas(self, command: UnsubscribeOrderBook) -> None:
         self._log_unsupported("order book unsubscriptions")
 
     async def _unsubscribe_quote_ticks(self, command: UnsubscribeQuoteTicks) -> None:
@@ -158,15 +148,10 @@ class KalshiDataClient(LiveMarketDataClient):
     async def _unsubscribe_bars(self, command: UnsubscribeBars) -> None:
         self._log_unsupported("bar unsubscriptions")
 
-    async def _unsubscribe_instrument_status(
-        self,
-        command: UnsubscribeInstrumentStatus,
-    ) -> None:
+    async def _unsubscribe_instrument_status(self, command: UnsubscribeInstrumentStatus) -> None:
         self._log_unsupported("instrument status unsubscriptions")
 
-    async def _unsubscribe_instrument_close(
-        self, command: UnsubscribeInstrumentClose
-    ) -> None:
+    async def _unsubscribe_instrument_close(self, command: UnsubscribeInstrumentClose) -> None:
         self._log_unsupported("instrument close unsubscriptions")
 
     async def _request_instrument(self, request: RequestInstrument) -> None:
@@ -175,9 +160,7 @@ class KalshiDataClient(LiveMarketDataClient):
             self._log.error(f"Cannot find instrument for {request.instrument_id}")
             return
 
-        self._handle_instrument(
-            instrument, request.id, request.start, request.end, request.params
-        )
+        self._handle_instrument(instrument, request.id, request.start, request.end, request.params)
 
     async def _request_instruments(self, request: RequestInstruments) -> None:
         instruments = [
@@ -185,14 +168,7 @@ class KalshiDataClient(LiveMarketDataClient):
             for instrument in self._instrument_provider.get_all().values()
             if request.venue is None or instrument.venue == request.venue
         ]
-        self._handle_instruments(
-            request.venue,
-            instruments,
-            request.id,
-            request.start,
-            request.end,
-            request.params,
-        )
+        self._handle_instruments(request.venue, instruments, request.id, request.start, request.end, request.params)
 
     async def _request_quote_ticks(self, request: RequestQuoteTicks) -> None:
         self._log_unsupported("historical quote requests")

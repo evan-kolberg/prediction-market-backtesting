@@ -19,9 +19,7 @@ from typing import TYPE_CHECKING
 
 from prediction_market_extensions.adapters.kalshi.config import KalshiDataClientConfig
 from prediction_market_extensions.adapters.kalshi.data import KalshiDataClient
-from prediction_market_extensions.adapters.kalshi.providers import (
-    KalshiInstrumentProvider,
-)
+from prediction_market_extensions.adapters.kalshi.providers import KalshiInstrumentProvider
 from nautilus_trader.live.factories import LiveDataClientFactory
 
 
@@ -70,11 +68,5 @@ class KalshiLiveDataClientFactory(LiveDataClientFactory):
         """
         provider = KalshiInstrumentProvider(config=config)
         return KalshiDataClient(
-            loop=loop,
-            msgbus=msgbus,
-            cache=cache,
-            clock=clock,
-            instrument_provider=provider,
-            config=config,
-            name=name,
+            loop=loop, msgbus=msgbus, cache=cache, clock=clock, instrument_provider=provider, config=config, name=name
         )

@@ -59,12 +59,7 @@ def yes_price(market: Mapping[str, Any]) -> float | None:
     """
     Extract and normalize the current YES price for a Kalshi market.
     """
-    for key in (
-        "last_price_dollars",
-        "yes_bid_dollars",
-        "yes_price_dollars",
-        "yes_price",
-    ):
+    for key in ("last_price_dollars", "yes_bid_dollars", "yes_price_dollars", "yes_price"):
         raw = market.get(key)
         if raw is None:
             continue
@@ -83,9 +78,7 @@ def end_date_utc(market: Mapping[str, Any]) -> datetime | None:
     """
     Parse market expiry from a Kalshi market payload.
     """
-    return _parse_datetime(
-        market.get("close_time") or market.get("latest_expiration_time")
-    )
+    return _parse_datetime(market.get("close_time") or market.get("latest_expiration_time"))
 
 
 def market_close_time_ns(raw: Any) -> int:
@@ -161,9 +154,7 @@ def is_sports_market(
         return False
 
     normalized_now = now if now.tzinfo is not None else now.replace(tzinfo=UTC)
-    hours_left = (
-        close_dt.astimezone(UTC) - normalized_now.astimezone(UTC)
-    ).total_seconds() / 3600.0
+    hours_left = (close_dt.astimezone(UTC) - normalized_now.astimezone(UTC)).total_seconds() / 3600.0
     return 0.0 <= hours_left <= max_hours_to_close
 
 

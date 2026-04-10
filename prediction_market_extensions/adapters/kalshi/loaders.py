@@ -27,9 +27,7 @@ import msgspec
 import pandas as pd
 
 from prediction_market_extensions.adapters.kalshi.providers import KALSHI_REST_BASE
-from prediction_market_extensions.adapters.kalshi.providers import (
-    market_dict_to_instrument,
-)
+from prediction_market_extensions.adapters.kalshi.providers import market_dict_to_instrument
 from nautilus_trader.core import nautilus_pyo3
 from nautilus_trader.core.datetime import secs_to_nanos
 from nautilus_trader.model.data import Bar
@@ -70,11 +68,7 @@ class KalshiDataLoader:
         HTTP client to use for requests. If not provided, a new client is created.
     """
 
-    _INTERVAL_MAP: dict[str, int] = {
-        "Minutes1": 1,
-        "Hours1": 60,
-        "Days1": 1440,
-    }
+    _INTERVAL_MAP: dict[str, int] = {"Minutes1": 1, "Hours1": 60, "Days1": 1440}
 
     _INTERVAL_TO_AGGREGATION: dict[str, BarAggregation] = {
         "Minutes1": BarAggregation.MINUTE,
@@ -99,18 +93,14 @@ class KalshiDataLoader:
         text = str(raw).strip()
         p = float(raw)
 
-        has_decimal_marker = (
-            isinstance(raw, float) or "." in text or "e" in text.lower()
-        )
+        has_decimal_marker = isinstance(raw, float) or "." in text or "e" in text.lower()
         if 0.0 <= p < 1.0 or (p == 1.0 and has_decimal_marker):
             normalized = p
         else:
             normalized = p / 100.0
 
         if not 0.0 <= normalized <= 1.0:
-            raise ValueError(
-                f"Kalshi price {raw!r} normalized outside [0, 1]: {normalized}"
-            )
+            raise ValueError(f"Kalshi price {raw!r} normalized outside [0, 1]: {normalized}")
 
         return normalized
 
@@ -136,17 +126,13 @@ class KalshiDataLoader:
         raise KeyError(f"Kalshi trade payload missing a yes-price field: {trade}")
 
     @staticmethod
-    def _extract_quantity(
-        payload: dict[str, Any], *, fp_key: str, raw_key: str
-    ) -> str | int | float:
+    def _extract_quantity(payload: dict[str, Any], *, fp_key: str, raw_key: str) -> str | int | float:
         if payload.get(fp_key) is not None:
             return payload[fp_key]
         return payload[raw_key]
 
     @staticmethod
-    def _extract_candle_price(
-        price_payload: dict[str, Any], field: str
-    ) -> float | None:
+    def _extract_candle_price(price_payload: dict[str, Any], field: str) -> float | None:
         value = price_payload.get(f"{field}_dollars")
         if value is not None:
             return float(value)
@@ -158,11 +144,7 @@ class KalshiDataLoader:
         return KalshiDataLoader._normalize_price(raw_value)
 
     @staticmethod
-    def _fallback_trade_id(
-        ticker: str,
-        trade: dict[str, Any],
-        occurrence: int,
-    ) -> TradeId:
+    def _fallback_trade_id(ticker: str, trade: dict[str, Any], occurrence: int) -> TradeId:
         raw_id = (
             f"{ticker}|{trade.get('created_time', trade.get('ts'))}|"
             f"{trade.get('yes_price_dollars', trade.get('yes_price', trade.get('price')))}|"
@@ -171,10 +153,7 @@ class KalshiDataLoader:
         return TradeId(hashlib.shake_256(raw_id.encode("utf-8")).hexdigest(18))
 
     def __init__(
-        self,
-        instrument: BinaryOption,
-        series_ticker: str,
-        http_client: nautilus_pyo3.HttpClient | None = None,
+        self, instrument: BinaryOption, series_ticker: str, http_client: nautilus_pyo3.HttpClient | None = None
     ) -> None:
         self._instrument = instrument
         self._series_ticker = series_ticker
@@ -182,11 +161,7 @@ class KalshiDataLoader:
 
     @staticmethod
     def _create_http_client() -> nautilus_pyo3.HttpClient:
-        return nautilus_pyo3.HttpClient(
-            default_quota=nautilus_pyo3.Quota.rate_per_second(
-                KALSHI_HTTP_RATE_LIMIT_RPS
-            ),
-        )
+        return nautilus_pyo3.HttpClient(default_quota=nautilus_pyo3.Quota.rate_per_second(KALSHI_HTTP_RATE_LIMIT_RPS))
 
     @property
     def instrument(self) -> BinaryOption:
@@ -195,9 +170,7 @@ class KalshiDataLoader:
 
     @classmethod
     async def from_market_ticker(
-        cls,
-        ticker: str,
-        http_client: nautilus_pyo3.HttpClient | None = None,
+        cls, ticker: str, http_client: nautilus_pyo3.HttpClient | None = None
     ) -> KalshiDataLoader:
         """
         Create a loader by fetching market data for the given ticker.
@@ -226,36 +199,26 @@ class KalshiDataLoader:
         if response.status == 404:
             raise ValueError(f"Market ticker '{ticker}' not found")
         if response.status != 200:
-            raise RuntimeError(
-                f"HTTP request failed with status {response.status}: "
-                f"{response.body.decode('utf-8')}",
-            )
+            raise RuntimeError(f"HTTP request failed with status {response.status}: {response.body.decode('utf-8')}")
 
         data = msgspec.json.decode(response.body)
         market = data["market"]
         instrument = market_dict_to_instrument(market)
 
         event_ticker = market["event_ticker"]
-        event_response = await client.get(
-            url=f"{KALSHI_REST_BASE}/events/{event_ticker}"
-        )
+        event_response = await client.get(url=f"{KALSHI_REST_BASE}/events/{event_ticker}")
         if event_response.status != 200:
             raise RuntimeError(
                 f"Failed to fetch event '{event_ticker}': "
-                f"HTTP {event_response.status}: {event_response.body.decode('utf-8')}",
+                f"HTTP {event_response.status}: {event_response.body.decode('utf-8')}"
             )
         event_data = msgspec.json.decode(event_response.body)
         series_ticker = event_data["event"]["series_ticker"]
 
-        return cls(
-            instrument=instrument, series_ticker=series_ticker, http_client=client
-        )
+        return cls(instrument=instrument, series_ticker=series_ticker, http_client=client)
 
     async def fetch_trades(
-        self,
-        min_ts: int | None = None,
-        max_ts: int | None = None,
-        limit: int = 1000,
+        self, min_ts: int | None = None, max_ts: int | None = None, limit: int = 1000
     ) -> list[dict[str, Any]]:
         """
         Fetch historical trades from the Kalshi API.
@@ -283,10 +246,7 @@ class KalshiDataLoader:
         page_limit = min(limit, self._TRADE_PAGE_LIMIT)
 
         while True:
-            params: dict[str, Any] = {
-                "ticker": ticker,
-                "limit": str(page_limit),
-            }
+            params: dict[str, Any] = {"ticker": ticker, "limit": str(page_limit)}
             if min_ts is not None:
                 params["min_ts"] = str(min_ts)
             if max_ts is not None:
@@ -294,15 +254,11 @@ class KalshiDataLoader:
             if cursor:
                 params["cursor"] = cursor
 
-            response = await self._http_client.get(
-                url=self._TRADE_ENDPOINT,
-                params=params,
-            )
+            response = await self._http_client.get(url=self._TRADE_ENDPOINT, params=params)
 
             if response.status != 200:
                 raise RuntimeError(
-                    f"HTTP request failed with status {response.status}: "
-                    f"{response.body.decode('utf-8')}",
+                    f"HTTP request failed with status {response.status}: {response.body.decode('utf-8')}"
                 )
 
             data = msgspec.json.decode(response.body)
@@ -316,10 +272,7 @@ class KalshiDataLoader:
         return all_trades
 
     async def fetch_candlesticks(
-        self,
-        start_ts: int | None = None,
-        end_ts: int | None = None,
-        interval: str = "Minutes1",
+        self, start_ts: int | None = None, end_ts: int | None = None, interval: str = "Minutes1"
     ) -> list[dict[str, Any]]:
         """
         Fetch historical OHLCV candlesticks from the Kalshi API.
@@ -346,37 +299,26 @@ class KalshiDataLoader:
             If the HTTP request fails.
         """
         if interval not in self._INTERVAL_MAP:
-            raise ValueError(
-                f"Invalid interval '{interval}'. Must be one of: {list(self._INTERVAL_MAP.keys())}",
-            )
+            raise ValueError(f"Invalid interval '{interval}'. Must be one of: {list(self._INTERVAL_MAP.keys())}")
 
         ticker = self._instrument.id.symbol.value
-        params: dict[str, Any] = {
-            "period_interval": str(self._INTERVAL_MAP[interval]),
-        }
+        params: dict[str, Any] = {"period_interval": str(self._INTERVAL_MAP[interval])}
         if start_ts is not None:
             params["start_ts"] = str(start_ts)
         if end_ts is not None:
             params["end_ts"] = str(end_ts)
 
         response = await self._http_client.get(
-            url=f"{KALSHI_REST_BASE}/series/{self._series_ticker}/markets/{ticker}/candlesticks",
-            params=params,
+            url=f"{KALSHI_REST_BASE}/series/{self._series_ticker}/markets/{ticker}/candlesticks", params=params
         )
 
         if response.status != 200:
-            raise RuntimeError(
-                f"HTTP request failed with status {response.status}: "
-                f"{response.body.decode('utf-8')}",
-            )
+            raise RuntimeError(f"HTTP request failed with status {response.status}: {response.body.decode('utf-8')}")
 
         data = msgspec.json.decode(response.body)
         return data.get("candlesticks", [])
 
-    def parse_trades(
-        self,
-        trades_data: list[dict[str, Any]],
-    ) -> list[TradeTick]:
+    def parse_trades(self, trades_data: list[dict[str, Any]]) -> list[TradeTick]:
         """
         Parse raw Kalshi trade dicts into TradeTick objects.
 
@@ -408,9 +350,7 @@ class KalshiDataLoader:
 
             key = (
                 trade.get("created_time", trade.get("ts")),
-                trade.get(
-                    "yes_price_dollars", trade.get("yes_price", trade.get("price"))
-                ),
+                trade.get("yes_price_dollars", trade.get("yes_price", trade.get("price"))),
                 trade.get("count_fp", trade.get("count")),
                 taker_side,
             )
@@ -427,11 +367,7 @@ class KalshiDataLoader:
                 TradeTick(
                     instrument_id=instrument_id,
                     price=make_price(self._extract_yes_price(trade)),
-                    size=make_qty(
-                        self._extract_quantity(
-                            trade, fp_key="count_fp", raw_key="count"
-                        )
-                    ),
+                    size=make_qty(self._extract_quantity(trade, fp_key="count_fp", raw_key="count")),
                     aggressor_side=aggressor_side,
                     trade_id=trade_id,
                     ts_event=ts_event,
@@ -441,11 +377,7 @@ class KalshiDataLoader:
 
         return trades
 
-    def parse_candlesticks(
-        self,
-        candlesticks_data: list[dict[str, Any]],
-        interval: str = "Minutes1",
-    ) -> list[Bar]:
+    def parse_candlesticks(self, candlesticks_data: list[dict[str, Any]], interval: str = "Minutes1") -> list[Bar]:
         """
         Parse raw Kalshi candlestick dicts into Bar objects.
 
@@ -467,18 +399,13 @@ class KalshiDataLoader:
         """
         if interval not in self._INTERVAL_TO_AGGREGATION:
             raise ValueError(
-                f"Invalid interval '{interval}'. Must be one of: "
-                f"{list(self._INTERVAL_TO_AGGREGATION.keys())}",
+                f"Invalid interval '{interval}'. Must be one of: {list(self._INTERVAL_TO_AGGREGATION.keys())}"
             )
 
         aggregation = self._INTERVAL_TO_AGGREGATION[interval]
-        bar_spec = BarSpecification(
-            step=1, aggregation=aggregation, price_type=PriceType.LAST
-        )
+        bar_spec = BarSpecification(step=1, aggregation=aggregation, price_type=PriceType.LAST)
         bar_type = BarType(
-            instrument_id=self._instrument.id,
-            bar_spec=bar_spec,
-            aggregation_source=AggregationSource.EXTERNAL,
+            instrument_id=self._instrument.id, bar_spec=bar_spec, aggregation_source=AggregationSource.EXTERNAL
         )
         make_price = self._instrument.make_price
         make_qty = self._instrument.make_qty
@@ -491,12 +418,7 @@ class KalshiDataLoader:
             high_price = self._extract_candle_price(price, "high")
             low_price = self._extract_candle_price(price, "low")
             close_price = self._extract_candle_price(price, "close")
-            if (
-                open_price is None
-                or high_price is None
-                or low_price is None
-                or close_price is None
-            ):
+            if open_price is None or high_price is None or low_price is None or close_price is None:
                 continue
             ts_event = secs_to_nanos(candle["end_period_ts"])
             bars.append(
@@ -506,11 +428,7 @@ class KalshiDataLoader:
                     high=make_price(high_price),
                     low=make_price(low_price),
                     close=make_price(close_price),
-                    volume=make_qty(
-                        self._extract_quantity(
-                            candle, fp_key="volume_fp", raw_key="volume"
-                        )
-                    ),
+                    volume=make_qty(self._extract_quantity(candle, fp_key="volume_fp", raw_key="volume")),
                     ts_event=ts_event,
                     ts_init=ts_event,
                 )
@@ -519,10 +437,7 @@ class KalshiDataLoader:
         return bars
 
     async def load_bars(
-        self,
-        start: pd.Timestamp | None = None,
-        end: pd.Timestamp | None = None,
-        interval: str = "Minutes1",
+        self, start: pd.Timestamp | None = None, end: pd.Timestamp | None = None, interval: str = "Minutes1"
     ) -> list[Bar]:
         """
         Load, parse, and sort bars (OHLCV candlesticks).
@@ -544,20 +459,12 @@ class KalshiDataLoader:
         start_ts = int(start.timestamp()) if start is not None else None
         end_ts = int(end.timestamp()) if end is not None else None
 
-        raw_candles = await self.fetch_candlesticks(
-            start_ts=start_ts,
-            end_ts=end_ts,
-            interval=interval,
-        )
+        raw_candles = await self.fetch_candlesticks(start_ts=start_ts, end_ts=end_ts, interval=interval)
         raw_candles.sort(key=lambda c: c["end_period_ts"])
 
         return self.parse_candlesticks(raw_candles, interval=interval)
 
-    async def load_trades(
-        self,
-        start: pd.Timestamp | None = None,
-        end: pd.Timestamp | None = None,
-    ) -> list[TradeTick]:
+    async def load_trades(self, start: pd.Timestamp | None = None, end: pd.Timestamp | None = None) -> list[TradeTick]:
         """
         Load, parse, and sort trade ticks.
 
@@ -583,13 +490,9 @@ class KalshiDataLoader:
 
         # Client-side filter (API may return boundary-inclusive extras)
         if min_ts is not None:
-            raw_trades = [
-                t for t in raw_trades if self._trade_timestamp_seconds(t) >= min_ts
-            ]
+            raw_trades = [t for t in raw_trades if self._trade_timestamp_seconds(t) >= min_ts]
         if max_ts is not None:
-            raw_trades = [
-                t for t in raw_trades if self._trade_timestamp_seconds(t) <= max_ts
-            ]
+            raw_trades = [t for t in raw_trades if self._trade_timestamp_seconds(t) <= max_ts]
 
         raw_trades.sort(key=self._trade_timestamp_ns)
 

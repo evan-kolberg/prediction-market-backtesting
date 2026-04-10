@@ -57,13 +57,7 @@ class PredictionMarketTakerFillModel(FillModel):
         # FillModel.is_slipped(), so we disable the built-in L1 slip hook.
         super().__init__(prob_fill_on_limit=1.0, prob_slippage=0.0)
 
-    def get_orderbook_for_fill_simulation(
-        self,
-        instrument,
-        order,
-        best_bid,
-        best_ask,
-    ):
+    def get_orderbook_for_fill_simulation(self, instrument, order, best_bid, best_ask):
         if order.order_type == OrderType.LIMIT:
             return None
 
@@ -71,10 +65,7 @@ class PredictionMarketTakerFillModel(FillModel):
         slipped_bid = instrument.make_price(max(0.0, float(best_bid) - tick))
         slipped_ask = instrument.make_price(min(1.0, float(best_ask) + tick))
 
-        book = OrderBook(
-            instrument_id=instrument.id,
-            book_type=BookType.L2_MBP,
-        )
+        book = OrderBook(instrument_id=instrument.id, book_type=BookType.L2_MBP)
 
         # Build a symmetric synthetic book one adverse tick away from the touch.
         # The matching engine will consume the relevant side depending on order side.

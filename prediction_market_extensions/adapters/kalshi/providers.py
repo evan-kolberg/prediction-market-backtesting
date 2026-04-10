@@ -51,9 +51,7 @@ KALSHI_MAKER_FEE_RATE = decimal.Decimal(0)
 
 
 def calculate_kalshi_commission(
-    quantity: decimal.Decimal,
-    price: decimal.Decimal,
-    fee_rate: decimal.Decimal = KALSHI_TAKER_FEE_RATE,
+    quantity: decimal.Decimal, price: decimal.Decimal, fee_rate: decimal.Decimal = KALSHI_TAKER_FEE_RATE
 ) -> decimal.Decimal:
     """
     Calculate Kalshi transaction fee.
@@ -131,9 +129,7 @@ def _market_dict_to_instrument(market: dict) -> BinaryOption:
         asset_class=AssetClass.ALTERNATIVE,
         currency=Currency.from_str("USD"),
         activation_ns=parse_ts(market.get("open_time")),
-        expiration_ns=parse_ts(
-            market.get("close_time") or market.get("latest_expiration_time")
-        ),
+        expiration_ns=parse_ts(market.get("close_time") or market.get("latest_expiration_time")),
         price_precision=4,
         size_precision=2,
         price_increment=Price.from_str("0.0001"),
@@ -179,9 +175,7 @@ class _KalshiHttpClient:
             ) from exc
 
     async def get_markets(
-        self,
-        series_tickers: tuple[str, ...] = (),
-        event_tickers: tuple[str, ...] = (),
+        self, series_tickers: tuple[str, ...] = (), event_tickers: tuple[str, ...] = ()
     ) -> list[dict]:
         """
         Fetch all active markets from the Kalshi REST API.
@@ -255,17 +249,12 @@ class KalshiInstrumentProvider(InstrumentProvider):
                 instrument = self._market_to_instrument(market)
                 self.add(instrument)
             except Exception as exc:
-                _log.warning(
-                    "Kalshi: failed to parse market %s: %s",
-                    market.get("ticker"),
-                    exc,
-                )
+                _log.warning("Kalshi: failed to parse market %s: %s", market.get("ticker"), exc)
 
     async def _fetch_markets(self) -> list[dict]:
         """Fetch markets from the Kalshi REST API with series/event filtering."""
         return await self._http_client.get_markets(
-            series_tickers=self._config.series_tickers,
-            event_tickers=self._config.event_tickers,
+            series_tickers=self._config.series_tickers, event_tickers=self._config.event_tickers
         )
 
     def _market_to_instrument(self, market: dict) -> BinaryOption:

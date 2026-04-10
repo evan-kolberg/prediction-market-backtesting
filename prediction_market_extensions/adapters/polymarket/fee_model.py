@@ -19,9 +19,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from prediction_market_extensions.adapters.polymarket.parsing import (
-    calculate_commission,
-)
+from prediction_market_extensions.adapters.polymarket.parsing import calculate_commission
 from nautilus_trader.backtest.models import FeeModel
 from nautilus_trader.model.objects import Money
 
@@ -76,8 +74,6 @@ class PolymarketFeeModel(FeeModel):
             return Money(Decimal(0), instrument.quote_currency)
 
         commission = calculate_commission(
-            quantity=Decimal(str(fill_qty)),
-            price=Decimal(str(fill_px)),
-            fee_rate_bps=fee_rate_bps,
+            quantity=Decimal(str(fill_qty)), price=Decimal(str(fill_px)), fee_rate_bps=fee_rate_bps
         )
         return Money(Decimal(str(commission)), instrument.quote_currency)

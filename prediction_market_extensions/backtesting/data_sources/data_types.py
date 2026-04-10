@@ -23,12 +23,4 @@ QUOTE_TICK_DATA = QuoteTick
 BAR_DATA = Bar
 
 
-__all__ = [
-    "Bar",
-    "BAR_DATA",
-    "MarketDataType",
-    "QuoteTick",
-    "QUOTE_TICK_DATA",
-    "TradeTick",
-    "TRADE_TICK_DATA",
-]
+__all__ = ["Bar", "BAR_DATA", "MarketDataType", "QuoteTick", "QUOTE_TICK_DATA", "TradeTick", "TRADE_TICK_DATA"]

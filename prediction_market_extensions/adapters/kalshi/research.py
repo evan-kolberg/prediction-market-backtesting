@@ -32,18 +32,12 @@ import pandas as pd
 from prediction_market_extensions.adapters.kalshi.loaders import KalshiDataLoader
 from prediction_market_extensions.adapters.kalshi.market_selection import end_date_utc
 from prediction_market_extensions.adapters.kalshi.market_selection import is_game_market
-from prediction_market_extensions.adapters.kalshi.market_selection import (
-    is_resolved_sports_market,
-)
-from prediction_market_extensions.adapters.kalshi.market_selection import (
-    is_sports_market,
-)
+from prediction_market_extensions.adapters.kalshi.market_selection import is_resolved_sports_market
+from prediction_market_extensions.adapters.kalshi.market_selection import is_sports_market
 from prediction_market_extensions.adapters.kalshi.market_selection import volume_24h
 from prediction_market_extensions.adapters.kalshi.market_selection import yes_price
 from prediction_market_extensions.adapters.kalshi.providers import KALSHI_REST_BASE
-from prediction_market_extensions.adapters.kalshi.providers import (
-    market_dict_to_instrument,
-)
+from prediction_market_extensions.adapters.kalshi.providers import market_dict_to_instrument
 from nautilus_trader.core import nautilus_pyo3
 from nautilus_trader.model.data import Bar
 
@@ -82,10 +76,7 @@ def _passes_filters(
 
 
 def _extend_with_event_markets(
-    all_markets: list[dict[str, Any]],
-    events: list[dict[str, Any]],
-    *,
-    exclude_ticker_prefixes: tuple[str, ...],
+    all_markets: list[dict[str, Any]], events: list[dict[str, Any]], *, exclude_ticker_prefixes: tuple[str, ...]
 ) -> None:
     for event in events:
         series_ticker = event.get("series_ticker", "")
@@ -101,32 +92,20 @@ def _extend_with_event_markets(
             all_markets.append(market)
 
 
-def _default_http_client(
-    *,
-    quota_rate_per_second: int,
-) -> nautilus_pyo3.HttpClient:
-    return nautilus_pyo3.HttpClient(
-        default_quota=nautilus_pyo3.Quota.rate_per_second(quota_rate_per_second),
-    )
+def _default_http_client(*, quota_rate_per_second: int) -> nautilus_pyo3.HttpClient:
+    return nautilus_pyo3.HttpClient(default_quota=nautilus_pyo3.Quota.rate_per_second(quota_rate_per_second))
 
 
 async def fetch_market_by_ticker(
-    ticker: str,
-    *,
-    http_client: nautilus_pyo3.HttpClient | None = None,
-    quota_rate_per_second: int = 10,
+    ticker: str, *, http_client: nautilus_pyo3.HttpClient | None = None, quota_rate_per_second: int = 10
 ) -> dict[str, Any]:
     """
     Fetch one Kalshi market by ticker.
     """
-    client = http_client or _default_http_client(
-        quota_rate_per_second=quota_rate_per_second
-    )
+    client = http_client or _default_http_client(quota_rate_per_second=quota_rate_per_second)
     resp = await client.get(url=f"{KALSHI_REST_BASE}/markets/{ticker}")
     if resp.status != 200:
-        raise RuntimeError(
-            f"HTTP {resp.status} while fetching market {ticker}: {resp.body.decode('utf-8')}"
-        )
+        raise RuntimeError(f"HTTP {resp.status} while fetching market {ticker}: {resp.body.decode('utf-8')}")
 
     data = msgspec.json.decode(resp.body)
     market = data.get("market")
@@ -172,10 +151,7 @@ async def discover_markets(
         if cursor:
             params["cursor"] = cursor
 
-        resp = await http_client.get(
-            url=f"{KALSHI_REST_BASE}/events",
-            params=params,
-        )
+        resp = await http_client.get(url=f"{KALSHI_REST_BASE}/events", params=params)
         if resp.status != 200:
             break
 
@@ -184,11 +160,7 @@ async def discover_markets(
         if not events:
             break
 
-        _extend_with_event_markets(
-            all_markets,
-            events,
-            exclude_ticker_prefixes=exclude_ticker_prefixes,
-        )
+        _extend_with_event_markets(all_markets, events, exclude_ticker_prefixes=exclude_ticker_prefixes)
         page_count += 1
 
         cursor = data.get("cursor")
@@ -230,9 +202,7 @@ async def discover_live_sports_markets(
     """
     Discover live Kalshi sports markets near expiry.
     """
-    client = http_client or _default_http_client(
-        quota_rate_per_second=quota_rate_per_second
-    )
+    client = http_client or _default_http_client(quota_rate_per_second=quota_rate_per_second)
     now = datetime.now(UTC)
     return await discover_markets(
         http_client=client,
@@ -268,9 +238,7 @@ async def discover_resolved_sports_markets(
     """
     Discover recently settled Kalshi sports markets.
     """
-    client = http_client or _default_http_client(
-        quota_rate_per_second=quota_rate_per_second
-    )
+    client = http_client or _default_http_client(quota_rate_per_second=quota_rate_per_second)
     now = datetime.now(UTC)
     return await discover_markets(
         http_client=client,
@@ -291,11 +259,7 @@ async def discover_resolved_sports_markets(
     )
 
 
-def _analysis_window_end(
-    *,
-    market: Mapping[str, Any],
-    now: datetime,
-) -> datetime | None:
+def _analysis_window_end(*, market: Mapping[str, Any], now: datetime) -> datetime | None:
     status = str(market.get("status", "")).lower()
     if status in {"settled", "finalized"}:
         return end_date_utc(market)
@@ -303,11 +267,7 @@ def _analysis_window_end(
 
 
 async def analyze_market_trade_window(
-    *,
-    market: Mapping[str, Any],
-    lookback_days: int,
-    entry_price: float,
-    now: datetime | None = None,
+    *, market: Mapping[str, Any], lookback_days: int, entry_price: float, now: datetime | None = None
 ) -> dict[str, Any] | None:
     """
     Load a market's trade path over the analysis window and attach threshold diagnostics.
@@ -336,11 +296,7 @@ async def analyze_market_trade_window(
         current_price = float(current_trade.price)
         if previous_price < entry_price <= current_price:
             crossed_entry = True
-            entry_cross_time = pd.Timestamp(
-                int(current_trade.ts_event),
-                unit="ns",
-                tz="UTC",
-            ).isoformat()
+            entry_cross_time = pd.Timestamp(int(current_trade.ts_event), unit="ns", tz="UTC").isoformat()
             break
 
     snapshot = dict(market)
@@ -369,12 +325,7 @@ async def select_breakout_markets_per_game(
     normalized_now = now if now is not None else datetime.now(UTC)
     grouped: defaultdict[str, list[dict[str, Any]]] = defaultdict(list)
     for market in markets:
-        event_key = str(
-            market.get("event_ticker")
-            or market.get("event_title")
-            or market.get("ticker")
-            or "",
-        ).strip()
+        event_key = str(market.get("event_ticker") or market.get("event_title") or market.get("ticker") or "").strip()
         if event_key:
             grouped[event_key].append(market)
 
@@ -389,10 +340,7 @@ async def select_breakout_markets_per_game(
             for market in event_markets
             for snapshot in [
                 await analyze_market_trade_window(
-                    market=market,
-                    lookback_days=lookback_days,
-                    entry_price=entry_price,
-                    now=normalized_now,
+                    market=market, lookback_days=lookback_days, entry_price=entry_price, now=normalized_now
                 )
             ]
             if snapshot is not None and snapshot.get("window_trades")
@@ -405,10 +353,7 @@ async def select_breakout_markets_per_game(
         if crossed:
             chosen = min(
                 crossed,
-                key=lambda market: (
-                    str(market.get("entry_cross_time") or ""),
-                    -float(market.get("volume") or 0.0),
-                ),
+                key=lambda market: (str(market.get("entry_cross_time") or ""), -float(market.get("volume") or 0.0)),
             )
         else:
             chosen = min(
@@ -418,24 +363,16 @@ async def select_breakout_markets_per_game(
                     -float(market.get("volume") or 0.0),
                 ),
             )
-        opponent = max(
-            snapshots,
-            key=lambda market: float(market.get("first_window_price") or 0.0),
-        )
+        opponent = max(snapshots, key=lambda market: float(market.get("first_window_price") or 0.0))
 
         chosen["opponent_ticker"] = opponent.get("ticker")
         chosen["opponent_side"] = opponent.get("yes_sub_title")
         chosen["opponent_first_window_price"] = opponent.get("first_window_price")
-        chosen["event_total_volume"] = sum(
-            float(m.get("volume") or 0.0) for m in snapshots
-        )
+        chosen["event_total_volume"] = sum(float(m.get("volume") or 0.0) for m in snapshots)
         selected.append(chosen)
 
     selected.sort(
-        key=lambda market: float(
-            market.get("event_total_volume") or market.get("volume") or 0.0
-        ),
-        reverse=True,
+        key=lambda market: float(market.get("event_total_volume") or market.get("volume") or 0.0), reverse=True
     )
     return selected[:max_results] if max_results is not None else selected
 
@@ -460,11 +397,7 @@ async def load_market_bars(
     try:
         instrument = market_dict_to_instrument(dict(market))
         series_ticker = str(market.get("series_ticker", ""))
-        loader = KalshiDataLoader(
-            instrument=instrument,
-            series_ticker=series_ticker,
-            http_client=http_client,
-        )
+        loader = KalshiDataLoader(instrument=instrument, series_ticker=series_ticker, http_client=http_client)
 
         bars: list[Bar] = []
         chunk_delta = pd.Timedelta(minutes=chunk_minutes)
@@ -473,13 +406,7 @@ async def load_market_bars(
             chunk_end = min(chunk_start + chunk_delta, end)
             for attempt in range(max_retries + 1):
                 try:
-                    bars.extend(
-                        await loader.load_bars(
-                            start=chunk_start,
-                            end=chunk_end,
-                            interval=interval,
-                        )
-                    )
+                    bars.extend(await loader.load_bars(start=chunk_start, end=chunk_end, interval=interval))
                     break
                 except RuntimeError as rt_err:
                     if "429" not in str(rt_err) or attempt >= max_retries:
@@ -497,9 +424,7 @@ async def load_market_bars(
         if closes:
             price_range = max(closes) - min(closes)
             if price_range < min_price_range:
-                print(
-                    f"  skip {ticker}: price range {price_range:.3f} < {min_price_range:.3f}"
-                )
+                print(f"  skip {ticker}: price range {price_range:.3f} < {min_price_range:.3f}")
                 return None
 
         return loader, bars

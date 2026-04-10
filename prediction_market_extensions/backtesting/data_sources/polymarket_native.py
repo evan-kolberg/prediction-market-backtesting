@@ -9,21 +9,13 @@ from urllib.parse import urlparse
 
 import msgspec
 
-from prediction_market_extensions.adapters.polymarket.loaders import (
-    PolymarketDataLoader,
-)
+from prediction_market_extensions.adapters.polymarket.loaders import PolymarketDataLoader
 
 from prediction_market_extensions.backtesting.data_sources._common import env_value
 from prediction_market_extensions.backtesting.data_sources._common import is_disabled
-from prediction_market_extensions.backtesting.data_sources._common import (
-    looks_like_local_path,
-)
-from prediction_market_extensions.backtesting.data_sources._common import (
-    normalize_urlish,
-)
-from prediction_market_extensions.backtesting.data_sources._common import (
-    trim_url_suffix,
-)
+from prediction_market_extensions.backtesting.data_sources._common import looks_like_local_path
+from prediction_market_extensions.backtesting.data_sources._common import normalize_urlish
+from prediction_market_extensions.backtesting.data_sources._common import trim_url_suffix
 
 
 POLYMARKET_GAMMA_BASE_URL_ENV = "POLYMARKET_GAMMA_BASE_URL"
@@ -54,9 +46,9 @@ class PolymarketNativeLoaderConfig:
     trade_api_base_url: str | None
 
 
-_CURRENT_POLYMARKET_NATIVE_LOADER_CONFIG: ContextVar[
-    PolymarketNativeLoaderConfig | None
-] = ContextVar("polymarket_native_loader_config", default=None)
+_CURRENT_POLYMARKET_NATIVE_LOADER_CONFIG: ContextVar[PolymarketNativeLoaderConfig | None] = ContextVar(
+    "polymarket_native_loader_config", default=None
+)
 
 
 def _current_loader_config() -> PolymarketNativeLoaderConfig | None:
@@ -73,8 +65,7 @@ class RunnerPolymarketDataLoader(PolymarketDataLoader):
             value = env_value(os.getenv(POLYMARKET_GAMMA_BASE_URL_ENV))
         if is_disabled(value) or value is None:
             raise ValueError(
-                "Polymarket native data source requires a gamma base URL via "
-                "DATA.sources or POLYMARKET_GAMMA_BASE_URL."
+                "Polymarket native data source requires a gamma base URL via DATA.sources or POLYMARKET_GAMMA_BASE_URL."
             )
         return trim_url_suffix(value, _POLYMARKET_GAMMA_SUFFIXES)
 
@@ -87,8 +78,7 @@ class RunnerPolymarketDataLoader(PolymarketDataLoader):
             value = env_value(os.getenv(POLYMARKET_CLOB_BASE_URL_ENV))
         if is_disabled(value) or value is None:
             raise ValueError(
-                "Polymarket native data source requires a clob base URL via "
-                "DATA.sources or POLYMARKET_CLOB_BASE_URL."
+                "Polymarket native data source requires a clob base URL via DATA.sources or POLYMARKET_CLOB_BASE_URL."
             )
         return trim_url_suffix(value, _POLYMARKET_CLOB_SUFFIXES)
 
@@ -107,19 +97,13 @@ class RunnerPolymarketDataLoader(PolymarketDataLoader):
         return trim_url_suffix(value, _POLYMARKET_TRADES_SUFFIXES)
 
     @classmethod
-    async def _fetch_market_by_slug(
-        cls,
-        slug: str,
-        http_client,
-    ) -> dict[str, Any]:
+    async def _fetch_market_by_slug(cls, slug: str, http_client) -> dict[str, Any]:
         gamma_base_url = cls._configured_gamma_base_url()
         response = await http_client.get(url=f"{gamma_base_url}/markets/slug/{slug}")
         if response.status == 404:
             raise ValueError(f"Market with slug '{slug}' not found")
         if response.status != 200:
-            raise RuntimeError(
-                f"HTTP request failed with status {response.status}: {response.body.decode('utf-8')}",
-            )
+            raise RuntimeError(f"HTTP request failed with status {response.status}: {response.body.decode('utf-8')}")
 
         data = msgspec.json.decode(response.body)
         if isinstance(data, list):
@@ -130,36 +114,21 @@ class RunnerPolymarketDataLoader(PolymarketDataLoader):
             market = data
 
         if not isinstance(market, dict):
-            raise RuntimeError(
-                f"Unexpected response type for slug '{slug}': {type(market).__name__}",
-            )
+            raise RuntimeError(f"Unexpected response type for slug '{slug}': {type(market).__name__}")
         return market
 
     @classmethod
-    async def _fetch_market_details(
-        cls,
-        condition_id: str,
-        http_client,
-    ) -> dict[str, Any]:
+    async def _fetch_market_details(cls, condition_id: str, http_client) -> dict[str, Any]:
         clob_base_url = cls._configured_clob_base_url()
         response = await http_client.get(url=f"{clob_base_url}/markets/{condition_id}")
         if response.status != 200:
-            raise RuntimeError(
-                f"HTTP request failed with status {response.status}: {response.body.decode('utf-8')}",
-            )
+            raise RuntimeError(f"HTTP request failed with status {response.status}: {response.body.decode('utf-8')}")
         return msgspec.json.decode(response.body)
 
     @classmethod
-    async def _fetch_market_fee_rate_bps(
-        cls,
-        token_id: str,
-        http_client,
-    ):
+    async def _fetch_market_fee_rate_bps(cls, token_id: str, http_client):
         clob_base_url = cls._configured_clob_base_url()
-        response = await http_client.get(
-            url=f"{clob_base_url}/fee-rate",
-            params={"token_id": token_id},
-        )
+        response = await http_client.get(url=f"{clob_base_url}/fee-rate", params={"token_id": token_id})
         if response.status != 200:
             return None
 
@@ -173,22 +142,13 @@ class RunnerPolymarketDataLoader(PolymarketDataLoader):
         return cls._coerce_fee_rate_bps(payload.get("base_fee"))
 
     @classmethod
-    async def _fetch_event_by_slug(
-        cls,
-        slug: str,
-        http_client,
-    ) -> dict[str, Any]:
+    async def _fetch_event_by_slug(cls, slug: str, http_client) -> dict[str, Any]:
         gamma_base_url = cls._configured_gamma_base_url()
-        response = await http_client.get(
-            url=f"{gamma_base_url}/events",
-            params={"slug": slug},
-        )
+        response = await http_client.get(url=f"{gamma_base_url}/events", params={"slug": slug})
         if response.status == 404:
             raise ValueError(f"Event with slug '{slug}' not found")
         if response.status != 200:
-            raise RuntimeError(
-                f"HTTP request failed with status {response.status}: {response.body.decode('utf-8')}",
-            )
+            raise RuntimeError(f"HTTP request failed with status {response.status}: {response.body.decode('utf-8')}")
 
         events = msgspec.json.decode(response.body)
         if not events:
@@ -196,12 +156,7 @@ class RunnerPolymarketDataLoader(PolymarketDataLoader):
         return events[0]
 
     async def fetch_events(
-        self,
-        active: bool = True,
-        closed: bool = False,
-        archived: bool = False,
-        limit: int = 100,
-        offset: int = 0,
+        self, active: bool = True, closed: bool = False, archived: bool = False, limit: int = 100, offset: int = 0
     ) -> list[dict[str, Any]]:
         gamma_base_url = self._configured_gamma_base_url()
         params = {
@@ -211,23 +166,13 @@ class RunnerPolymarketDataLoader(PolymarketDataLoader):
             "limit": str(limit),
             "offset": str(offset),
         }
-        response = await self._http_client.get(
-            url=f"{gamma_base_url}/events",
-            params=params,
-        )
+        response = await self._http_client.get(url=f"{gamma_base_url}/events", params=params)
         if response.status != 200:
-            raise RuntimeError(
-                f"HTTP request failed with status {response.status}: {response.body.decode('utf-8')}",
-            )
+            raise RuntimeError(f"HTTP request failed with status {response.status}: {response.body.decode('utf-8')}")
         return msgspec.json.decode(response.body)
 
     async def fetch_markets(
-        self,
-        active: bool = True,
-        closed: bool = False,
-        archived: bool = False,
-        limit: int = 100,
-        offset: int = 0,
+        self, active: bool = True, closed: bool = False, archived: bool = False, limit: int = 100, offset: int = 0
     ) -> list[dict]:
         gamma_base_url = self._configured_gamma_base_url()
         params = {
@@ -237,14 +182,9 @@ class RunnerPolymarketDataLoader(PolymarketDataLoader):
             "limit": str(limit),
             "offset": str(offset),
         }
-        response = await self._http_client.get(
-            url=f"{gamma_base_url}/markets",
-            params=params,
-        )
+        response = await self._http_client.get(url=f"{gamma_base_url}/markets", params=params)
         if response.status != 200:
-            raise RuntimeError(
-                f"HTTP request failed with status {response.status}: {response.body.decode('utf-8')}",
-            )
+            raise RuntimeError(f"HTTP request failed with status {response.status}: {response.body.decode('utf-8')}")
         return msgspec.json.decode(response.body)
 
     async def fetch_trades(
@@ -262,11 +202,7 @@ class RunnerPolymarketDataLoader(PolymarketDataLoader):
         while True:
             response = await self._http_client.get(
                 url=f"{trade_api_base_url}/trades",
-                params={
-                    "market": condition_id,
-                    "limit": page_limit,
-                    "offset": offset,
-                },
+                params={"market": condition_id, "limit": page_limit, "offset": offset},
             )
             if response.status != 200:
                 body_text = response.body.decode("utf-8")
@@ -274,11 +210,9 @@ class RunnerPolymarketDataLoader(PolymarketDataLoader):
                     raise RuntimeError(
                         "Polymarket public trades API hit its historical offset ceiling. "
                         "Use a lower-activity market or another historical data source. "
-                        f"API response: {body_text}",
+                        f"API response: {body_text}"
                     )
-                raise RuntimeError(
-                    f"HTTP request failed with status {response.status}: {body_text}",
-                )
+                raise RuntimeError(f"HTTP request failed with status {response.status}: {body_text}")
 
             data = msgspec.json.decode(response.body)
             if not data:
@@ -290,10 +224,7 @@ class RunnerPolymarketDataLoader(PolymarketDataLoader):
                 if (end_ts is None or trade["timestamp"] <= end_ts)
                 and (start_ts is None or trade["timestamp"] >= start_ts)
             )
-            if (
-                start_ts is not None
-                and min(trade["timestamp"] for trade in data) < start_ts
-            ):
+            if start_ts is not None and min(trade["timestamp"] for trade in data) < start_ts:
                 break
 
             offset += len(data)
@@ -304,10 +235,7 @@ class RunnerPolymarketDataLoader(PolymarketDataLoader):
 
 
 def _summary_from_overrides(
-    *,
-    gamma_base_url: str | None,
-    clob_base_url: str | None,
-    trade_api_base_url: str | None,
+    *, gamma_base_url: str | None, clob_base_url: str | None, trade_api_base_url: str | None
 ) -> str:
     parts: list[str] = []
     if gamma_base_url is not None:
@@ -324,12 +252,7 @@ def _summary_from_overrides(
     return "Polymarket source: native (" + ", ".join(parts) + ")"
 
 
-def _normalized_override(
-    value: str | None,
-    *,
-    env_name: str,
-    suffixes: tuple[str, ...],
-) -> str | None:
+def _normalized_override(value: str | None, *, env_name: str, suffixes: tuple[str, ...]) -> str | None:
     normalized = env_value(value)
     if normalized is None or is_disabled(normalized):
         return None
@@ -348,9 +271,7 @@ def _parse_named_source(raw_source: str) -> tuple[str | None, str]:
             continue
         normalized_value = value.strip()
         if not normalized_value:
-            raise ValueError(
-                f"Polymarket source {raw_source!r} is missing a URL value."
-            )
+            raise ValueError(f"Polymarket source {raw_source!r} is missing a URL value.")
         return env_name, normalized_value
     return None, raw_source
 
@@ -381,26 +302,17 @@ def _infer_env_name_from_url(url: str) -> str:
 
 
 def _normalized_env_updates(
-    *,
-    gamma_base_url: str | None,
-    clob_base_url: str | None,
-    trade_api_base_url: str | None,
+    *, gamma_base_url: str | None, clob_base_url: str | None, trade_api_base_url: str | None
 ) -> dict[str, str | None]:
     return {
         POLYMARKET_GAMMA_BASE_URL_ENV: (
-            trim_url_suffix(gamma_base_url, _POLYMARKET_GAMMA_SUFFIXES)
-            if gamma_base_url is not None
-            else None
+            trim_url_suffix(gamma_base_url, _POLYMARKET_GAMMA_SUFFIXES) if gamma_base_url is not None else None
         ),
         POLYMARKET_CLOB_BASE_URL_ENV: (
-            trim_url_suffix(clob_base_url, _POLYMARKET_CLOB_SUFFIXES)
-            if clob_base_url is not None
-            else None
+            trim_url_suffix(clob_base_url, _POLYMARKET_CLOB_SUFFIXES) if clob_base_url is not None else None
         ),
         POLYMARKET_TRADE_API_BASE_URL_ENV: (
-            trim_url_suffix(trade_api_base_url, _POLYMARKET_TRADES_SUFFIXES)
-            if trade_api_base_url is not None
-            else None
+            trim_url_suffix(trade_api_base_url, _POLYMARKET_TRADES_SUFFIXES) if trade_api_base_url is not None else None
         ),
     }
 
@@ -408,17 +320,12 @@ def _normalized_env_updates(
 def _resolve_explicit_sources(
     sources: Sequence[str],
 ) -> tuple[PolymarketNativeDataSourceSelection, PolymarketNativeLoaderConfig]:
-    updates = _normalized_env_updates(
-        gamma_base_url=None,
-        clob_base_url=None,
-        trade_api_base_url=None,
-    )
+    updates = _normalized_env_updates(gamma_base_url=None, clob_base_url=None, trade_api_base_url=None)
 
     for raw_source in sources:
         if looks_like_local_path(raw_source):
             raise ValueError(
-                "Native Polymarket trade-tick sources do not support local path inputs yet. "
-                f"Received {raw_source!r}.",
+                f"Native Polymarket trade-tick sources do not support local path inputs yet. Received {raw_source!r}."
             )
 
         env_name, candidate = _parse_named_source(raw_source)
@@ -426,9 +333,7 @@ def _resolve_explicit_sources(
         resolved_env_name = env_name or _infer_env_name_from_url(normalized)
         existing = updates.get(resolved_env_name)
         if existing is not None and existing != normalized:
-            raise ValueError(
-                f"Polymarket native sources received multiple values for {resolved_env_name}."
-            )
+            raise ValueError(f"Polymarket native sources received multiple values for {resolved_env_name}.")
         updates[resolved_env_name] = normalized
 
     return (
@@ -437,7 +342,7 @@ def _resolve_explicit_sources(
                 gamma_base_url=updates[POLYMARKET_GAMMA_BASE_URL_ENV],
                 clob_base_url=updates[POLYMARKET_CLOB_BASE_URL_ENV],
                 trade_api_base_url=updates[POLYMARKET_TRADE_API_BASE_URL_ENV],
-            ),
+            )
         ),
         PolymarketNativeLoaderConfig(
             gamma_base_url=updates[POLYMARKET_GAMMA_BASE_URL_ENV],
@@ -471,15 +376,11 @@ def resolve_polymarket_native_loader_config(
     return (
         PolymarketNativeDataSourceSelection(
             summary=_summary_from_overrides(
-                gamma_base_url=gamma_base_url,
-                clob_base_url=clob_base_url,
-                trade_api_base_url=trade_api_base_url,
-            ),
+                gamma_base_url=gamma_base_url, clob_base_url=clob_base_url, trade_api_base_url=trade_api_base_url
+            )
         ),
         PolymarketNativeLoaderConfig(
-            gamma_base_url=gamma_base_url,
-            clob_base_url=clob_base_url,
-            trade_api_base_url=trade_api_base_url,
+            gamma_base_url=gamma_base_url, clob_base_url=clob_base_url, trade_api_base_url=trade_api_base_url
         ),
     )
 
@@ -502,8 +403,7 @@ def resolve_polymarket_native_data_source_selection(
 
 @contextmanager
 def configured_polymarket_native_data_source(
-    *,
-    sources: Sequence[str] | None = None,
+    *, sources: Sequence[str] | None = None
 ) -> Iterator[PolymarketNativeDataSourceSelection]:
     selection, config = resolve_polymarket_native_loader_config(sources=sources)
     token = _CURRENT_POLYMARKET_NATIVE_LOADER_CONFIG.set(config)

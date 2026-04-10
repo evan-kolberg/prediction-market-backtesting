@@ -28,15 +28,9 @@ from typing import Any
 import msgspec
 import pandas as pd
 
-from nautilus_trader.adapters.polymarket.common.constants import (
-    POLYMARKET_HTTP_RATE_LIMIT,
-)
-from prediction_market_extensions.adapters.polymarket.gamma_markets import (
-    infer_gamma_token_winners,
-)
-from nautilus_trader.adapters.polymarket.common.parsing import (
-    parse_polymarket_instrument,
-)
+from nautilus_trader.adapters.polymarket.common.constants import POLYMARKET_HTTP_RATE_LIMIT
+from prediction_market_extensions.adapters.polymarket.gamma_markets import infer_gamma_token_winners
+from nautilus_trader.adapters.polymarket.common.parsing import parse_polymarket_instrument
 from nautilus_trader.core import nautilus_pyo3
 from nautilus_trader.core.correctness import PyCondition
 from nautilus_trader.core.datetime import secs_to_nanos
@@ -88,30 +82,19 @@ class PolymarketDataLoader:
 
     @staticmethod
     def _create_http_client() -> nautilus_pyo3.HttpClient:
-        return nautilus_pyo3.HttpClient(
-            default_quota=nautilus_pyo3.Quota.rate_per_minute(
-                POLYMARKET_HTTP_RATE_LIMIT
-            ),
-        )
+        return nautilus_pyo3.HttpClient(default_quota=nautilus_pyo3.Quota.rate_per_minute(POLYMARKET_HTTP_RATE_LIMIT))
 
     @staticmethod
-    async def _fetch_market_by_slug(
-        slug: str,
-        http_client: nautilus_pyo3.HttpClient,
-    ) -> dict[str, Any]:
+    async def _fetch_market_by_slug(slug: str, http_client: nautilus_pyo3.HttpClient) -> dict[str, Any]:
         PyCondition.valid_string(slug, "slug")
 
-        response = await http_client.get(
-            url=f"https://gamma-api.polymarket.com/markets/slug/{slug}",
-        )
+        response = await http_client.get(url=f"https://gamma-api.polymarket.com/markets/slug/{slug}")
 
         if response.status == 404:
             raise ValueError(f"Market with slug '{slug}' not found")
 
         if response.status != 200:
-            raise RuntimeError(
-                f"HTTP request failed with status {response.status}: {response.body.decode('utf-8')}",
-            )
+            raise RuntimeError(f"HTTP request failed with status {response.status}: {response.body.decode('utf-8')}")
 
         data = msgspec.json.decode(response.body)
 
@@ -123,27 +106,18 @@ class PolymarketDataLoader:
             market = data
 
         if not isinstance(market, dict):
-            raise RuntimeError(
-                f"Unexpected response type for slug '{slug}': {type(market).__name__}",
-            )
+            raise RuntimeError(f"Unexpected response type for slug '{slug}': {type(market).__name__}")
 
         return market
 
     @staticmethod
-    async def _fetch_market_details(
-        condition_id: str,
-        http_client: nautilus_pyo3.HttpClient,
-    ) -> dict[str, Any]:
+    async def _fetch_market_details(condition_id: str, http_client: nautilus_pyo3.HttpClient) -> dict[str, Any]:
         PyCondition.valid_string(condition_id, "condition_id")
 
-        response = await http_client.get(
-            url=f"https://clob.polymarket.com/markets/{condition_id}",
-        )
+        response = await http_client.get(url=f"https://clob.polymarket.com/markets/{condition_id}")
 
         if response.status != 200:
-            raise RuntimeError(
-                f"HTTP request failed with status {response.status}: {response.body.decode('utf-8')}",
-            )
+            raise RuntimeError(f"HTTP request failed with status {response.status}: {response.body.decode('utf-8')}")
 
         return msgspec.json.decode(response.body)
 
@@ -158,17 +132,10 @@ class PolymarketDataLoader:
             return None
 
     @classmethod
-    async def _fetch_market_fee_rate_bps(
-        cls,
-        token_id: str,
-        http_client: nautilus_pyo3.HttpClient,
-    ) -> Decimal | None:
+    async def _fetch_market_fee_rate_bps(cls, token_id: str, http_client: nautilus_pyo3.HttpClient) -> Decimal | None:
         PyCondition.valid_string(token_id, "token_id")
 
-        response = await http_client.get(
-            url=cls._FEE_RATE_URL,
-            params={"token_id": token_id},
-        )
+        response = await http_client.get(url=cls._FEE_RATE_URL, params={"token_id": token_id})
         if response.status != 200:
             return None
 
@@ -184,17 +151,10 @@ class PolymarketDataLoader:
 
     @classmethod
     async def _enrich_market_details_with_fee_rate(
-        cls,
-        market_details: dict[str, Any],
-        token_id: str,
-        http_client: nautilus_pyo3.HttpClient,
+        cls, market_details: dict[str, Any], token_id: str, http_client: nautilus_pyo3.HttpClient
     ) -> dict[str, Any]:
-        existing_maker_fee = cls._coerce_fee_rate_bps(
-            market_details.get("maker_base_fee")
-        )
-        existing_taker_fee = cls._coerce_fee_rate_bps(
-            market_details.get("taker_base_fee")
-        )
+        existing_maker_fee = cls._coerce_fee_rate_bps(market_details.get("maker_base_fee"))
+        existing_taker_fee = cls._coerce_fee_rate_bps(market_details.get("taker_base_fee"))
         if (existing_maker_fee is not None and existing_maker_fee > 0) or (
             existing_taker_fee is not None and existing_taker_fee > 0
         ):
@@ -210,24 +170,16 @@ class PolymarketDataLoader:
         return enriched
 
     @staticmethod
-    async def _fetch_event_by_slug(
-        slug: str,
-        http_client: nautilus_pyo3.HttpClient,
-    ) -> dict[str, Any]:
+    async def _fetch_event_by_slug(slug: str, http_client: nautilus_pyo3.HttpClient) -> dict[str, Any]:
         PyCondition.valid_string(slug, "slug")
 
-        response = await http_client.get(
-            url="https://gamma-api.polymarket.com/events",
-            params={"slug": slug},
-        )
+        response = await http_client.get(url="https://gamma-api.polymarket.com/events", params={"slug": slug})
 
         if response.status == 404:
             raise ValueError(f"Event with slug '{slug}' not found")
 
         if response.status != 200:
-            raise RuntimeError(
-                f"HTTP request failed with status {response.status}: {response.body.decode('utf-8')}",
-            )
+            raise RuntimeError(f"HTTP request failed with status {response.status}: {response.body.decode('utf-8')}")
 
         events = msgspec.json.decode(response.body)
 
@@ -238,10 +190,7 @@ class PolymarketDataLoader:
 
     @classmethod
     async def from_market_slug(
-        cls,
-        slug: str,
-        token_index: int = 0,
-        http_client: nautilus_pyo3.HttpClient | None = None,
+        cls, slug: str, token_index: int = 0, http_client: nautilus_pyo3.HttpClient | None = None
     ) -> PolymarketDataLoader:
         """
         Create a loader by fetching market data from Polymarket APIs.
@@ -278,9 +227,7 @@ class PolymarketDataLoader:
             raise ValueError(f"No tokens found for market: {condition_id}")
 
         if token_index >= len(tokens):
-            raise ValueError(
-                f"Token index {token_index} out of range (market has {len(tokens)} tokens)",
-            )
+            raise ValueError(f"Token index {token_index} out of range (market has {len(tokens)} tokens)")
 
         token = tokens[token_index]
         token_id = token["token_id"]
@@ -292,49 +239,25 @@ class PolymarketDataLoader:
                 market_token["winner"] = winner_lookup[token_outcome]
 
         market_details["tokens"] = tokens
-        market_details["market_slug"] = market.get("slug") or market_details.get(
-            "market_slug"
-        )
-        market_details["question"] = market.get("question") or market_details.get(
-            "question"
-        )
-        market_details["description"] = market.get("description") or market_details.get(
-            "description"
-        )
+        market_details["market_slug"] = market.get("slug") or market_details.get("market_slug")
+        market_details["question"] = market.get("question") or market_details.get("question")
+        market_details["description"] = market.get("description") or market_details.get("description")
         market_details["closed"] = market.get("closed", market_details.get("closed"))
-        market_details["closedTime"] = market.get("closedTime") or market_details.get(
-            "closedTime"
+        market_details["closedTime"] = market.get("closedTime") or market_details.get("closedTime")
+        market_details["uma_resolution_status"] = market.get("umaResolutionStatus") or market_details.get(
+            "uma_resolution_status"
         )
-        market_details["uma_resolution_status"] = market.get(
-            "umaResolutionStatus"
-        ) or market_details.get("uma_resolution_status")
         if is_50_50_outcome:
             market_details["is_50_50_outcome"] = True
-        market_details = await cls._enrich_market_details_with_fee_rate(
-            market_details,
-            token_id,
-            client,
-        )
+        market_details = await cls._enrich_market_details_with_fee_rate(market_details, token_id, client)
 
-        instrument = parse_polymarket_instrument(
-            market_info=market_details,
-            token_id=token_id,
-            outcome=outcome,
-        )
+        instrument = parse_polymarket_instrument(market_info=market_details, token_id=token_id, outcome=outcome)
 
-        return cls(
-            instrument=instrument,
-            token_id=token_id,
-            condition_id=condition_id,
-            http_client=client,
-        )
+        return cls(instrument=instrument, token_id=token_id, condition_id=condition_id, http_client=client)
 
     @classmethod
     async def from_event_slug(
-        cls,
-        slug: str,
-        token_index: int = 0,
-        http_client: nautilus_pyo3.HttpClient | None = None,
+        cls, slug: str, token_index: int = 0, http_client: nautilus_pyo3.HttpClient | None = None
     ) -> list[PolymarketDataLoader]:
         """
         Create loaders for all markets in an event.
@@ -384,41 +307,22 @@ class PolymarketDataLoader:
 
             if token_index >= len(tokens):
                 raise ValueError(
-                    f"Token index {token_index} out of range "
-                    f"(market {condition_id} has {len(tokens)} tokens)",
+                    f"Token index {token_index} out of range (market {condition_id} has {len(tokens)} tokens)"
                 )
 
             token = tokens[token_index]
             token_id = token["token_id"]
             outcome = token["outcome"]
-            market_details = await cls._enrich_market_details_with_fee_rate(
-                market_details,
-                token_id,
-                client,
-            )
+            market_details = await cls._enrich_market_details_with_fee_rate(market_details, token_id, client)
 
-            instrument = parse_polymarket_instrument(
-                market_info=market_details,
-                token_id=token_id,
-                outcome=outcome,
-            )
+            instrument = parse_polymarket_instrument(market_info=market_details, token_id=token_id, outcome=outcome)
 
-            loaders.append(
-                cls(
-                    instrument=instrument,
-                    token_id=token_id,
-                    condition_id=condition_id,
-                    http_client=client,
-                ),
-            )
+            loaders.append(cls(instrument=instrument, token_id=token_id, condition_id=condition_id, http_client=client))
 
         return loaders
 
     @staticmethod
-    async def query_market_by_slug(
-        slug: str,
-        http_client: nautilus_pyo3.HttpClient | None = None,
-    ) -> dict[str, Any]:
+    async def query_market_by_slug(slug: str, http_client: nautilus_pyo3.HttpClient | None = None) -> dict[str, Any]:
         """
         Query market data by slug without requiring a loader instance.
 
@@ -447,8 +351,7 @@ class PolymarketDataLoader:
 
     @staticmethod
     async def query_market_details(
-        condition_id: str,
-        http_client: nautilus_pyo3.HttpClient | None = None,
+        condition_id: str, http_client: nautilus_pyo3.HttpClient | None = None
     ) -> dict[str, Any]:
         """
         Query detailed market information without requiring a loader instance.
@@ -475,10 +378,7 @@ class PolymarketDataLoader:
         return await PolymarketDataLoader._fetch_market_details(condition_id, client)
 
     @staticmethod
-    async def query_event_by_slug(
-        slug: str,
-        http_client: nautilus_pyo3.HttpClient | None = None,
-    ) -> dict[str, Any]:
+    async def query_event_by_slug(slug: str, http_client: nautilus_pyo3.HttpClient | None = None) -> dict[str, Any]:
         """
         Query event data by slug without requiring a loader instance.
 
@@ -526,11 +426,7 @@ class PolymarketDataLoader:
         """
         return self._condition_id
 
-    async def load_trades(
-        self,
-        start: pd.Timestamp | None = None,
-        end: pd.Timestamp | None = None,
-    ) -> list[TradeTick]:
+    async def load_trades(self, start: pd.Timestamp | None = None, end: pd.Timestamp | None = None) -> list[TradeTick]:
         """
         Load trade ticks from the Polymarket Data API.
 
@@ -559,23 +455,19 @@ class PolymarketDataLoader:
             raise ValueError(
                 "condition_id is required for this method. "
                 "Use from_market_slug() to create a loader with condition_id, "
-                "or pass condition_id to __init__()",
+                "or pass condition_id to __init__()"
             )
         if self._token_id is None:
             raise ValueError(
                 "token_id is required for this method. "
                 "Use from_market_slug() to create a loader with token_id, "
-                "or pass token_id to __init__()",
+                "or pass token_id to __init__()"
             )
 
         start_ts = int(start.timestamp()) if start is not None else None
         end_ts = int(end.timestamp()) if end is not None else None
 
-        raw_trades = await self.fetch_trades(
-            condition_id=self._condition_id,
-            start_ts=start_ts,
-            end_ts=end_ts,
-        )
+        raw_trades = await self.fetch_trades(condition_id=self._condition_id, start_ts=start_ts, end_ts=end_ts)
 
         # Filter by token_id (API returns trades for all tokens in the condition)
         token_trades = [t for t in raw_trades if t["asset"] == self._token_id]
@@ -618,12 +510,7 @@ class PolymarketDataLoader:
         return await self._fetch_event_by_slug(slug, self._http_client)
 
     async def fetch_events(
-        self,
-        active: bool = True,
-        closed: bool = False,
-        archived: bool = False,
-        limit: int = 100,
-        offset: int = 0,
+        self, active: bool = True, closed: bool = False, archived: bool = False, limit: int = 100, offset: int = 0
     ) -> list[dict[str, Any]]:
         """
         Fetch events from Polymarket Gamma API.
@@ -654,15 +541,10 @@ class PolymarketDataLoader:
             "limit": str(limit),
             "offset": str(offset),
         }
-        response = await self._http_client.get(
-            url="https://gamma-api.polymarket.com/events",
-            params=params,
-        )
+        response = await self._http_client.get(url="https://gamma-api.polymarket.com/events", params=params)
 
         if response.status != 200:
-            raise RuntimeError(
-                f"HTTP request failed with status {response.status}: {response.body.decode('utf-8')}",
-            )
+            raise RuntimeError(f"HTTP request failed with status {response.status}: {response.body.decode('utf-8')}")
 
         return msgspec.json.decode(response.body)
 
@@ -692,12 +574,7 @@ class PolymarketDataLoader:
         return event.get("markets", [])
 
     async def fetch_markets(
-        self,
-        active: bool = True,
-        closed: bool = False,
-        archived: bool = False,
-        limit: int = 100,
-        offset: int = 0,
+        self, active: bool = True, closed: bool = False, archived: bool = False, limit: int = 100, offset: int = 0
     ) -> list[dict]:
         """
         Fetch markets from Polymarket Gamma API.
@@ -728,15 +605,10 @@ class PolymarketDataLoader:
             "limit": str(limit),
             "offset": str(offset),
         }
-        response = await self._http_client.get(
-            url="https://gamma-api.polymarket.com/markets",
-            params=params,
-        )
+        response = await self._http_client.get(url="https://gamma-api.polymarket.com/markets", params=params)
 
         if response.status != 200:
-            raise RuntimeError(
-                f"HTTP request failed with status {response.status}: {response.body.decode('utf-8')}",
-            )
+            raise RuntimeError(f"HTTP request failed with status {response.status}: {response.body.decode('utf-8')}")
 
         return msgspec.json.decode(response.body)
 
@@ -804,11 +676,7 @@ class PolymarketDataLoader:
         return await self._fetch_market_details(condition_id, self._http_client)
 
     async def fetch_trades(
-        self,
-        condition_id: str,
-        limit: int = _TRADES_PAGE_LIMIT,
-        start_ts: int | None = None,
-        end_ts: int | None = None,
+        self, condition_id: str, limit: int = _TRADES_PAGE_LIMIT, start_ts: int | None = None, end_ts: int | None = None
     ) -> list[dict[str, Any]]:
         """
         Fetch trades from the Polymarket Data API.
@@ -846,16 +714,9 @@ class PolymarketDataLoader:
         page_limit = min(limit, self._TRADES_PAGE_LIMIT)
 
         while True:
-            params: dict[str, Any] = {
-                "market": condition_id,
-                "limit": page_limit,
-                "offset": offset,
-            }
+            params: dict[str, Any] = {"market": condition_id, "limit": page_limit, "offset": offset}
 
-            response = await self._http_client.get(
-                url="https://data-api.polymarket.com/trades",
-                params=params,
-            )
+            response = await self._http_client.get(url="https://data-api.polymarket.com/trades", params=params)
 
             if response.status != 200:
                 body_text = response.body.decode("utf-8")
@@ -863,11 +724,9 @@ class PolymarketDataLoader:
                     raise RuntimeError(
                         "Polymarket public trades API hit its historical offset ceiling. "
                         "Use a lower-activity market or another historical data source. "
-                        f"API response: {body_text}",
+                        f"API response: {body_text}"
                     )
-                raise RuntimeError(
-                    f"HTTP request failed with status {response.status}: {body_text}",
-                )
+                raise RuntimeError(f"HTTP request failed with status {response.status}: {body_text}")
 
             data = msgspec.json.decode(response.body)
 
@@ -881,10 +740,7 @@ class PolymarketDataLoader:
                 and (start_ts is None or trade["timestamp"] >= start_ts)
             )
 
-            if (
-                start_ts is not None
-                and min(trade["timestamp"] for trade in data) < start_ts
-            ):
+            if start_ts is not None and min(trade["timestamp"] for trade in data) < start_ts:
                 break
 
             offset += len(data)
@@ -894,10 +750,7 @@ class PolymarketDataLoader:
 
         return all_trades
 
-    def parse_trades(
-        self,
-        trades_data: list[dict],
-    ) -> list[TradeTick]:
+    def parse_trades(self, trades_data: list[dict]) -> list[TradeTick]:
         """
         Parse trade data into TradeTicks.
 
@@ -916,7 +769,7 @@ class PolymarketDataLoader:
             raise ValueError(
                 "token_id is required to parse trades. "
                 "Use from_market_slug() to create a loader with token_id, "
-                "or pass token_id to __init__()",
+                "or pass token_id to __init__()"
             )
 
         trades: list[TradeTick] = []
