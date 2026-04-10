@@ -36,6 +36,7 @@
 - Joint portfolio multi replay runners
 - Growing support for statistical optimizers
 
+Looking for the old version? That was renamed to [Version 1](https://github.com/evan-kolberg/prediction-market-backtesting/tree/v1)
 
 Backtesting framework for prediction market strategies on
 [Kalshi](https://kalshi.com) and [Polymarket](https://polymarket.com), built on
