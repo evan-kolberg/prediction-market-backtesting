@@ -90,7 +90,10 @@ REPORT = MarketReportConfig(count_key="quotes", count_label="Quotes", pnl_label=
 EXECUTION = ExecutionModelConfig(
     queue_position=True,
     latency_model=StaticLatencyConfig(
-        base_latency_ms=75.0, insert_latency_ms=10.0, update_latency_ms=5.0, cancel_latency_ms=5.0
+        base_latency_ms=75.0,
+        insert_latency_ms=10.0,
+        update_latency_ms=5.0,
+        cancel_latency_ms=5.0,
     ),
 )
 
