@@ -39,26 +39,27 @@ DETAIL_PLOT_PANELS = (
     "periodic_pnl",
     "yes_price",
     "allocation",
+    "total_drawdown",
     "drawdown",
+    "total_rolling_sharpe",
     "rolling_sharpe",
+    "total_cash_equity",
     "cash_equity",
     "monthly_returns",
+    "total_brier_advantage",
     "brier_advantage",
 )
 SUMMARY_REPORT_PATH = f"output/{NAME}_joint_portfolio.html"
 SUMMARY_PLOT_PANELS = (
     "total_equity",
-    "equity",
-    "market_pnl",
+    "total_drawdown",
+    "total_rolling_sharpe",
+    "total_cash_equity",
+    "total_brier_advantage",
     "periodic_pnl",
-    "yes_price",
-    "allocation",
-    "drawdown",
-    "rolling_sharpe",
-    "cash_equity",
     "monthly_returns",
-    "brier_advantage",
 )
+
 EMPTY_MESSAGE = "No Kalshi basket sims met the trade-tick requirements."
 PARTIAL_MESSAGE = "Completed {completed} of {total} joint-portfolio Kalshi replays."
 

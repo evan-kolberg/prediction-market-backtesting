@@ -57,7 +57,10 @@ TRADE_TICK_JOINT_RUNNERS = [
     Path("backtests/polymarket_trade_tick_joint_portfolio_runner.py"),
 ]
 
-SCRIPT_ENTRYPOINT_PATHS = [Path("scripts/pmxt_download_raws.py")]
+SCRIPT_ENTRYPOINT_PATHS = [
+    Path("scripts/pmxt_download_raws.py"),
+    Path("scripts/run_all_backtests.py"),
+]
 
 REPO_BOOTSTRAP_HELPERS = {Path("backtests/_script_helpers.py"), Path("scripts/_script_helpers.py")}
 
@@ -345,9 +348,9 @@ def test_pmxt_quote_tick_optimizer_runners_expose_explicit_search_configuration(
     assert parameter_search.data is data
     assert parameter_search.base_replay is base_replay
     assert parameter_search.strategy_spec is globals_dict["STRATEGY_SPEC"]
-    assert globals_dict["EMIT_HTML"] is False
+    assert globals_dict["EMIT_HTML"] is True
     assert globals_dict["CHART_OUTPUT_PATH"] == "output"
-    assert parameter_search.emit_html is False
+    assert parameter_search.emit_html is True
     assert parameter_search.chart_output_path == "output"
     assert dict(parameter_search.parameter_grid) == parameter_grid
     assert parameter_search.train_windows == train_windows

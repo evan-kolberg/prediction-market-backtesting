@@ -48,6 +48,10 @@ class MarketStatus(str, Enum):
 
 
 PANEL_TOTAL_EQUITY = "total_equity"
+PANEL_TOTAL_DRAWDOWN = "total_drawdown"
+PANEL_TOTAL_ROLLING_SHARPE = "total_rolling_sharpe"
+PANEL_TOTAL_CASH_EQUITY = "total_cash_equity"
+PANEL_TOTAL_BRIER_ADVANTAGE = "total_brier_advantage"
 PANEL_EQUITY = "equity"
 PANEL_MARKET_PNL = "market_pnl"
 PANEL_PERIODIC_PNL = "periodic_pnl"
@@ -61,6 +65,10 @@ PANEL_BRIER_ADVANTAGE = "brier_advantage"
 
 ALL_PLOT_PANELS = (
     PANEL_TOTAL_EQUITY,
+    PANEL_TOTAL_DRAWDOWN,
+    PANEL_TOTAL_ROLLING_SHARPE,
+    PANEL_TOTAL_CASH_EQUITY,
+    PANEL_TOTAL_BRIER_ADVANTAGE,
     PANEL_EQUITY,
     PANEL_MARKET_PNL,
     PANEL_PERIODIC_PNL,

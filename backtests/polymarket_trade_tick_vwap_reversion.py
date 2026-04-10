@@ -42,10 +42,14 @@ DETAIL_PLOT_PANELS = (
     "periodic_pnl",
     "yes_price",
     "allocation",
+    "total_drawdown",
     "drawdown",
+    "total_rolling_sharpe",
     "rolling_sharpe",
+    "total_cash_equity",
     "cash_equity",
     "monthly_returns",
+    "total_brier_advantage",
     "brier_advantage",
 )
 

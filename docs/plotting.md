@@ -54,13 +54,13 @@ when many sims are present.
 
 Inside the summary report there is another important split:
 
-- `total_equity`, `periodic_pnl`, and `monthly_returns` collapse the basket into
-  one aggregate series, so they stay readable even when the basket gets large
+- `total_equity`, `total_drawdown`, `total_rolling_sharpe`,
+  `total_cash_equity`, `total_brier_advantage`, `periodic_pnl`, and
+  `monthly_returns` collapse the basket into one aggregate series, so they stay
+  readable even when the basket gets large
 - `equity`, `allocation`, `drawdown`, `rolling_sharpe`, `cash_equity`, and
   `brier_advantage` keep one line per market or sim, so they are best when you
   still want cross-market comparison inside the same report
-- `brier_advantage` still works at the basket level because it groups by market
-  slug or labeled sim instead of assuming one isolated replay
 - `market_pnl` and `yes_price` are detail-heavy panels; they are usually better
   in per-sim charts because they get noisy quickly once the summary report
   would need one line or one marker stream per replay
@@ -73,6 +73,38 @@ default once the basket size grows.
 On dense single-sim `yes_price` panels, fill markers are still preserved, but
 the adapter may sample them down to a readable marker budget instead of
 drawing every single point.
+
+## Downsampling
+
+The plotting layer automatically downsamples equity curves that exceed 5 000
+data points before Bokeh serialization. This keeps HTML file sizes bounded
+regardless of how long the replay window is:
+
+| Input bars | Output bars | HTML size |
+| ---------- | ----------- | --------- |
+| 500        | 500         | ~0.5 MB   |
+| 10 000     | ~5 000      | ~0.9 MB   |
+| 100 000    | ~5 000      | ~0.9 MB   |
+| 446 000    | ~5 000      | ~0.9 MB   |
+
+The downsampler uses stride-based selection with important-point preservation:
+
+- fill bars are always kept so trade markers remain accurate
+- the equity peak and max-drawdown bar are always kept
+- the first and last bars are always kept
+- remaining budget is filled with evenly spaced bars
+
+Market price DataFrames, allocation DataFrames, and fill bar indices are all
+remapped in sync so panels stay consistent after reduction.
+
+Without downsampling a 446 K-bar backtest produced a 31 MB HTML file. With
+downsampling the same data produces under 1 MB. The `test_downsample_html_size`
+test suite enforces that a 100 K-bar backtest stays under 5 MB and that
+doubling bar count does not meaningfully increase file size.
+
+Summary reports built by the aggregate and joint-portfolio report paths also
+skip serializing per-market price series, fill events, and overlay curves when
+the selected `SUMMARY_PLOT_PANELS` do not include panels that render them.
 
 ## Output Types
 
@@ -172,6 +204,10 @@ The default naming rules are:
 The supported panel ids are:
 
 - `total_equity`
+- `total_drawdown`
+- `total_rolling_sharpe`
+- `total_cash_equity`
+- `total_brier_advantage`
 - `equity`
 - `market_pnl`
 - `periodic_pnl`
