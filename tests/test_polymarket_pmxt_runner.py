@@ -3,15 +3,11 @@ from __future__ import annotations
 import asyncio
 from types import SimpleNamespace
 
-from prediction_market_extensions.backtesting import (
-    _polymarket_quote_tick_pmxt_runner as pmxt_runner,
-)
-from prediction_market_extensions.backtesting._execution_config import (
-    ExecutionModelConfig,
-)
-from prediction_market_extensions.backtesting._execution_config import (
-    StaticLatencyConfig,
-)
+from prediction_market_extensions.backtesting import _prediction_market_runner as runner
+from prediction_market_extensions.backtesting._execution_config import ExecutionModelConfig
+from prediction_market_extensions.backtesting._execution_config import StaticLatencyConfig
+from prediction_market_extensions.backtesting._prediction_market_backtest import PredictionMarketBacktest
+from prediction_market_extensions.backtesting._prediction_market_runner import MarketDataConfig
 
 
 def test_pmxt_runner_uses_l2_execution_settings(monkeypatch):
@@ -31,13 +27,12 @@ def test_pmxt_runner_uses_l2_execution_settings(monkeypatch):
             }
         ]
 
-    monkeypatch.setattr(
-        pmxt_runner.PredictionMarketBacktest, "run_async", _fake_run_async
-    )
+    monkeypatch.setattr(PredictionMarketBacktest, "run_async", _fake_run_async)
 
     result = asyncio.run(
-        pmxt_runner.run_single_market_pmxt_backtest(
+        runner.run_single_market_backtest(
             name="pmxt_test",
+            data=MarketDataConfig(platform="polymarket", data_type="quote_tick", vendor="pmxt"),
             market_slug="demo-market",
             lookback_hours=1.0,
             end_time="1970-01-01T01:00:00Z",
@@ -48,9 +43,7 @@ def test_pmxt_runner_uses_l2_execution_settings(monkeypatch):
             emit_summary=False,
             emit_html=False,
             chart_output_path="output/pmxt_test_chart.html",
-            strategy_factory=lambda instrument_id: SimpleNamespace(
-                instrument_id=instrument_id
-            ),
+            strategy_factory=lambda instrument_id: SimpleNamespace(instrument_id=instrument_id),
         )
     )
 
@@ -82,13 +75,12 @@ def test_pmxt_runner_forwards_queue_position_and_latency(monkeypatch):
             }
         ]
 
-    monkeypatch.setattr(
-        pmxt_runner.PredictionMarketBacktest, "run_async", _fake_run_async
-    )
+    monkeypatch.setattr(PredictionMarketBacktest, "run_async", _fake_run_async)
 
     result = asyncio.run(
-        pmxt_runner.run_single_market_pmxt_backtest(
+        runner.run_single_market_backtest(
             name="pmxt_test",
+            data=MarketDataConfig(platform="polymarket", data_type="quote_tick", vendor="pmxt"),
             market_slug="demo-market",
             lookback_hours=1.0,
             end_time="1970-01-01T01:00:00Z",
@@ -96,16 +88,11 @@ def test_pmxt_runner_forwards_queue_position_and_latency(monkeypatch):
             initial_cash=100.0,
             emit_summary=False,
             emit_html=False,
-            strategy_factory=lambda instrument_id: SimpleNamespace(
-                instrument_id=instrument_id
-            ),
+            strategy_factory=lambda instrument_id: SimpleNamespace(instrument_id=instrument_id),
             execution=ExecutionModelConfig(
                 queue_position=True,
                 latency_model=StaticLatencyConfig(
-                    base_latency_ms=25.0,
-                    insert_latency_ms=10.0,
-                    update_latency_ms=5.0,
-                    cancel_latency_ms=2.0,
+                    base_latency_ms=25.0, insert_latency_ms=10.0, update_latency_ms=5.0, cancel_latency_ms=2.0
                 ),
             ),
         )
@@ -139,13 +126,12 @@ def test_pmxt_runner_respects_explicit_start_and_end_times(monkeypatch):
             }
         ]
 
-    monkeypatch.setattr(
-        pmxt_runner.PredictionMarketBacktest, "run_async", _fake_run_async
-    )
+    monkeypatch.setattr(PredictionMarketBacktest, "run_async", _fake_run_async)
 
     result = asyncio.run(
-        pmxt_runner.run_single_market_pmxt_backtest(
+        runner.run_single_market_backtest(
             name="pmxt_test",
+            data=MarketDataConfig(platform="polymarket", data_type="quote_tick", vendor="pmxt"),
             market_slug="demo-market",
             start_time="2026-03-22T09:00:00Z",
             end_time="2026-03-22T13:00:00Z",
@@ -153,9 +139,7 @@ def test_pmxt_runner_respects_explicit_start_and_end_times(monkeypatch):
             initial_cash=100.0,
             emit_summary=False,
             emit_html=False,
-            strategy_factory=lambda instrument_id: SimpleNamespace(
-                instrument_id=instrument_id
-            ),
+            strategy_factory=lambda instrument_id: SimpleNamespace(instrument_id=instrument_id),
         )
     )
 
@@ -183,13 +167,12 @@ def test_pmxt_runner_forwards_nautilus_log_level(monkeypatch):
             }
         ]
 
-    monkeypatch.setattr(
-        pmxt_runner.PredictionMarketBacktest, "run_async", _fake_run_async
-    )
+    monkeypatch.setattr(PredictionMarketBacktest, "run_async", _fake_run_async)
 
     result = asyncio.run(
-        pmxt_runner.run_single_market_pmxt_backtest(
+        runner.run_single_market_backtest(
             name="pmxt_test",
+            data=MarketDataConfig(platform="polymarket", data_type="quote_tick", vendor="pmxt"),
             market_slug="demo-market",
             lookback_hours=1.0,
             end_time="1970-01-01T01:00:00Z",
@@ -198,9 +181,7 @@ def test_pmxt_runner_forwards_nautilus_log_level(monkeypatch):
             emit_summary=False,
             emit_html=False,
             nautilus_log_level="INFO",
-            strategy_factory=lambda instrument_id: SimpleNamespace(
-                instrument_id=instrument_id
-            ),
+            strategy_factory=lambda instrument_id: SimpleNamespace(instrument_id=instrument_id),
         )
     )
 

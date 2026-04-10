@@ -3,12 +3,10 @@ from __future__ import annotations
 import asyncio
 from types import SimpleNamespace
 
-from prediction_market_extensions.backtesting import (
-    _kalshi_trade_tick_runner as kalshi_runner,
-)
-from prediction_market_extensions.backtesting import (
-    _polymarket_trade_tick_runner as polymarket_runner,
-)
+from prediction_market_extensions.backtesting import _prediction_market_backtest as backtest_module
+from prediction_market_extensions.backtesting import _prediction_market_runner as runner
+from prediction_market_extensions.backtesting._prediction_market_backtest import MarketReportConfig
+from prediction_market_extensions.backtesting._prediction_market_runner import MarketDataConfig
 
 
 def test_kalshi_trade_tick_runner_uses_unified_summary(monkeypatch, capsys):
@@ -29,22 +27,26 @@ def test_kalshi_trade_tick_runner_uses_unified_summary(monkeypatch, capsys):
             }
         ]
 
-    monkeypatch.setattr(
-        kalshi_runner.PredictionMarketBacktest, "run_async", _fake_run_async
-    )
+    monkeypatch.setattr(backtest_module.PredictionMarketBacktest, "run_async", _fake_run_async)
 
     asyncio.run(
-        kalshi_runner.run_single_market_trade_backtest(
+        runner.run_single_market_backtest(
             name="kalshi_test",
+            data=MarketDataConfig(
+                platform="kalshi",
+                data_type="trade_tick",
+                vendor="native",
+                sources=("https://api.elections.kalshi.com",),
+            ),
             market_ticker="KALSHI-TEST",
             lookback_days=1,
             probability_window=5,
             initial_cash=100.0,
             emit_html=False,
-            strategy_factory=lambda instrument_id: SimpleNamespace(
-                instrument_id=instrument_id
+            report=MarketReportConfig(
+                count_key="trades", count_label="Trades", pnl_label="PnL (USD)", market_key="ticker"
             ),
-            data_sources=("https://api.elections.kalshi.com",),
+            strategy_factory=lambda instrument_id: SimpleNamespace(instrument_id=instrument_id),
         )
     )
 
@@ -75,29 +77,27 @@ def test_polymarket_trade_tick_runner_uses_unified_summary(monkeypatch, capsys):
             }
         ]
 
-    monkeypatch.setattr(
-        polymarket_runner.PredictionMarketBacktest,
-        "run_async",
-        _fake_run_async,
-    )
+    monkeypatch.setattr(backtest_module.PredictionMarketBacktest, "run_async", _fake_run_async)
 
     asyncio.run(
-        polymarket_runner.run_single_market_trade_backtest(
+        runner.run_single_market_backtest(
             name="polymarket_test",
+            data=MarketDataConfig(
+                platform="polymarket",
+                data_type="trade_tick",
+                vendor="native",
+                sources=("gamma-api.polymarket.com", "data-api.polymarket.com/trades", "clob.polymarket.com"),
+            ),
             market_slug="demo-market",
             token_index=0,
             lookback_days=1,
             probability_window=5,
             initial_cash=100.0,
             emit_html=False,
-            strategy_factory=lambda instrument_id: SimpleNamespace(
-                instrument_id=instrument_id
+            report=MarketReportConfig(
+                count_key="trades", count_label="Trades", pnl_label="PnL (USDC)", market_key="slug"
             ),
-            data_sources=(
-                "gamma-api.polymarket.com",
-                "data-api.polymarket.com/trades",
-                "clob.polymarket.com",
-            ),
+            strategy_factory=lambda instrument_id: SimpleNamespace(instrument_id=instrument_id),
         )
     )
 

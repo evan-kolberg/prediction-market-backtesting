@@ -24,12 +24,7 @@ class _BreakoutHarness(QuoteTickBreakoutStrategy):
     def _in_position(self) -> bool:
         return self._position
 
-    def _submit_entry(
-        self,
-        *,
-        reference_price: float | None = None,
-        visible_size: float | None = None,
-    ) -> None:
+    def _submit_entry(self, *, reference_price: float | None = None, visible_size: float | None = None) -> None:
         self.entries += 1
         self._pending = True
 
@@ -39,15 +34,11 @@ class _BreakoutHarness(QuoteTickBreakoutStrategy):
 
     def fill_entry(self, price: float) -> None:
         self._position = True
-        self.on_order_filled(
-            SimpleNamespace(order_side=OrderSide.BUY, last_px=price),
-        )
+        self.on_order_filled(SimpleNamespace(order_side=OrderSide.BUY, last_px=price))
 
     def fill_exit(self, price: float) -> None:
         self._position = False
-        self.on_order_filled(
-            SimpleNamespace(order_side=OrderSide.SELL, last_px=price),
-        )
+        self.on_order_filled(SimpleNamespace(order_side=OrderSide.SELL, last_px=price))
 
 
 def test_quote_breakout_requires_move_beyond_noise_before_entering() -> None:
@@ -61,7 +52,7 @@ def test_quote_breakout_requires_move_beyond_noise_before_entering() -> None:
             mean_reversion_buffer=0.0005,
             min_holding_periods=2,
             reentry_cooldown=3,
-        ),
+        )
     )
 
     for price in (0.0130, 0.0130, 0.0130, 0.0130):
@@ -85,7 +76,7 @@ def test_quote_breakout_uses_hold_period_and_reentry_cooldown() -> None:
             mean_reversion_buffer=0.0005,
             min_holding_periods=2,
             reentry_cooldown=3,
-        ),
+        )
     )
 
     for price in (0.0130, 0.0130, 0.0130, 0.0130, 0.0134, 0.0140):

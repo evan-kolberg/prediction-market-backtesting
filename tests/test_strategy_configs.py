@@ -3,21 +3,11 @@ from __future__ import annotations
 from decimal import Decimal
 from types import SimpleNamespace
 
-from prediction_market_extensions.backtesting._prediction_market_backtest import (
-    MarketSimConfig,
-)
-from prediction_market_extensions.backtesting._prediction_market_backtest import (
-    PredictionMarketBacktest,
-)
-from prediction_market_extensions.backtesting._prediction_market_backtest import (
-    _LoadedMarketSim,
-)
-from prediction_market_extensions.backtesting._prediction_market_runner import (
-    MarketDataConfig,
-)
-from prediction_market_extensions.backtesting._strategy_configs import (
-    build_strategies_from_configs,
-)
+from prediction_market_extensions.backtesting._prediction_market_backtest import MarketSimConfig
+from prediction_market_extensions.backtesting._prediction_market_backtest import PredictionMarketBacktest
+from prediction_market_extensions.backtesting._prediction_market_backtest import _LoadedMarketSim
+from prediction_market_extensions.backtesting._prediction_market_runner import MarketDataConfig
+from prediction_market_extensions.backtesting._strategy_configs import build_strategies_from_configs
 from strategies import QuoteTickBreakoutConfig
 from strategies import QuoteTickBreakoutStrategy
 from nautilus_trader.model.identifiers import InstrumentId
@@ -61,19 +51,13 @@ def test_prediction_market_backtest_binds_strategy_configs_across_sims() -> None
     instrument_id_two = InstrumentId(Symbol("PM-TEST-NO"), Venue("POLYMARKET"))
     backtest = PredictionMarketBacktest(
         name="demo",
-        data=MarketDataConfig(
-            platform="polymarket",
-            data_type="trade_tick",
-            vendor="native",
-        ),
+        data=MarketDataConfig(platform="polymarket", data_type="trade_tick", vendor="native"),
         sims=(
             MarketSimConfig(
-                market_slug="market-one",
-                metadata={"market_close_time_ns": 111, "activation_start_time_ns": 11},
+                market_slug="market-one", metadata={"market_close_time_ns": 111, "activation_start_time_ns": 11}
             ),
             MarketSimConfig(
-                market_slug="market-two",
-                metadata={"market_close_time_ns": 222, "activation_start_time_ns": 22},
+                market_slug="market-two", metadata={"market_close_time_ns": 222, "activation_start_time_ns": 22}
             ),
         ),
         strategy_configs=[
@@ -90,9 +74,7 @@ def test_prediction_market_backtest_binds_strategy_configs_across_sims() -> None
             {
                 "strategy_path": "strategies:PortfolioProbeStrategy",
                 "config_path": "strategies:PortfolioProbeConfig",
-                "config": {
-                    "instrument_ids": "__ALL_SIM_INSTRUMENT_IDS__",
-                },
+                "config": {"instrument_ids": "__ALL_SIM_INSTRUMENT_IDS__"},
             },
         ],
         initial_cash=100.0,
@@ -138,7 +120,4 @@ def test_prediction_market_backtest_binds_strategy_configs_across_sims() -> None
     assert importable_configs[0].config["activation_start_time_ns"] == 11
     assert importable_configs[1].config["market_close_time_ns"] == 222
     assert importable_configs[1].config["activation_start_time_ns"] == 22
-    assert importable_configs[2].config["instrument_ids"] == [
-        instrument_id_one,
-        instrument_id_two,
-    ]
+    assert importable_configs[2].config["instrument_ids"] == [instrument_id_one, instrument_id_two]

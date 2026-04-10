@@ -5,35 +5,18 @@ from types import SimpleNamespace
 
 import pandas as pd
 
-from prediction_market_extensions.backtesting import (
-    _kalshi_trade_tick_runner as kalshi_runner,
-)
-from prediction_market_extensions.backtesting import (
-    _polymarket_quote_tick_pmxt_runner as pmxt_runner,
-)
-from prediction_market_extensions.backtesting import (
-    _polymarket_trade_tick_runner as polymarket_trade_runner,
-)
-from prediction_market_extensions.backtesting import (
-    _prediction_market_backtest as backtest_module,
-)
-from prediction_market_extensions.backtesting._prediction_market_backtest import (
-    MarketSimConfig,
-)
-from prediction_market_extensions.backtesting._prediction_market_backtest import (
-    PredictionMarketBacktest,
-)
-from prediction_market_extensions.backtesting._prediction_market_runner import (
-    MarketDataConfig,
-)
+from prediction_market_extensions.backtesting import _prediction_market_runner as runner
+from prediction_market_extensions.backtesting import _prediction_market_backtest as backtest_module
+from prediction_market_extensions.backtesting._prediction_market_backtest import MarketSimConfig
+from prediction_market_extensions.backtesting._prediction_market_backtest import PredictionMarketBacktest
+from prediction_market_extensions.backtesting._prediction_market_runner import MarketDataConfig
 
 
 class _EngineStub:
     def __init__(self, *, config) -> None:  # type: ignore[no-untyped-def]
         self.config = config
         self.trader = SimpleNamespace(
-            generate_order_fills_report=lambda: pd.DataFrame(),
-            generate_positions_report=lambda: pd.DataFrame(),
+            generate_order_fills_report=lambda: pd.DataFrame(), generate_positions_report=lambda: pd.DataFrame()
         )
 
     def add_venue(self, **kwargs) -> None:  # type: ignore[no-untyped-def]
@@ -73,8 +56,13 @@ def _patch_backtest_runtime(monkeypatch) -> None:
     monkeypatch.setattr(backtest_module, "BacktestEngine", _EngineStub)
     monkeypatch.setattr(
         backtest_module.PredictionMarketBacktest,
-        "_build_single_market_artifacts",
+        "_build_market_artifacts",
         lambda self, *, engine, loaded_sims, fills_report: {},
+    )
+    monkeypatch.setattr(
+        backtest_module.PredictionMarketBacktest,
+        "_build_joint_portfolio_artifacts",
+        lambda self, *, engine, loaded_sims: {},
     )
     monkeypatch.setattr(backtest_module, "is_backtest_force_stop", lambda: False)
 
@@ -84,21 +72,13 @@ def test_kalshi_trade_tick_wrapper_matches_direct_backtest(monkeypatch) -> None:
 
     async def _from_market_ticker(ticker: str):  # type: ignore[no-untyped-def]
         return SimpleNamespace(
-            instrument=SimpleNamespace(id="KALSHI-TEST", outcome="Yes"),
-            load_trades=lambda start, end: _load_trades(),
+            instrument=SimpleNamespace(id="KALSHI-TEST", outcome="Yes"), load_trades=lambda start, end: _load_trades()
         )
 
     async def _load_trades():  # type: ignore[no-untyped-def]
-        return [
-            SimpleNamespace(price=0.4, ts_init=1, ts_event=1),
-            SimpleNamespace(price=0.6, ts_init=2, ts_event=2),
-        ]
+        return [SimpleNamespace(price=0.4, ts_init=1, ts_event=1), SimpleNamespace(price=0.6, ts_init=2, ts_event=2)]
 
-    monkeypatch.setattr(
-        backtest_module,
-        "KalshiDataLoader",
-        SimpleNamespace(from_market_ticker=_from_market_ticker),
-    )
+    monkeypatch.setattr(backtest_module, "KalshiDataLoader", SimpleNamespace(from_market_ticker=_from_market_ticker))
 
     direct = PredictionMarketBacktest(
         name="demo",
@@ -108,34 +88,29 @@ def test_kalshi_trade_tick_wrapper_matches_direct_backtest(monkeypatch) -> None:
             vendor="native",
             sources=("api.elections.kalshi.com/trade-api/v2",),
         ),
-        sims=(
-            MarketSimConfig(
-                market_ticker="KALSHI-TEST",
-                lookback_days=1,
-                end_time="2026-04-05T00:00:00Z",
-            ),
-        ),
-        strategy_factory=lambda instrument_id: SimpleNamespace(
-            instrument_id=instrument_id
-        ),
+        sims=(MarketSimConfig(market_ticker="KALSHI-TEST", lookback_days=1, end_time="2026-04-05T00:00:00Z"),),
+        strategy_factory=lambda instrument_id: SimpleNamespace(instrument_id=instrument_id),
         initial_cash=100.0,
         probability_window=5,
         emit_html=False,
     ).run()[0]
 
     wrapper = asyncio.run(
-        kalshi_runner.run_single_market_trade_backtest(
+        runner.run_single_market_backtest(
             name="demo",
+            data=MarketDataConfig(
+                platform="kalshi",
+                data_type="trade_tick",
+                vendor="native",
+                sources=("api.elections.kalshi.com/trade-api/v2",),
+            ),
             market_ticker="KALSHI-TEST",
             lookback_days=1,
             probability_window=5,
             end_time="2026-04-05T00:00:00Z",
-            strategy_factory=lambda instrument_id: SimpleNamespace(
-                instrument_id=instrument_id
-            ),
+            strategy_factory=lambda instrument_id: SimpleNamespace(instrument_id=instrument_id),
             emit_summary=False,
             emit_html=False,
-            data_sources=("api.elections.kalshi.com/trade-api/v2",),
         )
     )
 
@@ -152,16 +127,9 @@ def test_polymarket_trade_tick_wrapper_matches_direct_backtest(monkeypatch) -> N
         )
 
     async def _load_trades():  # type: ignore[no-untyped-def]
-        return [
-            SimpleNamespace(price=0.45, ts_init=1, ts_event=1),
-            SimpleNamespace(price=0.55, ts_init=2, ts_event=2),
-        ]
+        return [SimpleNamespace(price=0.45, ts_init=1, ts_event=1), SimpleNamespace(price=0.55, ts_init=2, ts_event=2)]
 
-    monkeypatch.setattr(
-        backtest_module,
-        "PolymarketDataLoader",
-        SimpleNamespace(from_market_slug=_from_market_slug),
-    )
+    monkeypatch.setattr(backtest_module, "PolymarketDataLoader", SimpleNamespace(from_market_slug=_from_market_slug))
 
     direct = PredictionMarketBacktest(
         name="demo",
@@ -169,38 +137,31 @@ def test_polymarket_trade_tick_wrapper_matches_direct_backtest(monkeypatch) -> N
             platform="polymarket",
             data_type="trade_tick",
             vendor="native",
-            sources=(
-                "gamma-api.polymarket.com",
-                "data-api.polymarket.com/trades",
-                "clob.polymarket.com",
-            ),
+            sources=("gamma-api.polymarket.com", "data-api.polymarket.com/trades", "clob.polymarket.com"),
         ),
         sims=(MarketSimConfig(market_slug="demo-market", lookback_days=1),),
-        strategy_factory=lambda instrument_id: SimpleNamespace(
-            instrument_id=instrument_id
-        ),
+        strategy_factory=lambda instrument_id: SimpleNamespace(instrument_id=instrument_id),
         initial_cash=100.0,
         probability_window=5,
         emit_html=False,
     ).run()[0]
 
     wrapper = asyncio.run(
-        polymarket_trade_runner.run_single_market_trade_backtest(
+        runner.run_single_market_backtest(
             name="demo",
+            data=MarketDataConfig(
+                platform="polymarket",
+                data_type="trade_tick",
+                vendor="native",
+                sources=("gamma-api.polymarket.com", "data-api.polymarket.com/trades", "clob.polymarket.com"),
+            ),
             market_slug="demo-market",
             token_index=0,
             lookback_days=1,
             probability_window=5,
-            strategy_factory=lambda instrument_id: SimpleNamespace(
-                instrument_id=instrument_id
-            ),
+            strategy_factory=lambda instrument_id: SimpleNamespace(instrument_id=instrument_id),
             emit_summary=False,
             emit_html=False,
-            data_sources=(
-                "gamma-api.polymarket.com",
-                "data-api.polymarket.com/trades",
-                "clob.polymarket.com",
-            ),
         )
     )
 
@@ -228,9 +189,7 @@ def test_pmxt_quote_tick_wrapper_matches_direct_backtest(monkeypatch) -> None:
         )
 
     monkeypatch.setattr(
-        backtest_module,
-        "PolymarketPMXTDataLoader",
-        SimpleNamespace(from_market_slug=_from_market_slug),
+        backtest_module, "PolymarketPMXTDataLoader", SimpleNamespace(from_market_slug=_from_market_slug)
     )
 
     direct = PredictionMarketBacktest(
@@ -239,11 +198,7 @@ def test_pmxt_quote_tick_wrapper_matches_direct_backtest(monkeypatch) -> None:
             platform="polymarket",
             data_type="quote_tick",
             vendor="pmxt",
-            sources=(
-                "local:/tmp/pmxt-a",
-                "archive:archive.vendor.test",
-                "relay:relay.vendor.test",
-            ),
+            sources=("local:/tmp/pmxt-a", "archive:archive.vendor.test", "relay:relay.vendor.test"),
         ),
         sims=(
             MarketSimConfig(
@@ -253,32 +208,29 @@ def test_pmxt_quote_tick_wrapper_matches_direct_backtest(monkeypatch) -> None:
                 end_time="2026-02-21T17:00:00Z",
             ),
         ),
-        strategy_factory=lambda instrument_id: SimpleNamespace(
-            instrument_id=instrument_id
-        ),
+        strategy_factory=lambda instrument_id: SimpleNamespace(instrument_id=instrument_id),
         initial_cash=100.0,
         probability_window=5,
         emit_html=False,
     ).run()[0]
 
     wrapper = asyncio.run(
-        pmxt_runner.run_single_market_pmxt_backtest(
+        runner.run_single_market_backtest(
             name="demo",
+            data=MarketDataConfig(
+                platform="polymarket",
+                data_type="quote_tick",
+                vendor="pmxt",
+                sources=("local:/tmp/pmxt-a", "archive:archive.vendor.test", "relay:relay.vendor.test"),
+            ),
             market_slug="demo-market",
             token_index=0,
             probability_window=5,
-            strategy_factory=lambda instrument_id: SimpleNamespace(
-                instrument_id=instrument_id
-            ),
+            strategy_factory=lambda instrument_id: SimpleNamespace(instrument_id=instrument_id),
             start_time="2026-02-21T16:00:00Z",
             end_time="2026-02-21T17:00:00Z",
             emit_summary=False,
             emit_html=False,
-            data_sources=(
-                "local:/tmp/pmxt-a",
-                "archive:archive.vendor.test",
-                "relay:relay.vendor.test",
-            ),
         )
     )
 

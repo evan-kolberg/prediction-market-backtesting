@@ -3,15 +3,9 @@ from __future__ import annotations
 from pathlib import Path
 
 import nautilus_trader
-from prediction_market_extensions.adapters.polymarket.execution import (
-    PolymarketExecutionClient,
-)
-from prediction_market_extensions.adapters.polymarket.pmxt import (
-    PolymarketPMXTDataLoader,
-)
-from prediction_market_extensions.adapters.prediction_market import (
-    HistoricalReplayAdapter,
-)
+from prediction_market_extensions.adapters.polymarket.execution import PolymarketExecutionClient
+from prediction_market_extensions.adapters.polymarket.pmxt import PolymarketPMXTDataLoader
+from prediction_market_extensions.adapters.prediction_market import HistoricalReplayAdapter
 from prediction_market_extensions.analysis import config as analysis_config
 from prediction_market_extensions.analysis import legacy_plot_adapter
 from prediction_market_extensions.analysis import tearsheet
@@ -64,9 +58,7 @@ def test_commission_patch_installed() -> None:
     from decimal import Decimal
 
     from nautilus_trader.adapters.polymarket.common.parsing import calculate_commission
-    from prediction_market_extensions.adapters.polymarket.parsing import (
-        calculate_commission as pm_calculate_commission,
-    )
+    from prediction_market_extensions.adapters.polymarket.parsing import calculate_commission as pm_calculate_commission
 
     # After conftest.py runs install_commission_patch(), the upstream function
     # should be our corrected version.

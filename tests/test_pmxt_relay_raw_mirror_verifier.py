@@ -9,9 +9,7 @@ import pmxt_relay.raw_mirror_verifier as verifier
 from pmxt_relay.storage import raw_relative_path
 
 
-def test_verify_local_raw_mirror_reports_missing_and_corrupt_files(
-    tmp_path: Path, monkeypatch
-):
+def test_verify_local_raw_mirror_reports_missing_and_corrupt_files(tmp_path: Path, monkeypatch):
     raw_root = tmp_path / "raw"
     raw_root.mkdir()
 
@@ -25,14 +23,7 @@ def test_verify_local_raw_mirror_reports_missing_and_corrupt_files(
     good_path = raw_root / raw_relative_path(good_name)
     good_path.parent.mkdir(parents=True, exist_ok=True)
     pq.write_table(
-        pa.table(
-            {
-                "market_id": ["0xabc"],
-                "update_type": ["book_snapshot"],
-                "data": ['{"token_id":"1"}'],
-            }
-        ),
-        good_path,
+        pa.table({"market_id": ["0xabc"], "update_type": ["book_snapshot"], "data": ['{"token_id":"1"}']}), good_path
     )
 
     corrupt_path = raw_root / raw_relative_path(corrupt_name)
@@ -58,18 +49,12 @@ def test_verify_local_raw_mirror_reports_missing_and_corrupt_files(
     assert summary.local_corrupt_samples == [corrupt_name]
 
 
-def test_verify_local_raw_mirror_separates_in_progress_downloads(
-    tmp_path: Path, monkeypatch
-):
+def test_verify_local_raw_mirror_separates_in_progress_downloads(tmp_path: Path, monkeypatch):
     raw_root = tmp_path / "raw"
     raw_root.mkdir()
 
     in_progress_name = "polymarket_orderbook_2026-03-21T15.parquet"
-    monkeypatch.setattr(
-        verifier,
-        "_discover_archive_filenames",
-        lambda **_: [in_progress_name],
-    )
+    monkeypatch.setattr(verifier, "_discover_archive_filenames", lambda **_: [in_progress_name])
 
     local_path = raw_root / raw_relative_path(in_progress_name)
     local_path.parent.mkdir(parents=True, exist_ok=True)

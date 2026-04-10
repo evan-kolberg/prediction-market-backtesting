@@ -38,9 +38,7 @@ def test_main_installs_timing_patch_by_default(monkeypatch):
     monkeypatch.setitem(
         sys.modules,
         "prediction_market_extensions.backtesting._timing_test",
-        SimpleNamespace(
-            install_timing=lambda: calls.__setitem__("timing", calls["timing"] + 1),
-        ),
+        SimpleNamespace(install_timing=lambda: calls.__setitem__("timing", calls["timing"] + 1)),
     )
 
     main_module.main()
@@ -92,18 +90,18 @@ def test_show_menu_renders_folder_tree(capsys, monkeypatch):
                 "run": object(),
             },
             {
-                "name": "kalshi_trade_tick_multi_sim_runner",
+                "name": "kalshi_trade_tick_independent_multi_replay_runner",
                 "description": "Kalshi basket",
-                "relative_parts": ("kalshi_trade_tick_multi_sim_runner.py",),
+                "relative_parts": ("kalshi_trade_tick_independent_multi_replay_runner.py",),
                 "run": object(),
             },
             {
-                "name": "polymarket_quote_tick_pmxt_25_sims_runner",
+                "name": "polymarket_quote_tick_pmxt_independent_25_replay_runner",
                 "description": "PMXT 25 sims",
-                "relative_parts": ("polymarket_quote_tick_pmxt_25_sims_runner.py",),
+                "relative_parts": ("polymarket_quote_tick_pmxt_independent_25_replay_runner.py",),
                 "run": object(),
             },
-        ],
+        ]
     )
 
     rendered = _strip_ansi(capsys.readouterr().out)
@@ -111,10 +109,8 @@ def test_show_menu_renders_folder_tree(capsys, monkeypatch):
     assert choice == 1
     assert "backtests/" in rendered
     assert "├── 1. kalshi_trade_tick_breakout.py — Kalshi breakout" in rendered
-    assert "├── 2. kalshi_trade_tick_multi_sim_runner.py — Kalshi basket" in rendered
-    assert (
-        "└── 3. polymarket_quote_tick_pmxt_25_sims_runner.py — PMXT 25 sims" in rendered
-    )
+    assert "├── 2. kalshi_trade_tick_independent_multi_replay_runner.py — Kalshi basket" in rendered
+    assert "└── 3. polymarket_quote_tick_pmxt_independent_25_replay_runner.py — PMXT 25 sims" in rendered
 
 
 def test_assign_shortcuts_prefers_unique_letters_and_avoids_quit_key():
@@ -169,10 +165,7 @@ def test_assign_shortcuts_leaves_overflow_entries_without_hotkeys():
     assert len(unassigned) == 5
 
 
-def test_runner_preview_shows_full_file_contents(
-    tmp_path: Path,
-    monkeypatch,
-):
+def test_runner_preview_shows_full_file_contents(tmp_path: Path, monkeypatch):
     runner_path = tmp_path / "backtests" / "demo_runner.py"
     runner_path.parent.mkdir(parents=True)
     contents = (
@@ -210,17 +203,11 @@ def test_discoverable_backtest_paths_stay_flat(tmp_path: Path) -> None:
     (backtests_root / "kalshi_trade_tick_breakout.py").write_text("")
     (backtests_root / "notebook_runner.ipynb").write_text("{}", encoding="utf-8")
     (backtests_root / "private" / "local_runner.py").write_text("")
-    (backtests_root / "private" / "local_notebook.ipynb").write_text(
-        "{}",
-        encoding="utf-8",
-    )
+    (backtests_root / "private" / "local_notebook.ipynb").write_text("{}", encoding="utf-8")
     (backtests_root / "private" / "_helper.py").write_text("")
     (backtests_root / "nested" / "should_not_show.py").write_text("")
 
-    discovered = [
-        path.relative_to(backtests_root)
-        for path in main_module._discoverable_backtest_paths(backtests_root)
-    ]
+    discovered = [path.relative_to(backtests_root) for path in main_module._discoverable_backtest_paths(backtests_root)]
 
     assert discovered == [
         Path("kalshi_trade_tick_breakout.py"),
@@ -230,10 +217,7 @@ def test_discoverable_backtest_paths_stay_flat(tmp_path: Path) -> None:
     ]
 
 
-def test_discover_reads_metadata_without_importing_modules(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
+def test_discover_reads_metadata_without_importing_modules(tmp_path: Path, monkeypatch) -> None:
     project_root = tmp_path
     backtests_root = project_root / "backtests"
     backtests_root.mkdir()
@@ -252,9 +236,7 @@ def test_discover_reads_metadata_without_importing_modules(
     monkeypatch.setattr(
         main_module.importlib,
         "import_module",
-        lambda _name: (_ for _ in ()).throw(
-            AssertionError("discover imported a module")
-        ),
+        lambda _name: (_ for _ in ()).throw(AssertionError("discover imported a module")),
     )
 
     discovered = main_module.discover()
@@ -269,10 +251,7 @@ def test_discover_reads_metadata_without_importing_modules(
     ]
 
 
-def test_discover_reads_notebook_metadata_without_execution(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
+def test_discover_reads_notebook_metadata_without_execution(tmp_path: Path, monkeypatch) -> None:
     import nbformat
 
     project_root = tmp_path
@@ -280,12 +259,7 @@ def test_discover_reads_notebook_metadata_without_execution(
     backtests_root.mkdir()
     (backtests_root / "__init__.py").write_text("", encoding="utf-8")
     notebook = nbformat.v4.new_notebook(
-        metadata={
-            "prediction_market_backtest": {
-                "name": "custom_notebook",
-                "description": "Notebook runner",
-            }
-        },
+        metadata={"prediction_market_backtest": {"name": "custom_notebook", "description": "Notebook runner"}},
         cells=[nbformat.v4.new_code_cell("raise RuntimeError('should not execute')")],
     )
     nbformat.write(notebook, backtests_root / "demo_notebook.ipynb")
@@ -305,10 +279,7 @@ def test_discover_reads_notebook_metadata_without_execution(
     ]
 
 
-def test_load_runner_defers_import_failure_until_selection(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
+def test_load_runner_defers_import_failure_until_selection(tmp_path: Path, monkeypatch) -> None:
     project_root = tmp_path
     backtests_root = project_root / "backtests"
     backtests_root.mkdir()
@@ -328,24 +299,16 @@ def test_load_runner_defers_import_failure_until_selection(
 
     discovered = main_module.discover()
 
-    with pytest.raises(
-        RuntimeError, match=r"could not import backtests/lazy_bomb\.py: boom"
-    ):
+    with pytest.raises(RuntimeError, match=r"could not import backtests/lazy_bomb\.py: boom"):
         main_module._load_runner(discovered[0])
 
 
-def test_load_runner_supports_runner_local_script_helpers(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
+def test_load_runner_supports_runner_local_script_helpers(tmp_path: Path, monkeypatch) -> None:
     project_root = tmp_path
     backtests_root = project_root / "backtests"
     backtests_root.mkdir()
     (backtests_root / "__init__.py").write_text("", encoding="utf-8")
-    (backtests_root / "_script_helpers.py").write_text(
-        'HELPER_VALUE = "helper-ok"\n',
-        encoding="utf-8",
-    )
+    (backtests_root / "_script_helpers.py").write_text('HELPER_VALUE = "helper-ok"\n', encoding="utf-8")
     (backtests_root / "helper_runner.py").write_text(
         'NAME = "helper_runner"\n'
         'DESCRIPTION = "Uses a local helper shim"\n'
@@ -359,9 +322,7 @@ def test_load_runner_supports_runner_local_script_helpers(
     monkeypatch.setattr(main_module, "PROJECT_ROOT", project_root)
     monkeypatch.setattr(main_module, "BACKTESTS_ROOT", backtests_root)
     normalized_sys_path = [
-        entry
-        for entry in sys.path
-        if Path(entry or ".").resolve() not in {project_root, backtests_root}
+        entry for entry in sys.path if Path(entry or ".").resolve() not in {project_root, backtests_root}
     ]
     monkeypatch.setattr(sys, "path", normalized_sys_path)
 
@@ -380,10 +341,7 @@ def test_load_runner_supports_runner_local_script_helpers(
             sys.modules["_script_helpers"] = prior_helper_module
 
 
-def test_load_runner_executes_notebook_runner(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
+def test_load_runner_executes_notebook_runner(tmp_path: Path, monkeypatch) -> None:
     import nbformat
 
     project_root = tmp_path
@@ -391,12 +349,7 @@ def test_load_runner_executes_notebook_runner(
     backtests_root.mkdir()
     (backtests_root / "__init__.py").write_text("", encoding="utf-8")
     notebook = nbformat.v4.new_notebook(
-        metadata={
-            "prediction_market_backtest": {
-                "name": "demo_notebook",
-                "description": "Notebook runner",
-            }
-        },
+        metadata={"prediction_market_backtest": {"name": "demo_notebook", "description": "Notebook runner"}},
         cells=[nbformat.v4.new_code_cell("x = 1")],
     )
     notebook_path = backtests_root / "demo_notebook.ipynb"
@@ -405,9 +358,7 @@ def test_load_runner_executes_notebook_runner(
     monkeypatch.setattr(main_module, "PROJECT_ROOT", project_root)
     monkeypatch.setattr(main_module, "BACKTESTS_ROOT", backtests_root)
 
-    from prediction_market_extensions.backtesting import (
-        _notebook_runner as notebook_runner,
-    )
+    from prediction_market_extensions.backtesting import _notebook_runner as notebook_runner
 
     captured: dict[str, object] = {}
 
@@ -415,34 +366,19 @@ def test_load_runner_executes_notebook_runner(
         captured["path"] = path
         captured["project_root"] = project_root
 
-    monkeypatch.setattr(
-        notebook_runner,
-        "execute_notebook_runner",
-        _fake_execute_notebook_runner,
-    )
+    monkeypatch.setattr(notebook_runner, "execute_notebook_runner", _fake_execute_notebook_runner)
 
     discovered = main_module.discover()
     runner = main_module._load_runner(discovered[0])
     runner()
 
-    assert captured == {
-        "path": notebook_path,
-        "project_root": project_root,
-    }
+    assert captured == {"path": notebook_path, "project_root": project_root}
 
 
 def test_filter_backtests_matches_name_description_and_path() -> None:
     backtests = [
-        {
-            "name": "demo_runner",
-            "description": "Demo runner",
-            "relative_parts": ("demo_runner.py",),
-        },
-        {
-            "name": "pmxt_runner",
-            "description": "PMXT quote runner",
-            "relative_parts": ("pmxt_runner.py",),
-        },
+        {"name": "demo_runner", "description": "Demo runner", "relative_parts": ("demo_runner.py",)},
+        {"name": "pmxt_runner", "description": "PMXT quote runner", "relative_parts": ("pmxt_runner.py",)},
     ]
 
     assert main_module._filter_backtests(backtests, "") == [0, 1]
@@ -456,9 +392,7 @@ def test_textual_menu_keeps_preview_lazy(monkeypatch) -> None:
 
     preview_calls: list[str] = []
     monkeypatch.setattr(
-        main_module,
-        "_runner_preview",
-        lambda backtest: preview_calls.append(backtest["name"]) or backtest["name"],
+        main_module, "_runner_preview", lambda backtest: preview_calls.append(backtest["name"]) or backtest["name"]
     )
 
     backtests = [
@@ -519,10 +453,7 @@ def test_textual_menu_filters_and_submits_selection() -> None:
             await pilot.press("p", "m", "x", "t")
             await pilot.pause()
             assert app.filtered_indices == [1]
-            assert (
-                str(app.query_one("#details_title").content)
-                == "backtests/pmxt_runner.py"
-            )
+            assert str(app.query_one("#details_title").content) == "backtests/pmxt_runner.py"
             await pilot.press("enter")
         assert app.return_value == 1
 

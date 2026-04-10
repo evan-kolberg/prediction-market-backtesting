@@ -26,12 +26,7 @@ def _make_config(tmp_path: Path) -> RelayConfig:
 
 
 class _FakeResponse:
-    def __init__(
-        self,
-        payload: bytes,
-        *,
-        headers: dict[str, str] | None = None,
-    ) -> None:
+    def __init__(self, payload: bytes, *, headers: dict[str, str] | None = None) -> None:
         self._payload = payload
         self.headers = headers or {}
         self._offset = 0
@@ -50,10 +45,7 @@ class _FakeResponse:
         return chunk
 
 
-def test_mirror_hour_falls_back_to_get_when_head_is_rejected(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
+def test_mirror_hour_falls_back_to_get_when_head_is_rejected(tmp_path: Path, monkeypatch) -> None:
     config = _make_config(tmp_path)
     with RelayWorker(config, reset_inflight=False) as worker:
         filename = "polymarket_orderbook_2026-03-21T12.parquet"
@@ -69,11 +61,7 @@ def test_mirror_hour_falls_back_to_get_when_head_is_rejected(
                 raise HTTPError(request.full_url, 403, "Forbidden", hdrs=None, fp=None)
             return _FakeResponse(
                 b"raw-payload",
-                headers={
-                    "ETag": '"abc123"',
-                    "Last-Modified": "Sun, 21 Mar 2026 12:59:59 GMT",
-                    "Content-Length": "11",
-                },
+                headers={"ETag": '"abc123"', "Last-Modified": "Sun, 21 Mar 2026 12:59:59 GMT", "Content-Length": "11"},
             )
 
         monkeypatch.setattr("pmxt_relay.worker.urlopen", fake_urlopen)
@@ -89,9 +77,7 @@ def test_mirror_hour_falls_back_to_get_when_head_is_rejected(
         assert stats["mirrored_hours"] == 1
 
 
-def test_run_once_only_discovers_adopts_and_mirrors(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_run_once_only_discovers_adopts_and_mirrors(tmp_path: Path, monkeypatch) -> None:
     config = _make_config(tmp_path)
     with RelayWorker(config, reset_inflight=False) as worker:
         monkeypatch.setattr(worker, "_discover_archive_hours", lambda: 2)  # noqa: SLF001
@@ -103,13 +89,7 @@ def test_run_once_only_discovers_adopts_and_mirrors(
 
 def test_adopt_local_raw_marks_hours_as_mirrored(tmp_path: Path) -> None:
     config = _make_config(tmp_path)
-    raw_path = (
-        config.raw_root
-        / "2026"
-        / "03"
-        / "21"
-        / "polymarket_orderbook_2026-03-21T12.parquet"
-    )
+    raw_path = config.raw_root / "2026" / "03" / "21" / "polymarket_orderbook_2026-03-21T12.parquet"
     raw_path.parent.mkdir(parents=True, exist_ok=True)
     raw_path.write_bytes(b"raw-payload")
 
@@ -121,10 +101,7 @@ def test_adopt_local_raw_marks_hours_as_mirrored(tmp_path: Path) -> None:
         assert stats["mirrored_hours"] == 1
 
 
-def test_run_once_scans_full_local_tree_only_on_first_cycle(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
+def test_run_once_scans_full_local_tree_only_on_first_cycle(tmp_path: Path, monkeypatch) -> None:
     config = _make_config(tmp_path)
     with RelayWorker(config, reset_inflight=False) as worker:
         calls = {"full": 0, "pending": 0}
@@ -156,14 +133,10 @@ def test_repeated_404s_are_quarantined(tmp_path: Path, monkeypatch) -> None:
         source_url = f"https://r2.pmxt.dev/{filename}"
         worker._index.upsert_discovered_hour(filename, source_url, 1)  # noqa: SLF001
         worker._index.mark_mirror_retry(  # noqa: SLF001
-            filename,
-            error="HTTP Error 404: Not Found",
-            next_retry_at="1970-01-01T00:00:00+00:00",
+            filename, error="HTTP Error 404: Not Found", next_retry_at="1970-01-01T00:00:00+00:00"
         )
         worker._index.mark_mirror_retry(  # noqa: SLF001
-            filename,
-            error="HTTP Error 404: Not Found",
-            next_retry_at="1970-01-01T00:00:00+00:00",
+            filename, error="HTTP Error 404: Not Found", next_retry_at="1970-01-01T00:00:00+00:00"
         )
 
         def _always_404(row) -> None:  # type: ignore[no-untyped-def]

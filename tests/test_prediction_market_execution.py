@@ -3,30 +3,14 @@ from __future__ import annotations
 import importlib
 from types import SimpleNamespace
 
-from prediction_market_extensions.backtesting._backtest_runtime import (
-    build_backtest_run_state,
-)
-from prediction_market_extensions.backtesting._backtest_runtime import (
-    print_backtest_result_warnings,
-)
-from prediction_market_extensions.backtesting import (
-    _prediction_market_backtest as backtest_module,
-)
-from prediction_market_extensions.backtesting._execution_config import (
-    ExecutionModelConfig,
-)
-from prediction_market_extensions.backtesting._execution_config import (
-    StaticLatencyConfig,
-)
-from prediction_market_extensions.backtesting._prediction_market_backtest import (
-    MarketSimConfig,
-)
-from prediction_market_extensions.backtesting._prediction_market_backtest import (
-    PredictionMarketBacktest,
-)
-from prediction_market_extensions.backtesting._prediction_market_runner import (
-    MarketDataConfig,
-)
+from prediction_market_extensions.backtesting._backtest_runtime import build_backtest_run_state
+from prediction_market_extensions.backtesting._backtest_runtime import print_backtest_result_warnings
+from prediction_market_extensions.backtesting import _prediction_market_backtest as backtest_module
+from prediction_market_extensions.backtesting._execution_config import ExecutionModelConfig
+from prediction_market_extensions.backtesting._execution_config import StaticLatencyConfig
+from prediction_market_extensions.backtesting._prediction_market_backtest import MarketSimConfig
+from prediction_market_extensions.backtesting._prediction_market_backtest import PredictionMarketBacktest
+from prediction_market_extensions.backtesting._prediction_market_runner import MarketDataConfig
 
 
 class _EngineStub:
@@ -43,24 +27,15 @@ def test_prediction_market_backtest_build_engine_forwards_execution(monkeypatch)
 
     backtest = PredictionMarketBacktest(
         name="demo",
-        data=MarketDataConfig(
-            platform="polymarket",
-            data_type="quote_tick",
-            vendor="pmxt",
-        ),
+        data=MarketDataConfig(platform="polymarket", data_type="quote_tick", vendor="pmxt"),
         sims=(MarketSimConfig(market_slug="demo-market"),),
-        strategy_factory=lambda instrument_id: SimpleNamespace(
-            instrument_id=instrument_id
-        ),
+        strategy_factory=lambda instrument_id: SimpleNamespace(instrument_id=instrument_id),
         initial_cash=100.0,
         probability_window=16,
         execution=ExecutionModelConfig(
             queue_position=True,
             latency_model=StaticLatencyConfig(
-                base_latency_ms=25.0,
-                insert_latency_ms=10.0,
-                update_latency_ms=5.0,
-                cancel_latency_ms=2.0,
+                base_latency_ms=25.0, insert_latency_ms=10.0, update_latency_ms=5.0, cancel_latency_ms=2.0
             ),
         ),
     )
@@ -82,17 +57,9 @@ def test_prediction_market_backtest_build_engine_forwards_execution(monkeypatch)
 
 
 def test_build_backtest_run_state_marks_forced_stop_with_partial_coverage():
-    data = [
-        SimpleNamespace(ts_init=0),
-        SimpleNamespace(ts_init=10),
-        SimpleNamespace(ts_init=20),
-    ]
+    data = [SimpleNamespace(ts_init=0), SimpleNamespace(ts_init=10), SimpleNamespace(ts_init=20)]
 
-    state = build_backtest_run_state(
-        data=data,
-        backtest_end_ns=10,
-        forced_stop=True,
-    )
+    state = build_backtest_run_state(data=data, backtest_end_ns=10, forced_stop=True)
 
     assert state["terminated_early"] is True
     assert state["stop_reason"] == "account_error"
@@ -106,17 +73,10 @@ def test_build_backtest_run_state_marks_forced_stop_with_partial_coverage():
 
 
 def test_build_backtest_run_state_uses_requested_window_for_coverage():
-    data = [
-        SimpleNamespace(ts_init=10),
-        SimpleNamespace(ts_init=20),
-    ]
+    data = [SimpleNamespace(ts_init=10), SimpleNamespace(ts_init=20)]
 
     state = build_backtest_run_state(
-        data=data,
-        backtest_end_ns=20,
-        forced_stop=False,
-        requested_start_ns=0,
-        requested_end_ns=30,
+        data=data, backtest_end_ns=20, forced_stop=False, requested_start_ns=0, requested_end_ns=30
     )
 
     assert state["terminated_early"] is False
@@ -131,9 +91,7 @@ def test_build_backtest_run_state_uses_requested_window_for_coverage():
 
 
 def test_quote_tick_pmxt_runner_pins_passive_execution_heuristics():
-    module = importlib.import_module(
-        "backtests.polymarket_quote_tick_pmxt_ema_crossover"
-    )
+    module = importlib.import_module("backtests.polymarket_quote_tick_pmxt_ema_crossover")
 
     assert module.EXPERIMENT.execution.queue_position is True
 

@@ -4,12 +4,8 @@ import importlib
 
 import pytest
 
-from prediction_market_extensions.backtesting._replay_specs import (
-    PolymarketPMXTQuoteReplay,
-)
-from prediction_market_extensions.backtesting._strategy_configs import (
-    build_strategies_from_configs,
-)
+from prediction_market_extensions.backtesting._replay_specs import QuoteReplay
+from prediction_market_extensions.backtesting._strategy_configs import build_strategies_from_configs
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.model.identifiers import Symbol
 from nautilus_trader.model.identifiers import Venue
@@ -20,11 +16,7 @@ from strategies import QuoteTickVWAPReversionStrategy
 
 
 INSTRUMENT_ID = InstrumentId(Symbol("PM-TEST-YES"), Venue("POLYMARKET"))
-EXPECTED_PMXT_SOURCES = (
-    "local:/Volumes/LaCie/pmxt_raws",
-    "archive:r2.pmxt.dev",
-    "relay:209-209-10-83.sslip.io",
-)
+EXPECTED_PMXT_SOURCES = ("local:/Volumes/LaCie/pmxt_raws", "archive:r2.pmxt.dev", "relay:209-209-10-83.sslip.io")
 EXPECTED_DETAIL_PLOT_PANELS = (
     "equity",
     "market_pnl",
@@ -48,13 +40,8 @@ EXPECTED_MULTI_SIM_SUMMARY_PLOT_PANELS = (
     "monthly_returns",
     "brier_advantage",
 )
-EXPECTED_25_SIM_SUMMARY_PLOT_PANELS = (
-    "total_equity",
-    "periodic_pnl",
-    "allocation",
-    "monthly_returns",
-)
-EXPECTED_SINGLE_REPLAY = PolymarketPMXTQuoteReplay(
+EXPECTED_25_SIM_SUMMARY_PLOT_PANELS = ("total_equity", "periodic_pnl", "allocation", "monthly_returns")
+EXPECTED_SINGLE_REPLAY = QuoteReplay(
     market_slug="will-ludvig-aberg-win-the-2026-masters-tournament",
     token_index=0,
     start_time="2026-04-05T00:00:00Z",
@@ -62,12 +49,8 @@ EXPECTED_SINGLE_REPLAY = PolymarketPMXTQuoteReplay(
 )
 
 
-def test_pmxt_single_runner_builds_expected_quote_tick_strategy(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    module = importlib.import_module(
-        "backtests.polymarket_quote_tick_pmxt_ema_crossover"
-    )
+def test_pmxt_single_runner_builds_expected_quote_tick_strategy(monkeypatch: pytest.MonkeyPatch) -> None:
+    module = importlib.import_module("backtests.polymarket_quote_tick_pmxt_ema_crossover")
     captured: dict[str, object] = {}
 
     def _fake_run_experiment(experiment):  # type: ignore[no-untyped-def]
@@ -78,10 +61,7 @@ def test_pmxt_single_runner_builds_expected_quote_tick_strategy(
 
     module.run()
 
-    strategies = build_strategies_from_configs(
-        strategy_configs=module.STRATEGY_CONFIGS,
-        instrument_id=INSTRUMENT_ID,
-    )
+    strategies = build_strategies_from_configs(strategy_configs=module.STRATEGY_CONFIGS, instrument_id=INSTRUMENT_ID)
     assert len(strategies) == 1
     strategy = strategies[0]
 
@@ -94,30 +74,19 @@ def test_pmxt_single_runner_builds_expected_quote_tick_strategy(
     assert captured["experiment"] is module.EXPERIMENT
 
 
-def test_pmxt_multi_sim_runner_uses_fixed_windows(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    module = importlib.import_module(
-        "backtests.polymarket_quote_tick_pmxt_multi_sim_runner"
-    )
+def test_pmxt_independent_multi_runner_uses_fixed_windows(monkeypatch: pytest.MonkeyPatch) -> None:
+    module = importlib.import_module("backtests.polymarket_quote_tick_pmxt_independent_multi_replay_runner")
     captured: dict[str, object] = {}
 
-    def _fake_run_reported_multi_sim_pmxt_backtest(**kwargs):  # type: ignore[no-untyped-def]
-        captured.update(kwargs)
+    def _fake_run_experiment(experiment):  # type: ignore[no-untyped-def]
+        captured["experiment"] = experiment
         return []
 
-    monkeypatch.setattr(
-        module,
-        "run_reported_multi_sim_pmxt_backtest",
-        _fake_run_reported_multi_sim_pmxt_backtest,
-    )
+    monkeypatch.setattr(module, "run_experiment", _fake_run_experiment)
 
     module.run()
 
-    strategies = build_strategies_from_configs(
-        strategy_configs=module.STRATEGY_CONFIGS,
-        instrument_id=INSTRUMENT_ID,
-    )
+    strategies = build_strategies_from_configs(strategy_configs=module.STRATEGY_CONFIGS, instrument_id=INSTRUMENT_ID)
     assert len(strategies) == 1
     strategy = strategies[0]
 
@@ -129,34 +98,55 @@ def test_pmxt_multi_sim_runner_uses_fixed_windows(
     assert module.SUMMARY_PLOT_PANELS == EXPECTED_MULTI_SIM_SUMMARY_PLOT_PANELS
     assert module.REPORT.summary_report is True
     assert module.REPORT.summary_report_path == module.SUMMARY_REPORT_PATH
-    assert captured["report"] == module.REPORT
-    assert captured["backtest"].return_summary_series is True
+    assert module.EXPERIMENT.report == module.REPORT
+    assert module.EXPERIMENT.return_summary_series is True
+    assert module.EXPERIMENT.multi_replay_mode == "independent"
+    assert captured["experiment"] is module.EXPERIMENT
 
 
-def test_pmxt_25_sim_runner_uses_fixed_windows(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    module = importlib.import_module(
-        "backtests.polymarket_quote_tick_pmxt_25_sims_runner"
-    )
+def test_pmxt_joint_multi_runner_uses_fixed_windows(monkeypatch: pytest.MonkeyPatch) -> None:
+    module = importlib.import_module("backtests.polymarket_quote_tick_pmxt_joint_portfolio_runner")
     captured: dict[str, object] = {}
 
-    def _fake_run_reported_multi_sim_pmxt_backtest(**kwargs):  # type: ignore[no-untyped-def]
-        captured.update(kwargs)
+    def _fake_run_experiment(experiment):  # type: ignore[no-untyped-def]
+        captured["experiment"] = experiment
         return []
 
-    monkeypatch.setattr(
-        module,
-        "run_reported_multi_sim_pmxt_backtest",
-        _fake_run_reported_multi_sim_pmxt_backtest,
-    )
+    monkeypatch.setattr(module, "run_experiment", _fake_run_experiment)
 
     module.run()
 
-    strategies = build_strategies_from_configs(
-        strategy_configs=module.STRATEGY_CONFIGS,
-        instrument_id=INSTRUMENT_ID,
-    )
+    strategies = build_strategies_from_configs(strategy_configs=module.STRATEGY_CONFIGS, instrument_id=INSTRUMENT_ID)
+    assert len(strategies) == 1
+    strategy = strategies[0]
+
+    assert isinstance(strategy, QuoteTickVWAPReversionStrategy)
+    assert isinstance(strategy.config, QuoteTickVWAPReversionConfig)
+    assert module.DATA.sources == EXPECTED_PMXT_SOURCES
+    assert len(module.REPLAYS) == 8
+    assert module.DETAIL_PLOT_PANELS == EXPECTED_DETAIL_PLOT_PANELS
+    assert module.SUMMARY_PLOT_PANELS == EXPECTED_MULTI_SIM_SUMMARY_PLOT_PANELS
+    assert module.REPORT.summary_report is True
+    assert module.REPORT.summary_report_path == module.SUMMARY_REPORT_PATH
+    assert module.EXPERIMENT.report == module.REPORT
+    assert module.EXPERIMENT.return_summary_series is True
+    assert module.EXPERIMENT.multi_replay_mode == "joint_portfolio"
+    assert captured["experiment"] is module.EXPERIMENT
+
+
+def test_pmxt_independent_25_replay_runner_uses_fixed_windows(monkeypatch: pytest.MonkeyPatch) -> None:
+    module = importlib.import_module("backtests.polymarket_quote_tick_pmxt_independent_25_replay_runner")
+    captured: dict[str, object] = {}
+
+    def _fake_run_experiment(experiment):  # type: ignore[no-untyped-def]
+        captured["experiment"] = experiment
+        return []
+
+    monkeypatch.setattr(module, "run_experiment", _fake_run_experiment)
+
+    module.run()
+
+    strategies = build_strategies_from_configs(strategy_configs=module.STRATEGY_CONFIGS, instrument_id=INSTRUMENT_ID)
     assert len(strategies) == 1
     strategy = strategies[0]
 
@@ -168,5 +158,7 @@ def test_pmxt_25_sim_runner_uses_fixed_windows(
     assert module.SUMMARY_PLOT_PANELS == EXPECTED_25_SIM_SUMMARY_PLOT_PANELS
     assert module.REPORT.summary_report is True
     assert module.REPORT.summary_report_path == module.SUMMARY_REPORT_PATH
-    assert captured["report"] == module.REPORT
-    assert captured["backtest"].return_summary_series is True
+    assert module.EXPERIMENT.report == module.REPORT
+    assert module.EXPERIMENT.return_summary_series is True
+    assert module.EXPERIMENT.multi_replay_mode == "independent"
+    assert captured["experiment"] is module.EXPERIMENT

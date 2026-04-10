@@ -12,10 +12,7 @@ MKDOCS_PATH = REPO_ROOT / "mkdocs.yml"
 DOCS_URL_PREFIX = "/prediction-market-backtesting/"
 README_PATH = REPO_ROOT / "README.md"
 README_DOCS_URL_PREFIX = "https://evan-kolberg.github.io/prediction-market-backtesting/"
-HEADING_RE = re.compile(
-    r"^(?P<level>#{1,6})\s+(?P<title>.+?)\s*$",
-    re.MULTILINE,
-)
+HEADING_RE = re.compile(r"^(?P<level>#{1,6})\s+(?P<title>.+?)\s*$", re.MULTILINE)
 
 
 def _slugify(title: str) -> str:
@@ -72,9 +69,7 @@ def test_root_readme_records_all_docs_and_subheaders() -> None:
     for doc_path in sorted(DOCS_ROOT.glob("*.md")):
         if doc_path.stem != "index":
             page_url = f"{README_DOCS_URL_PREFIX}{doc_path.stem}/"
-            assert page_url in readme_text, (
-                f"missing docs page link in root README: {page_url}"
-            )
+            assert page_url in readme_text, f"missing docs page link in root README: {page_url}"
 
         for match in HEADING_RE.finditer(doc_path.read_text()):
             level = len(match.group("level"))
@@ -83,33 +78,19 @@ def test_root_readme_records_all_docs_and_subheaders() -> None:
 
             anchor = _slugify(match.group("title"))
             target = f"{README_DOCS_URL_PREFIX}{doc_path.stem}/#{anchor}"
-            assert target in readme_text, (
-                f"missing docs heading link in root README: {target}"
-            )
+            assert target in readme_text, f"missing docs heading link in root README: {target}"
 
 
 def test_plotting_docs_distinguish_portfolio_and_comparison_summary_panels() -> None:
     plotting_text = (DOCS_ROOT / "plotting.md").read_text()
     normalized = re.sub(r"\s+", " ", plotting_text)
 
-    assert (
-        "portfolio-wide panels collapse the whole basket into one combined series"
-        in normalized
-    )
+    assert "portfolio-wide panels collapse the whole basket into one combined series" in normalized
     assert "comparison panels keep one line per market or per labeled sim" in normalized
-    assert (
-        "`total_equity`, `periodic_pnl`, and `monthly_returns` are portfolio-wide "
-        "summary panels"
-    ) in normalized
+    assert ("`total_equity`, `periodic_pnl`, and `monthly_returns` are portfolio-wide summary panels") in normalized
     assert (
         "`equity`, `allocation`, `drawdown`, `rolling_sharpe`, `cash_equity`, "
         "and `brier_advantage` are comparison panels"
     ) in normalized
-    assert (
-        "`brier_advantage` works on market slugs, not just individual sims"
-        in normalized
-    )
-    assert (
-        "`total_equity`, `periodic_pnl`, `drawdown`, and `monthly_returns`"
-        not in normalized
-    )
+    assert "`brier_advantage` works on market slugs, not just individual sims" in normalized
+    assert "`total_equity`, `periodic_pnl`, `drawdown`, and `monthly_returns`" not in normalized

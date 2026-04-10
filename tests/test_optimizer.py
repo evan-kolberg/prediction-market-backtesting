@@ -7,41 +7,17 @@ from pathlib import Path
 import pytest
 
 from prediction_market_extensions.backtesting import _optimizer as optimizer
-from prediction_market_extensions.backtesting._execution_config import (
-    ExecutionModelConfig,
-)
-from prediction_market_extensions.backtesting._execution_config import (
-    StaticLatencyConfig,
-)
-from prediction_market_extensions.backtesting._prediction_market_backtest import (
-    PredictionMarketBacktest,
-)
-from prediction_market_extensions.backtesting._prediction_market_runner import (
-    MarketDataConfig,
-)
-from prediction_market_extensions.backtesting._replay_specs import (
-    PolymarketPMXTQuoteReplay,
-)
-from prediction_market_extensions.backtesting.data_sources import (
-    PMXT,
-    Polymarket,
-    QuoteTick,
-)
-from prediction_market_extensions.backtesting.optimizers import (
-    OPTIMIZER_TYPE_PARAMETER_SEARCH,
-)
+from prediction_market_extensions.backtesting._execution_config import ExecutionModelConfig
+from prediction_market_extensions.backtesting._execution_config import StaticLatencyConfig
+from prediction_market_extensions.backtesting._prediction_market_backtest import PredictionMarketBacktest
+from prediction_market_extensions.backtesting._prediction_market_runner import MarketDataConfig
+from prediction_market_extensions.backtesting._replay_specs import QuoteReplay
+from prediction_market_extensions.backtesting.data_sources import PMXT, Polymarket, QuoteTick
+from prediction_market_extensions.backtesting.optimizers import OPTIMIZER_TYPE_PARAMETER_SEARCH
 
 
-def _window(
-    name: str,
-    start_time: str,
-    end_time: str,
-) -> optimizer.ParameterSearchWindow:
-    return optimizer.ParameterSearchWindow(
-        name=name,
-        start_time=start_time,
-        end_time=end_time,
-    )
+def _window(name: str, start_time: str, end_time: str) -> optimizer.ParameterSearchWindow:
+    return optimizer.ParameterSearchWindow(name=name, start_time=start_time, end_time=end_time)
 
 
 def _result_for_score(score: float) -> dict[str, object]:
@@ -76,9 +52,7 @@ def _make_config(
             "config": {"edge": "__SEARCH__:edge"},
         }
     )
-    resolved_parameter_grid = (
-        parameter_grid if parameter_grid is not None else {"edge": (1, 2, 3)}
-    )
+    resolved_parameter_grid = parameter_grid if parameter_grid is not None else {"edge": (1, 2, 3)}
     resolved_train_windows = (
         train_windows
         if train_windows is not None
@@ -95,16 +69,8 @@ def _make_config(
 
     return optimizer.ParameterSearchConfig(
         name=name,
-        data=MarketDataConfig(
-            platform=Polymarket,
-            data_type=QuoteTick,
-            vendor=PMXT,
-            sources=("local:/tmp/pmxt_raws",),
-        ),
-        base_replay=PolymarketPMXTQuoteReplay(
-            market_slug="demo-market",
-            token_index=0,
-        ),
+        data=MarketDataConfig(platform=Polymarket, data_type=QuoteTick, vendor=PMXT, sources=("local:/tmp/pmxt_raws",)),
+        base_replay=QuoteReplay(market_slug="demo-market", token_index=0),
         strategy_spec=resolved_strategy_spec,
         parameter_grid=resolved_parameter_grid,
         train_windows=resolved_train_windows,
@@ -119,31 +85,21 @@ def _make_config(
         execution=ExecutionModelConfig(
             queue_position=True,
             latency_model=StaticLatencyConfig(
-                base_latency_ms=75.0,
-                insert_latency_ms=10.0,
-                update_latency_ms=5.0,
-                cancel_latency_ms=5.0,
+                base_latency_ms=75.0, insert_latency_ms=10.0, update_latency_ms=5.0, cancel_latency_ms=5.0
             ),
         ),
         artifact_root=tmp_path,
     )
 
 
-def test_parameter_search_config_carries_explicit_optimizer_type(
-    tmp_path: Path,
-) -> None:
+def test_parameter_search_config_carries_explicit_optimizer_type(tmp_path: Path) -> None:
     config = _make_config(tmp_path)
 
     assert config.optimizer_type == OPTIMIZER_TYPE_PARAMETER_SEARCH
 
 
 def test_sample_parameter_sets_is_deterministic_and_unique(tmp_path: Path) -> None:
-    config = _make_config(
-        tmp_path,
-        parameter_grid={"edge": (1, 1, 2, 3)},
-        max_trials=2,
-        random_seed=11,
-    )
+    config = _make_config(tmp_path, parameter_grid={"edge": (1, 1, 2, 3)}, max_trials=2, random_seed=11)
 
     first = optimizer._sample_parameter_sets(config)
     second = optimizer._sample_parameter_sets(config)
@@ -161,30 +117,17 @@ def test_sample_parameter_sets_is_deterministic_and_unique(tmp_path: Path) -> No
 def test_replace_search_placeholders_binds_nested_payloads() -> None:
     payload = {
         "fast_period": "__SEARCH__:fast_period",
-        "nested": [
-            {"slow_period": "__SEARCH__:slow_period"},
-            ("keep", "__SEARCH__:stop_loss"),
-        ],
+        "nested": [{"slow_period": "__SEARCH__:slow_period"}, ("keep", "__SEARCH__:stop_loss")],
     }
 
     replaced = optimizer._replace_search_placeholders(
-        payload,
-        {
-            "fast_period": 32,
-            "slow_period": 128,
-            "stop_loss": 0.01,
-        },
+        payload, {"fast_period": 32, "slow_period": 128, "stop_loss": 0.01}
     )
 
-    assert replaced == {
-        "fast_period": 32,
-        "nested": [{"slow_period": 128}, ("keep", 0.01)],
-    }
+    assert replaced == {"fast_period": 32, "nested": [{"slow_period": 128}, ("keep", 0.01)]}
 
 
-def test_score_result_penalizes_drawdown_termination_low_coverage_and_low_fills() -> (
-    None
-):
+def test_score_result_penalizes_drawdown_termination_low_coverage_and_low_fills() -> None:
     baseline = optimizer._score_result(
         pnl=10.0,
         max_drawdown_currency=2.0,
@@ -238,21 +181,14 @@ def test_score_result_penalizes_drawdown_termination_low_coverage_and_low_fills(
     assert low_fill == pytest.approx(baseline - 2.0)
 
 
-def test_optimizer_builds_repo_layer_backtest_with_summary_series_enabled(
-    tmp_path: Path,
-) -> None:
+def test_optimizer_builds_repo_layer_backtest_with_summary_series_enabled(tmp_path: Path) -> None:
     config = replace(
         _make_config(tmp_path, parameter_grid={"edge": (5,)}, max_trials=1),
         chart_output_path="output/optimizer_trial_chart.html",
     )
     window = config.train_windows[0]
 
-    backtest = optimizer._build_backtest(
-        config=config,
-        trial_id=7,
-        window=window,
-        params=(("edge", 5),),
-    )
+    backtest = optimizer._build_backtest(config=config, trial_id=7, window=window, params=(("edge", 5),))
 
     assert isinstance(backtest, PredictionMarketBacktest)
     assert backtest.name == "optimizer_test:train-a:trial-007"
@@ -271,9 +207,7 @@ def test_optimizer_builds_repo_layer_backtest_with_summary_series_enabled(
     assert backtest.strategy_configs[0]["config"]["edge"] == 5
 
 
-def test_build_optimization_window_backtest_supports_generic_holdout_replays(
-    tmp_path: Path,
-) -> None:
+def test_build_optimization_window_backtest_supports_generic_holdout_replays(tmp_path: Path) -> None:
     config = _make_config(tmp_path)
     window = config.holdout_windows[0]
 
@@ -301,15 +235,8 @@ def test_build_optimization_window_backtest_supports_generic_holdout_replays(
     assert backtest.strategy_configs[0]["config"]["edge"] == 2
 
 
-def test_optimizer_reruns_only_top_k_train_candidates_on_holdout_and_selects_by_holdout(
-    tmp_path: Path,
-) -> None:
-    config = _make_config(
-        tmp_path,
-        parameter_grid={"edge": (1, 2, 3)},
-        max_trials=3,
-        holdout_top_k=2,
-    )
+def test_optimizer_reruns_only_top_k_train_candidates_on_holdout_and_selects_by_holdout(tmp_path: Path) -> None:
+    config = _make_config(tmp_path, parameter_grid={"edge": (1, 2, 3)}, max_trials=3, holdout_top_k=2)
     scores = {
         1: {"train-a": 10.0, "train-b": 10.0, "holdout-a": 2.0},
         2: {"train-a": 9.0, "train-b": 9.0, "holdout-a": 7.0},
@@ -329,24 +256,12 @@ def test_optimizer_reruns_only_top_k_train_candidates_on_holdout_and_selects_by_
     assert dict(summary.selected_params) == {"edge": 2}
     assert len(summary.leaderboard) == 3
     assert (3, "holdout-a") not in calls
-    assert sorted(
-        edge for edge, window_name in calls if window_name == "holdout-a"
-    ) == [
-        1,
-        2,
-    ]
+    assert sorted(edge for edge, window_name in calls if window_name == "holdout-a") == [1, 2]
     assert summary.best_row.holdout_median_score == 7.0
 
 
-def test_optimizer_breaks_holdout_ties_with_train_median_score(
-    tmp_path: Path,
-) -> None:
-    config = _make_config(
-        tmp_path,
-        parameter_grid={"edge": (1, 2)},
-        max_trials=2,
-        holdout_top_k=2,
-    )
+def test_optimizer_breaks_holdout_ties_with_train_median_score(tmp_path: Path) -> None:
+    config = _make_config(tmp_path, parameter_grid={"edge": (1, 2)}, max_trials=2, holdout_top_k=2)
     scores = {
         1: {"train-a": 10.0, "train-b": 10.0, "holdout-a": 5.0},
         2: {"train-a": 9.0, "train-b": 9.0, "holdout-a": 5.0},
@@ -365,12 +280,7 @@ def test_optimizer_breaks_holdout_ties_with_train_median_score(
 
 
 def test_optimizer_keeps_failed_trials_visible_on_leaderboard(tmp_path: Path) -> None:
-    config = _make_config(
-        tmp_path,
-        parameter_grid={"edge": (1, 2)},
-        max_trials=2,
-        holdout_windows=(),
-    )
+    config = _make_config(tmp_path, parameter_grid={"edge": (1, 2)}, max_trials=2, holdout_windows=())
 
     def _evaluator(backtest: PredictionMarketBacktest) -> dict[str, object]:
         edge = backtest.strategy_configs[0]["config"]["edge"]
@@ -381,22 +291,14 @@ def test_optimizer_keeps_failed_trials_visible_on_leaderboard(tmp_path: Path) ->
     summary = optimizer.run_parameter_optimization(config, evaluator=_evaluator)
 
     assert len(summary.leaderboard) == 2
-    failed_row = next(
-        row for row in summary.leaderboard if dict(row.params) == {"edge": 2}
-    )
+    failed_row = next(row for row in summary.leaderboard if dict(row.params) == {"edge": 2})
     assert failed_row.train_scores == (config.invalid_score, config.invalid_score)
     assert failed_row.train_median_score == config.invalid_score
 
 
-def test_run_parameter_optimization_writes_artifacts(
-    tmp_path: Path,
-) -> None:
+def test_run_parameter_optimization_writes_artifacts(tmp_path: Path) -> None:
     config = _make_config(
-        tmp_path,
-        name="optimizer_artifact_test",
-        parameter_grid={"edge": (1, 2)},
-        max_trials=2,
-        holdout_top_k=1,
+        tmp_path, name="optimizer_artifact_test", parameter_grid={"edge": (1, 2)}, max_trials=2, holdout_top_k=1
     )
 
     def _evaluator(backtest: PredictionMarketBacktest) -> dict[str, object]:
@@ -417,7 +319,5 @@ def test_run_parameter_optimization_writes_artifacts(
     assert payload["optimizer_type"] == OPTIMIZER_TYPE_PARAMETER_SEARCH
     assert payload["evaluated_trials"] == 2
     assert payload["train_windows"] == [window.name for window in config.train_windows]
-    assert payload["holdout_windows"] == [
-        window.name for window in config.holdout_windows
-    ]
+    assert payload["holdout_windows"] == [window.name for window in config.holdout_windows]
     assert set(payload["best_candidate"]["params"]) == {"edge"}

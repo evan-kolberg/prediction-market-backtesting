@@ -15,72 +15,62 @@ BACKTESTS_ROOT = REPO_ROOT / "backtests"
 PUBLIC_RUNNER_PATHS = sorted(
     path.relative_to(REPO_ROOT)
     for path in (*BACKTESTS_ROOT.glob("*.py"), *BACKTESTS_ROOT.glob("*.ipynb"))
-    if path.name not in {"__init__.py", "_script_helpers.py", "sitecustomize.py"}
-    and not path.name.startswith("_")
+    if path.name not in {"__init__.py", "_script_helpers.py", "sitecustomize.py"} and not path.name.startswith("_")
 )
 
 PUBLIC_SCRIPT_RUNNER_PATHS = sorted(
     path.relative_to(REPO_ROOT)
     for path in BACKTESTS_ROOT.glob("*.py")
-    if path.name not in {"__init__.py", "_script_helpers.py", "sitecustomize.py"}
-    and not path.name.startswith("_")
+    if path.name not in {"__init__.py", "_script_helpers.py", "sitecustomize.py"} and not path.name.startswith("_")
 )
 
 EXPECTED_PUBLIC_RUNNER_PATHS = [
     Path("backtests/generic_optimizer_research.ipynb"),
     Path("backtests/kalshi_trade_tick_breakout.py"),
-    Path("backtests/kalshi_trade_tick_multi_sim_runner.py"),
-    Path("backtests/polymarket_quote_tick_pmxt_25_sims_runner.py"),
+    Path("backtests/kalshi_trade_tick_independent_multi_replay_runner.py"),
+    Path("backtests/kalshi_trade_tick_joint_portfolio_runner.py"),
     Path("backtests/polymarket_quote_tick_pmxt_ema_crossover.py"),
     Path("backtests/polymarket_quote_tick_pmxt_ema_optimizer.py"),
-    Path("backtests/polymarket_quote_tick_pmxt_multi_sim_runner.py"),
-    Path("backtests/polymarket_trade_tick_multi_sim_runner.py"),
+    Path("backtests/polymarket_quote_tick_pmxt_independent_25_replay_runner.py"),
+    Path("backtests/polymarket_quote_tick_pmxt_independent_multi_replay_runner.py"),
+    Path("backtests/polymarket_quote_tick_pmxt_joint_portfolio_runner.py"),
+    Path("backtests/polymarket_trade_tick_independent_multi_replay_runner.py"),
+    Path("backtests/polymarket_trade_tick_joint_portfolio_runner.py"),
     Path("backtests/polymarket_trade_tick_vwap_reversion.py"),
 ]
 
-PMXT_SINGLE_MARKET_QUOTE_TICK_RUNNERS = [
-    Path("backtests/polymarket_quote_tick_pmxt_ema_crossover.py")
+PMXT_SINGLE_MARKET_QUOTE_TICK_RUNNERS = [Path("backtests/polymarket_quote_tick_pmxt_ema_crossover.py")]
+PMXT_INDEPENDENT_QUOTE_TICK_RUNNERS = [
+    Path("backtests/polymarket_quote_tick_pmxt_independent_multi_replay_runner.py"),
+    Path("backtests/polymarket_quote_tick_pmxt_independent_25_replay_runner.py"),
 ]
-PMXT_MULTI_SIM_QUOTE_TICK_RUNNERS = [
-    Path("backtests/polymarket_quote_tick_pmxt_multi_sim_runner.py"),
-    Path("backtests/polymarket_quote_tick_pmxt_25_sims_runner.py"),
+PMXT_JOINT_QUOTE_TICK_RUNNERS = [Path("backtests/polymarket_quote_tick_pmxt_joint_portfolio_runner.py")]
+PMXT_QUOTE_TICK_OPTIMIZER_RUNNERS = [Path("backtests/polymarket_quote_tick_pmxt_ema_optimizer.py")]
+TRADE_TICK_INDEPENDENT_RUNNERS = [
+    Path("backtests/kalshi_trade_tick_independent_multi_replay_runner.py"),
+    Path("backtests/polymarket_trade_tick_independent_multi_replay_runner.py"),
 ]
-PMXT_QUOTE_TICK_OPTIMIZER_RUNNERS = [
-    Path("backtests/polymarket_quote_tick_pmxt_ema_optimizer.py")
-]
-TRADE_TICK_MULTI_RUNNERS = [
-    Path("backtests/kalshi_trade_tick_multi_sim_runner.py"),
-    Path("backtests/polymarket_trade_tick_multi_sim_runner.py"),
-]
-
-SCRIPT_ENTRYPOINT_PATHS = [
-    Path("scripts/pmxt_download_raws.py"),
+TRADE_TICK_JOINT_RUNNERS = [
+    Path("backtests/kalshi_trade_tick_joint_portfolio_runner.py"),
+    Path("backtests/polymarket_trade_tick_joint_portfolio_runner.py"),
 ]
 
-REPO_BOOTSTRAP_HELPERS = {
-    Path("backtests/_script_helpers.py"),
-    Path("scripts/_script_helpers.py"),
-}
+SCRIPT_ENTRYPOINT_PATHS = [Path("scripts/pmxt_download_raws.py")]
+
+REPO_BOOTSTRAP_HELPERS = {Path("backtests/_script_helpers.py"), Path("scripts/_script_helpers.py")}
 
 
-PUBLIC_NOTEBOOK_RUNNER_PATHS = [
-    path for path in EXPECTED_PUBLIC_RUNNER_PATHS if path.suffix == ".ipynb"
-]
+PUBLIC_NOTEBOOK_RUNNER_PATHS = [path for path in EXPECTED_PUBLIC_RUNNER_PATHS if path.suffix == ".ipynb"]
 
-EXPECTED_PUBLIC_SCRIPT_RUNNER_PATHS = [
-    path for path in EXPECTED_PUBLIC_RUNNER_PATHS if path.suffix == ".py"
-]
+EXPECTED_PUBLIC_SCRIPT_RUNNER_PATHS = [path for path in EXPECTED_PUBLIC_RUNNER_PATHS if path.suffix == ".py"]
 
 
 @pytest.mark.parametrize("relative_path", EXPECTED_PUBLIC_SCRIPT_RUNNER_PATHS)
 def test_direct_script_entrypoints_import_without_repo_root_on_sys_path(
-    monkeypatch: pytest.MonkeyPatch,
-    relative_path: Path,
+    monkeypatch: pytest.MonkeyPatch, relative_path: Path
 ) -> None:
     script_path = REPO_ROOT / relative_path
-    normalized_sys_path = [
-        entry for entry in sys.path if Path(entry or ".").resolve() != REPO_ROOT
-    ]
+    normalized_sys_path = [entry for entry in sys.path if Path(entry or ".").resolve() != REPO_ROOT]
     monkeypatch.setattr(sys, "path", [str(script_path.parent), *normalized_sys_path])
     sys.modules.pop("sitecustomize", None)
     __import__("sitecustomize")
@@ -93,13 +83,10 @@ def test_direct_script_entrypoints_import_without_repo_root_on_sys_path(
 
 @pytest.mark.parametrize("relative_path", SCRIPT_ENTRYPOINT_PATHS)
 def test_repo_scripts_import_without_repo_root_on_sys_path(
-    monkeypatch: pytest.MonkeyPatch,
-    relative_path: Path,
+    monkeypatch: pytest.MonkeyPatch, relative_path: Path
 ) -> None:
     script_path = REPO_ROOT / relative_path
-    normalized_sys_path = [
-        entry for entry in sys.path if Path(entry or ".").resolve() != REPO_ROOT
-    ]
+    normalized_sys_path = [entry for entry in sys.path if Path(entry or ".").resolve() != REPO_ROOT]
     monkeypatch.setattr(sys, "path", [str(script_path.parent), *normalized_sys_path])
 
     globals_dict = runpy.run_path(str(script_path), run_name="__script_test__")
@@ -108,11 +95,7 @@ def test_repo_scripts_import_without_repo_root_on_sys_path(
 
 
 def test_backtests_tree_keeps_public_runners_flat() -> None:
-    top_level_dirs = {
-        path.name
-        for path in BACKTESTS_ROOT.iterdir()
-        if path.is_dir() and path.name != "__pycache__"
-    }
+    top_level_dirs = {path.name for path in BACKTESTS_ROOT.iterdir() if path.is_dir() and path.name != "__pycache__"}
     assert top_level_dirs <= {"private"}
 
     unexpected_nested_runners = [
@@ -133,29 +116,20 @@ def test_public_script_runner_set_matches_curated_examples() -> None:
 
 
 def test_repo_keeps_script_bootstrap_helpers_only_next_to_entrypoints() -> None:
-    helpers = {
-        path.relative_to(REPO_ROOT) for path in REPO_ROOT.rglob("_script_helpers.py")
-    }
+    helpers = {path.relative_to(REPO_ROOT) for path in REPO_ROOT.rglob("_script_helpers.py")}
     assert helpers == REPO_BOOTSTRAP_HELPERS
 
 
 @pytest.mark.parametrize("relative_path", PUBLIC_SCRIPT_RUNNER_PATHS)
-def test_public_runner_modules_expose_metadata_contract(
-    monkeypatch: pytest.MonkeyPatch,
-    relative_path: Path,
-) -> None:
+def test_public_runner_modules_expose_metadata_contract(monkeypatch: pytest.MonkeyPatch, relative_path: Path) -> None:
     script_path = REPO_ROOT / relative_path
-    normalized_sys_path = [
-        entry for entry in sys.path if Path(entry or ".").resolve() != REPO_ROOT
-    ]
+    normalized_sys_path = [entry for entry in sys.path if Path(entry or ".").resolve() != REPO_ROOT]
     monkeypatch.setattr(sys, "path", [str(script_path.parent), *normalized_sys_path])
 
     globals_dict = runpy.run_path(str(script_path), run_name="__script_test__")
 
     assert isinstance(globals_dict.get("NAME"), str) and globals_dict["NAME"]
-    assert (
-        isinstance(globals_dict.get("DESCRIPTION"), str) and globals_dict["DESCRIPTION"]
-    )
+    assert isinstance(globals_dict.get("DESCRIPTION"), str) and globals_dict["DESCRIPTION"]
     assert isinstance(globals_dict.get("EMIT_HTML"), bool)
     assert "CHART_OUTPUT_PATH" in globals_dict
     assert isinstance(globals_dict["CHART_OUTPUT_PATH"], str)
@@ -171,39 +145,24 @@ def test_public_runner_modules_expose_metadata_contract(
         optimization = getattr(experiment, "optimization", None)
         if optimization is not None:
             assert getattr(optimization, "emit_html", None) == globals_dict["EMIT_HTML"]
-            assert (
-                getattr(optimization, "chart_output_path", object())
-                == globals_dict["CHART_OUTPUT_PATH"]
-            )
+            assert getattr(optimization, "chart_output_path", object()) == globals_dict["CHART_OUTPUT_PATH"]
         else:
             assert getattr(experiment, "emit_html", None) == globals_dict["EMIT_HTML"]
-            assert (
-                getattr(experiment, "chart_output_path", object())
-                == globals_dict["CHART_OUTPUT_PATH"]
-            )
+            assert getattr(experiment, "chart_output_path", object()) == globals_dict["CHART_OUTPUT_PATH"]
     parameter_search = globals_dict.get(
-        "PARAMETER_SEARCH",
-        globals_dict.get("OPTIMIZER", globals_dict.get("OPTIMIZATION")),
+        "PARAMETER_SEARCH", globals_dict.get("OPTIMIZER", globals_dict.get("OPTIMIZATION"))
     )
     if parameter_search is not None:
         assert getattr(parameter_search, "emit_html", None) == globals_dict["EMIT_HTML"]
-        assert (
-            getattr(parameter_search, "chart_output_path", object())
-            == globals_dict["CHART_OUTPUT_PATH"]
-        )
+        assert getattr(parameter_search, "chart_output_path", object()) == globals_dict["CHART_OUTPUT_PATH"]
     assert callable(globals_dict.get("run"))
 
 
 @pytest.mark.parametrize("relative_path", PUBLIC_NOTEBOOK_RUNNER_PATHS)
 def test_public_notebook_runners_expose_metadata_contract(relative_path: Path) -> None:
-    from prediction_market_extensions.backtesting._notebook_runner import (
-        load_notebook_metadata,
-    )
+    from prediction_market_extensions.backtesting._notebook_runner import load_notebook_metadata
 
-    metadata = load_notebook_metadata(
-        REPO_ROOT / relative_path,
-        project_root=REPO_ROOT,
-    )
+    metadata = load_notebook_metadata(REPO_ROOT / relative_path, project_root=REPO_ROOT)
 
     assert metadata is not None
     assert metadata["name"] == relative_path.stem
@@ -212,21 +171,12 @@ def test_public_notebook_runners_expose_metadata_contract(relative_path: Path) -
     assert metadata["relative_parts"] == (relative_path.name,)
 
 
-@pytest.mark.parametrize(
-    "module_name",
-    [
-        "backtests.kalshi_trade_tick_breakout",
-        "scripts.pmxt_download_raws",
-    ],
-)
+@pytest.mark.parametrize("module_name", ["backtests.kalshi_trade_tick_breakout", "scripts.pmxt_download_raws"])
 def test_entrypoint_modules_import_as_packages_without_root_helper_shim(
-    monkeypatch: pytest.MonkeyPatch,
-    module_name: str,
+    monkeypatch: pytest.MonkeyPatch, module_name: str
 ) -> None:
     normalized_sys_path = [
-        entry
-        for entry in sys.path
-        if Path(entry or ".").resolve() not in {REPO_ROOT, BACKTESTS_ROOT}
+        entry for entry in sys.path if Path(entry or ".").resolve() not in {REPO_ROOT, BACKTESTS_ROOT}
     ]
     monkeypatch.setattr(sys, "path", [str(REPO_ROOT), *normalized_sys_path])
 
@@ -249,13 +199,10 @@ def test_entrypoint_modules_import_as_packages_without_root_helper_shim(
 
 @pytest.mark.parametrize("relative_path", PMXT_SINGLE_MARKET_QUOTE_TICK_RUNNERS)
 def test_pmxt_single_market_quote_tick_runners_expose_explicit_experiment_constants(
-    monkeypatch: pytest.MonkeyPatch,
-    relative_path: Path,
+    monkeypatch: pytest.MonkeyPatch, relative_path: Path
 ) -> None:
     script_path = REPO_ROOT / relative_path
-    normalized_sys_path = [
-        entry for entry in sys.path if Path(entry or ".").resolve() != REPO_ROOT
-    ]
+    normalized_sys_path = [entry for entry in sys.path if Path(entry or ".").resolve() != REPO_ROOT]
     monkeypatch.setattr(sys, "path", [str(script_path.parent), *normalized_sys_path])
 
     globals_dict = runpy.run_path(str(script_path), run_name="__script_test__")
@@ -280,15 +227,12 @@ def test_pmxt_single_market_quote_tick_runners_expose_explicit_experiment_consta
     assert experiment.chart_output_path == "output"
 
 
-@pytest.mark.parametrize("relative_path", PMXT_MULTI_SIM_QUOTE_TICK_RUNNERS)
-def test_pmxt_quote_tick_multi_runners_expose_explicit_summary_contract(
-    monkeypatch: pytest.MonkeyPatch,
-    relative_path: Path,
+@pytest.mark.parametrize("relative_path", PMXT_INDEPENDENT_QUOTE_TICK_RUNNERS)
+def test_pmxt_quote_tick_independent_runners_expose_explicit_summary_contract(
+    monkeypatch: pytest.MonkeyPatch, relative_path: Path
 ) -> None:
     script_path = REPO_ROOT / relative_path
-    normalized_sys_path = [
-        entry for entry in sys.path if Path(entry or ".").resolve() != REPO_ROOT
-    ]
+    normalized_sys_path = [entry for entry in sys.path if Path(entry or ".").resolve() != REPO_ROOT]
     monkeypatch.setattr(sys, "path", [str(script_path.parent), *normalized_sys_path])
 
     globals_dict = runpy.run_path(str(script_path), run_name="__script_test__")
@@ -311,20 +255,39 @@ def test_pmxt_quote_tick_multi_runners_expose_explicit_summary_contract(
     assert report.summary_report_path == globals_dict["SUMMARY_REPORT_PATH"]
     assert report.summary_plot_panels == globals_dict["SUMMARY_PLOT_PANELS"]
     assert experiment.return_summary_series is True
+    assert experiment.multi_replay_mode == "independent"
     assert experiment.emit_html is True
     assert experiment.chart_output_path == "output"
     assert experiment.detail_plot_panels == globals_dict["DETAIL_PLOT_PANELS"]
 
 
-@pytest.mark.parametrize("relative_path", PMXT_QUOTE_TICK_OPTIMIZER_RUNNERS)
-def test_pmxt_quote_tick_optimizer_runners_expose_explicit_search_configuration(
-    monkeypatch: pytest.MonkeyPatch,
-    relative_path: Path,
+@pytest.mark.parametrize("relative_path", PMXT_JOINT_QUOTE_TICK_RUNNERS)
+def test_pmxt_quote_tick_joint_runners_expose_explicit_summary_contract(
+    monkeypatch: pytest.MonkeyPatch, relative_path: Path
 ) -> None:
     script_path = REPO_ROOT / relative_path
-    normalized_sys_path = [
-        entry for entry in sys.path if Path(entry or ".").resolve() != REPO_ROOT
-    ]
+    normalized_sys_path = [entry for entry in sys.path if Path(entry or ".").resolve() != REPO_ROOT]
+    monkeypatch.setattr(sys, "path", [str(script_path.parent), *normalized_sys_path])
+
+    globals_dict = runpy.run_path(str(script_path), run_name="__script_test__")
+
+    experiment = globals_dict["EXPERIMENT"]
+    report = globals_dict["REPORT"]
+
+    assert globals_dict["NAME"] == relative_path.stem
+    assert report.summary_report is True
+    assert report.summary_report_path == globals_dict["SUMMARY_REPORT_PATH"]
+    assert experiment.return_summary_series is True
+    assert experiment.multi_replay_mode == "joint_portfolio"
+    assert experiment.chart_output_path == "output"
+
+
+@pytest.mark.parametrize("relative_path", PMXT_QUOTE_TICK_OPTIMIZER_RUNNERS)
+def test_pmxt_quote_tick_optimizer_runners_expose_explicit_search_configuration(
+    monkeypatch: pytest.MonkeyPatch, relative_path: Path
+) -> None:
+    script_path = REPO_ROOT / relative_path
+    normalized_sys_path = [entry for entry in sys.path if Path(entry or ".").resolve() != REPO_ROOT]
     monkeypatch.setattr(sys, "path", [str(script_path.parent), *normalized_sys_path])
 
     globals_dict = runpy.run_path(str(script_path), run_name="__script_test__")
@@ -344,13 +307,7 @@ def test_pmxt_quote_tick_optimizer_runners_expose_explicit_search_configuration(
     assert base_replay.token_index == 0
     assert len(train_windows) == 3
     assert len(holdout_windows) == 1
-    assert set(parameter_grid) == {
-        "fast_period",
-        "slow_period",
-        "entry_buffer",
-        "take_profit",
-        "stop_loss",
-    }
+    assert set(parameter_grid) == {"fast_period", "slow_period", "entry_buffer", "take_profit", "stop_loss"}
     assert optimizer is parameter_search
     assert globals_dict["OPTIMIZATION"] is parameter_search
     assert parameter_search.optimizer_type == "parameter_search"
@@ -370,15 +327,12 @@ def test_pmxt_quote_tick_optimizer_runners_expose_explicit_search_configuration(
     assert parameter_search.min_price_range == 0.005
 
 
-@pytest.mark.parametrize("relative_path", TRADE_TICK_MULTI_RUNNERS)
-def test_trade_tick_multi_runners_emit_summary_contract(
-    monkeypatch: pytest.MonkeyPatch,
-    relative_path: Path,
+@pytest.mark.parametrize("relative_path", TRADE_TICK_INDEPENDENT_RUNNERS)
+def test_trade_tick_independent_runners_emit_summary_contract(
+    monkeypatch: pytest.MonkeyPatch, relative_path: Path
 ) -> None:
     script_path = REPO_ROOT / relative_path
-    normalized_sys_path = [
-        entry for entry in sys.path if Path(entry or ".").resolve() != REPO_ROOT
-    ]
+    normalized_sys_path = [entry for entry in sys.path if Path(entry or ".").resolve() != REPO_ROOT]
     monkeypatch.setattr(sys, "path", [str(script_path.parent), *normalized_sys_path])
 
     globals_dict = runpy.run_path(str(script_path), run_name="__script_test__")
@@ -389,5 +343,25 @@ def test_trade_tick_multi_runners_emit_summary_contract(
     assert globals_dict["EMIT_HTML"] is True
     assert globals_dict["CHART_OUTPUT_PATH"] == "output"
     assert experiment.return_summary_series is True
+    assert experiment.multi_replay_mode == "independent"
+    assert report.summary_report is True
+    assert report.summary_report_path == globals_dict["SUMMARY_REPORT_PATH"]
+
+
+@pytest.mark.parametrize("relative_path", TRADE_TICK_JOINT_RUNNERS)
+def test_trade_tick_joint_runners_emit_summary_contract(monkeypatch: pytest.MonkeyPatch, relative_path: Path) -> None:
+    script_path = REPO_ROOT / relative_path
+    normalized_sys_path = [entry for entry in sys.path if Path(entry or ".").resolve() != REPO_ROOT]
+    monkeypatch.setattr(sys, "path", [str(script_path.parent), *normalized_sys_path])
+
+    globals_dict = runpy.run_path(str(script_path), run_name="__script_test__")
+
+    experiment = globals_dict["EXPERIMENT"]
+    report = globals_dict["REPORT"]
+
+    assert globals_dict["EMIT_HTML"] is True
+    assert globals_dict["CHART_OUTPUT_PATH"] == "output"
+    assert experiment.return_summary_series is True
+    assert experiment.multi_replay_mode == "joint_portfolio"
     assert report.summary_report is True
     assert report.summary_report_path == globals_dict["SUMMARY_REPORT_PATH"]

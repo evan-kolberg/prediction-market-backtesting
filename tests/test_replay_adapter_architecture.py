@@ -5,33 +5,15 @@ from dataclasses import dataclass
 from types import SimpleNamespace
 from typing import Any
 
-from prediction_market_extensions.backtesting import (
-    _prediction_market_backtest as backtest_module,
-)
-from prediction_market_extensions.backtesting._experiments import (
-    build_backtest_for_experiment,
-)
-from prediction_market_extensions.backtesting._experiments import (
-    build_replay_experiment,
-)
-from prediction_market_extensions.backtesting._market_data_support import (
-    MarketDataSupport,
-)
-from prediction_market_extensions.backtesting._market_data_support import (
-    build_single_market_replay,
-)
-from prediction_market_extensions.backtesting._market_data_support import (
-    register_market_data_support,
-)
-from prediction_market_extensions.backtesting._market_data_support import (
-    unregister_market_data_support,
-)
-from prediction_market_extensions.backtesting._prediction_market_runner import (
-    MarketDataConfig,
-)
-from prediction_market_extensions.adapters.prediction_market import (
-    HistoricalReplayAdapter,
-)
+from prediction_market_extensions.backtesting import _prediction_market_backtest as backtest_module
+from prediction_market_extensions.backtesting._experiments import build_backtest_for_experiment
+from prediction_market_extensions.backtesting._experiments import build_replay_experiment
+from prediction_market_extensions.backtesting._market_data_support import MarketDataSupport
+from prediction_market_extensions.backtesting._market_data_support import build_single_market_replay
+from prediction_market_extensions.backtesting._market_data_support import register_market_data_support
+from prediction_market_extensions.backtesting._market_data_support import unregister_market_data_support
+from prediction_market_extensions.backtesting._prediction_market_runner import MarketDataConfig
+from prediction_market_extensions.adapters.prediction_market import HistoricalReplayAdapter
 from prediction_market_extensions.adapters.prediction_market import ReplayAdapterKey
 from prediction_market_extensions.adapters.prediction_market import ReplayEngineProfile
 from prediction_market_extensions.adapters.prediction_market import ReplayLoadRequest
@@ -55,21 +37,13 @@ class FakeAdapter(HistoricalReplayAdapter):
     def replay_spec_type(self) -> type[FakeReplay]:
         return FakeReplay
 
-    def build_single_market_replay(
-        self,
-        *,
-        field_values: dict[str, Any],
-    ) -> FakeReplay:
+    def build_single_market_replay(self, *, field_values: dict[str, Any]) -> FakeReplay:
         market_slug = field_values.get("market_slug")
         if market_slug is None:
             raise ValueError("market_slug is required for the fake adapter.")
         return FakeReplay(market_slug=str(market_slug))
 
-    def configure_sources(
-        self,
-        *,
-        sources: tuple[str, ...] | list[str],
-    ):
+    def configure_sources(self, *, sources: tuple[str, ...] | list[str]):
         return nullcontext(SimpleNamespace(summary=f"fake sources={tuple(sources)}"))
 
     @property
@@ -82,12 +56,7 @@ class FakeAdapter(HistoricalReplayAdapter):
             fee_model_factory=lambda: object(),
         )
 
-    async def load_replay(
-        self,
-        replay: FakeReplay,
-        *,
-        request: ReplayLoadRequest,
-    ):
+    async def load_replay(self, replay: FakeReplay, *, request: ReplayLoadRequest):
         raise AssertionError("load_replay is not needed for this architecture test.")
 
 
@@ -101,34 +70,19 @@ class _EngineStub:
 
 
 def test_new_adapter_registers_without_core_executor_changes(monkeypatch) -> None:
-    support = MarketDataSupport(
-        key=("demo", "trade_tick", "fake"),
-        adapter=FakeAdapter(),
-    )
+    support = MarketDataSupport(key=("demo", "trade_tick", "fake"), adapter=FakeAdapter())
     register_market_data_support(support)
     monkeypatch.setattr(backtest_module, "BacktestEngine", _EngineStub)
 
     try:
-        replay = build_single_market_replay(
-            support=support,
-            field_values={"market_slug": "demo-market"},
-        )
+        replay = build_single_market_replay(support=support, field_values={"market_slug": "demo-market"})
         experiment = build_replay_experiment(
             name="demo-fake-runner",
             description="Fake adapter acceptance test",
-            data=MarketDataConfig(
-                platform="demo",
-                data_type="trade_tick",
-                vendor="fake",
-                sources=("fake:memory",),
-            ),
+            data=MarketDataConfig(platform="demo", data_type="trade_tick", vendor="fake", sources=("fake:memory",)),
             replays=(replay,),
             strategy_configs=[
-                {
-                    "strategy_path": "strategies:DemoStrategy",
-                    "config_path": "strategies:DemoConfig",
-                    "config": {},
-                }
+                {"strategy_path": "strategies:DemoStrategy", "config_path": "strategies:DemoConfig", "config": {}}
             ],
             initial_cash=100.0,
             probability_window=5,

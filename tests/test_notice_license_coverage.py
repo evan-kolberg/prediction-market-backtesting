@@ -18,9 +18,7 @@ LGPL_HEADER_MARKERS = (
 
 def _tracked_files() -> list[str]:
     output = subprocess.check_output(
-        ["git", "ls-files", "--cached", "--others", "--exclude-standard"],
-        cwd=REPO_ROOT,
-        text=True,
+        ["git", "ls-files", "--cached", "--others", "--exclude-standard"], cwd=REPO_ROOT, text=True
     )
     return output.splitlines()
 
@@ -46,19 +44,11 @@ def _root_notice_paths() -> set[str]:
     start = notice_text.index(ROOT_NOTICE_START)
     end = notice_text.index(ROOT_NOTICE_END)
     root_section = notice_text[start:end]
-    return {
-        path
-        for path in re.findall(r"- `([^`]+)`", root_section)
-        if not path.endswith("/")
-    }
+    return {path for path in re.findall(r"- `([^`]+)`", root_section) if not path.endswith("/")}
 
 
 def test_notice_lists_all_root_lgpl_files() -> None:
-    root_lgpl_files = {
-        relative_path
-        for relative_path in _tracked_files()
-        if _has_root_lgpl_header(relative_path)
-    }
+    root_lgpl_files = {relative_path for relative_path in _tracked_files() if _has_root_lgpl_header(relative_path)}
     notice_paths = _root_notice_paths()
 
     assert root_lgpl_files == notice_paths

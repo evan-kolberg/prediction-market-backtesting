@@ -3,10 +3,7 @@ from __future__ import annotations
 import importlib
 from pathlib import Path
 
-from prediction_market_extensions.backtesting._replay_specs import KalshiTradeTickReplay
-from prediction_market_extensions.backtesting._replay_specs import (
-    PolymarketTradeTickReplay,
-)
+from prediction_market_extensions.backtesting._replay_specs import TradeReplay
 
 
 EXPECTED_INITIAL_CASH = 100.0
@@ -45,70 +42,70 @@ EXPECTED_POLYMARKET_TRADE_SOURCES = (
 BACKTESTS_ROOT = Path(__file__).resolve().parents[1] / "backtests"
 
 KALSHI_SINGLE_RUNNER = BACKTESTS_ROOT / "kalshi_trade_tick_breakout.py"
-KALSHI_MULTI_RUNNER = BACKTESTS_ROOT / "kalshi_trade_tick_multi_sim_runner.py"
+KALSHI_INDEPENDENT_RUNNER = BACKTESTS_ROOT / "kalshi_trade_tick_independent_multi_replay_runner.py"
+KALSHI_JOINT_RUNNER = BACKTESTS_ROOT / "kalshi_trade_tick_joint_portfolio_runner.py"
 POLYMARKET_SINGLE_RUNNER = BACKTESTS_ROOT / "polymarket_trade_tick_vwap_reversion.py"
-POLYMARKET_MULTI_RUNNER = BACKTESTS_ROOT / "polymarket_trade_tick_multi_sim_runner.py"
+POLYMARKET_INDEPENDENT_RUNNER = BACKTESTS_ROOT / "polymarket_trade_tick_independent_multi_replay_runner.py"
+POLYMARKET_JOINT_RUNNER = BACKTESTS_ROOT / "polymarket_trade_tick_joint_portfolio_runner.py"
 
-EXPECTED_KALSHI_SINGLE_REPLAY = KalshiTradeTickReplay(
-    market_ticker="KXLAYOFFSYINFO-26-494000",
-    start_time="2026-03-15T00:00:00Z",
-    end_time="2026-04-08T23:59:59Z",
+EXPECTED_KALSHI_SINGLE_REPLAY = TradeReplay(
+    market_ticker="KXLAYOFFSYINFO-26-494000", start_time="2026-03-15T00:00:00Z", end_time="2026-04-08T23:59:59Z"
 )
 EXPECTED_KALSHI_MULTI_REPLAYS = (
-    KalshiTradeTickReplay(
+    TradeReplay(
         market_ticker="KXLAYOFFSYINFO-26-494000",
         start_time="2026-03-15T00:00:00Z",
         end_time="2026-04-08T23:59:59Z",
         metadata={"sim_label": "layoffs-infotech-window"},
     ),
-    KalshiTradeTickReplay(
+    TradeReplay(
         market_ticker="KXCITRINI-28JUL01",
         start_time="2026-03-18T00:00:00Z",
         end_time="2026-04-08T23:59:59Z",
         metadata={"sim_label": "citrini-jul-window"},
     ),
-    KalshiTradeTickReplay(
+    TradeReplay(
         market_ticker="KXPRESNOMR-28-MR",
         start_time="2026-03-24T00:00:00Z",
         end_time="2026-04-08T23:59:59Z",
         metadata={"sim_label": "presnomr-window"},
     ),
 )
-EXPECTED_POLYMARKET_SINGLE_REPLAY = PolymarketTradeTickReplay(
+EXPECTED_POLYMARKET_SINGLE_REPLAY = TradeReplay(
     market_slug="will-openai-launch-a-new-consumer-hardware-product-by-march-31-2026",
     start_time="2026-02-21T16:00:00Z",
     end_time="2026-03-31T23:59:59Z",
 )
 EXPECTED_POLYMARKET_MULTI_REPLAYS = (
-    PolymarketTradeTickReplay(
+    TradeReplay(
         market_slug="will-ukraine-qualify-for-the-2026-fifa-world-cup",
         lookback_days=7,
         end_time="2026-03-26T23:53:59Z",
         outcome="Yes",
         metadata={"market_close_time_ns": 1774569239000000000},
     ),
-    PolymarketTradeTickReplay(
+    TradeReplay(
         market_slug="will-man-city-win-the-202526-champions-league",
         lookback_days=7,
         end_time="2026-03-18T01:28:17Z",
         outcome="Yes",
         metadata={"market_close_time_ns": 1773797297000000000},
     ),
-    PolymarketTradeTickReplay(
+    TradeReplay(
         market_slug="will-chelsea-win-the-202526-champions-league",
         lookback_days=7,
         end_time="2026-03-18T01:22:09Z",
         outcome="Yes",
         metadata={"market_close_time_ns": 1773796929000000000},
     ),
-    PolymarketTradeTickReplay(
+    TradeReplay(
         market_slug="will-newcastle-win-the-202526-champions-league",
         lookback_days=7,
         end_time="2026-03-18T22:56:01Z",
         outcome="Yes",
         metadata={"market_close_time_ns": 1773874561000000000},
     ),
-    PolymarketTradeTickReplay(
+    TradeReplay(
         market_slug="will-leverkusen-win-the-202526-champions-league",
         lookback_days=7,
         end_time="2026-03-18T01:28:15Z",
@@ -136,8 +133,8 @@ def test_kalshi_trade_tick_single_runner_uses_expected_runtime_contract() -> Non
     assert module.REPLAYS == (EXPECTED_KALSHI_SINGLE_REPLAY,)
 
 
-def test_kalshi_trade_tick_multi_runner_uses_expected_runtime_contract() -> None:
-    module = _import_runner(KALSHI_MULTI_RUNNER)
+def test_kalshi_trade_tick_independent_runner_uses_expected_runtime_contract() -> None:
+    module = _import_runner(KALSHI_INDEPENDENT_RUNNER)
 
     assert module.DATA.sources == EXPECTED_KALSHI_TRADE_SOURCES
     assert module.EMIT_HTML is EXPECTED_EMIT_HTML
@@ -148,9 +145,23 @@ def test_kalshi_trade_tick_multi_runner_uses_expected_runtime_contract() -> None
     assert module.EXPERIMENT.chart_output_path == EXPECTED_CHART_OUTPUT_PATH
     assert module.EXPERIMENT.detail_plot_panels == EXPECTED_DETAIL_PLOT_PANELS
     assert module.EXPERIMENT.return_summary_series is True
+    assert module.EXPERIMENT.multi_replay_mode == "independent"
     assert module.REPORT.summary_report is True
     assert module.REPORT.summary_report_path == module.SUMMARY_REPORT_PATH
     assert module.REPORT.summary_plot_panels == EXPECTED_SUMMARY_PLOT_PANELS
+    assert module.REPLAYS == EXPECTED_KALSHI_MULTI_REPLAYS
+
+
+def test_kalshi_trade_tick_joint_runner_uses_expected_runtime_contract() -> None:
+    module = _import_runner(KALSHI_JOINT_RUNNER)
+
+    assert module.DATA.sources == EXPECTED_KALSHI_TRADE_SOURCES
+    assert module.EMIT_HTML is EXPECTED_EMIT_HTML
+    assert module.CHART_OUTPUT_PATH == EXPECTED_CHART_OUTPUT_PATH
+    assert module.DETAIL_PLOT_PANELS == EXPECTED_DETAIL_PLOT_PANELS
+    assert module.SUMMARY_PLOT_PANELS == EXPECTED_SUMMARY_PLOT_PANELS
+    assert module.EXPERIMENT.return_summary_series is True
+    assert module.EXPERIMENT.multi_replay_mode == "joint_portfolio"
     assert module.REPLAYS == EXPECTED_KALSHI_MULTI_REPLAYS
 
 
@@ -167,8 +178,8 @@ def test_polymarket_trade_tick_single_runner_uses_expected_runtime_contract() ->
     assert module.REPLAYS == (EXPECTED_POLYMARKET_SINGLE_REPLAY,)
 
 
-def test_polymarket_trade_tick_multi_runner_uses_fixed_replay_windows() -> None:
-    module = _import_runner(POLYMARKET_MULTI_RUNNER)
+def test_polymarket_trade_tick_independent_runner_uses_fixed_replay_windows() -> None:
+    module = _import_runner(POLYMARKET_INDEPENDENT_RUNNER)
 
     assert module.DATA.sources == EXPECTED_POLYMARKET_TRADE_SOURCES
     assert module.EMIT_HTML is EXPECTED_EMIT_HTML
@@ -179,8 +190,23 @@ def test_polymarket_trade_tick_multi_runner_uses_fixed_replay_windows() -> None:
     assert module.EXPERIMENT.chart_output_path == EXPECTED_CHART_OUTPUT_PATH
     assert module.EXPERIMENT.detail_plot_panels == EXPECTED_DETAIL_PLOT_PANELS
     assert module.EXPERIMENT.return_summary_series is True
+    assert module.EXPERIMENT.multi_replay_mode == "independent"
     assert module.REPORT.summary_report is True
     assert module.REPORT.summary_report_path == module.SUMMARY_REPORT_PATH
     assert module.REPORT.summary_plot_panels == EXPECTED_SUMMARY_PLOT_PANELS
+    assert module.FIXED_LOOKBACK_DAYS == 7
+    assert module.REPLAYS == EXPECTED_POLYMARKET_MULTI_REPLAYS
+
+
+def test_polymarket_trade_tick_joint_runner_uses_fixed_replay_windows() -> None:
+    module = _import_runner(POLYMARKET_JOINT_RUNNER)
+
+    assert module.DATA.sources == EXPECTED_POLYMARKET_TRADE_SOURCES
+    assert module.EMIT_HTML is EXPECTED_EMIT_HTML
+    assert module.CHART_OUTPUT_PATH == EXPECTED_CHART_OUTPUT_PATH
+    assert module.DETAIL_PLOT_PANELS == EXPECTED_DETAIL_PLOT_PANELS
+    assert module.SUMMARY_PLOT_PANELS == EXPECTED_SUMMARY_PLOT_PANELS
+    assert module.EXPERIMENT.return_summary_series is True
+    assert module.EXPERIMENT.multi_replay_mode == "joint_portfolio"
     assert module.FIXED_LOOKBACK_DAYS == 7
     assert module.REPLAYS == EXPECTED_POLYMARKET_MULTI_REPLAYS
