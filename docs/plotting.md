@@ -35,8 +35,10 @@ Good examples:
 
 - [`backtests/polymarket_trade_tick_vwap_reversion.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_trade_tick_vwap_reversion.py)
 - [`backtests/polymarket_quote_tick_pmxt_ema_crossover.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_quote_tick_pmxt_ema_crossover.py)
-- [`backtests/polymarket_quote_tick_pmxt_multi_sim_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_quote_tick_pmxt_multi_sim_runner.py)
-- [`backtests/polymarket_trade_tick_multi_sim_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_trade_tick_multi_sim_runner.py)
+- [`backtests/polymarket_quote_tick_pmxt_joint_portfolio_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_quote_tick_pmxt_joint_portfolio_runner.py)
+- [`backtests/polymarket_quote_tick_pmxt_independent_multi_replay_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_quote_tick_pmxt_independent_multi_replay_runner.py)
+- [`backtests/polymarket_trade_tick_joint_portfolio_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_trade_tick_joint_portfolio_runner.py)
+- [`backtests/polymarket_trade_tick_independent_multi_replay_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_trade_tick_independent_multi_replay_runner.py)
 - [`backtests/polymarket_quote_tick_pmxt_ema_optimizer.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_quote_tick_pmxt_ema_optimizer.py)
 
 ## Scaling Model
@@ -105,10 +107,12 @@ Typical public-runner combinations:
 
 - single-market runner:
   `EMIT_HTML`, `CHART_OUTPUT_PATH`, and `DETAIL_PLOT_PANELS`
-- fixed-basket multi-market runner:
-  per-market legacy charts plus `SUMMARY_REPORT_PATH`
-- PMXT multi-sim runner:
-  per-sim legacy charts plus `SUMMARY_REPORT_PATH`
+- joint-portfolio basket runner:
+  per-replay legacy charts plus `SUMMARY_REPORT_PATH` and
+  `multi_replay_mode="joint_portfolio"`
+- independent basket runner:
+  per-replay legacy charts plus `SUMMARY_REPORT_PATH` and
+  `multi_replay_mode="independent"`
 
 This gives users the best of both worlds:
 
@@ -171,7 +175,8 @@ Charts are written to `output/`, typically with names like:
 
 - `output/<backtest>_<market>_legacy.html`
 - `output/polymarket_quote_tick_pmxt_ema_crossover_<market>_legacy.html`
-- `output/polymarket_quote_tick_pmxt_multi_sim_runner_multi_market.html`
+- `output/polymarket_quote_tick_pmxt_joint_portfolio_runner_joint_portfolio.html`
+- `output/polymarket_quote_tick_pmxt_independent_multi_replay_runner_independent_aggregate.html`
 - `output/polymarket_quote_tick_pmxt_ema_optimizer_leaderboard.csv`
 - `output/polymarket_quote_tick_pmxt_ema_optimizer_summary.json`
 
@@ -179,8 +184,10 @@ The default naming rules are:
 
 - `CHART_OUTPUT_PATH="output"`:
   `output/<runner_name>_<market_or_sim_label>_legacy.html`
-- `SUMMARY_REPORT_PATH="output/<runner_name>_multi_market.html"`:
-  one aggregate report spanning all markets or all labeled sims
+- `SUMMARY_REPORT_PATH="output/<runner_name>_joint_portfolio.html"`:
+  one shared-account report spanning the whole basket
+- `SUMMARY_REPORT_PATH="output/<runner_name>_independent_aggregate.html"`:
+  one stitched aggregate report spanning isolated per-replay runs
 
 The supported panel ids are:
 
@@ -198,10 +205,11 @@ The supported panel ids are:
 
 ## Example Summary Output
 
-The PMXT multi-sim runner output below is a good example of the intended large
-basket workflow: the terminal prints the per-sim summary table, each sim can
-still emit its own detail chart, and the aggregate summary report is written as
-one separate HTML artifact.
+The PMXT basket runners output below are the intended large-basket workflow:
+the terminal prints the per-replay summary table, each replay can still emit
+its own detail chart, and the basket summary report is written as one separate
+HTML artifact whose filename tells you whether it is joint-portfolio or
+independent aggregate output.
 
 ![PMXT multi-sim summary output](assets/pmxt-multi-sim-summary-example.png)
 
@@ -209,28 +217,33 @@ one separate HTML artifact.
 
 The clearest multi-market plotting runner files:
 
-- [`backtests/kalshi_trade_tick_multi_sim_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/kalshi_trade_tick_multi_sim_runner.py)
-- [`backtests/polymarket_trade_tick_multi_sim_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_trade_tick_multi_sim_runner.py)
-- [`backtests/polymarket_quote_tick_pmxt_multi_sim_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_quote_tick_pmxt_multi_sim_runner.py)
-- [`backtests/polymarket_quote_tick_pmxt_25_sims_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_quote_tick_pmxt_25_sims_runner.py)
+- [`backtests/kalshi_trade_tick_joint_portfolio_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/kalshi_trade_tick_joint_portfolio_runner.py)
+- [`backtests/kalshi_trade_tick_independent_multi_replay_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/kalshi_trade_tick_independent_multi_replay_runner.py)
+- [`backtests/polymarket_trade_tick_joint_portfolio_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_trade_tick_joint_portfolio_runner.py)
+- [`backtests/polymarket_trade_tick_independent_multi_replay_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_trade_tick_independent_multi_replay_runner.py)
+- [`backtests/polymarket_quote_tick_pmxt_joint_portfolio_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_quote_tick_pmxt_joint_portfolio_runner.py)
+- [`backtests/polymarket_quote_tick_pmxt_independent_multi_replay_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_quote_tick_pmxt_independent_multi_replay_runner.py)
+- [`backtests/polymarket_quote_tick_pmxt_independent_25_replay_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_quote_tick_pmxt_independent_25_replay_runner.py)
 
-Those runners now write one per-market legacy chart per replay and one
-aggregate summary chart under `output/`, typically with names like:
+Those runners now write one per-market legacy chart per replay and one basket
+summary chart under `output/`, typically with names like:
 
-- `output/kalshi_trade_tick_multi_sim_runner_<market>_legacy.html`
-- `output/polymarket_trade_tick_multi_sim_runner_<market>_legacy.html`
+- `output/kalshi_trade_tick_joint_portfolio_runner_<market>_legacy.html`
+- `output/polymarket_trade_tick_independent_multi_replay_runner_<market>_legacy.html`
 
-- `output/kalshi_trade_tick_multi_sim_runner_multi_market.html`
-- `output/polymarket_trade_tick_multi_sim_runner_multi_market.html`
+- `output/kalshi_trade_tick_joint_portfolio_runner_joint_portfolio.html`
+- `output/polymarket_trade_tick_independent_multi_replay_runner_independent_aggregate.html`
 
-The PMXT multi-sim example runner writes per-sim detail charts plus one
-aggregate summary chart:
+The PMXT basket example runners write per-replay detail charts plus one summary
+chart:
 
-- `output/polymarket_quote_tick_pmxt_multi_sim_runner_multi_market.html`
+- `output/polymarket_quote_tick_pmxt_joint_portfolio_runner_joint_portfolio.html`
+- `output/polymarket_quote_tick_pmxt_independent_multi_replay_runner_independent_aggregate.html`
 
-`SUMMARY_REPORT_PATH` is the true aggregate report with shared panels across
-runs. Large baskets should rely on that summary surface plus on-demand per-sim
-detail charts instead of one concatenated mega-page.
+`SUMMARY_REPORT_PATH` is the basket summary surface. In joint mode it is a true
+shared-account portfolio chart. In independent mode it is a stitched aggregate
+across isolated runs. Large baskets should rely on that summary surface plus
+on-demand per-sim detail charts instead of one concatenated mega-page.
 
 That means the scaling story is stable across run sizes:
 
@@ -242,6 +255,6 @@ That means the scaling story is stable across run sizes:
   one sim at a time
 
 In the fixed basket runners, "multi-market" is literal: one report spans
-multiple different market slugs or tickers. In the PMXT multi-sim runner, "multi-market"
-really means one aggregate report spanning multiple labeled sims, even though
-all four replays use the same underlying market slug.
+multiple different market slugs or tickers. In the PMXT labeled replay runners,
+the basket report spans multiple labeled replays even when repeated samples use
+the same underlying market slug.

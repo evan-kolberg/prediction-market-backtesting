@@ -100,10 +100,7 @@ def discover_archive_hours(
 
 
 def _filter_filenames_to_window(
-    filenames: list[str],
-    *,
-    start_hour: datetime | None,
-    end_hour: datetime | None,
+    filenames: list[str], *, start_hour: datetime | None, end_hour: datetime | None
 ) -> list[str]:
     selected: list[str] = []
     for filename in filenames:
@@ -126,30 +123,19 @@ def _relay_url(base_url: str, filename: str) -> str:
 
 
 def _hour_label_for_filename(filename: str) -> str:
-    if filename.startswith(_RAW_FILENAME_PREFIX) and filename.endswith(
-        _RAW_FILENAME_SUFFIX
-    ):
-        return filename.removeprefix(_RAW_FILENAME_PREFIX).removesuffix(
-            _RAW_FILENAME_SUFFIX
-        )
+    if filename.startswith(_RAW_FILENAME_PREFIX) and filename.endswith(_RAW_FILENAME_SUFFIX):
+        return filename.removeprefix(_RAW_FILENAME_PREFIX).removesuffix(_RAW_FILENAME_SUFFIX)
     return parse_archive_hour(filename).strftime("%Y-%m-%dT%H")
 
 
-def _progress_bar_description(
-    *,
-    total_hours: int,
-    completed_hours: int,
-    active_hours: int,
-) -> str:
+def _progress_bar_description(*, total_hours: int, completed_hours: int, active_hours: int) -> str:
     if total_hours <= 0:
         return "Downloading raw hours"
 
     completed = min(max(0, completed_hours), total_hours)
     active = min(max(0, active_hours), total_hours)
     if active > 0:
-        return (
-            f"Downloading raw hours ({completed}/{total_hours} done, {active} active)"
-        )
+        return f"Downloading raw hours ({completed}/{total_hours} done, {active} active)"
     if completed >= total_hours:
         return f"Downloading raw hours ({total_hours}/{total_hours} done)"
     return f"Downloading raw hours ({completed}/{total_hours} done)"
@@ -160,12 +146,7 @@ def _format_mib(size_bytes: int) -> str:
 
 
 def _active_status_text(
-    *,
-    source: str,
-    hour_label: str,
-    written_bytes: int,
-    total_bytes: int | None,
-    elapsed_secs: float,
+    *, source: str, hour_label: str, written_bytes: int, total_bytes: int | None, elapsed_secs: float
 ) -> str:
     if total_bytes is None:
         transfer = _format_mib(written_bytes)
@@ -174,22 +155,11 @@ def _active_status_text(
     return f"active: {source} {hour_label} {transfer} {elapsed_secs:4.1f}s"
 
 
-def _hour_result_text(
-    *,
-    hour_label: str,
-    elapsed_secs: float,
-    detail: str,
-    source: str,
-) -> str:
+def _hour_result_text(*, hour_label: str, elapsed_secs: float, detail: str, source: str) -> str:
     return f"  {hour_label:>13s}  {elapsed_secs:6.3f}s  {detail:>10s}  {source}"
 
 
-def _source_priority_summary(
-    *,
-    source_sequence: list[str],
-    archive_base_url: str,
-    relay_base_url: str,
-) -> str:
+def _source_priority_summary(*, source_sequence: list[str], archive_base_url: str, relay_base_url: str) -> str:
     parts: list[str] = []
     for source in source_sequence:
         if source == "archive":
@@ -199,14 +169,10 @@ def _source_priority_summary(
     return "PMXT raw source: explicit priority (" + " -> ".join(parts) + ")"
 
 
-def _window_label_from_filenames(
-    filenames: list[str],
-) -> tuple[str | None, str | None]:
+def _window_label_from_filenames(filenames: list[str]) -> tuple[str | None, str | None]:
     if not filenames:
         return None, None
-    return _hour_label_for_filename(filenames[0]), _hour_label_for_filename(
-        filenames[-1]
-    )
+    return _hour_label_for_filename(filenames[0]), _hour_label_for_filename(filenames[-1])
 
 
 def _pid_is_active(pid: int) -> bool:
@@ -233,11 +199,7 @@ def _stale_tmp_download_paths(destination: Path) -> list[Path]:
     return tmp_paths
 
 
-def _is_stale_tmp_download_path(
-    tmp_path: Path,
-    *,
-    destination_exists: bool,
-) -> bool:
+def _is_stale_tmp_download_path(tmp_path: Path, *, destination_exists: bool) -> bool:
     if tmp_path.name.endswith(".tmp"):
         return destination_exists
 
@@ -259,10 +221,7 @@ def _cleanup_stale_tmp_downloads(destination: Path) -> int:
     for tmp_path in _stale_tmp_download_paths(destination):
         if not tmp_path.is_file():
             continue
-        if not _is_stale_tmp_download_path(
-            tmp_path,
-            destination_exists=destination_exists,
-        ):
+        if not _is_stale_tmp_download_path(tmp_path, destination_exists=destination_exists):
             continue
         try:
             tmp_path.unlink()
@@ -284,9 +243,7 @@ def _set_status(
     if progress_bar is None:
         return
     description = _progress_bar_description(
-        total_hours=total_hours,
-        completed_hours=completed_hours,
-        active_hours=active_hours,
+        total_hours=total_hours, completed_hours=completed_hours, active_hours=active_hours
     )
     now = time.monotonic()
     last_update = float(getattr(progress_bar, "_pmxt_last_status_ts", 0.0))
@@ -335,18 +292,11 @@ def _download_one(
             completed_hours=completed_hours,
             active_hours=1,
             status=_active_status_text(
-                source=source,
-                hour_label=hour_label,
-                written_bytes=0,
-                total_bytes=None,
-                elapsed_secs=0.0,
+                source=source, hour_label=hour_label, written_bytes=0, total_bytes=None, elapsed_secs=0.0
             ),
             force=True,
         )
-        with (
-            urlopen(request, timeout=timeout_secs) as response,
-            tmp_path.open("wb") as handle,
-        ):
+        with urlopen(request, timeout=timeout_secs) as response, tmp_path.open("wb") as handle:
             total_bytes_header = response.headers.get("Content-Length")
             total_bytes = int(total_bytes_header) if total_bytes_header else None
             written = 0
@@ -400,9 +350,7 @@ def download_raw_hours(
     for source in selected_sources:
         normalized = source.strip().casefold()
         if normalized not in {"archive", "relay"}:
-            raise ValueError(
-                f"Unsupported PMXT raw source {source!r}. Use archive or relay."
-            )
+            raise ValueError(f"Unsupported PMXT raw source {source!r}. Use archive or relay.")
         if normalized not in source_sequence:
             source_sequence.append(normalized)
     if not source_sequence:
@@ -414,9 +362,7 @@ def download_raw_hours(
         filenames = []
         current = start_hour
         while current <= end_hour:
-            filenames.append(
-                f"polymarket_orderbook_{current.strftime('%Y-%m-%dT%H')}.parquet"
-            )
+            filenames.append(f"polymarket_orderbook_{current.strftime('%Y-%m-%dT%H')}.parquet")
             current += timedelta(hours=1)
     else:
         discovered_hours = discover_archive_hours(
@@ -425,22 +371,13 @@ def download_raw_hours(
             stale_pages=discovery_stale_pages,
             max_pages=discovery_max_pages,
         )
-        filenames = [
-            f"polymarket_orderbook_{hour.strftime('%Y-%m-%dT%H')}.parquet"
-            for hour in discovered_hours
-        ]
-        filenames = _filter_filenames_to_window(
-            filenames,
-            start_hour=start_hour,
-            end_hour=end_hour,
-        )
+        filenames = [f"polymarket_orderbook_{hour.strftime('%Y-%m-%dT%H')}.parquet" for hour in discovered_hours]
+        filenames = _filter_filenames_to_window(filenames, start_hour=start_hour, end_hour=end_hour)
 
     if show_progress:
         print(
             _source_priority_summary(
-                source_sequence=source_sequence,
-                archive_base_url=archive_base_url,
-                relay_base_url=relay_base_url,
+                source_sequence=source_sequence, archive_base_url=archive_base_url, relay_base_url=relay_base_url
             )
         )
         window_start_label, window_end_label = _window_label_from_filenames(filenames)
@@ -449,19 +386,12 @@ def download_raw_hours(
             window_parts.append(f"window_start={window_start_label}")
         if window_end_label is not None:
             window_parts.append(f"window_end={window_end_label}")
-        print(
-            f"Downloading PMXT raw hours to {normalized_destination} "
-            f"({', '.join(window_parts)})..."
-        )
+        print(f"Downloading PMXT raw hours to {normalized_destination} ({', '.join(window_parts)})...")
 
     progress_bar = (
         tqdm(
             total=len(filenames),
-            desc=_progress_bar_description(
-                total_hours=len(filenames),
-                completed_hours=0,
-                active_hours=0,
-            ),
+            desc=_progress_bar_description(total_hours=len(filenames), completed_hours=0, active_hours=0),
             unit="hr",
             leave=False,
             bar_format=("{l_bar}{bar}| [{elapsed}<{remaining}]{postfix}"),
@@ -484,12 +414,7 @@ def download_raw_hours(
                 skipped_existing_hours += 1
                 _write_progress_line(
                     progress_bar,
-                    _hour_result_text(
-                        hour_label=hour_label,
-                        elapsed_secs=0.0,
-                        detail="existing",
-                        source="skip",
-                    ),
+                    _hour_result_text(hour_label=hour_label, elapsed_secs=0.0, detail="existing", source="skip"),
                 )
                 if progress_bar is not None:
                     progress_bar.update(1)

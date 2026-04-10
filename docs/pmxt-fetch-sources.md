@@ -36,7 +36,7 @@ aggregate progress bar for any hours that are still in flight. A representative
 make backtest
 uv run python main.py
 
-Running: polymarket_quote_tick_pmxt_multi_sim_runner
+Running: polymarket_quote_tick_pmxt_joint_portfolio_runner
 Running: polymarket_quote_tick_pmxt_ema_crossover
 
 PMXT source: explicit priority (cache -> local /Volumes/LaCie/pmxt_raws -> archive https://r2.pmxt.dev -> relay https://209-209-10-83.sslip.io)
@@ -65,9 +65,9 @@ The important signals are:
 The exact timings, row counts, and active prefetch details vary with cache
 warmth, mirror speed, and the requested window.
 
-This is what the repo's current PMXT multi-sim output looks like once Nautilus
-logs, the market summary table, and HTML artifact paths are all printed in the
-same terminal session:
+This is what the repo's current PMXT basket-runner output looks like once
+Nautilus logs, the market summary table, and HTML artifact paths are all
+printed in the same terminal session:
 
 ## Timing Expectations By Source
 

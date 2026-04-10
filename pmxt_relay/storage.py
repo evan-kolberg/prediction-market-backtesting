@@ -6,9 +6,7 @@ from datetime import datetime
 from pathlib import Path
 
 
-ARCHIVE_FILENAME_RE = re.compile(
-    r"^polymarket_orderbook_(\d{4}-\d{2}-\d{2}T\d{2})\.parquet$"
-)
+ARCHIVE_FILENAME_RE = re.compile(r"^polymarket_orderbook_(\d{4}-\d{2}-\d{2}T\d{2})\.parquet$")
 
 
 def parse_archive_hour(filename: str) -> datetime:

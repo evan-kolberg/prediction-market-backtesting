@@ -14,11 +14,7 @@ from pmxt_relay.storage import raw_relative_path
 
 
 def _discover_archive_filenames(
-    *,
-    archive_listing_url: str,
-    timeout_secs: int,
-    stale_pages: int = 1,
-    max_pages: int | None = None,
+    *, archive_listing_url: str, timeout_secs: int, stale_pages: int = 1, max_pages: int | None = None
 ) -> list[str]:
     filenames: list[str] = []
     seen: set[str] = set()
@@ -84,11 +80,7 @@ class RawMirrorVerificationSummary:
 
 
 async def _head_available_files(
-    *,
-    filenames: list[str],
-    raw_base_url: str,
-    concurrency: int,
-    timeout_secs: int,
+    *, filenames: list[str], raw_base_url: str, concurrency: int, timeout_secs: int
 ) -> tuple[set[str], list[str]]:
     available: set[str] = set()
     missing: list[str] = []
@@ -98,10 +90,7 @@ async def _head_available_files(
         url = f"{raw_base_url.rstrip('/')}/{filename}"
         async with semaphore:
             try:
-                async with session.head(
-                    url,
-                    timeout=aiohttp.ClientTimeout(total=timeout_secs),
-                ) as response:
+                async with session.head(url, timeout=aiohttp.ClientTimeout(total=timeout_secs)) as response:
                     if response.status == 200:
                         available.add(filename)
                     elif response.status == 404:
@@ -134,16 +123,11 @@ def verify_local_raw_mirror(
 ) -> RawMirrorVerificationSummary:
     normalized_vendor = vendor.strip().casefold()
     if normalized_vendor != "pmxt":
-        raise ValueError(
-            f"Unsupported vendor '{vendor}'. The raw mirror verifier currently supports: pmxt"
-        )
+        raise ValueError(f"Unsupported vendor '{vendor}'. The raw mirror verifier currently supports: pmxt")
 
     normalized_raw_root = raw_root.expanduser().resolve()
     filenames = _discover_archive_filenames(
-        archive_listing_url=archive_listing_url,
-        timeout_secs=timeout_secs,
-        stale_pages=stale_pages,
-        max_pages=max_pages,
+        archive_listing_url=archive_listing_url, timeout_secs=timeout_secs, stale_pages=stale_pages, max_pages=max_pages
     )
     if check_upstream:
         available_upstream, upstream_missing = asyncio.run(

@@ -42,13 +42,9 @@ class RelayConfig:
     @classmethod
     def from_env(cls) -> RelayConfig:
         default_data_dir = Path.cwd() / ".pmxt-relay"
-        data_dir = Path(
-            os.getenv("PMXT_RELAY_DATA_DIR", str(default_data_dir))
-        ).expanduser()
+        data_dir = Path(os.getenv("PMXT_RELAY_DATA_DIR", str(default_data_dir))).expanduser()
         archive_max_pages = _env_int("PMXT_RELAY_ARCHIVE_MAX_PAGES", 0)
-        archive_listing_url = (
-            os.getenv("PMXT_RELAY_ARCHIVE_LISTING_URL") or ""
-        ).strip()
+        archive_listing_url = (os.getenv("PMXT_RELAY_ARCHIVE_LISTING_URL") or "").strip()
         raw_base_url = (os.getenv("PMXT_RELAY_RAW_BASE_URL") or "").strip()
         if not archive_listing_url:
             raise ValueError("PMXT_RELAY_ARCHIVE_LISTING_URL is required.")
@@ -65,14 +61,8 @@ class RelayConfig:
             archive_stale_pages=max(1, _env_int("PMXT_RELAY_ARCHIVE_STALE_PAGES", 1)),
             archive_max_pages=archive_max_pages or None,
             event_retention=max(100, _env_int("PMXT_RELAY_EVENT_RETENTION", 50000)),
-            api_rate_limit_per_minute=max(
-                0,
-                _env_int("PMXT_RELAY_API_RATE_LIMIT_PER_MINUTE", 2400),
-            ),
-            trusted_proxy_ips=_env_csv(
-                "PMXT_RELAY_TRUSTED_PROXY_IPS",
-                ("127.0.0.1", "::1"),
-            ),
+            api_rate_limit_per_minute=max(0, _env_int("PMXT_RELAY_API_RATE_LIMIT_PER_MINUTE", 2400)),
+            trusted_proxy_ips=_env_csv("PMXT_RELAY_TRUSTED_PROXY_IPS", ("127.0.0.1", "::1")),
         )
 
     @property
@@ -92,12 +82,7 @@ class RelayConfig:
         return self.state_root / "relay.sqlite3"
 
     def ensure_directories(self) -> None:
-        paths = [
-            self.data_dir,
-            self.raw_root,
-            self.state_root,
-            self.tmp_root,
-        ]
+        paths = [self.data_dir, self.raw_root, self.state_root, self.tmp_root]
         for path in paths:
             path.mkdir(parents=True, exist_ok=True)
             self._assert_directory_writable(path)

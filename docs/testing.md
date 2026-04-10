@@ -23,12 +23,14 @@ make test
 uv run python backtests/kalshi_trade_tick_breakout.py
 uv run python backtests/polymarket_trade_tick_vwap_reversion.py
 uv run python backtests/polymarket_quote_tick_pmxt_ema_crossover.py
-uv run python backtests/polymarket_quote_tick_pmxt_multi_sim_runner.py
+uv run python backtests/polymarket_quote_tick_pmxt_joint_portfolio_runner.py
+uv run python backtests/polymarket_quote_tick_pmxt_independent_multi_replay_runner.py
 ```
 
 Those cover the main user-facing paths in the current tree: one pinned Kalshi
 trade-tick runner, one native Polymarket trade-tick runner, one single-market
-PMXT quote-tick runner, and one PMXT multi-sim runner.
+PMXT quote-tick runner, one PMXT joint-portfolio basket runner, and one PMXT
+independent basket runner.
 
 Quote-tick PMXT runners use the source path pinned in `DATA.sources` inside the
 file. Public PMXT runners now pin `local:/Volumes/LaCie/pmxt_raws` first,
@@ -47,10 +49,10 @@ Coverage is mixed by design:
 If you are specifically validating HTML/report behavior, include at least:
 
 - one single-market runner that should emit one `*_legacy.html`
-- one fixed-basket multi-market runner that should emit per-market
-  `*_legacy.html` files plus one `*_multi_market.html`
-- the PMXT multi-sim runner, which should emit per-sim `*_legacy.html` files
-  plus one `*_multi_market.html`
+- one joint-portfolio basket runner that should emit per-market
+  `*_legacy.html` files plus one `*_joint_portfolio.html`
+- one independent basket runner that should emit per-replay `*_legacy.html`
+  files plus one `*_independent_aggregate.html`
 
 ## Docs Validation
 

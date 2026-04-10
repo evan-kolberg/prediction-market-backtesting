@@ -83,11 +83,7 @@ def _discoverable_backtest_paths(backtests_root: Path) -> list[Path]:
         *backtests_root.glob("private/*.ipynb"),
     ]
     return sorted(
-        path
-        for path in candidates
-        if path.is_file()
-        and path.name != "__init__.py"
-        and not path.name.startswith("_")
+        path for path in candidates if path.is_file() and path.name != "__init__.py" and not path.name.startswith("_")
     )
 
 
@@ -115,30 +111,21 @@ def _assignment_targets(node: ast.Assign | ast.AnnAssign) -> list[str]:
 
 def _has_assignment(module_ast: ast.Module, target_name: str) -> bool:
     for node in module_ast.body:
-        if isinstance(
-            node, (ast.Assign, ast.AnnAssign)
-        ) and target_name in _assignment_targets(
-            node,
-        ):
+        if isinstance(node, (ast.Assign, ast.AnnAssign)) and target_name in _assignment_targets(node):
             return True
     return False
 
 
 def _has_run_entrypoint(module_ast: ast.Module) -> bool:
     for node in module_ast.body:
-        if (
-            isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-            and node.name == "run"
-        ):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == "run":
             return True
     return False
 
 
 def _load_runner_metadata(path: Path) -> dict[str, Any] | None:
     if path.suffix == ".ipynb":
-        from prediction_market_extensions.backtesting._notebook_runner import (
-            load_notebook_metadata,
-        )
+        from prediction_market_extensions.backtesting._notebook_runner import load_notebook_metadata
 
         return load_notebook_metadata(path, project_root=PROJECT_ROOT)
 
@@ -156,9 +143,7 @@ def _load_runner_metadata(path: Path) -> dict[str, Any] | None:
         _warn(f"could not parse {relative_path}: {exc}")
         return None
 
-    if not (
-        _has_assignment(module_ast, "EXPERIMENT") or _has_run_entrypoint(module_ast)
-    ):
+    if not (_has_assignment(module_ast, "EXPERIMENT") or _has_run_entrypoint(module_ast)):
         return None
 
     name = path.stem
@@ -228,28 +213,15 @@ def _textual_menu_label(backtest: dict[str, Any], shortcut: str | None) -> str:
 
 def _runner_search_text(backtest: dict[str, Any]) -> str:
     return " ".join(
-        part
-        for part in (
-            backtest.get("name", ""),
-            backtest.get("description", ""),
-            _menu_label(backtest),
-        )
-        if part
+        part for part in (backtest.get("name", ""), backtest.get("description", ""), _menu_label(backtest)) if part
     ).casefold()
 
 
-def _filter_backtests(
-    backtests: list[dict[str, Any]],
-    query: str,
-) -> list[int]:
+def _filter_backtests(backtests: list[dict[str, Any]], query: str) -> list[int]:
     normalized = query.strip().casefold()
     if not normalized:
         return list(range(len(backtests)))
-    return [
-        index
-        for index, backtest in enumerate(backtests)
-        if normalized in _runner_search_text(backtest)
-    ]
+    return [index for index, backtest in enumerate(backtests) if normalized in _runner_search_text(backtest)]
 
 
 def _runner_details(backtest: dict[str, Any], shortcut: str | None) -> str:
@@ -267,10 +239,7 @@ def _runner_details(backtest: dict[str, Any], shortcut: str | None) -> str:
 
 
 def _shortcut_candidates(backtest: dict[str, Any]) -> list[str]:
-    words = re.findall(
-        r"[A-Za-z]+",
-        f"{backtest.get('name', '')} {_runner_stem(backtest)} {_menu_label(backtest)}",
-    )
+    words = re.findall(r"[A-Za-z]+", f"{backtest.get('name', '')} {_runner_stem(backtest)} {_menu_label(backtest)}")
     candidates: list[str] = []
     seen: set[str] = set()
 
@@ -298,9 +267,7 @@ def _shortcut_candidates(backtest: dict[str, Any]) -> list[str]:
     return candidates
 
 
-def _assign_shortcuts(
-    backtests: list[dict[str, Any]],
-) -> dict[str, str | None]:
+def _assign_shortcuts(backtests: list[dict[str, Any]]) -> dict[str, str | None]:
     shortcuts: dict[str, str | None] = {}
     used: set[str] = set()
 
@@ -438,11 +405,7 @@ if TEXTUAL_AVAILABLE:
             yield Static("", id="banner")
             with Horizontal(id="body"):
                 with Vertical(id="sidebar"):
-                    yield Input(
-                        placeholder="Filter runners",
-                        compact=True,
-                        id="filter",
-                    )
+                    yield Input(placeholder="Filter runners", compact=True, id="filter")
                     yield ListView(id="runner_list")
                 with Vertical(id="details"):
                     yield Static("", id="details_title", markup=False)
@@ -476,9 +439,7 @@ if TEXTUAL_AVAILABLE:
             if backtest_index is None:
                 query = self.query_one(Input).value.strip()
                 title.update("No runners match the current filter.")
-                meta.update(
-                    f"Filter: {query}" if query else "No runnable backtests found."
-                )
+                meta.update(f"Filter: {query}" if query else "No runnable backtests found.")
                 preview.update("Try a broader search or press Esc to clear the filter.")
                 self._details_backtest_index = None
                 return
@@ -504,8 +465,7 @@ if TEXTUAL_AVAILABLE:
                 _BacktestListItem(
                     backtest_index=index,
                     label=_textual_menu_label(
-                        self.backtests[index],
-                        self.shortcuts[_menu_label(self.backtests[index])],
+                        self.backtests[index], self.shortcuts[_menu_label(self.backtests[index])]
                     ),
                 )
                 for index in self.filtered_indices
@@ -513,11 +473,7 @@ if TEXTUAL_AVAILABLE:
             await list_view.clear()
             if items:
                 await list_view.extend(items)
-                target_index = (
-                    preferred_index
-                    if preferred_index in self.filtered_indices
-                    else self.filtered_indices[0]
-                )
+                target_index = preferred_index if preferred_index in self.filtered_indices else self.filtered_indices[0]
                 list_view.index = self.filtered_indices.index(target_index)
                 self._update_details(target_index)
             else:
@@ -579,9 +535,7 @@ def _load_runner(backtest: dict[str, Any]) -> Any:
     relative_path = _relative_runner_path(backtest)
     runner_path = PROJECT_ROOT / relative_path
     if runner_path.suffix == ".ipynb":
-        from prediction_market_extensions.backtesting._notebook_runner import (
-            execute_notebook_runner,
-        )
+        from prediction_market_extensions.backtesting._notebook_runner import execute_notebook_runner
 
         def _run_notebook() -> None:
             execute_notebook_runner(runner_path, project_root=PROJECT_ROOT)
@@ -696,19 +650,10 @@ def _build_menu_tree(backtests: list[dict[str, Any]]) -> dict[str, Any]:
     return root
 
 
-def _render_menu_tree(
-    node: dict[str, Any],
-    *,
-    prefix: str = "",
-) -> list[str]:
+def _render_menu_tree(node: dict[str, Any], *, prefix: str = "") -> list[str]:
     lines: list[str] = []
-    children: list[tuple[str, Any, Any]] = [
-        ("dir", name, child_node) for name, child_node in node["dirs"].items()
-    ]
-    children.extend(
-        ("entry", (index, filename), backtest)
-        for index, filename, backtest in node["entries"]
-    )
+    children: list[tuple[str, Any, Any]] = [("dir", name, child_node) for name, child_node in node["dirs"].items()]
+    children.extend(("entry", (index, filename), backtest) for index, filename, backtest in node["entries"])
 
     for position, (kind, payload, child) in enumerate(children):
         is_last = position == len(children) - 1
@@ -764,9 +709,7 @@ def main() -> None:
 
     if _env_flag_enabled(ENABLE_TIMING_ENV):
         try:
-            from prediction_market_extensions.backtesting._timing_test import (
-                install_timing,
-            )
+            from prediction_market_extensions.backtesting._timing_test import install_timing
 
             install_timing()
         except ImportError:

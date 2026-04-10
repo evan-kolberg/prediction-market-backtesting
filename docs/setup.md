@@ -77,7 +77,8 @@ Direct runner files also work:
 uv run python backtests/kalshi_trade_tick_breakout.py
 uv run python backtests/polymarket_trade_tick_vwap_reversion.py
 uv run python backtests/polymarket_quote_tick_pmxt_ema_crossover.py
-uv run python backtests/polymarket_quote_tick_pmxt_multi_sim_runner.py
+uv run python backtests/polymarket_quote_tick_pmxt_joint_portfolio_runner.py
+uv run python backtests/polymarket_quote_tick_pmxt_independent_multi_replay_runner.py
 ```
 
 Those direct runs write HTML artifacts into the repo-local `output/` directory
@@ -128,10 +129,10 @@ The counts, hour labels, source label, and byte totals vary with the current
 archive and the window you are mirroring.
 
 If you want to see the full loader and reporting flow in one place, the PMXT
-multi-sim output below is representative of the current repo-layer behavior:
+basket output below is representative of the current repo-layer behavior:
 Nautilus logs stay visible, the summary table is printed in-terminal, and the
-per-sim detail HTML paths plus the aggregate multi-market summary HTML path are
-printed after the run.
+per-replay detail HTML paths plus the basket summary HTML path are printed
+after the run.
 
 ## Timing And Cache Defaults
 

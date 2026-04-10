@@ -23,18 +23,24 @@ Good public examples:
   [`strategies/late_favorite_limit_hold.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/strategies/late_favorite_limit_hold.py)
 - Kalshi native trade-tick runner:
   [`backtests/kalshi_trade_tick_breakout.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/kalshi_trade_tick_breakout.py)
-- Kalshi native trade-tick basket runner:
-  [`backtests/kalshi_trade_tick_multi_sim_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/kalshi_trade_tick_multi_sim_runner.py)
+- Kalshi native trade-tick joint-portfolio basket runner:
+  [`backtests/kalshi_trade_tick_joint_portfolio_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/kalshi_trade_tick_joint_portfolio_runner.py)
+- Kalshi native trade-tick independent basket runner:
+  [`backtests/kalshi_trade_tick_independent_multi_replay_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/kalshi_trade_tick_independent_multi_replay_runner.py)
 - Polymarket native trade-tick runner:
   [`backtests/polymarket_trade_tick_vwap_reversion.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_trade_tick_vwap_reversion.py)
-- Polymarket native trade-tick basket runner:
-  [`backtests/polymarket_trade_tick_multi_sim_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_trade_tick_multi_sim_runner.py)
+- Polymarket native trade-tick joint-portfolio basket runner:
+  [`backtests/polymarket_trade_tick_joint_portfolio_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_trade_tick_joint_portfolio_runner.py)
+- Polymarket native trade-tick independent basket runner:
+  [`backtests/polymarket_trade_tick_independent_multi_replay_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_trade_tick_independent_multi_replay_runner.py)
 - Polymarket quote-tick runner with PMXT vendor data:
   [`backtests/polymarket_quote_tick_pmxt_ema_crossover.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_quote_tick_pmxt_ema_crossover.py)
-- PMXT labeled multi-sim runner:
-  [`backtests/polymarket_quote_tick_pmxt_multi_sim_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_quote_tick_pmxt_multi_sim_runner.py)
-- PMXT 25-sim basket runner:
-  [`backtests/polymarket_quote_tick_pmxt_25_sims_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_quote_tick_pmxt_25_sims_runner.py)
+- PMXT joint-portfolio basket runner:
+  [`backtests/polymarket_quote_tick_pmxt_joint_portfolio_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_quote_tick_pmxt_joint_portfolio_runner.py)
+- PMXT independent basket runner:
+  [`backtests/polymarket_quote_tick_pmxt_independent_multi_replay_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_quote_tick_pmxt_independent_multi_replay_runner.py)
+- PMXT independent 25-replay basket runner:
+  [`backtests/polymarket_quote_tick_pmxt_independent_25_replay_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_quote_tick_pmxt_independent_25_replay_runner.py)
 - PMXT optimizer runner:
   [`backtests/polymarket_quote_tick_pmxt_ema_optimizer.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_quote_tick_pmxt_ema_optimizer.py)
 - generic optimizer notebook research runner:
@@ -56,7 +62,28 @@ replay falls back to rolling-lookback behavior again.
 Public runners should read like flat experiment specs.
 The public contract is manifest-first: typed replay specs plus one
 `EXPERIMENT` object. `PredictionMarketBacktest` is now an internal executor
-used by the shared experiment layer. The canonical shape is:
+used by the shared experiment layer.
+
+`MarketDataConfig` owns platform, vendor, and data type selection.
+`TradeReplay` and `QuoteReplay` only describe which replay window or market to
+load. Generic executor surfaces such as
+`_prediction_market_runner.run_single_market_backtest(...)` and
+`_independent_multi_replay_runner.run_independent_multi_replay_backtest_async(...)` dispatch from that
+config instead of encoding platform or vendor names into the runner API.
+
+Multi-replay execution mode is explicit now:
+
+- `multi_replay_mode="joint_portfolio"` means one shared Nautilus engine run,
+  one shared account, and one true portfolio path across the whole basket
+- `multi_replay_mode="independent"` means one isolated run per replay and one
+  stitched aggregate report after the fact
+
+That distinction matters. Joint-portfolio charts answer "what happened to one
+bankroll trading this basket?" Independent charts answer "how did these replays
+perform if each one got its own bankroll?"
+
+Concrete files under `backtests/` can still stay explicit in their filenames
+when that helps humans scan examples quickly. The canonical shape is:
 
 ```python
 from decimal import Decimal
@@ -74,7 +101,7 @@ from prediction_market_extensions.backtesting._experiments import build_replay_e
 from prediction_market_extensions.backtesting._experiments import run_experiment
 from prediction_market_extensions.backtesting._prediction_market_backtest import MarketReportConfig
 from prediction_market_extensions.backtesting._prediction_market_runner import MarketDataConfig
-from prediction_market_extensions.backtesting._replay_specs import PolymarketPMXTQuoteReplay
+from prediction_market_extensions.backtesting._replay_specs import QuoteReplay
 from prediction_market_extensions.backtesting._timing_harness import timing_harness
 from prediction_market_extensions.backtesting.data_sources import PMXT, Polymarket, QuoteTick
 
@@ -95,7 +122,7 @@ DATA = MarketDataConfig(
 )
 
 REPLAYS = (
-    PolymarketPMXTQuoteReplay(
+    QuoteReplay(
         market_slug="market-slug",
         token_index=0,
         start_time="2026-03-19T07:35:57.277659Z",
@@ -168,6 +195,7 @@ Every public runner should expose:
 - `DATA`
 - `REPLAYS`
 - `STRATEGY_CONFIGS`
+- `multi_replay_mode` inside `EXPERIMENT` when `len(REPLAYS) > 1`
 - `REPORT` when the runner prints a summary table or writes aggregate reports
 - `EXECUTION` when the runner models non-default queue position or exchange latency
 - `EXPERIMENT`
@@ -205,13 +233,15 @@ The corresponding runner patterns are:
 - single-market runner:
   `EMIT_HTML = True`, `CHART_OUTPUT_PATH = "output"`, and
   `DETAIL_PLOT_PANELS = (...)`
-- multi-market runner:
+- joint-portfolio runner:
   the single-market settings plus `SUMMARY_REPORT_PATH`,
   `SUMMARY_PLOT_PANELS = (...)`,
-  `REPORT.summary_report=True`, and `return_summary_series=True`
-- PMXT multi-sim runner:
+  `REPORT.summary_report=True`, `return_summary_series=True`, and
+  `multi_replay_mode="joint_portfolio"`
+- independent multi-replay runner:
   the single-market settings plus `SUMMARY_REPORT_PATH`,
-  `REPORT.summary_report=True`, and `return_summary_series=True`
+  `REPORT.summary_report=True`, `return_summary_series=True`, and
+  `multi_replay_mode="independent"`
 
 This split is deliberate. It lets one run keep the dense detail that matters
 for inspection, such as execution markers and per-market PnL structure, without
@@ -249,7 +279,7 @@ DETAIL_PLOT_PANELS = (
 ```
 
 ```python
-SUMMARY_REPORT_PATH = f"output/{NAME}_multi_market.html"
+SUMMARY_REPORT_PATH = f"output/{NAME}_joint_portfolio.html"
 SUMMARY_PLOT_PANELS = (
     "total_equity",
     "equity",
@@ -275,6 +305,7 @@ EXPERIMENT = build_replay_experiment(
     chart_output_path=CHART_OUTPUT_PATH,
     detail_plot_panels=DETAIL_PLOT_PANELS,
     return_summary_series=True,
+    multi_replay_mode="joint_portfolio",
 )
 ```
 
@@ -384,7 +415,8 @@ Direct script execution is usually better once you know the runner you want:
 uv run python backtests/kalshi_trade_tick_breakout.py
 uv run python backtests/polymarket_trade_tick_vwap_reversion.py
 uv run python backtests/polymarket_quote_tick_pmxt_ema_crossover.py
-uv run python backtests/polymarket_quote_tick_pmxt_multi_sim_runner.py
+uv run python backtests/polymarket_quote_tick_pmxt_joint_portfolio_runner.py
+uv run python backtests/polymarket_quote_tick_pmxt_independent_multi_replay_runner.py
 ```
 
 When a runner keeps `CHART_OUTPUT_PATH="output"`, those direct commands still
@@ -437,7 +469,7 @@ the winning params, and replays one train or holdout window with HTML enabled.
 After a notebook-backed run finishes, the runner scans `output/` for HTML files
 updated during that run and rewrites one autogenerated markdown cell at the end
 of the notebook. That cell embeds the primary HTML artifact, usually the
-`*_multi_market.html` summary report when one exists, and links any additional
+joint-portfolio or independent summary report when one exists, and links any additional
 HTML artifacts from the same run.
 
 ## Editing Runner Inputs

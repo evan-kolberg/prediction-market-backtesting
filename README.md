@@ -37,7 +37,6 @@ custom exchange adapters. Plotting inspired by [minitrade](https://github.com/do
 
 Fantastic single & multi-market charting. Featuring: equity (total & individual markets), profit / loss ticks, P&L periodic bars, market allocation, YES price (with green buy and red sell fills), drawdown, sharpe (with above/below shading), cash / equity, monthly returns, and cumulative brier advantage.
 ![Charting preview](https://raw.githubusercontent.com/evan-kolberg/prediction-market-backtesting/main/docs/assets/charting-preview.jpeg)
-[Plotting docs](https://evan-kolberg.github.io/prediction-market-backtesting/plotting/)
 
 **If you find any bugs, unexpected behavior, or missing simulation features, PLEASE post an [issue](https://github.com/evan-kolberg/prediction-market-backtesting/issues/new) or [discussion](https://github.com/evan-kolberg/prediction-market-backtesting/discussions/new/choose).**
 

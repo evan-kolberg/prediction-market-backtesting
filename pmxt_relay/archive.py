@@ -6,9 +6,7 @@ from urllib.request import Request
 from urllib.request import urlopen
 
 
-ARCHIVE_LINK_RE = re.compile(
-    r"/dumps/(polymarket_orderbook_\d{4}-\d{2}-\d{2}T\d{2}\.parquet)"
-)
+ARCHIVE_LINK_RE = re.compile(r"/dumps/(polymarket_orderbook_\d{4}-\d{2}-\d{2}T\d{2}\.parquet)")
 
 
 def extract_archive_filenames(html: str) -> list[str]:

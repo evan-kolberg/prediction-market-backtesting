@@ -17,37 +17,17 @@ from pmxt_relay.worker import RelayWorker
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="PMXT raw mirror utilities")
     parser.add_argument(
-        "command",
-        choices=(
-            "api",
-            "worker",
-            "sync-once",
-            "stats",
-            "verify-raw-mirror",
-        ),
-        help="Relay command to run",
+        "command", choices=("api", "worker", "sync-once", "stats", "verify-raw-mirror"), help="Relay command to run"
     )
     parser.add_argument(
-        "--vendor",
-        choices=("pmxt",),
-        default="pmxt",
-        help="Vendor adapter to use for raw mirror verification",
+        "--vendor", choices=("pmxt",), default="pmxt", help="Vendor adapter to use for raw mirror verification"
+    )
+    parser.add_argument("--raw-root", type=Path, default=None, help="Local raw mirror root for verify-raw-mirror")
+    parser.add_argument(
+        "--skip-upstream-head", action="store_true", help="Skip upstream HEAD checks during verify-raw-mirror"
     )
     parser.add_argument(
-        "--raw-root",
-        type=Path,
-        default=None,
-        help="Local raw mirror root for verify-raw-mirror",
-    )
-    parser.add_argument(
-        "--skip-upstream-head",
-        action="store_true",
-        help="Skip upstream HEAD checks during verify-raw-mirror",
-    )
-    parser.add_argument(
-        "--skip-parquet-check",
-        action="store_true",
-        help="Skip parquet metadata validation during verify-raw-mirror",
+        "--skip-parquet-check", action="store_true", help="Skip parquet metadata validation during verify-raw-mirror"
     )
     parser.add_argument(
         "--upstream-head-concurrency",
@@ -59,10 +39,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s %(message)s",
-    )
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
     parser = _build_parser()
     args = parser.parse_args(argv)
     config = RelayConfig.from_env()
@@ -88,13 +65,7 @@ def main(argv: list[str] | None = None) -> int:
             mirrored = worker._mirror_pending_hours()  # noqa: SLF001
             print(
                 json.dumps(
-                    {
-                        "adopted": adopted,
-                        "discovered": discovered,
-                        "mirrored": mirrored,
-                    },
-                    indent=2,
-                    sort_keys=True,
+                    {"adopted": adopted, "discovered": discovered, "mirrored": mirrored}, indent=2, sort_keys=True
                 )
             )
         finally:
