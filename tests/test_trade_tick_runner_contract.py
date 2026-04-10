@@ -9,7 +9,20 @@ from prediction_market_extensions.backtesting._replay_specs import TradeReplay
 EXPECTED_INITIAL_CASH = 100.0
 EXPECTED_EMIT_HTML = True
 EXPECTED_CHART_OUTPUT_PATH = "output"
-EXPECTED_DETAIL_PLOT_PANELS = (
+EXPECTED_KALSHI_DETAIL_PLOT_PANELS = (
+    "equity",
+    "market_pnl",
+    "periodic_pnl",
+    "yes_price",
+    "allocation",
+    "drawdown",
+    "rolling_sharpe",
+    "cash_equity",
+    "monthly_returns",
+    "brier_advantage",
+)
+EXPECTED_POLYMARKET_DETAIL_PLOT_PANELS = (
+    "total_equity",
     "equity",
     "market_pnl",
     "periodic_pnl",
@@ -24,7 +37,9 @@ EXPECTED_DETAIL_PLOT_PANELS = (
 EXPECTED_SUMMARY_PLOT_PANELS = (
     "total_equity",
     "equity",
+    "market_pnl",
     "periodic_pnl",
+    "yes_price",
     "allocation",
     "drawdown",
     "rolling_sharpe",
@@ -129,10 +144,10 @@ def test_kalshi_trade_tick_single_runner_uses_expected_runtime_contract() -> Non
     assert module.DATA.sources == EXPECTED_KALSHI_TRADE_SOURCES
     assert module.EMIT_HTML is EXPECTED_EMIT_HTML
     assert module.CHART_OUTPUT_PATH == EXPECTED_CHART_OUTPUT_PATH
-    assert module.DETAIL_PLOT_PANELS == EXPECTED_DETAIL_PLOT_PANELS
+    assert module.DETAIL_PLOT_PANELS == EXPECTED_KALSHI_DETAIL_PLOT_PANELS
     assert module.EXPERIMENT.emit_html is EXPECTED_EMIT_HTML
     assert module.EXPERIMENT.chart_output_path == EXPECTED_CHART_OUTPUT_PATH
-    assert module.EXPERIMENT.detail_plot_panels == EXPECTED_DETAIL_PLOT_PANELS
+    assert module.EXPERIMENT.detail_plot_panels == EXPECTED_KALSHI_DETAIL_PLOT_PANELS
     assert module.EXPERIMENT.initial_cash == EXPECTED_INITIAL_CASH
     assert module.REPLAYS == (EXPECTED_KALSHI_SINGLE_REPLAY,)
 
@@ -143,11 +158,11 @@ def test_kalshi_trade_tick_independent_runner_uses_expected_runtime_contract() -
     assert module.DATA.sources == EXPECTED_KALSHI_TRADE_SOURCES
     assert module.EMIT_HTML is EXPECTED_EMIT_HTML
     assert module.CHART_OUTPUT_PATH == EXPECTED_CHART_OUTPUT_PATH
-    assert module.DETAIL_PLOT_PANELS == EXPECTED_DETAIL_PLOT_PANELS
+    assert module.DETAIL_PLOT_PANELS == EXPECTED_KALSHI_DETAIL_PLOT_PANELS
     assert module.SUMMARY_PLOT_PANELS == EXPECTED_SUMMARY_PLOT_PANELS
     assert module.EXPERIMENT.emit_html is EXPECTED_EMIT_HTML
     assert module.EXPERIMENT.chart_output_path == EXPECTED_CHART_OUTPUT_PATH
-    assert module.EXPERIMENT.detail_plot_panels == EXPECTED_DETAIL_PLOT_PANELS
+    assert module.EXPERIMENT.detail_plot_panels == EXPECTED_KALSHI_DETAIL_PLOT_PANELS
     assert module.EXPERIMENT.return_summary_series is True
     assert module.EXPERIMENT.multi_replay_mode == "independent"
     assert module.REPORT.summary_report is True
@@ -162,7 +177,7 @@ def test_kalshi_trade_tick_joint_runner_uses_expected_runtime_contract() -> None
     assert module.DATA.sources == EXPECTED_KALSHI_TRADE_SOURCES
     assert module.EMIT_HTML is EXPECTED_EMIT_HTML
     assert module.CHART_OUTPUT_PATH == EXPECTED_CHART_OUTPUT_PATH
-    assert module.DETAIL_PLOT_PANELS == EXPECTED_DETAIL_PLOT_PANELS
+    assert module.DETAIL_PLOT_PANELS == EXPECTED_KALSHI_DETAIL_PLOT_PANELS
     assert module.SUMMARY_PLOT_PANELS == EXPECTED_SUMMARY_PLOT_PANELS
     assert module.EXPERIMENT.return_summary_series is True
     assert module.EXPERIMENT.multi_replay_mode == "joint_portfolio"
@@ -175,10 +190,10 @@ def test_polymarket_trade_tick_single_runner_uses_expected_runtime_contract() ->
     assert module.DATA.sources == EXPECTED_POLYMARKET_TRADE_SOURCES
     assert module.EMIT_HTML is EXPECTED_EMIT_HTML
     assert module.CHART_OUTPUT_PATH == EXPECTED_CHART_OUTPUT_PATH
-    assert module.DETAIL_PLOT_PANELS == EXPECTED_DETAIL_PLOT_PANELS
+    assert module.DETAIL_PLOT_PANELS == EXPECTED_POLYMARKET_DETAIL_PLOT_PANELS
     assert module.EXPERIMENT.emit_html is EXPECTED_EMIT_HTML
     assert module.EXPERIMENT.chart_output_path == EXPECTED_CHART_OUTPUT_PATH
-    assert module.EXPERIMENT.detail_plot_panels == EXPECTED_DETAIL_PLOT_PANELS
+    assert module.EXPERIMENT.detail_plot_panels == EXPECTED_POLYMARKET_DETAIL_PLOT_PANELS
     assert module.REPLAYS == (EXPECTED_POLYMARKET_SINGLE_REPLAY,)
 
 
@@ -188,11 +203,11 @@ def test_polymarket_trade_tick_independent_runner_uses_fixed_replay_windows() ->
     assert module.DATA.sources == EXPECTED_POLYMARKET_TRADE_SOURCES
     assert module.EMIT_HTML is EXPECTED_EMIT_HTML
     assert module.CHART_OUTPUT_PATH == EXPECTED_CHART_OUTPUT_PATH
-    assert module.DETAIL_PLOT_PANELS == EXPECTED_DETAIL_PLOT_PANELS
+    assert module.DETAIL_PLOT_PANELS == EXPECTED_POLYMARKET_DETAIL_PLOT_PANELS
     assert module.SUMMARY_PLOT_PANELS == EXPECTED_SUMMARY_PLOT_PANELS
     assert module.EXPERIMENT.emit_html is EXPECTED_EMIT_HTML
     assert module.EXPERIMENT.chart_output_path == EXPECTED_CHART_OUTPUT_PATH
-    assert module.EXPERIMENT.detail_plot_panels == EXPECTED_DETAIL_PLOT_PANELS
+    assert module.EXPERIMENT.detail_plot_panels == EXPECTED_POLYMARKET_DETAIL_PLOT_PANELS
     assert module.EXPERIMENT.return_summary_series is True
     assert module.EXPERIMENT.multi_replay_mode == "independent"
     assert module.REPORT.summary_report is True
@@ -208,7 +223,7 @@ def test_polymarket_trade_tick_joint_runner_uses_fixed_replay_windows() -> None:
     assert module.DATA.sources == EXPECTED_POLYMARKET_TRADE_SOURCES
     assert module.EMIT_HTML is EXPECTED_EMIT_HTML
     assert module.CHART_OUTPUT_PATH == EXPECTED_CHART_OUTPUT_PATH
-    assert module.DETAIL_PLOT_PANELS == EXPECTED_DETAIL_PLOT_PANELS
+    assert module.DETAIL_PLOT_PANELS == EXPECTED_POLYMARKET_DETAIL_PLOT_PANELS
     assert module.SUMMARY_PLOT_PANELS == EXPECTED_SUMMARY_PLOT_PANELS
     assert module.EXPERIMENT.return_summary_series is True
     assert module.EXPERIMENT.multi_replay_mode == "joint_portfolio"

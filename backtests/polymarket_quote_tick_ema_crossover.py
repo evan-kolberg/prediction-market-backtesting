@@ -38,6 +38,7 @@ DESCRIPTION = "EMA crossover momentum on a single Polymarket market using PMXT L
 EMIT_HTML = True
 CHART_OUTPUT_PATH = "output"
 DETAIL_PLOT_PANELS = (
+    "total_equity",
     "equity",
     "market_pnl",
     "periodic_pnl",

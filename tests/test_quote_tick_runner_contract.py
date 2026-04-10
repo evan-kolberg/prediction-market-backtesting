@@ -22,6 +22,7 @@ EXPECTED_RUNNER_EMIT_HTML = True
 EXPECTED_OPTIMIZER_EMIT_HTML = False
 EXPECTED_CHART_OUTPUT_PATH = "output"
 EXPECTED_DETAIL_PLOT_PANELS = (
+    "total_equity",
     "equity",
     "market_pnl",
     "periodic_pnl",
@@ -36,7 +37,9 @@ EXPECTED_DETAIL_PLOT_PANELS = (
 EXPECTED_MULTI_SIM_SUMMARY_PLOT_PANELS = (
     "total_equity",
     "equity",
+    "market_pnl",
     "periodic_pnl",
+    "yes_price",
     "allocation",
     "drawdown",
     "rolling_sharpe",
@@ -46,9 +49,16 @@ EXPECTED_MULTI_SIM_SUMMARY_PLOT_PANELS = (
 )
 EXPECTED_25_SIM_SUMMARY_PLOT_PANELS = (
     "total_equity",
+    "equity",
+    "market_pnl",
     "periodic_pnl",
+    "yes_price",
     "allocation",
+    "drawdown",
+    "rolling_sharpe",
+    "cash_equity",
     "monthly_returns",
+    "brier_advantage",
 )
 
 BACKTESTS_ROOT = Path(__file__).resolve().parents[1] / "backtests"

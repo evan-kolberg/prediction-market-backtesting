@@ -36,6 +36,7 @@ DESCRIPTION = (
 EMIT_HTML = True
 CHART_OUTPUT_PATH = "output"
 DETAIL_PLOT_PANELS = (
+    "total_equity",
     "equity",
     "market_pnl",
     "periodic_pnl",
@@ -50,7 +51,9 @@ DETAIL_PLOT_PANELS = (
 SUMMARY_PLOT_PANELS = (
     "total_equity",
     "equity",
+    "market_pnl",
     "periodic_pnl",
+    "yes_price",
     "allocation",
     "drawdown",
     "rolling_sharpe",

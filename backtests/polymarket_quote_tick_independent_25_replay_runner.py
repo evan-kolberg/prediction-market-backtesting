@@ -36,6 +36,7 @@ DESCRIPTION = "Independent PMXT quote-tick backtests using 25 varied historical 
 EMIT_HTML = True
 CHART_OUTPUT_PATH = "output"
 DETAIL_PLOT_PANELS = (
+    "total_equity",
     "equity",
     "market_pnl",
     "periodic_pnl",
@@ -48,7 +49,19 @@ DETAIL_PLOT_PANELS = (
     "brier_advantage",
 )
 SUMMARY_REPORT_PATH = f"output/{NAME}_independent_aggregate.html"
-SUMMARY_PLOT_PANELS = ("total_equity", "periodic_pnl", "allocation", "monthly_returns")
+SUMMARY_PLOT_PANELS = (
+    "total_equity",
+    "equity",
+    "market_pnl",
+    "periodic_pnl",
+    "yes_price",
+    "allocation",
+    "drawdown",
+    "rolling_sharpe",
+    "cash_equity",
+    "monthly_returns",
+    "brier_advantage",
+)
 EMPTY_MESSAGE = "No PMXT independent-replay example windows met the quote-tick requirements."
 PARTIAL_MESSAGE = "Completed {completed} of {total} independent example replays."
 

@@ -22,6 +22,7 @@ EXPECTED_PMXT_SOURCES = (
     "relay:209-209-10-83.sslip.io",
 )
 EXPECTED_DETAIL_PLOT_PANELS = (
+    "total_equity",
     "equity",
     "market_pnl",
     "periodic_pnl",
@@ -36,7 +37,9 @@ EXPECTED_DETAIL_PLOT_PANELS = (
 EXPECTED_MULTI_SIM_SUMMARY_PLOT_PANELS = (
     "total_equity",
     "equity",
+    "market_pnl",
     "periodic_pnl",
+    "yes_price",
     "allocation",
     "drawdown",
     "rolling_sharpe",
@@ -46,9 +49,16 @@ EXPECTED_MULTI_SIM_SUMMARY_PLOT_PANELS = (
 )
 EXPECTED_25_SIM_SUMMARY_PLOT_PANELS = (
     "total_equity",
+    "equity",
+    "market_pnl",
     "periodic_pnl",
+    "yes_price",
     "allocation",
+    "drawdown",
+    "rolling_sharpe",
+    "cash_equity",
     "monthly_returns",
+    "brier_advantage",
 )
 EXPECTED_SINGLE_REPLAY = QuoteReplay(
     market_slug="will-ludvig-aberg-win-the-2026-masters-tournament",

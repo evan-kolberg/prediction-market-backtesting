@@ -183,15 +183,13 @@ def test_apply_layout_overrides_removes_yes_price_fill_markers_when_enabled() ->
     )
 
 
-@pytest.mark.parametrize(
-    ("fill_count", "expected_marker_limit"), [(250, None), (251, 250), (1_667, 250)]
-)
-def test_build_legacy_backtest_layout_auto_limits_yes_price_fill_markers_for_high_fill_counts(
-    monkeypatch: pytest.MonkeyPatch, tmp_path, fill_count: int, expected_marker_limit: int | None
+@pytest.mark.parametrize("fill_count", [250, 251, 1_667])
+def test_build_legacy_backtest_layout_never_auto_limits_yes_price_fill_markers(
+    monkeypatch: pytest.MonkeyPatch, tmp_path, fill_count: int
 ) -> None:
     base_layout = _DummyLayout()
     plotting_module = SimpleNamespace(plot=lambda *args, **kwargs: base_layout)
-    apply_calls: list[int | None] = []
+    apply_calls: list[dict[str, object]] = []
 
     class _BacktestResult:
         def __init__(self, **kwargs) -> None:
@@ -226,9 +224,7 @@ def test_build_legacy_backtest_layout_auto_limits_yes_price_fill_markers_for_hig
     monkeypatch.setattr(
         adapter,
         "_apply_layout_overrides",
-        lambda layout, initial_cash, **kwargs: (
-            apply_calls.append(kwargs.get("max_yes_price_fill_markers")) or layout
-        ),
+        lambda layout, initial_cash, **kwargs: apply_calls.append(kwargs) or layout,
     )
     monkeypatch.setattr(
         adapter, "prepare_cumulative_brier_advantage", lambda **kwargs: pd.DataFrame()
@@ -244,7 +240,7 @@ def test_build_legacy_backtest_layout_auto_limits_yes_price_fill_markers_for_hig
 
     assert layout is base_layout
     assert title == "Test Strategy legacy chart"
-    assert apply_calls == [expected_marker_limit]
+    assert apply_calls == [{}]
 
 
 def test_build_legacy_backtest_layout_skips_brier_when_not_requested(

@@ -43,6 +43,29 @@ def _heading_slugs_for_doc(doc_path: Path) -> set[str]:
     return {_slugify(match.group("title")) for match in HEADING_RE.finditer(text)}
 
 
+def _resolve_nav_anchor_target(target: str) -> tuple[Path, str] | None:
+    if "#" not in target:
+        return None
+    if target.startswith(("http://", "https://")):
+        return None
+    if target.startswith(DOCS_URL_PREFIX):
+        doc_slug, _, anchor = target.removeprefix(DOCS_URL_PREFIX).partition("/#")
+        return DOCS_ROOT / f"{doc_slug}.md", anchor
+
+    doc_ref, _, anchor = target.partition("#")
+    if not doc_ref.endswith(".md"):
+        return None
+    return DOCS_ROOT / doc_ref, anchor
+
+
+def _nav_doc_targets(node) -> set[str]:  # type: ignore[no-untyped-def]
+    return {
+        target
+        for target in _iter_nav_targets(node)
+        if isinstance(target, str) and target.endswith(".md")
+    }
+
+
 def test_mkdocs_nav_anchor_targets_exist() -> None:
     config = yaml.safe_load(MKDOCS_PATH.read_text())
     nav_targets = _iter_nav_targets(config["nav"])
@@ -50,14 +73,35 @@ def test_mkdocs_nav_anchor_targets_exist() -> None:
     for target in nav_targets:
         if not isinstance(target, str):
             continue
-        if not target.startswith(DOCS_URL_PREFIX) or "#" not in target:
+        resolved = _resolve_nav_anchor_target(target)
+        if resolved is None:
             continue
 
-        doc_slug, _, anchor = target.removeprefix(DOCS_URL_PREFIX).partition("/#")
-        doc_path = DOCS_ROOT / f"{doc_slug}.md"
+        doc_path, anchor = resolved
         assert doc_path.exists(), f"missing docs file for nav target: {target}"
         heading_slugs = _heading_slugs_for_doc(doc_path)
         assert anchor in heading_slugs, f"missing nav anchor {anchor!r} in {doc_path}"
+
+
+def test_mkdocs_nav_uses_relative_doc_anchors() -> None:
+    config = yaml.safe_load(MKDOCS_PATH.read_text())
+    nav_targets = _iter_nav_targets(config["nav"])
+
+    for target in nav_targets:
+        if not isinstance(target, str) or "#" not in target:
+            continue
+        assert not target.startswith(DOCS_URL_PREFIX), (
+            f"mkdocs nav target should use a relative doc anchor, not an absolute docs URL: {target}"
+        )
+
+
+def test_mkdocs_nav_records_all_docs_pages() -> None:
+    config = yaml.safe_load(MKDOCS_PATH.read_text())
+    nav_targets = _nav_doc_targets(config["nav"])
+
+    for doc_path in sorted(DOCS_ROOT.glob("*.md")):
+        expected_target = doc_path.name
+        assert expected_target in nav_targets, f"missing docs page in mkdocs nav: {expected_target}"
 
 
 def test_root_readme_records_all_docs_and_subheaders() -> None:

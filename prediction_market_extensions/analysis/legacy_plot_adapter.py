@@ -1832,9 +1832,6 @@ def build_legacy_backtest_layout(
     layout = _apply_layout_overrides(
         layout,
         initial_cash=float(initial_cash),
-        max_yes_price_fill_markers=_yes_price_fill_marker_limit(
-            fill_count=len(fills), max_points=max_downsample_points
-        ),
     )
 
     return layout, chart_title

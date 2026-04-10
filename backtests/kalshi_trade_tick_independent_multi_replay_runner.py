@@ -49,7 +49,9 @@ SUMMARY_REPORT_PATH = f"output/{NAME}_independent_aggregate.html"
 SUMMARY_PLOT_PANELS = (
     "total_equity",
     "equity",
+    "market_pnl",
     "periodic_pnl",
+    "yes_price",
     "allocation",
     "drawdown",
     "rolling_sharpe",

@@ -36,6 +36,7 @@ DESCRIPTION = "Joint-portfolio PMXT quote-tick backtest using varied historical 
 EMIT_HTML = True
 CHART_OUTPUT_PATH = "output"
 DETAIL_PLOT_PANELS = (
+    "total_equity",
     "equity",
     "market_pnl",
     "periodic_pnl",
@@ -51,7 +52,9 @@ SUMMARY_REPORT_PATH = f"output/{NAME}_joint_portfolio.html"
 SUMMARY_PLOT_PANELS = (
     "total_equity",
     "equity",
+    "market_pnl",
     "periodic_pnl",
+    "yes_price",
     "allocation",
     "drawdown",
     "rolling_sharpe",

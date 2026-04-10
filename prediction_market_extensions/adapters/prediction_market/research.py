@@ -314,6 +314,28 @@ def _aggregate_brier_frames(results: Sequence[dict[str, Any]]) -> dict[str, pd.D
     return frames
 
 
+def _aggregate_brier_unavailable_reason(results: Sequence[dict[str, Any]]) -> str | None:
+    user_series = pd.Series(dtype=float)
+    market_series = pd.Series(dtype=float)
+    outcome_series = pd.Series(dtype=float)
+
+    for result in results:
+        if user_series.empty:
+            user_series = _pairs_to_series(result.get("user_probability_series") or [])
+        if market_series.empty:
+            market_series = _pairs_to_series(result.get("market_probability_series") or [])
+        if outcome_series.empty:
+            outcome_series = _pairs_to_series(result.get("outcome_series") or [])
+        if not user_series.empty and not market_series.empty and not outcome_series.empty:
+            break
+
+    return legacy_plot_adapter._brier_unavailable_reason(
+        user_probabilities=user_series,
+        market_probabilities=market_series,
+        outcomes=outcome_series,
+    )
+
+
 def run_market_backtest(
     *,
     market_id: str,
@@ -757,6 +779,12 @@ def save_aggregate_backtest_report(
             )
             if panel is not None:
                 extra_panels[PANEL_BRIER_ADVANTAGE] = panel
+        else:
+            unavailable_reason = _aggregate_brier_unavailable_reason(results)
+            if unavailable_reason is not None:
+                extra_panels[PANEL_BRIER_ADVANTAGE] = (
+                    legacy_plot_adapter._build_brier_placeholder_panel(unavailable_reason)
+                )
     layout = plotting_module.plot(
         result,
         filename=str(output_abs),
@@ -769,8 +797,9 @@ def save_aggregate_backtest_report(
     layout = legacy_plot_adapter._apply_layout_overrides(
         layout,
         initial_cash=float(initial_cash),
-        hide_yes_price_fill_markers=legacy_plot_adapter._should_hide_yes_price_fill_markers(
-            fill_count=len(fills), max_points=downsample_point_limit
+        max_yes_price_fill_markers=legacy_plot_adapter._yes_price_fill_marker_limit(
+            fill_count=len(fills),
+            max_points=downsample_point_limit,
         ),
     )
     return save_legacy_backtest_layout(layout, output_abs, title)
@@ -927,6 +956,12 @@ def save_joint_portfolio_backtest_report(
             )
             if panel is not None:
                 extra_panels[PANEL_BRIER_ADVANTAGE] = panel
+        else:
+            unavailable_reason = _aggregate_brier_unavailable_reason(results)
+            if unavailable_reason is not None:
+                extra_panels[PANEL_BRIER_ADVANTAGE] = (
+                    legacy_plot_adapter._build_brier_placeholder_panel(unavailable_reason)
+                )
     layout = plotting_module.plot(
         result,
         filename=str(output_abs),
@@ -939,8 +974,9 @@ def save_joint_portfolio_backtest_report(
     layout = legacy_plot_adapter._apply_layout_overrides(
         layout,
         initial_cash=float(initial_cash),
-        hide_yes_price_fill_markers=legacy_plot_adapter._should_hide_yes_price_fill_markers(
-            fill_count=len(fills), max_points=downsample_point_limit
+        max_yes_price_fill_markers=legacy_plot_adapter._yes_price_fill_marker_limit(
+            fill_count=len(fills),
+            max_points=downsample_point_limit,
         ),
     )
     return save_legacy_backtest_layout(layout, output_abs, title)

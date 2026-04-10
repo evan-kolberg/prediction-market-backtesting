@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
 from prediction_market_extensions.adapters.prediction_market.research import (
@@ -8,6 +10,7 @@ from prediction_market_extensions.adapters.prediction_market.research import (
 from prediction_market_extensions.adapters.prediction_market.research import (
     save_joint_portfolio_backtest_report,
 )
+from prediction_market_extensions.adapters.prediction_market import research
 
 
 def test_save_aggregate_backtest_report_accepts_mixed_iso_timestamp_precision(tmp_path) -> None:
@@ -179,3 +182,399 @@ def test_save_joint_portfolio_backtest_report_accepts_mixed_iso_timestamp_precis
     assert "joint mixed timestamp precision chart" in html
     assert "market-a" in html
     assert "market-b" in html
+
+
+def test_save_aggregate_backtest_report_adds_brier_placeholder_when_outcomes_missing(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    plot_calls: list[dict[str, object]] = []
+    placeholder_panel = object()
+
+    class _BacktestResult:
+        def __init__(self, **kwargs) -> None:
+            self.kwargs = kwargs
+
+    def _snapshot(**kwargs):
+        return SimpleNamespace(**kwargs)
+
+    monkeypatch.setattr(
+        research.legacy_plot_adapter,
+        "_load_legacy_modules",
+        lambda: (
+            SimpleNamespace(
+                BacktestResult=_BacktestResult,
+                PortfolioSnapshot=_snapshot,
+                Platform=SimpleNamespace(POLYMARKET="POLYMARKET"),
+            ),
+            SimpleNamespace(plot=lambda *args, **kwargs: plot_calls.append(kwargs) or object()),
+        ),
+    )
+    monkeypatch.setattr(
+        research.legacy_plot_adapter,
+        "_configure_legacy_downsampling",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        research.legacy_plot_adapter,
+        "_apply_layout_overrides",
+        lambda layout, initial_cash, **kwargs: layout,
+    )
+    monkeypatch.setattr(
+        research.legacy_plot_adapter,
+        "_build_brier_placeholder_panel",
+        lambda message: placeholder_panel,
+    )
+
+    def _fake_deserialize_fill_events(**kwargs):
+        return [SimpleNamespace() for _ in kwargs["fill_events"]]
+
+    monkeypatch.setattr(
+        research,
+        "_deserialize_fill_events",
+        _fake_deserialize_fill_events,
+    )
+    monkeypatch.setattr(
+        research,
+        "save_legacy_backtest_layout",
+        lambda layout, output_path, title: str(output_path),
+    )
+
+    results = [
+        {
+            "slug": "market-a",
+            "trades": 10,
+            "fills": 0,
+            "pnl": 1.0,
+            "price_series": [
+                ("2026-03-14T17:57:40+00:00", 0.40),
+                ("2026-03-14T17:58:40+00:00", 0.42),
+            ],
+            "user_probability_series": [
+                ("2026-03-14T17:57:40+00:00", 0.41),
+                ("2026-03-14T17:58:40+00:00", 0.43),
+            ],
+            "market_probability_series": [
+                ("2026-03-14T17:57:40+00:00", 0.40),
+                ("2026-03-14T17:58:40+00:00", 0.42),
+            ],
+            "outcome_series": [],
+            "pnl_series": [
+                ("2026-03-14T17:57:40+00:00", 0.0),
+                ("2026-03-14T17:58:40+00:00", 1.0),
+            ],
+            "equity_series": [
+                ("2026-03-14T17:57:40+00:00", 100.0),
+                ("2026-03-14T17:58:40+00:00", 101.0),
+            ],
+            "cash_series": [
+                ("2026-03-14T17:57:40+00:00", 96.0),
+                ("2026-03-14T17:58:40+00:00", 96.0),
+            ],
+        }
+    ]
+
+    save_aggregate_backtest_report(
+        results=results,
+        output_path=tmp_path / "aggregate_brier_placeholder.html",
+        title="aggregate placeholder chart",
+        market_key="slug",
+        pnl_label="PnL (USDC)",
+        plot_panels=("brier_advantage",),
+    )
+
+    assert plot_calls
+    assert plot_calls[0]["extra_panels"]["brier_advantage"] is placeholder_panel
+
+
+def test_save_joint_portfolio_backtest_report_adds_brier_placeholder_when_outcomes_missing(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    plot_calls: list[dict[str, object]] = []
+    placeholder_panel = object()
+
+    class _BacktestResult:
+        def __init__(self, **kwargs) -> None:
+            self.kwargs = kwargs
+
+    def _snapshot(**kwargs):
+        return SimpleNamespace(**kwargs)
+
+    monkeypatch.setattr(
+        research.legacy_plot_adapter,
+        "_load_legacy_modules",
+        lambda: (
+            SimpleNamespace(
+                BacktestResult=_BacktestResult,
+                PortfolioSnapshot=_snapshot,
+                Platform=SimpleNamespace(POLYMARKET="POLYMARKET"),
+            ),
+            SimpleNamespace(plot=lambda *args, **kwargs: plot_calls.append(kwargs) or object()),
+        ),
+    )
+    monkeypatch.setattr(
+        research.legacy_plot_adapter,
+        "_configure_legacy_downsampling",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        research.legacy_plot_adapter,
+        "_apply_layout_overrides",
+        lambda layout, initial_cash, **kwargs: layout,
+    )
+    monkeypatch.setattr(
+        research.legacy_plot_adapter,
+        "_build_brier_placeholder_panel",
+        lambda message: placeholder_panel,
+    )
+
+    def _fake_deserialize_fill_events(**kwargs):
+        return [SimpleNamespace() for _ in kwargs["fill_events"]]
+
+    monkeypatch.setattr(
+        research,
+        "_deserialize_fill_events",
+        _fake_deserialize_fill_events,
+    )
+    monkeypatch.setattr(
+        research,
+        "save_legacy_backtest_layout",
+        lambda layout, output_path, title: str(output_path),
+    )
+
+    results = [
+        {
+            "slug": "market-a",
+            "trades": 10,
+            "fills": 0,
+            "pnl": 1.0,
+            "price_series": [
+                ("2026-03-14T17:57:40+00:00", 0.40),
+                ("2026-03-14T17:58:40+00:00", 0.42),
+            ],
+            "user_probability_series": [
+                ("2026-03-14T17:57:40+00:00", 0.41),
+                ("2026-03-14T17:58:40+00:00", 0.43),
+            ],
+            "market_probability_series": [
+                ("2026-03-14T17:57:40+00:00", 0.40),
+                ("2026-03-14T17:58:40+00:00", 0.42),
+            ],
+            "outcome_series": [],
+            "joint_portfolio_equity_series": [
+                ("2026-03-14T17:57:40+00:00", 100.0),
+                ("2026-03-14T17:58:40+00:00", 101.0),
+            ],
+            "joint_portfolio_cash_series": [
+                ("2026-03-14T17:57:40+00:00", 96.0),
+                ("2026-03-14T17:58:40+00:00", 96.0),
+            ],
+        }
+    ]
+
+    save_joint_portfolio_backtest_report(
+        results=results,
+        output_path=tmp_path / "joint_brier_placeholder.html",
+        title="joint placeholder chart",
+        market_key="slug",
+        pnl_label="PnL (USDC)",
+        plot_panels=("brier_advantage",),
+    )
+
+    assert plot_calls
+    assert plot_calls[0]["extra_panels"]["brier_advantage"] is placeholder_panel
+
+
+def test_save_aggregate_backtest_report_limits_dense_yes_price_fill_markers(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    apply_calls: list[dict[str, object]] = []
+    dummy_layout = object()
+
+    class _BacktestResult:
+        def __init__(self, **kwargs) -> None:
+            self.kwargs = kwargs
+
+    def _snapshot(**kwargs):
+        return SimpleNamespace(**kwargs)
+
+    monkeypatch.setattr(
+        research.legacy_plot_adapter,
+        "_load_legacy_modules",
+        lambda: (
+            SimpleNamespace(
+                BacktestResult=_BacktestResult,
+                PortfolioSnapshot=_snapshot,
+                Platform=SimpleNamespace(POLYMARKET="POLYMARKET"),
+            ),
+            SimpleNamespace(plot=lambda *args, **kwargs: dummy_layout),
+        ),
+    )
+    monkeypatch.setattr(
+        research.legacy_plot_adapter,
+        "_configure_legacy_downsampling",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        research.legacy_plot_adapter,
+        "_apply_layout_overrides",
+        lambda layout, initial_cash, **kwargs: apply_calls.append(kwargs) or layout,
+    )
+
+    def _fake_deserialize_fill_events(**kwargs):
+        return [SimpleNamespace() for _ in kwargs["fill_events"]]
+
+    monkeypatch.setattr(
+        research,
+        "_deserialize_fill_events",
+        _fake_deserialize_fill_events,
+    )
+    monkeypatch.setattr(
+        research,
+        "save_legacy_backtest_layout",
+        lambda layout, output_path, title: str(output_path),
+    )
+
+    results = [
+        {
+            "slug": "market-a",
+            "trades": 10,
+            "fills": 251,
+            "pnl": 1.0,
+            "price_series": [
+                ("2026-03-14T17:57:40+00:00", 0.40),
+                ("2026-03-14T17:58:40+00:00", 0.42),
+            ],
+            "fill_events": [
+                {
+                    "order_id": f"fill-{idx}",
+                    "market_id": "market-a",
+                    "action": "buy",
+                    "side": "yes",
+                    "price": 0.40,
+                    "quantity": 1.0,
+                    "timestamp": f"2026-03-14T17:{idx % 60:02d}:40+00:00",
+                    "commission": 0.0,
+                }
+                for idx in range(251)
+            ],
+            "pnl_series": [
+                ("2026-03-14T17:57:40+00:00", 0.0),
+                ("2026-03-14T17:58:40+00:00", 1.0),
+            ],
+            "equity_series": [
+                ("2026-03-14T17:57:40+00:00", 100.0),
+                ("2026-03-14T17:58:40+00:00", 101.0),
+            ],
+            "cash_series": [
+                ("2026-03-14T17:57:40+00:00", 96.0),
+                ("2026-03-14T17:58:40+00:00", 96.0),
+            ],
+        }
+    ]
+
+    report_path = save_aggregate_backtest_report(
+        results=results,
+        output_path=tmp_path / "aggregate_dense_fills.html",
+        title="aggregate dense fills",
+        market_key="slug",
+        pnl_label="PnL (USDC)",
+    )
+
+    assert report_path == str((tmp_path / "aggregate_dense_fills.html").resolve())
+    assert apply_calls == [{"max_yes_price_fill_markers": 250}]
+
+
+def test_save_joint_portfolio_backtest_report_limits_dense_yes_price_fill_markers(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    apply_calls: list[dict[str, object]] = []
+    dummy_layout = object()
+
+    class _BacktestResult:
+        def __init__(self, **kwargs) -> None:
+            self.kwargs = kwargs
+
+    def _snapshot(**kwargs):
+        return SimpleNamespace(**kwargs)
+
+    monkeypatch.setattr(
+        research.legacy_plot_adapter,
+        "_load_legacy_modules",
+        lambda: (
+            SimpleNamespace(
+                BacktestResult=_BacktestResult,
+                PortfolioSnapshot=_snapshot,
+                Platform=SimpleNamespace(POLYMARKET="POLYMARKET"),
+            ),
+            SimpleNamespace(plot=lambda *args, **kwargs: dummy_layout),
+        ),
+    )
+    monkeypatch.setattr(
+        research.legacy_plot_adapter,
+        "_configure_legacy_downsampling",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        research.legacy_plot_adapter,
+        "_apply_layout_overrides",
+        lambda layout, initial_cash, **kwargs: apply_calls.append(kwargs) or layout,
+    )
+
+    def _fake_deserialize_fill_events(**kwargs):
+        return [SimpleNamespace() for _ in kwargs["fill_events"]]
+
+    monkeypatch.setattr(
+        research,
+        "_deserialize_fill_events",
+        _fake_deserialize_fill_events,
+    )
+    monkeypatch.setattr(
+        research,
+        "save_legacy_backtest_layout",
+        lambda layout, output_path, title: str(output_path),
+    )
+
+    results = [
+        {
+            "slug": "market-a",
+            "trades": 10,
+            "fills": 251,
+            "pnl": 1.0,
+            "price_series": [
+                ("2026-03-14T17:57:40+00:00", 0.40),
+                ("2026-03-14T17:58:40+00:00", 0.42),
+            ],
+            "fill_events": [
+                {
+                    "order_id": f"fill-{idx}",
+                    "market_id": "market-a",
+                    "action": "buy",
+                    "side": "yes",
+                    "price": 0.40,
+                    "quantity": 1.0,
+                    "timestamp": f"2026-03-14T17:{idx % 60:02d}:40+00:00",
+                    "commission": 0.0,
+                }
+                for idx in range(251)
+            ],
+            "joint_portfolio_equity_series": [
+                ("2026-03-14T17:57:40+00:00", 100.0),
+                ("2026-03-14T17:58:40+00:00", 101.0),
+            ],
+            "joint_portfolio_cash_series": [
+                ("2026-03-14T17:57:40+00:00", 96.0),
+                ("2026-03-14T17:58:40+00:00", 96.0),
+            ],
+        }
+    ]
+
+    report_path = save_joint_portfolio_backtest_report(
+        results=results,
+        output_path=tmp_path / "joint_dense_fills.html",
+        title="joint dense fills",
+        market_key="slug",
+        pnl_label="PnL (USDC)",
+    )
+
+    assert report_path == str((tmp_path / "joint_dense_fills.html").resolve())
+    assert apply_calls == [{"max_yes_price_fill_markers": 250}]

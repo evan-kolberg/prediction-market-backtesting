@@ -35,6 +35,7 @@ from prediction_market_extensions.backtesting.optimizers import ParameterSearchW
 NAME = "polymarket_quote_tick_ema_optimizer"
 
 DESCRIPTION = "Random-search EMA optimizer with explicit train and holdout windows on PMXT L2 data"
+MARKET_SLUG = "will-ludvig-aberg-win-the-2026-masters-tournament"
 
 EMIT_HTML = False
 CHART_OUTPUT_PATH = "output"
@@ -50,9 +51,7 @@ DATA = MarketDataConfig(
     ),
 )
 
-BASE_REPLAY = QuoteReplay(
-    market_slug="will-ludvig-aberg-win-the-2026-masters-tournament", token_index=0
-)
+BASE_REPLAY = QuoteReplay(market_slug=MARKET_SLUG, token_index=0)
 
 TRAIN_WINDOWS = (
     ParameterSearchWindow(
@@ -133,13 +132,11 @@ PARAMETER_SEARCH = ParameterSearchConfig(
 )
 
 
+SEARCH = PARAMETER_SEARCH
 OPTIMIZER = PARAMETER_SEARCH
 OPTIMIZATION = PARAMETER_SEARCH
 
-
-EXPERIMENT = ParameterSearchExperiment(
-    name=NAME, description=DESCRIPTION, parameter_search=PARAMETER_SEARCH
-)
+EXPERIMENT = ParameterSearchExperiment(name=NAME, description=DESCRIPTION, parameter_search=SEARCH)
 
 
 @timing_harness

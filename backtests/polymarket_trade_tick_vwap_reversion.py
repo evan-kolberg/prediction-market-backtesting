@@ -36,6 +36,7 @@ DESCRIPTION = "VWAP dislocation mean-reversion on a single Polymarket market"
 EMIT_HTML = True
 CHART_OUTPUT_PATH = "output"
 DETAIL_PLOT_PANELS = (
+    "total_equity",
     "equity",
     "market_pnl",
     "periodic_pnl",
