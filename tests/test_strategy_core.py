@@ -54,7 +54,11 @@ class _EntryQuantityHarness(LongOnlyPredictionMarketStrategy):
 
 def test_entry_quantity_skips_clipped_size_below_min_quantity() -> None:
     strategy = _EntryQuantityHarness(
-        trade_size=Decimal("25"), free_balance=Decimal("0.35"), min_quantity=Decimal("5")
+        trade_size=Decimal("25"),
+        free_balance=Decimal("0.35"),
+        min_quantity=Decimal(
+            "5",
+        ),
     )
 
     quantity = strategy._entry_quantity(reference_price=0.074, visible_size=100.0)
@@ -75,7 +79,11 @@ def test_entry_quantity_keeps_clipped_size_when_no_min_quantity_exists() -> None
 
 def test_entry_quantity_leaves_cash_headroom_before_min_quantity_boundary() -> None:
     strategy = _EntryQuantityHarness(
-        trade_size=Decimal("5"), free_balance=Decimal("1"), min_quantity=Decimal("5")
+        trade_size=Decimal("5"),
+        free_balance=Decimal("1"),
+        min_quantity=Decimal(
+            "5",
+        ),
     )
 
     quantity = strategy._entry_quantity(reference_price=0.2, visible_size=100.0)

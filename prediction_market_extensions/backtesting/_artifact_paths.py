@@ -34,7 +34,12 @@ def resolve_independent_replay_detail_chart_output_path(
     raw_path = str(configured_path)
     if "{" in raw_path:
         try:
-            resolved = raw_path.format(name=backtest_name, market_id=market_id, sim_label=sim_label)
+            resolved = raw_path.format(
+                name=backtest_name,
+                market_id=market_id,
+                sim_label=sim_label,
+            )
+
         except KeyError as exc:
             raise ValueError(
                 "chart_output_path may only reference {name}, {market_id}, and {sim_label}."

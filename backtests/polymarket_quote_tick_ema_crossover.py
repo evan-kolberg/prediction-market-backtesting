@@ -85,7 +85,12 @@ STRATEGY_CONFIGS = [
     }
 ]
 
-REPORT = MarketReportConfig(count_key="quotes", count_label="Quotes", pnl_label="PnL (USDC)")
+REPORT = MarketReportConfig(
+    count_key="quotes",
+    count_label="Quotes",
+    pnl_label="PnL (USDC)",
+)
+
 
 EXECUTION = ExecutionModelConfig(
     queue_position=True,

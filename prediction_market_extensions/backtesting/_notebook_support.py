@@ -64,7 +64,10 @@ def suppress_notebook_cell_output():
         stack.enter_context(redirect_stdout(stream))
         stack.enter_context(redirect_stderr(stream))
         if capture_output is not None:
-            stack.enter_context(capture_output(stdout=True, stderr=True, display=False))
+            stack.enter_context(
+                capture_output(stdout=True, stderr=True, display=False),
+            )
+
         try:
             yield
         finally:

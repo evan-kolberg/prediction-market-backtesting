@@ -19,7 +19,11 @@ from prediction_market_extensions.backtesting.optimizers import OPTIMIZER_TYPE_P
 
 
 def _window(name: str, start_time: str, end_time: str) -> optimizer.ParameterSearchWindow:
-    return optimizer.ParameterSearchWindow(name=name, start_time=start_time, end_time=end_time)
+    return optimizer.ParameterSearchWindow(
+        name=name,
+        start_time=start_time,
+        end_time=end_time,
+    )
 
 
 def _result_for_score(score: float) -> dict[str, object]:

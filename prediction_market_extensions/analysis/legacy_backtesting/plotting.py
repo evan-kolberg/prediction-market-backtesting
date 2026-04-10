@@ -725,7 +725,13 @@ def plot(
 
     total_steps = len(requested_panels) + 2
     if use_bar:
-        bar = PinnedProgress(iter([]), total=total_steps, desc="Rendering chart", unit=" steps")
+        bar = PinnedProgress(
+            iter([]),
+            total=total_steps,
+            desc="Rendering chart",
+            unit=" steps",
+        )
+
         bar._setup()
         bar.write(
             f"  {n_bars_original:,} bars, {n_fills_total:,} fills, {n_total_markets:,} markets"
@@ -1989,7 +1995,10 @@ return this.labels[index] || "";
         banner.sizing_mode = "stretch_width"
         parts.append(banner)
     else:
-        parts.append(Div(text=scroll_style, sizing_mode="stretch_width", height=1, visible=False))
+        parts.append(
+            Div(text=scroll_style, sizing_mode="stretch_width", height=1, visible=False),
+        )
+
     parts.append(grid)
     if len(parts) == 1:
         layout = parts[0]

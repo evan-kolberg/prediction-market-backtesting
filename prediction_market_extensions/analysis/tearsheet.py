@@ -921,7 +921,11 @@ def create_monthly_returns_heatmap(
     monthly_pivot = pd.DataFrame(
         {"Year": monthly.index.year, "Month": monthly.index.month, "Return": monthly.to_numpy()}
     )
-    heatmap_data = monthly_pivot.pivot_table(index="Year", columns="Month", values="Return")
+    heatmap_data = monthly_pivot.pivot_table(
+        index="Year",
+        columns="Month",
+        values="Return",
+    )
 
     # Month names for x-axis
     month_names = [
@@ -1660,8 +1664,17 @@ def _render_equity(
             col=col,
         )
 
-    fig.update_xaxes(title_text="Date", row=row, col=col)
-    fig.update_yaxes(title_text="Equity", row=row, col=col)
+    fig.update_xaxes(
+        title_text="Date",
+        row=row,
+        col=col,
+    )
+
+    fig.update_yaxes(
+        title_text="Equity",
+        row=row,
+        col=col,
+    )
 
 
 def _render_pnl(
@@ -1720,11 +1733,20 @@ def _render_pnl(
             row=row,
             col=col,
         )
-        fig.update_yaxes(title_text="PnL (%)", row=row, col=col)
+        fig.update_yaxes(
+            title_text="PnL (%)",
+            row=row,
+            col=col,
+        )
+
     else:
         return
 
-    fig.update_xaxes(title_text="Date", row=row, col=col)
+    fig.update_xaxes(
+        title_text="Date",
+        row=row,
+        col=col,
+    )
 
 
 def _render_allocation(
@@ -1770,8 +1792,18 @@ def _render_allocation(
             col=col,
         )
 
-    fig.update_xaxes(title_text="Date", row=row, col=col)
-    fig.update_yaxes(title_text="Allocation (%)", range=[0, 100], row=row, col=col)
+    fig.update_xaxes(
+        title_text="Date",
+        row=row,
+        col=col,
+    )
+
+    fig.update_yaxes(
+        title_text="Allocation (%)",
+        range=[0, 100],
+        row=row,
+        col=col,
+    )
 
 
 def _render_cumulative_brier_advantage(
@@ -1805,8 +1837,17 @@ def _render_cumulative_brier_advantage(
         col=col,
     )
 
-    fig.update_xaxes(title_text="Date", row=row, col=col)
-    fig.update_yaxes(title_text="Cumulative Brier Advantage", row=row, col=col)
+    fig.update_xaxes(
+        title_text="Date",
+        row=row,
+        col=col,
+    )
+
+    fig.update_yaxes(
+        title_text="Cumulative Brier Advantage",
+        row=row,
+        col=col,
+    )
 
 
 def _render_drawdown(
@@ -1838,8 +1879,17 @@ def _render_drawdown(
         col=col,
     )
 
-    fig.update_xaxes(title_text="Date", row=row, col=col)
-    fig.update_yaxes(title_text="Drawdown (%)", row=row, col=col)
+    fig.update_xaxes(
+        title_text="Date",
+        row=row,
+        col=col,
+    )
+
+    fig.update_yaxes(
+        title_text="Drawdown (%)",
+        row=row,
+        col=col,
+    )
 
 
 def _render_monthly_returns(
@@ -1855,7 +1905,11 @@ def _render_monthly_returns(
     monthly_pivot = pd.DataFrame(
         {"Year": monthly.index.year, "Month": monthly.index.month, "Return": monthly.to_numpy()}
     )
-    heatmap_data = monthly_pivot.pivot_table(index="Year", columns="Month", values="Return")
+    heatmap_data = monthly_pivot.pivot_table(
+        index="Year",
+        columns="Month",
+        values="Return",
+    )
 
     month_names = [
         "Jan",
@@ -1888,8 +1942,17 @@ def _render_monthly_returns(
         col=col,
     )
 
-    fig.update_xaxes(title_text="Month", row=row, col=col)
-    fig.update_yaxes(title_text="Year", row=row, col=col)
+    fig.update_xaxes(
+        title_text="Month",
+        row=row,
+        col=col,
+    )
+
+    fig.update_yaxes(
+        title_text="Year",
+        row=row,
+        col=col,
+    )
 
 
 def _render_distribution(
@@ -1918,8 +1981,17 @@ def _render_distribution(
         col=col,
     )
 
-    fig.update_xaxes(title_text="Return (%)", row=row, col=col)
-    fig.update_yaxes(title_text="Frequency", row=row, col=col)
+    fig.update_xaxes(
+        title_text="Return (%)",
+        row=row,
+        col=col,
+    )
+
+    fig.update_yaxes(
+        title_text="Frequency",
+        row=row,
+        col=col,
+    )
 
 
 def _render_rolling_sharpe(
@@ -1960,8 +2032,17 @@ def _render_rolling_sharpe(
     # Note: We can't use fig.add_hline with subplots, need to use shapes
     # This will be handled in the main function
 
-    fig.update_xaxes(title_text="Date", row=row, col=col)
-    fig.update_yaxes(title_text="Sharpe Ratio", row=row, col=col)
+    fig.update_xaxes(
+        title_text="Date",
+        row=row,
+        col=col,
+    )
+
+    fig.update_yaxes(
+        title_text="Sharpe Ratio",
+        row=row,
+        col=col,
+    )
 
 
 def _render_yearly_returns(
@@ -1992,8 +2073,17 @@ def _render_yearly_returns(
         col=col,
     )
 
-    fig.update_xaxes(title_text="Year", row=row, col=col)
-    fig.update_yaxes(title_text="Return (%)", row=row, col=col)
+    fig.update_xaxes(
+        title_text="Year",
+        row=row,
+        col=col,
+    )
+
+    fig.update_yaxes(
+        title_text="Return (%)",
+        row=row,
+        col=col,
+    )
 
 
 def create_bars_with_fills(
@@ -2054,7 +2144,13 @@ def create_bars_with_fills(
         return fig
 
     # Create figure with subplots for rangeslider support
-    fig = make_subplots(rows=1, cols=1, shared_xaxes=True, vertical_spacing=0.03, row_heights=[1.0])
+    fig = make_subplots(
+        rows=1,
+        cols=1,
+        shared_xaxes=True,
+        vertical_spacing=0.03,
+        row_heights=[1.0],
+    )
 
     # Render bars with fills using the shared renderer
     _render_bars_with_fills(
@@ -2354,9 +2450,24 @@ def _render_bars_with_fills(  # noqa: C901
             )
 
     # Update axes with rangeslider for time navigation
-    fig.update_xaxes(title_text="Time", row=row, col=col, rangeslider={"visible": show_rangeslider})
-    fig.update_yaxes(title_text="Price", row=row, col=col)
-    fig.update_yaxes(fixedrange=False, row=row, col=col)
+    fig.update_xaxes(
+        title_text="Time",
+        row=row,
+        col=col,
+        rangeslider={"visible": show_rangeslider},
+    )
+
+    fig.update_yaxes(
+        title_text="Price",
+        row=row,
+        col=col,
+    )
+
+    fig.update_yaxes(
+        fixedrange=False,
+        row=row,
+        col=col,
+    )
 
 
 def _add_fill_scatter_trace(

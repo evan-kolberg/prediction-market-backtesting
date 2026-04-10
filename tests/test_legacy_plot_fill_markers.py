@@ -75,7 +75,12 @@ def test_apply_layout_overrides_downsamples_yes_price_fill_markers_when_enabled(
             "price_test_market": [0.48, 0.52, 0.51, 0.49],
         }
     )
-    price_renderer = fig.line(x="index", y="price_test_market", source=price_source)
+    price_renderer = fig.line(
+        x="index",
+        y="price_test_market",
+        source=price_source,
+    )
+
     fill_source = bokeh_models.ColumnDataSource(
         {
             "index": [0, 1, 2, 3],
@@ -136,7 +141,12 @@ def test_apply_layout_overrides_removes_yes_price_fill_markers_when_enabled() ->
             "price_test_market": [0.48, 0.52],
         }
     )
-    price_renderer = fig.line(x="index", y="price_test_market", source=price_source)
+    price_renderer = fig.line(
+        x="index",
+        y="price_test_market",
+        source=price_source,
+    )
+
     fill_source = bokeh_models.ColumnDataSource(
         {
             "index": [0],

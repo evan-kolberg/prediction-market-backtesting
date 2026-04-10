@@ -421,7 +421,12 @@ if TEXTUAL_AVAILABLE:
             yield Static("", id="banner")
             with Horizontal(id="body"):
                 with Vertical(id="sidebar"):
-                    yield Input(placeholder="Filter runners", compact=True, id="filter")
+                    yield Input(
+                        placeholder="Filter runners",
+                        compact=True,
+                        id="filter",
+                    )
+
                     yield ListView(id="runner_list")
                 with Vertical(id="details"):
                     yield Static("", id="details_title", markup=False)

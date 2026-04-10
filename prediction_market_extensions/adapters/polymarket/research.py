@@ -230,7 +230,12 @@ async def discover_markets(
     if api_filters is not None:
         filters.update(api_filters)
 
-    markets = await list_markets(http_client=client, filters=filters, max_results=max_results)
+    markets = await list_markets(
+        http_client=client,
+        filters=filters,
+        max_results=max_results,
+    )
+
     if not markets:
         return []
 

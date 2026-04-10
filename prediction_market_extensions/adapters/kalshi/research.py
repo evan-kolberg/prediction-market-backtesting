@@ -436,7 +436,11 @@ async def load_market_bars(
             for attempt in range(max_retries + 1):
                 try:
                     bars.extend(
-                        await loader.load_bars(start=chunk_start, end=chunk_end, interval=interval)
+                        await loader.load_bars(
+                            start=chunk_start,
+                            end=chunk_end,
+                            interval=interval,
+                        )
                     )
                     break
                 except RuntimeError as rt_err:

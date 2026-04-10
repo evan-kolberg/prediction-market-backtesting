@@ -10,7 +10,11 @@ from prediction_market_extensions.adapters.polymarket.loaders import PolymarketD
 
 def test_calculate_commission_matches_current_polymarket_formula() -> None:
     commission = calculate_commission(
-        quantity=Decimal("100"), price=Decimal("0.5"), fee_rate_bps=Decimal("30")
+        quantity=Decimal("100"),
+        price=Decimal("0.5"),
+        fee_rate_bps=Decimal(
+            "30",
+        ),
     )
 
     assert commission == 0.075
@@ -18,7 +22,11 @@ def test_calculate_commission_matches_current_polymarket_formula() -> None:
 
 def test_calculate_commission_rounds_to_five_decimals() -> None:
     commission = calculate_commission(
-        quantity=Decimal("1"), price=Decimal("0.5"), fee_rate_bps=Decimal("2.2")
+        quantity=Decimal("1"),
+        price=Decimal("0.5"),
+        fee_rate_bps=Decimal(
+            "2.2",
+        ),
     )
 
     assert commission == 0.00006

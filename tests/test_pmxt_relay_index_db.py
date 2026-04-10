@@ -45,9 +45,24 @@ def test_relay_index_events_and_queue_summary_are_mirror_only(tmp_path: Path):
             "next_retry_at",
         ]
 
-        index.log_event(level="INFO", event_type="first", message="first message")
-        index.log_event(level="INFO", event_type="second", message="second message")
-        index.log_event(level="ERROR", event_type="third", message="third message")
+        index.log_event(
+            level="INFO",
+            event_type="first",
+            message="first message",
+        )
+
+        index.log_event(
+            level="INFO",
+            event_type="second",
+            message="second message",
+        )
+
+        index.log_event(
+            level="ERROR",
+            event_type="third",
+            message="third message",
+        )
+
         index.prune_events()
 
         events = index.recent_events(limit=10)

@@ -224,7 +224,11 @@ class KalshiDataLoader:
         event_data = msgspec.json.decode(event_response.body)
         series_ticker = event_data["event"]["series_ticker"]
 
-        return cls(instrument=instrument, series_ticker=series_ticker, http_client=client)
+        return cls(
+            instrument=instrument,
+            series_ticker=series_ticker,
+            http_client=client,
+        )
 
     async def fetch_trades(
         self, min_ts: int | None = None, max_ts: int | None = None, limit: int = 1000
@@ -421,7 +425,12 @@ class KalshiDataLoader:
             )
 
         aggregation = self._INTERVAL_TO_AGGREGATION[interval]
-        bar_spec = BarSpecification(step=1, aggregation=aggregation, price_type=PriceType.LAST)
+        bar_spec = BarSpecification(
+            step=1,
+            aggregation=aggregation,
+            price_type=PriceType.LAST,
+        )
+
         bar_type = BarType(
             instrument_id=self._instrument.id,
             bar_spec=bar_spec,

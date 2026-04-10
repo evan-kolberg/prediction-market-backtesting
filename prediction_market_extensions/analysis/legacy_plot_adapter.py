@@ -106,7 +106,13 @@ def _to_naive_utc(value: Any) -> datetime | None:
 
     # Handle raw nanosecond timestamps common in Nautilus reports.
     if isinstance(value, int | float) and abs(float(value)) > 1e12:
-        ts = pd.to_datetime(int(value), unit="ns", utc=True, errors="coerce")
+        ts = pd.to_datetime(
+            int(value),
+            unit="ns",
+            utc=True,
+            errors="coerce",
+        )
+
     else:
         ts = pd.to_datetime(value, utc=True, errors="coerce")
 
@@ -802,7 +808,13 @@ def _build_brier_placeholder_panel(message: str) -> Any:
         toolbar_location="right",
     )
     fig.add_layout(
-        Span(location=0, dimension="width", line_color="#666666", line_dash="dashed", line_width=1)
+        Span(
+            location=0,
+            dimension="width",
+            line_color="#666666",
+            line_dash="dashed",
+            line_width=1,
+        )
     )
     fig.add_layout(
         Label(
@@ -893,7 +905,13 @@ def _build_brier_panel(brier_frame: pd.DataFrame) -> Any | None:
         legend_label="Cum. Brier Advantage",
     )
     fig.add_layout(
-        Span(location=0, dimension="width", line_color="#666666", line_dash="dashed", line_width=1)
+        Span(
+            location=0,
+            dimension="width",
+            line_color="#666666",
+            line_dash="dashed",
+            line_width=1,
+        )
     )
 
     fig.add_tools(
@@ -1545,7 +1563,13 @@ def _build_multi_market_brier_panel(  # noqa: C901
         return None
 
     fig.add_layout(
-        Span(location=0, dimension="width", line_color="#666666", line_dash="dashed", line_width=1)
+        Span(
+            location=0,
+            dimension="width",
+            line_color="#666666",
+            line_dash="dashed",
+            line_width=1,
+        )
     )
     fig.add_tools(
         HoverTool(

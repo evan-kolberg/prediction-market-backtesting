@@ -275,7 +275,12 @@ def _build_backtest(
     )
 
     return PredictionMarketBacktest(
-        **_build_backtest_kwargs(config=config, trial_id=trial_id, window=window, params=params)
+        **_build_backtest_kwargs(
+            config=config,
+            trial_id=trial_id,
+            window=window,
+            params=params,
+        )
     )
 
 
@@ -512,7 +517,12 @@ def _evaluate_window(
             )
         else:
             raw_results = evaluator(
-                _build_backtest(config=config, trial_id=trial_id, window=window, params=params)
+                _build_backtest(
+                    config=config,
+                    trial_id=trial_id,
+                    window=window,
+                    params=params,
+                )
             )
         results = _coerce_results(raw_results)
     except Exception as exc:  # noqa: BLE001
@@ -758,7 +768,11 @@ def _write_summary_json(
 ) -> str:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     payload = _summary_payload(config=config, summary=summary)
-    output_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    output_path.write_text(
+        json.dumps(payload, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
     return str(output_path.resolve())
 
 
@@ -855,7 +869,11 @@ def run_parameter_search(
         summary_json_path=resolved_summary_json_path,
     )
     _write_leaderboard_csv(rows=summary.leaderboard, output_path=leaderboard_csv_path)
-    _write_summary_json(config=config, summary=summary, output_path=summary_json_path)
+    _write_summary_json(
+        config=config,
+        summary=summary,
+        output_path=summary_json_path,
+    )
 
     print()
     print(

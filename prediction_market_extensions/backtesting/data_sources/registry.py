@@ -63,7 +63,12 @@ def unregister_market_data_support(key: MarketDataKey) -> MarketDataSupport | No
 def resolve_market_data_support(
     *, platform: object, data_type: object, vendor: object
 ) -> MarketDataSupport:
-    key = _normalize_lookup_key(platform=platform, data_type=data_type, vendor=vendor)
+    key = _normalize_lookup_key(
+        platform=platform,
+        data_type=data_type,
+        vendor=vendor,
+    )
+
     try:
         return _REGISTERED_SUPPORTS[key]
     except KeyError as exc:

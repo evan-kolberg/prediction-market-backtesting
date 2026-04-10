@@ -274,12 +274,20 @@ def _sample_system_metrics_snapshot(config: RelayConfig) -> dict[str, object]:
 
 
 def _system_badge_payload(label: str, percent: float) -> dict[str, object]:
-    return _badge_payload(label=label, message=f"{percent:.1f}%", color=_usage_color(percent))
+    return _badge_payload(
+        label=label,
+        message=f"{percent:.1f}%",
+        color=_usage_color(percent),
+    )
 
 
 def _service_badge_payload(service_metrics: dict[str, object] | None) -> dict[str, object]:
     if not service_metrics:
-        return _badge_payload(label="Relay service", message="unknown", color="red")
+        return _badge_payload(
+            label="Relay service",
+            message="unknown",
+            color="red",
+        )
 
     label = str(service_metrics.get("label") or "Relay service")
     active_state = str(service_metrics.get("active_state") or "unknown")
@@ -287,25 +295,63 @@ def _service_badge_payload(service_metrics: dict[str, object] | None) -> dict[st
 
     if active_state == "active":
         state_label = sub_state or "active"
-        return _badge_payload(label=label, message=f"{state_label} busy", color="brightgreen")
+        return _badge_payload(
+            label=label,
+            message=f"{state_label} busy",
+            color="brightgreen",
+        )
+
     if active_state in {"activating", "deactivating", "reloading"}:
-        return _badge_payload(label=label, message=active_state, color="yellow")
+        return _badge_payload(
+            label=label,
+            message=active_state,
+            color="yellow",
+        )
+
     if active_state == "failed":
-        return _badge_payload(label=label, message="failed", color="red")
-    return _badge_payload(label=label, message=active_state, color="lightgrey")
+        return _badge_payload(
+            label=label,
+            message="failed",
+            color="red",
+        )
+
+    return _badge_payload(
+        label=label,
+        message=active_state,
+        color="lightgrey",
+    )
 
 
 def _stage_badge_payload(
     *, label: str, active_count: int, queued_count: int, error_count: int
 ) -> dict[str, object]:
     if active_count > 0:
-        return _badge_payload(label=label, message=f"active {active_count}", color="brightgreen")
+        return _badge_payload(
+            label=label,
+            message=f"active {active_count}",
+            color="brightgreen",
+        )
+
     if queued_count > 0:
         color = "orange" if queued_count >= 100 else "yellow"
-        return _badge_payload(label=label, message=f"queued {queued_count}", color=color)
+        return _badge_payload(
+            label=label,
+            message=f"queued {queued_count}",
+            color=color,
+        )
+
     if error_count > 0:
-        return _badge_payload(label=label, message=f"error {error_count}", color="red")
-    return _badge_payload(label=label, message="caught up", color="green")
+        return _badge_payload(
+            label=label,
+            message=f"error {error_count}",
+            color="red",
+        )
+
+    return _badge_payload(
+        label=label,
+        message="caught up",
+        color="green",
+    )
 
 
 def _iso_hour_query(value: str | None) -> str | None:
@@ -367,25 +413,51 @@ def _status_badge_payload(
     last_event_at = _parse_db_timestamp(stats.get("last_event_at"))  # type: ignore[arg-type]
 
     if last_event_at is None:
-        return _badge_payload(label="PMXT relay", message="starting", color="yellow")
+        return _badge_payload(
+            label="PMXT relay",
+            message="starting",
+            color="yellow",
+        )
 
     api_service = _service_metrics_for_badge(system or {}, "api")
     worker_service = _service_metrics_for_badge(system or {}, "worker")
     services = (api_service, worker_service)
     if any(service is None for service in services):
-        return _badge_payload(label="PMXT relay", message="unknown", color="red")
+        return _badge_payload(
+            label="PMXT relay",
+            message="unknown",
+            color="red",
+        )
 
     active_states = {str(service.get("active_state") or "unknown") for service in services}
     if "failed" in active_states:
-        return _badge_payload(label="PMXT relay", message="failed", color="red")
+        return _badge_payload(
+            label="PMXT relay",
+            message="failed",
+            color="red",
+        )
+
     if active_states != {"active"}:
-        return _badge_payload(label="PMXT relay", message="degraded", color="orange")
+        return _badge_payload(
+            label="PMXT relay",
+            message="degraded",
+            color="orange",
+        )
 
     age_seconds = max(0.0, (current - last_event_at).total_seconds())
     stale_threshold = max(config.poll_interval_secs * 4, 3600)
     if age_seconds > stale_threshold:
-        return _badge_payload(label="PMXT relay", message="stale", color="red")
-    return _badge_payload(label="PMXT relay", message="up", color="brightgreen")
+        return _badge_payload(
+            label="PMXT relay",
+            message="stale",
+            color="red",
+        )
+
+    return _badge_payload(
+        label="PMXT relay",
+        message="up",
+        color="brightgreen",
+    )
 
 
 def _upstream_badge_payload(
@@ -407,31 +479,68 @@ def _upstream_badge_payload(
     outstanding = mirror_pending + mirror_active + mirror_error
 
     if last_event_at is None:
-        return _badge_payload(label="r2.pmxt.dev", message="starting", color="yellow")
+        return _badge_payload(
+            label="r2.pmxt.dev",
+            message="starting",
+            color="yellow",
+        )
 
     age_seconds = max(0.0, (current - last_event_at).total_seconds())
     stale_threshold = max(config.poll_interval_secs * 4, 3600)
     if age_seconds > stale_threshold:
-        return _badge_payload(label="r2.pmxt.dev", message="stale", color="red")
+        return _badge_payload(
+            label="r2.pmxt.dev",
+            message="stale",
+            color="red",
+        )
+
     if mirror_error > 0:
         if last_error_at is not None:
             error_age_seconds = max(0.0, (current - last_error_at).total_seconds())
             if error_age_seconds <= max(config.poll_interval_secs * 2, 900):
-                return _badge_payload(label="r2.pmxt.dev", message="errors", color="red")
-        return _badge_payload(label="r2.pmxt.dev", message="degraded", color="orange")
+                return _badge_payload(
+                    label="r2.pmxt.dev",
+                    message="errors",
+                    color="red",
+                )
+
+        return _badge_payload(
+            label="r2.pmxt.dev",
+            message="degraded",
+            color="orange",
+        )
+
     if outstanding > 0 and latest_mirrored_hour is not None:
         lag_seconds = max(0.0, (current - latest_mirrored_hour).total_seconds())
         lag_threshold = max(config.poll_interval_secs * 8, 21600)
         if lag_seconds > lag_threshold:
-            return _badge_payload(label="r2.pmxt.dev", message="lagging", color="orange")
+            return _badge_payload(
+                label="r2.pmxt.dev",
+                message="lagging",
+                color="orange",
+            )
+
     if outstanding > 0:
-        return _badge_payload(label="r2.pmxt.dev", message="syncing", color="yellow")
-    return _badge_payload(label="r2.pmxt.dev", message="up", color="brightgreen")
+        return _badge_payload(
+            label="r2.pmxt.dev",
+            message="syncing",
+            color="yellow",
+        )
+
+    return _badge_payload(
+        label="r2.pmxt.dev",
+        message="up",
+        color="brightgreen",
+    )
 
 
 def _ratio_badge_payload(*, label: str, numerator: int, denominator: int) -> dict[str, object]:
     if denominator <= 0:
-        return _badge_payload(label=label, message="0/0 hrs", color="lightgrey")
+        return _badge_payload(
+            label=label,
+            message="0/0 hrs",
+            color="lightgrey",
+        )
 
     return _badge_payload(
         label=label,
@@ -689,7 +798,11 @@ async def badge_status(request: web.Request) -> web.Response:
         _index_stats_async(index), asyncio.to_thread(_system_metrics_snapshot, config)
     )
     return web.json_response(
-        _status_badge_payload(stats=stats_payload, system=system_payload, config=config)
+        _status_badge_payload(
+            stats=stats_payload,
+            system=system_payload,
+            config=config,
+        )
     )
 
 
@@ -772,7 +885,11 @@ async def badge_status_svg(request: web.Request) -> web.Response:
         _index_stats_async(index), asyncio.to_thread(_system_metrics_snapshot, config)
     )
     return _badge_svg_response(
-        _status_badge_payload(stats=stats_payload, system=system_payload, config=config)
+        _status_badge_payload(
+            stats=stats_payload,
+            system=system_payload,
+            config=config,
+        )
     )
 
 
@@ -783,7 +900,11 @@ async def badge_upstream(request: web.Request) -> web.Response:
         _index_stats_async(index), _index_queue_summary_async(index)
     )
     return web.json_response(
-        _upstream_badge_payload(stats=stats_payload, queue=queue_payload, config=config)
+        _upstream_badge_payload(
+            stats=stats_payload,
+            queue=queue_payload,
+            config=config,
+        )
     )
 
 
@@ -794,7 +915,11 @@ async def badge_upstream_svg(request: web.Request) -> web.Response:
         _index_stats_async(index), _index_queue_summary_async(index)
     )
     return _badge_svg_response(
-        _upstream_badge_payload(stats=stats_payload, queue=queue_payload, config=config)
+        _upstream_badge_payload(
+            stats=stats_payload,
+            queue=queue_payload,
+            config=config,
+        )
     )
 
 

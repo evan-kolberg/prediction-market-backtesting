@@ -137,7 +137,11 @@ class BarThresholdMomentumStrategy(_ThresholdMomentumBase):
 
     def on_bar(self, bar: Bar) -> None:
         close = float(bar.close)
-        self._on_price(price=close, ts_event_ns=int(bar.ts_event), entry_price=close)
+        self._on_price(
+            price=close,
+            ts_event_ns=int(bar.ts_event),
+            entry_price=close,
+        )
 
 
 class TradeTickThresholdMomentumStrategy(_ThresholdMomentumBase):
@@ -146,7 +150,11 @@ class TradeTickThresholdMomentumStrategy(_ThresholdMomentumBase):
 
     def on_trade_tick(self, tick: TradeTick) -> None:
         price = float(tick.price)
-        self._on_price(price=price, ts_event_ns=int(tick.ts_event), entry_price=price)
+        self._on_price(
+            price=price,
+            ts_event_ns=int(tick.ts_event),
+            entry_price=price,
+        )
 
 
 class QuoteTickThresholdMomentumStrategy(_ThresholdMomentumBase):

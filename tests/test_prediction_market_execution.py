@@ -66,7 +66,11 @@ def test_prediction_market_backtest_build_engine_forwards_execution(monkeypatch)
 def test_build_backtest_run_state_marks_forced_stop_with_partial_coverage():
     data = [SimpleNamespace(ts_init=0), SimpleNamespace(ts_init=10), SimpleNamespace(ts_init=20)]
 
-    state = build_backtest_run_state(data=data, backtest_end_ns=10, forced_stop=True)
+    state = build_backtest_run_state(
+        data=data,
+        backtest_end_ns=10,
+        forced_stop=True,
+    )
 
     assert state["terminated_early"] is True
     assert state["stop_reason"] == "account_error"

@@ -65,7 +65,12 @@ def execute_notebook_runner(notebook_path: Path, *, project_root: Path) -> None:
     try:
         client.execute()
     except Exception:
-        _write_notebook(notebook_path=notebook_path, notebook=notebook, nbformat=nbformat)
+        _write_notebook(
+            notebook_path=notebook_path,
+            notebook=notebook,
+            nbformat=nbformat,
+        )
+
         raise
 
     html_artifacts = find_updated_html_artifacts(project_root / "output", artifact_snapshot)
@@ -75,7 +80,11 @@ def execute_notebook_runner(notebook_path: Path, *, project_root: Path) -> None:
         html_artifacts=html_artifacts,
         nbformat=nbformat,
     )
-    _write_notebook(notebook_path=notebook_path, notebook=notebook, nbformat=nbformat)
+    _write_notebook(
+        notebook_path=notebook_path,
+        notebook=notebook,
+        nbformat=nbformat,
+    )
 
 
 def _import_nbclient():

@@ -119,7 +119,11 @@ class TradeTickVWAPReversionStrategy(_VWAPReversionBase):
 
     def on_trade_tick(self, tick: TradeTick) -> None:
         price = float(tick.price)
-        self._on_price_size(price=price, size=float(tick.size), entry_price=price)
+        self._on_price_size(
+            price=price,
+            size=float(tick.size),
+            entry_price=price,
+        )
 
 
 class QuoteTickVWAPReversionStrategy(_VWAPReversionBase):

@@ -351,7 +351,12 @@ def install_timing() -> None:
         url: str, downloaded_bytes: int, total_bytes: int | None, finished: bool
     ) -> None:
         with pbar_lock:
-            state = _ensure_transfer_state(url=url, total_bytes=total_bytes, mode="download")
+            state = _ensure_transfer_state(
+                url=url,
+                total_bytes=total_bytes,
+                mode="download",
+            )
+
             state["downloaded_bytes"] = downloaded_bytes
             state["total_bytes"] = total_bytes
             _refresh_transfer_status()
@@ -368,7 +373,12 @@ def install_timing() -> None:
         finished: bool,
     ) -> None:
         with pbar_lock:
-            state = _ensure_transfer_state(url=source, total_bytes=total_bytes, mode="scan")
+            state = _ensure_transfer_state(
+                url=source,
+                total_bytes=total_bytes,
+                mode="scan",
+            )
+
             state["scanned_batches"] = scanned_batches
             state["scanned_rows"] = scanned_rows
             state["matched_rows"] = matched_rows
@@ -391,7 +401,12 @@ def install_timing() -> None:
             return
         with pbar_lock:
             _mark_hour_started(hour)
-            _ensure_transfer_state(url=url, total_bytes=None, hour_key=_hour_progress_key(hour))
+            _ensure_transfer_state(
+                url=url,
+                total_bytes=None,
+                hour_key=_hour_progress_key(hour),
+            )
+
             _refresh_transfer_status()
 
     def _finish_transfer(url: str | None) -> None:
@@ -475,7 +490,12 @@ def install_timing() -> None:
                 bar = pbar_state["bar"]
                 if bar is not None:
                     bar.write(
-                        _format_completed_hour_line(hour, elapsed=elapsed, rows=rows, source=source)
+                        _format_completed_hour_line(
+                            hour,
+                            elapsed=elapsed,
+                            rows=rows,
+                            source=source,
+                        )
                     )
                     _mark_hour_completed(hour)
                     _refresh_transfer_status()

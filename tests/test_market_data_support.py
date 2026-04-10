@@ -29,14 +29,24 @@ def test_support_matrix_matches_publicly_supported_combinations() -> None:
         (Polymarket, TradeTick, Native),
         (Polymarket, QuoteTick, PMXT),
     ):
-        support = resolve_market_data_support(platform=platform, data_type=data_type, vendor=vendor)
+        support = resolve_market_data_support(
+            platform=platform,
+            data_type=data_type,
+            vendor=vendor,
+        )
+
         assert support.adapter.key.platform == platform.name
         assert support.adapter.key.vendor == vendor.name
         assert support.adapter.key.data_type == data_type.name
 
 
 def test_single_market_replay_construction_is_adapter_owned() -> None:
-    kalshi = resolve_market_data_support(platform=Kalshi, data_type=TradeTick, vendor=Native)
+    kalshi = resolve_market_data_support(
+        platform=Kalshi,
+        data_type=TradeTick,
+        vendor=Native,
+    )
+
     assert build_single_market_replay(
         support=kalshi, field_values={"market_ticker": "KALSHI-TEST", "lookback_days": 2}
     ) == TradeReplay(market_ticker="KALSHI-TEST", lookback_days=2)
@@ -48,7 +58,12 @@ def test_single_market_replay_construction_is_adapter_owned() -> None:
         support=polymarket, field_values={"market_slug": "demo-market", "token_index": 1}
     ) == TradeReplay(market_slug="demo-market", token_index=1)
 
-    pmxt = resolve_market_data_support(platform=Polymarket, data_type=QuoteTick, vendor=PMXT)
+    pmxt = resolve_market_data_support(
+        platform=Polymarket,
+        data_type=QuoteTick,
+        vendor=PMXT,
+    )
+
     assert build_single_market_replay(
         support=pmxt,
         field_values={

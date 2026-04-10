@@ -103,7 +103,11 @@ class TradeTickLateFavoriteLimitHoldStrategy(_LateFavoriteLimitHoldBase):
 
     def on_trade_tick(self, tick: TradeTick) -> None:
         price = float(tick.price)
-        self._on_price(signal_price=price, order_price=price, ts_event_ns=int(tick.ts_event))
+        self._on_price(
+            signal_price=price,
+            order_price=price,
+            ts_event_ns=int(tick.ts_event),
+        )
 
 
 class QuoteTickLateFavoriteLimitHoldStrategy(_LateFavoriteLimitHoldBase):

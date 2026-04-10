@@ -82,7 +82,11 @@ class RunnerKalshiDataLoader(KalshiDataLoader):
 
         event_data = msgspec.json.decode(event_response.body)
         series_ticker = event_data["event"]["series_ticker"]
-        return cls(instrument=instrument, series_ticker=series_ticker, http_client=client)
+        return cls(
+            instrument=instrument,
+            series_ticker=series_ticker,
+            http_client=client,
+        )
 
     async def fetch_trades(
         self, min_ts: int | None = None, max_ts: int | None = None, limit: int = 1000

@@ -83,7 +83,12 @@ STRATEGY_CONFIGS = [
     }
 ]
 
-REPORT = MarketReportConfig(count_key="trades", count_label="Trades", pnl_label="PnL (USDC)")
+REPORT = MarketReportConfig(
+    count_key="trades",
+    count_label="Trades",
+    pnl_label="PnL (USDC)",
+)
+
 
 EXPERIMENT = build_replay_experiment(
     name=NAME,

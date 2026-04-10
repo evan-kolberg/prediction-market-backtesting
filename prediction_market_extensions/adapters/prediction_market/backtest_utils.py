@@ -77,7 +77,13 @@ def to_naive_utc(value: object) -> datetime | None:
         return None
 
     if isinstance(value, int | float) and abs(float(value)) > 1e12:
-        ts = pd.to_datetime(int(value), unit="ns", utc=True, errors="coerce")
+        ts = pd.to_datetime(
+            int(value),
+            unit="ns",
+            utc=True,
+            errors="coerce",
+        )
+
     else:
         ts = pd.to_datetime(value, utc=True, errors="coerce")
 
@@ -134,7 +140,13 @@ def _probability_frame(points: Sequence[PricePoint]) -> pd.DataFrame:
     rows: list[tuple[pd.Timestamp, float]] = []
     for ts_raw, price in points:
         if isinstance(ts_raw, int | float) and abs(float(ts_raw)) > 1e12:
-            ts = pd.to_datetime(int(ts_raw), unit="ns", utc=True, errors="coerce")
+            ts = pd.to_datetime(
+                int(ts_raw),
+                unit="ns",
+                utc=True,
+                errors="coerce",
+            )
+
         else:
             ts = pd.to_datetime(ts_raw, utc=True, errors="coerce")
 
