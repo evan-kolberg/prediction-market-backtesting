@@ -72,6 +72,7 @@ provenance notices with file-specific change dates:
 - `strategies/threshold_momentum.py`
 - `strategies/vwap_reversion.py`
 - `tests/test_backtest_utils.py`
+- `tests/test_downsample_html_size.py`
 - `tests/test_legacy_plot_fill_markers.py`
 - `tests/test_quote_tick_strategy_configs.py`
 

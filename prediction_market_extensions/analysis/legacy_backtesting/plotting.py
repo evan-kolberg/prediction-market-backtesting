@@ -159,7 +159,6 @@ def lightness(color: Any, light: float = 0.94) -> str:
     return f"#{int(r_c * 255):02x}{int(g_c * 255):02x}{int(b_c * 255):02x}"
 
 
-
 def _series_from_pairs(values: pd.Series | Sequence[tuple[Any, float]] | None) -> pd.Series:
     if values is None:
         return pd.Series(dtype=float)
@@ -242,7 +241,6 @@ def _rolling_sharpe_array(values: np.ndarray) -> tuple[np.ndarray, int | None]:
     sharpe_values = sharpe_values.replace([np.inf, -np.inf], np.nan)
     sharpe[:] = sharpe_values.to_numpy(dtype=float)
     return sharpe, window
-
 
 
 def _build_dataframes(
@@ -374,6 +372,80 @@ def _build_dataframes(
         market_df = pd.DataFrame(index=eq.index)
 
     return eq, fills_df, market_df, len(eq)
+
+
+def _downsample(
+    eq: pd.DataFrame,
+    fills_df: pd.DataFrame,
+    market_df: pd.DataFrame,
+    max_points: int = 5000,
+    alloc_df: pd.DataFrame | None = None,
+    keep_indices: set[int] | None = None,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame | None]:
+    """Downsample all plotting DataFrames to at most *max_points* rows.
+
+    Preserves fill bars and equity extrema so the chart stays visually accurate.
+    Uses simple stride-based selection with important-point preservation.
+    """
+    n = len(eq)
+    if n <= max_points:
+        return eq, fills_df, market_df, alloc_df
+
+    # Indices we must keep: fills, equity peak, drawdown peak
+    must_keep: set[int] = set()
+    if keep_indices:
+        must_keep.update(keep_indices)
+    if not fills_df.empty:
+        must_keep.update(int(b) for b in fills_df["bar"].values)
+    # Equity peak and max drawdown
+    must_keep.add(int(eq["equity"].idxmax()))
+    if "drawdown_pct" in eq.columns:
+        must_keep.add(int(eq["drawdown_pct"].idxmax()))
+    # Always keep first and last
+    must_keep.add(0)
+    must_keep.add(n - 1)
+
+    # Stride-based selection for the rest
+    budget = max(100, max_points - len(must_keep))
+    stride = max(1, n // budget)
+    strided = set(range(0, n, stride))
+
+    selected = sorted(must_keep | strided)
+    if len(selected) > max_points:
+        # If must_keep pushed us over, thin the strided points
+        must_list = sorted(must_keep)
+        remaining_budget = max_points - len(must_list)
+        stride2 = max(1, len(strided) // remaining_budget) if remaining_budget > 0 else n
+        thinned_strided = set(list(sorted(strided))[::stride2])
+        selected = sorted(must_keep | thinned_strided)
+
+    idx_arr = np.array(selected)
+
+    # Remap: new contiguous index, but fills need their bar indices updated
+    old_to_new = {old: new for new, old in enumerate(selected)}
+
+    eq_ds = eq.iloc[idx_arr].reset_index(drop=True)
+    market_ds = market_df.iloc[idx_arr].reset_index(drop=True) if not market_df.empty else market_df
+
+    if not fills_df.empty:
+        fills_ds = fills_df.copy()
+        new_bars = fills_ds["bar"].map(old_to_new)
+        # Fills at bars that weren't selected get mapped to nearest
+        unmapped = new_bars.isna()
+        if unmapped.any():
+            for i in fills_ds.index[unmapped]:
+                old_bar = int(fills_ds.at[i, "bar"])
+                nearest = idx_arr[np.argmin(np.abs(idx_arr - old_bar))]
+                new_bars.at[i] = old_to_new[nearest]
+        fills_ds["bar"] = new_bars.astype(int)
+    else:
+        fills_ds = fills_df
+
+    alloc_ds = None
+    if alloc_df is not None:
+        alloc_ds = alloc_df.iloc[idx_arr].reset_index(drop=True)
+
+    return eq_ds, fills_ds, market_ds, alloc_ds
 
 
 def _build_allocation_data(
@@ -623,6 +695,11 @@ def plot(
         )
         n_alloc_positions = len([c for c in alloc_df.columns if c not in ("Cash", "Other")])
 
+    # --- Downsample to keep HTML size sane -----------------------------------
+    eq, fills_df, market_df, alloc_df = _downsample(
+        eq, fills_df, market_df, max_points=5000, alloc_df=alloc_df
+    )
+
     n_fills_total = len(result.fills)
     n_total_markets = len(getattr(result, "market_prices", {}))
 
@@ -753,6 +830,11 @@ return this.labels[index] || "";
             _shared_xaxis_formatter(fig)
         return _mark_panel(fig, panel_id, shared_axis=shared_axis)
 
+    # Cache for overlay ColumnDataSources — keyed by (market_id, valid_idx hash).
+    # Multiple panels plotting the same market's overlay can reuse the source
+    # and just add a new "value" column instead of duplicating datetime arrays.
+    _overlay_sources: dict[str, ColumnDataSource] = {}
+
     def _plot_overlay_lines(
         fig,
         series_by_market: Mapping[str, np.ndarray],
@@ -763,6 +845,7 @@ return this.labels[index] || "";
         legend_suffix: str = "",
         tooltip_label: str,
         tooltip_format: str,
+        value_col: str = "value",
     ) -> list[Any]:
         renderers: list[Any] = []
         for market_id, values in series_by_market.items():
@@ -770,17 +853,24 @@ return this.labels[index] || "";
             if valid_idx.size == 0:
                 continue
 
-            points = pd.DataFrame(
-                {
-                    "index": valid_idx,
-                    "datetime": eq["datetime"].iloc[valid_idx].to_numpy(),
-                    "value": values[valid_idx],
-                }
-            )
+            cache_key = f"{market_id}_{valid_idx[0]}_{valid_idx[-1]}_{len(valid_idx)}"
+            if cache_key in _overlay_sources:
+                overlay_src = _overlay_sources[cache_key]
+                overlay_src.add(values[valid_idx], value_col)
+            else:
+                overlay_src = ColumnDataSource(
+                    {
+                        "index": valid_idx,
+                        "datetime": eq["datetime"].iloc[valid_idx].to_numpy(),
+                        value_col: values[valid_idx],
+                    }
+                )
+                _overlay_sources[cache_key] = overlay_src
+
             renderer = fig.line(
                 x="index",
-                y="value",
-                source=ColumnDataSource(points),
+                y=value_col,
+                source=overlay_src,
                 line_width=line_width,
                 line_color=market_color_map.get(market_id, "#666666"),
                 line_dash=line_dash,
@@ -800,7 +890,7 @@ return this.labels[index] || "";
                     tooltips=[
                         ("Market", "$name"),
                         ("Date", "@datetime{%F %T}"),
-                        (tooltip_label, f"@value{{{tooltip_format}}}"),
+                        (tooltip_label, f"@{value_col}{{{tooltip_format}}}"),
                     ],
                 )
             )
@@ -911,22 +1001,22 @@ return this.labels[index] || "";
             line_width=1.4,
             tooltip_label="Equity",
             tooltip_format="+0,0.[000]%" if relative_equity else "$0,0.00",
+            value_col="eq_overlay",
         )
 
         return fig
 
     def _plot_total_equity_panel():
         fig = _new_sub(total_equity_panel_label, PANEL_TOTAL_EQUITY, height=150)
-        source.add(eq["equity"].values, "eq_total_plot")
         renderer = fig.line(
             "index",
-            "eq_total_plot",
+            "equity",
             source=source,
             line_width=2.0,
             line_color="#1f77b4",
             legend_label="Total Equity",
         )
-        _set_tooltips(fig, [("Equity", "@eq_total_plot{$0,0.00}")], renderers=[renderer])
+        _set_tooltips(fig, [("Equity", "@equity{$0,0.00}")], renderers=[renderer])
         fig.yaxis.formatter = NumeralTickFormatter(format="$ 0,0")
         return fig
 
@@ -958,8 +1048,7 @@ return this.labels[index] || "";
 
     def _plot_total_drawdown():
         fig = _new_sub("Total Drawdown", PANEL_TOTAL_DRAWDOWN, height=90)
-        source.add(eq["drawdown_pct"].values, "total_dd_pct")
-        renderer = fig.line("index", "total_dd_pct", source=source, line_width=1.3)
+        renderer = fig.line("index", "drawdown_pct", source=source, line_width=1.3)
         argmax = int(eq["drawdown_pct"].idxmax())
         fig.scatter(
             argmax,
@@ -968,12 +1057,17 @@ return this.labels[index] || "";
             size=8,
             legend_label="Peak (-{:.1f}%)".format(100 * eq["drawdown_pct"].iloc[argmax]),
         )
-        _set_tooltips(fig, [("Drawdown", "@total_dd_pct{-0.[0]%}")], renderers=[renderer])
+        _set_tooltips(fig, [("Drawdown", "@drawdown_pct{-0.[0]%}")], renderers=[renderer])
         fig.yaxis.formatter = NumeralTickFormatter(format="-0.[0]%")
         return fig
 
     def _plot_total_rolling_sharpe():
-        primary_sharpe, window = _rolling_sharpe_array(eq["equity"].to_numpy(dtype=float))
+        nonlocal _cached_total_sharpe, _cached_total_sharpe_window
+        if _cached_total_sharpe is None:
+            _cached_total_sharpe, _cached_total_sharpe_window = _rolling_sharpe_array(
+                eq["equity"].to_numpy(dtype=float)
+            )
+        primary_sharpe, window = _cached_total_sharpe, _cached_total_sharpe_window
         if window is None:
             return None
 
@@ -987,18 +1081,17 @@ return this.labels[index] || "";
                 line_width=1,
             )
         )
-        source.add(primary_sharpe, "total_rolling_sharpe")
+        col_name = "total_rolling_sharpe"
+        source.add(primary_sharpe, col_name)
         renderer = fig.line(
             "index",
-            "total_rolling_sharpe",
+            col_name,
             source=source,
             line_width=1.3,
             line_color="#9467bd",
         )
         _add_zero_centered_shading(fig, primary_sharpe)
-        _set_tooltips(
-            fig, [("Rolling Sharpe", "@total_rolling_sharpe{0.000}")], renderers=[renderer]
-        )
+        _set_tooltips(fig, [("Rolling Sharpe", f"@{col_name}{{0.000}}")], renderers=[renderer])
         fig.yaxis.axis_label = f"Sharpe ({window}-bar)"
         fig.legend.visible = False
         return fig
@@ -1013,20 +1106,19 @@ return this.labels[index] || "";
             line_color="#1f77b4",
             legend_label="Cash",
         )
-        source.add(eq["equity"].values, "total_equity_dollar")
         fig.line(
             "index",
-            "total_equity_dollar",
+            "equity",
             source=source,
             line_width=1.3,
             line_color="#2ca02c",
             legend_label="Equity",
         )
-        pos_value = (eq["equity"] - eq["cash"]).values
-        source.add(pos_value, "total_pos_value")
+        if "pos_value" not in source.data:
+            source.add((eq["equity"] - eq["cash"]).values, "pos_value")
         fig.line(
             "index",
-            "total_pos_value",
+            "pos_value",
             source=source,
             line_width=1.3,
             line_color="#ff7f0e",
@@ -1037,8 +1129,8 @@ return this.labels[index] || "";
             fig,
             [
                 ("Cash", "@cash{$0,0.00}"),
-                ("Equity", "@total_equity_dollar{$0,0.00}"),
-                ("Position Value", "@total_pos_value{$0,0.00}"),
+                ("Equity", "@equity{$0,0.00}"),
+                ("Position Value", "@pos_value{$0,0.00}"),
                 ("# Positions", "@num_positions{0,0}"),
             ],
             renderers=[cash_renderer],
@@ -1501,6 +1593,7 @@ return this.labels[index] || "";
             line_width=1.2,
             tooltip_label="Rolling Sharpe",
             tooltip_format="0.000",
+            value_col="sharpe_overlay",
         )
 
         if window is not None:
@@ -1519,7 +1612,11 @@ return this.labels[index] || "";
 
         fig = _new_sub("YES Price", PANEL_YES_PRICE, height=400)
         label_tooltip_pairs: list[tuple[str, str]] = []
-        price_extremes = pd.DataFrame(index=index)
+        n_bars = len(index)
+        # Track running min/max per bar directly — avoids duplicating every
+        # price array into a separate DataFrame just for the envelope.
+        running_low = np.full(n_bars, np.nan, dtype=float)
+        running_high = np.full(n_bars, np.nan, dtype=float)
 
         for mid in display_markets:
             color = market_color_map.get(mid, "#666666")
@@ -1527,7 +1624,9 @@ return this.labels[index] || "";
             short = mid[:20] + "\u2026" if len(mid) > 20 else mid
             col = f"price_{mid}"
             source.add(arr, col)
-            price_extremes[col] = pd.Series(arr).values
+            # Update running envelope without storing a copy
+            running_low = np.fmin(running_low, arr)
+            running_high = np.fmax(running_high, arr)
             label_tooltip_pairs.append((short, f"@{{{col}}}{{0.[00]%}}"))
             fig.line(
                 "index", col, source=source, legend_label=short, line_color=color, line_width=2
@@ -1547,9 +1646,10 @@ return this.labels[index] || "";
         fig.yaxis.axis_label = "YES Price"
         fig.yaxis.formatter = NumeralTickFormatter(format="0.[00]%")
 
-        if not price_extremes.empty and price_extremes.shape[1] > 0:
-            low_vals = price_extremes.min(axis=1).ffill().fillna(0).values
-            high_vals = price_extremes.max(axis=1).ffill().fillna(1).values
+        has_envelope = not np.isnan(running_low).all()
+        if has_envelope:
+            low_vals = pd.Series(running_low).ffill().fillna(0).values
+            high_vals = pd.Series(running_high).ffill().fillna(1).values
             source.add(low_vals, "price_low")
             source.add(high_vals, "price_high")
 
@@ -1665,8 +1765,7 @@ return this.labels[index] || "";
         fig = _new_sub("Drawdown", PANEL_DRAWDOWN, height=90)
         show_primary = not (hide_primary_panel_series and overlay_equity)
         if show_primary:
-            source.add(eq["drawdown_pct"].values, "dd_pct")
-            r = fig.line("index", "dd_pct", source=source, line_width=1.3)
+            r = fig.line("index", "drawdown_pct", source=source, line_width=1.3)
             argmax = int(eq["drawdown_pct"].idxmax())
             fig.scatter(
                 argmax,
@@ -1675,7 +1774,7 @@ return this.labels[index] || "";
                 size=8,
                 legend_label="Peak (-{:.1f}%)".format(100 * eq["drawdown_pct"].iloc[argmax]),
             )
-            _set_tooltips(fig, [("Drawdown", "@dd_pct{-0.[0]%}")], renderers=[r])
+            _set_tooltips(fig, [("Drawdown", "@drawdown_pct{-0.[0]%}")], renderers=[r])
 
         overlay_drawdown = {
             market_id: _drawdown_array(_align_overlay_series(series, eq["datetime"]))
@@ -1687,6 +1786,7 @@ return this.labels[index] || "";
             line_width=1.2,
             tooltip_label="Drawdown",
             tooltip_format="-0.[0]%",
+            value_col="dd_overlay",
         )
         fig.yaxis.formatter = NumeralTickFormatter(format="-0.[0]%")
         return fig
@@ -1704,18 +1804,17 @@ return this.labels[index] || "";
                 legend_label="Cash",
             )
 
-            source.add(eq["equity"].values, "equity_dollar")
             fig.line(
                 "index",
-                "equity_dollar",
+                "equity",
                 source=source,
                 line_width=1.3,
                 line_color="#2ca02c",
                 legend_label="Equity",
             )
 
-            pos_value = (eq["equity"] - eq["cash"]).values
-            source.add(pos_value, "pos_value")
+            if "pos_value" not in source.data:
+                source.add((eq["equity"] - eq["cash"]).values, "pos_value")
             fig.line(
                 "index",
                 "pos_value",
@@ -1730,7 +1829,7 @@ return this.labels[index] || "";
                 fig,
                 [
                     ("Cash", "@cash{$0,0.00}"),
-                    ("Equity", "@equity_dollar{$0,0.00}"),
+                    ("Equity", "@equity{$0,0.00}"),
                     ("Position Value", "@pos_value{$0,0.00}"),
                     ("# Positions", "@num_positions{0,0}"),
                 ],
@@ -1753,6 +1852,7 @@ return this.labels[index] || "";
             legend_suffix=" equity",
             tooltip_label="Equity",
             tooltip_format="$0,0.00",
+            value_col="cash_eq_overlay",
         )
         _plot_overlay_lines(
             fig,
@@ -1762,6 +1862,7 @@ return this.labels[index] || "";
             legend_suffix=" cash",
             tooltip_label="Cash",
             tooltip_format="$0,0.00",
+            value_col="cash_overlay",
         )
         fig.yaxis.formatter = NumeralTickFormatter(format="$ 0,0")
         return fig
@@ -1856,6 +1957,9 @@ return this.labels[index] || "";
         fig.yaxis.formatter = NumeralTickFormatter(format="0%")
 
         return fig
+
+    _cached_total_sharpe: np.ndarray | None = None
+    _cached_total_sharpe_window: int | None = None
 
     if bar:
         bar.set_desc("Chart setup")

@@ -46,8 +46,6 @@ from prediction_market_extensions.analysis.legacy_backtesting.models import norm
 from nautilus_trader.analysis.reporter import ReportProvider
 
 
-
-
 def _parse_float(value: Any, default: float = 0.0) -> float:
     """
     Parse a float from numbers and money-like strings.
@@ -171,7 +169,6 @@ def prepare_cumulative_brier_advantage(
     return frame
 
 
-
 def _load_legacy_modules(repo_path: Path | None = None) -> tuple[Any, Any]:
     _ = repo_path
     importlib.invalidate_caches()
@@ -182,7 +179,6 @@ def _load_legacy_modules(repo_path: Path | None = None) -> tuple[Any, Any]:
         "prediction_market_extensions.analysis.legacy_backtesting.plotting"
     )
     return models, plotting
-
 
 
 def _extract_account_report(engine: Any) -> pd.DataFrame:
@@ -539,7 +535,6 @@ def _build_dense_portfolio_snapshots(
     ]
 
 
-
 def _normalize_market_prices(
     market_prices: Mapping[str, Sequence[tuple[Any, float]]] | None,
 ) -> dict[str, list[tuple[datetime, float]]]:
@@ -638,7 +633,6 @@ def _platform_enum(models_module: Any, platform: str) -> Any:
     if "poly" in platform_lower:
         return models_module.Platform.POLYMARKET
     return models_module.Platform.KALSHI
-
 
 
 def _mark_panel_figure(fig: Any, panel_id: str) -> Any:
@@ -838,7 +832,6 @@ def _build_total_brier_panel(brier_frame: pd.DataFrame) -> Any | None:
         legend_label="Total Cum. Brier Advantage",
         line_color="#1f77b4",
     )
-
 
 
 def _iter_layout_nodes(node: Any):
@@ -1043,7 +1036,6 @@ def _legend_item_label_text(item: Any) -> str:
     return str(label)
 
 
-
 def _remove_yes_price_profitability_legend_items(fig: Any) -> set[Any]:
     renderers_to_drop: set[Any] = set()
 
@@ -1085,7 +1077,6 @@ def _remove_yes_price_profitability_connectors(layout: Any) -> None:
 
     if renderers_to_drop:
         yes_fig.renderers = [r for r in yes_fig.renderers if r not in renderers_to_drop]
-
 
 
 def _standardize_periodic_pnl_panel(layout: Any) -> None:
@@ -1163,6 +1154,7 @@ def _relabel_market_pnl_panel(layout: Any, axis_label: str = "Market P&L") -> No
             else:
                 updated.append((label, value))
         tool.tooltips = updated
+
 
 def _build_multi_market_brier_panel(  # noqa: C901
     brier_frames: Mapping[str, pd.DataFrame],
@@ -1294,7 +1286,6 @@ def _build_multi_market_brier_panel(  # noqa: C901
         wheel_zoom.maintain_focus = False  # type: ignore[attr-defined]
 
     return _mark_panel_figure(fig, PANEL_BRIER_ADVANTAGE)
-
 
 
 def _standardize_yes_price_hover(layout: Any) -> None:
@@ -1471,7 +1462,10 @@ def build_legacy_backtest_layout(
     chart_title = f"{strategy_name} legacy chart"
 
     extra_panels: dict[str, Any] = {}
-    if PANEL_BRIER_ADVANTAGE in resolved_plot_panels or PANEL_TOTAL_BRIER_ADVANTAGE in resolved_plot_panels:
+    if (
+        PANEL_BRIER_ADVANTAGE in resolved_plot_panels
+        or PANEL_TOTAL_BRIER_ADVANTAGE in resolved_plot_panels
+    ):
         brier_frame = prepare_cumulative_brier_advantage(
             user_probabilities=user_probabilities,
             market_probabilities=market_probabilities,
