@@ -14,8 +14,24 @@ import pandas as pd
 import pytest
 
 from prediction_market_extensions.analysis import legacy_plot_adapter as adapter
+from prediction_market_extensions.analysis.legacy_backtesting import plotting
+from prediction_market_extensions.analysis.legacy_backtesting.models import BacktestResult
 from prediction_market_extensions.analysis.legacy_backtesting.models import PANEL_BRIER_ADVANTAGE
 from prediction_market_extensions.analysis.legacy_backtesting.models import PANEL_EQUITY
+from prediction_market_extensions.analysis.legacy_backtesting.models import (
+    PANEL_TOTAL_BRIER_ADVANTAGE,
+)
+from prediction_market_extensions.analysis.legacy_backtesting.models import (
+    PANEL_TOTAL_CASH_EQUITY,
+)
+from prediction_market_extensions.analysis.legacy_backtesting.models import (
+    PANEL_TOTAL_DRAWDOWN,
+)
+from prediction_market_extensions.analysis.legacy_backtesting.models import (
+    PANEL_TOTAL_ROLLING_SHARPE,
+)
+from prediction_market_extensions.analysis.legacy_backtesting.models import Platform
+from prediction_market_extensions.analysis.legacy_backtesting.models import PortfolioSnapshot
 
 
 class _DummyLayout:
@@ -49,140 +65,6 @@ def test_build_portfolio_snapshots_truncates_nanoseconds_without_warning() -> No
     assert not any("Discarding nonzero nanoseconds" in str(warning.message) for warning in caught)
 
 
-def test_yes_price_fill_marker_limit_only_applies_when_fill_count_exceeds_marker_budget() -> None:
-    assert adapter._yes_price_fill_marker_limit(fill_count=250, max_points=5_000) is None
-    assert adapter._yes_price_fill_marker_limit(fill_count=251, max_points=5_000) == 250
-    assert adapter._yes_price_fill_marker_limit(fill_count=1_667, max_points=5_000) == 250
-    assert adapter._yes_price_fill_marker_limit(fill_count=250, max_points=0) is None
-    assert adapter._yes_price_fill_marker_limit(fill_count=251, max_points=0) == 250
-
-
-def test_apply_layout_overrides_downsamples_yes_price_fill_markers_when_enabled() -> None:
-    bokeh_models = pytest.importorskip("bokeh.models")
-    bokeh_plotting = pytest.importorskip("bokeh.plotting")
-
-    fig = bokeh_plotting.figure(title="YES Price")
-    fig.yaxis.axis_label = "YES Price"
-    price_source = bokeh_models.ColumnDataSource(
-        {
-            "index": [0, 1, 2, 3],
-            "datetime": [
-                pd.Timestamp("2026-03-02T14:05:00Z"),
-                pd.Timestamp("2026-03-02T14:10:00Z"),
-                pd.Timestamp("2026-03-02T14:15:00Z"),
-                pd.Timestamp("2026-03-02T14:20:00Z"),
-            ],
-            "price_test_market": [0.48, 0.52, 0.51, 0.49],
-        }
-    )
-    price_renderer = fig.line(
-        x="index",
-        y="price_test_market",
-        source=price_source,
-    )
-
-    fill_source = bokeh_models.ColumnDataSource(
-        {
-            "index": [0, 1, 2, 3],
-            "datetime": [
-                pd.Timestamp("2026-03-02T14:05:30Z"),
-                pd.Timestamp("2026-03-02T14:10:30Z"),
-                pd.Timestamp("2026-03-02T14:15:30Z"),
-                pd.Timestamp("2026-03-02T14:20:30Z"),
-            ],
-            "action": ["BUY", "SELL", "BUY", "SELL"],
-            "side": ["YES", "YES", "YES", "YES"],
-            "quantity": [1, 1, 1, 1],
-            "price": [0.47, 0.53, 0.50, 0.48],
-            "market_id": ["test-market"] * 4,
-        }
-    )
-    fill_renderer = fig.scatter(
-        x="index", y="price", source=fill_source, size=8, color="green", legend_label="Fills (4)"
-    )
-    fig.add_tools(
-        bokeh_models.HoverTool(
-            renderers=[price_renderer, fill_renderer],
-            tooltips=[("Date", "@datetime{%F %T}")],
-            formatters={"@datetime": "datetime"},
-        )
-    )
-
-    adapter._apply_layout_overrides(
-        _DummyLayout(children=[fig]), initial_cash=1_000.0, max_yes_price_fill_markers=3
-    )
-
-    glyph_renderers = [renderer for renderer in fig.renderers if hasattr(renderer, "data_source")]
-    assert price_renderer in glyph_renderers
-    assert fill_renderer in glyph_renderers
-    assert len(fill_renderer.data_source.data["index"]) == 3
-    assert fill_renderer.data_source.data["index"][0] == 0
-    assert fill_renderer.data_source.data["index"][-1] == 3
-    assert any(
-        adapter._legend_item_label_text(item) == "Fills (3 shown of 4)"
-        for legend in fig.legend
-        for item in legend.items
-    )
-
-
-def test_apply_layout_overrides_removes_yes_price_fill_markers_when_enabled() -> None:
-    bokeh_models = pytest.importorskip("bokeh.models")
-    bokeh_plotting = pytest.importorskip("bokeh.plotting")
-
-    fig = bokeh_plotting.figure(title="YES Price")
-    fig.yaxis.axis_label = "YES Price"
-    price_source = bokeh_models.ColumnDataSource(
-        {
-            "index": [0, 1],
-            "datetime": [
-                pd.Timestamp("2026-03-02T14:05:00Z"),
-                pd.Timestamp("2026-03-02T14:10:00Z"),
-            ],
-            "price_test_market": [0.48, 0.52],
-        }
-    )
-    price_renderer = fig.line(
-        x="index",
-        y="price_test_market",
-        source=price_source,
-    )
-
-    fill_source = bokeh_models.ColumnDataSource(
-        {
-            "index": [0],
-            "datetime": [pd.Timestamp("2026-03-02T14:07:00Z")],
-            "action": ["BUY"],
-            "side": ["YES"],
-            "quantity": [1],
-            "price": [0.49],
-            "market_id": ["test-market"],
-        }
-    )
-    fill_renderer = fig.scatter(
-        x="index", y="price", source=fill_source, size=8, color="green", legend_label="Fills (1)"
-    )
-    fig.add_tools(
-        bokeh_models.HoverTool(
-            renderers=[price_renderer, fill_renderer],
-            tooltips=[("Date", "@datetime{%F %T}")],
-            formatters={"@datetime": "datetime"},
-        )
-    )
-
-    adapter._apply_layout_overrides(
-        _DummyLayout(children=[fig]), initial_cash=1_000.0, hide_yes_price_fill_markers=True
-    )
-
-    glyph_renderers = [renderer for renderer in fig.renderers if hasattr(renderer, "data_source")]
-    assert price_renderer in glyph_renderers
-    assert fill_renderer not in glyph_renderers
-    assert all(
-        "fills" not in adapter._legend_item_label_text(item).lower()
-        for legend in fig.legend
-        for item in legend.items
-    )
-
-
 @pytest.mark.parametrize("fill_count", [250, 251, 1_667])
 def test_build_legacy_backtest_layout_never_auto_limits_yes_price_fill_markers(
     monkeypatch: pytest.MonkeyPatch, tmp_path, fill_count: int
@@ -202,7 +84,7 @@ def test_build_legacy_backtest_layout_never_auto_limits_yes_price_fill_markers(
         "_load_legacy_modules",
         lambda *_: (SimpleNamespace(BacktestResult=_BacktestResult), plotting_module),
     )
-    monkeypatch.setattr(adapter, "_configure_legacy_downsampling", lambda *_args, **_kwargs: None)
+
     monkeypatch.setattr(adapter, "_extract_account_report", lambda *_: object())
     monkeypatch.setattr(
         adapter,
@@ -266,7 +148,7 @@ def test_build_legacy_backtest_layout_skips_brier_when_not_requested(
             SimpleNamespace(plot=_fake_plot),
         ),
     )
-    monkeypatch.setattr(adapter, "_configure_legacy_downsampling", lambda *_args, **_kwargs: None)
+
     monkeypatch.setattr(adapter, "_extract_account_report", lambda *_: object())
     monkeypatch.setattr(adapter, "_convert_fills", lambda *_: [])
     monkeypatch.setattr(adapter, "_build_portfolio_snapshots", lambda *args, **kwargs: [])
@@ -330,7 +212,7 @@ def test_build_legacy_backtest_layout_rejects_unknown_plot_panels(
             SimpleNamespace(plot=lambda *args, **kwargs: None),
         ),
     )
-    monkeypatch.setattr(adapter, "_configure_legacy_downsampling", lambda *_args, **_kwargs: None)
+
     monkeypatch.setattr(adapter, "_extract_account_report", lambda *_: object())
     monkeypatch.setattr(adapter, "_convert_fills", lambda *_: [])
     monkeypatch.setattr(adapter, "_build_portfolio_snapshots", lambda *args, **kwargs: [])
@@ -355,3 +237,131 @@ def test_build_legacy_backtest_layout_rejects_unknown_plot_panels(
             initial_cash=100.0,
             plot_panels=(PANEL_BRIER_ADVANTAGE, "not_a_panel"),
         )
+
+
+def test_build_legacy_backtest_layout_adds_total_brier_panel_when_requested(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    plotting_calls: list[dict[str, object]] = []
+    total_brier_panel = object()
+
+    class _BacktestResult:
+        def __init__(self, **kwargs) -> None:
+            self.kwargs = kwargs
+
+    def _fake_plot(*_args, **kwargs):  # type: ignore[no-untyped-def]
+        plotting_calls.append(kwargs)
+        return _DummyLayout()
+
+    engine = SimpleNamespace(trader=SimpleNamespace(generate_order_fills_report=list))
+
+    monkeypatch.setattr(
+        adapter,
+        "_load_legacy_modules",
+        lambda *_: (
+            SimpleNamespace(BacktestResult=_BacktestResult),
+            SimpleNamespace(plot=_fake_plot),
+        ),
+    )
+    monkeypatch.setattr(adapter, "_extract_account_report", lambda *_: object())
+    monkeypatch.setattr(adapter, "_convert_fills", lambda *_: [])
+    monkeypatch.setattr(adapter, "_build_portfolio_snapshots", lambda *args, **kwargs: [])
+    monkeypatch.setattr(adapter, "_market_prices_with_fill_points", lambda *args, **kwargs: {})
+    monkeypatch.setattr(
+        adapter,
+        "_build_dense_portfolio_snapshots",
+        lambda *args, **kwargs: [
+            SimpleNamespace(timestamp=datetime(2025, 1, 1, tzinfo=UTC), total_equity=100.0),
+            SimpleNamespace(timestamp=datetime(2025, 1, 2, tzinfo=UTC), total_equity=125.0),
+        ],
+    )
+    monkeypatch.setattr(adapter, "_build_metrics", lambda *args, **kwargs: {})
+    monkeypatch.setattr(adapter, "_platform_enum", lambda *args, **kwargs: "KALSHI")
+    monkeypatch.setattr(
+        adapter, "_apply_layout_overrides", lambda layout, initial_cash, **kwargs: layout
+    )
+    monkeypatch.setattr(
+        adapter,
+        "prepare_cumulative_brier_advantage",
+        lambda **kwargs: pd.DataFrame(
+            {
+                "brier_advantage": [0.1, -0.05],
+                "cumulative_brier_advantage": [0.1, 0.05],
+            },
+            index=pd.to_datetime(["2025-01-01T00:00:00Z", "2025-01-02T00:00:00Z"]),
+        ),
+    )
+    monkeypatch.setattr(adapter, "_build_total_brier_panel", lambda frame: total_brier_panel)
+
+    adapter.build_legacy_backtest_layout(
+        engine=engine,
+        output_path=tmp_path / "legacy.html",
+        strategy_name="Test Strategy",
+        platform="kalshi",
+        initial_cash=100.0,
+        plot_panels=(PANEL_TOTAL_BRIER_ADVANTAGE,),
+    )
+
+    assert plotting_calls == [
+        {
+            "filename": str((tmp_path / "legacy.html").resolve()),
+            "max_markets": 30,
+            "open_browser": False,
+            "progress": False,
+            "plot_panels": (PANEL_TOTAL_BRIER_ADVANTAGE,),
+            "extra_panels": {PANEL_TOTAL_BRIER_ADVANTAGE: total_brier_panel},
+        }
+    ]
+
+
+def test_total_aggregate_only_panels_render_for_single_market_results(tmp_path) -> None:
+    pytest.importorskip("bokeh")
+
+    timestamps = pd.date_range("2025-01-01T00:00:00Z", periods=120, freq="h")
+    equity_values = pd.Series(
+        [100.0 + (idx * 0.15) + ((idx % 7) - 3) * 0.35 for idx in range(len(timestamps))],
+        index=timestamps,
+        dtype=float,
+    )
+    cash_values = equity_values - 2.5
+
+    result = BacktestResult(
+        equity_curve=[
+            PortfolioSnapshot(
+                timestamp=ts.to_pydatetime(),
+                cash=float(cash_values.loc[ts]),
+                total_equity=float(equity_values.loc[ts]),
+                unrealized_pnl=float(equity_values.loc[ts] - cash_values.loc[ts]),
+                num_positions=1,
+            )
+            for ts in timestamps
+        ],
+        fills=[],
+        metrics={},
+        strategy_name="single-market-total-panels",
+        platform=Platform.KALSHI,
+        start_time=timestamps[0].to_pydatetime(),
+        end_time=timestamps[-1].to_pydatetime(),
+        initial_cash=float(equity_values.iloc[0]),
+        final_equity=float(equity_values.iloc[-1]),
+        num_markets_traded=1,
+        num_markets_resolved=1,
+        market_prices={},
+        market_pnls={},
+    )
+
+    output_path = tmp_path / "total_panels.html"
+    layout = plotting.plot(
+        result,
+        filename=str(output_path),
+        open_browser=False,
+        progress=False,
+        plot_panels=(
+            PANEL_TOTAL_DRAWDOWN,
+            PANEL_TOTAL_ROLLING_SHARPE,
+            PANEL_TOTAL_CASH_EQUITY,
+        ),
+    )
+
+    assert layout is not None
+    assert output_path.exists()

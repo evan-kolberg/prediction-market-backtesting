@@ -33,7 +33,7 @@ DESCRIPTION = (
     "Joint-portfolio VWAP-reversion backtest on a fixed Polymarket basket pinned to market close"
 )
 
-EMIT_HTML = True
+EMIT_HTML = False
 CHART_OUTPUT_PATH = "output"
 DETAIL_PLOT_PANELS = (
     "total_equity",
@@ -42,25 +42,26 @@ DETAIL_PLOT_PANELS = (
     "periodic_pnl",
     "yes_price",
     "allocation",
+    "total_drawdown",
     "drawdown",
+    "total_rolling_sharpe",
     "rolling_sharpe",
+    "total_cash_equity",
     "cash_equity",
     "monthly_returns",
+    "total_brier_advantage",
     "brier_advantage",
 )
 SUMMARY_PLOT_PANELS = (
     "total_equity",
-    "equity",
-    "market_pnl",
+    "total_drawdown",
+    "total_rolling_sharpe",
+    "total_cash_equity",
+    "total_brier_advantage",
     "periodic_pnl",
-    "yes_price",
-    "allocation",
-    "drawdown",
-    "rolling_sharpe",
-    "cash_equity",
     "monthly_returns",
-    "brier_advantage",
 )
+
 DATA = MarketDataConfig(
     platform=Polymarket,
     data_type=TradeTick,

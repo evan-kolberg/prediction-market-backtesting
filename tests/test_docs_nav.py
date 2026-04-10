@@ -137,7 +137,7 @@ def test_plotting_docs_distinguish_portfolio_and_comparison_summary_panels() -> 
         in normalized
     )
     assert (
-        "`total_equity`, `periodic_pnl`, and `monthly_returns` collapse the basket into one aggregate series"
+        "`total_equity`, `total_drawdown`, `total_rolling_sharpe`, `total_cash_equity`, `total_brier_advantage`, `periodic_pnl`, and `monthly_returns` collapse the basket into one aggregate series"
     ) in normalized
     assert (
         "`equity`, `allocation`, `drawdown`, `rolling_sharpe`, `cash_equity`, "

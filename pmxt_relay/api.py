@@ -354,15 +354,6 @@ def _stage_badge_payload(
     )
 
 
-def _iso_hour_query(value: str | None) -> str | None:
-    if value is None or not value.strip():
-        return None
-    value = value.strip()
-    if value.endswith("Z"):
-        value = value[:-1] + "+00:00"
-    return value
-
-
 def _parse_db_timestamp(value: str | None) -> datetime | None:
     if value is None:
         return None

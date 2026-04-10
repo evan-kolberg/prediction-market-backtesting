@@ -69,7 +69,19 @@ from prediction_market_extensions.analysis.legacy_backtesting.models import PANE
 from prediction_market_extensions.analysis.legacy_backtesting.models import PANEL_MONTHLY_RETURNS
 from prediction_market_extensions.analysis.legacy_backtesting.models import PANEL_PERIODIC_PNL
 from prediction_market_extensions.analysis.legacy_backtesting.models import PANEL_ROLLING_SHARPE
+from prediction_market_extensions.analysis.legacy_backtesting.models import (
+    PANEL_TOTAL_BRIER_ADVANTAGE,
+)
+from prediction_market_extensions.analysis.legacy_backtesting.models import (
+    PANEL_TOTAL_CASH_EQUITY,
+)
+from prediction_market_extensions.analysis.legacy_backtesting.models import (
+    PANEL_TOTAL_DRAWDOWN,
+)
 from prediction_market_extensions.analysis.legacy_backtesting.models import PANEL_TOTAL_EQUITY
+from prediction_market_extensions.analysis.legacy_backtesting.models import (
+    PANEL_TOTAL_ROLLING_SHARPE,
+)
 from prediction_market_extensions.analysis.legacy_backtesting.models import PANEL_YES_PRICE
 from prediction_market_extensions.analysis.legacy_backtesting.progress import PinnedProgress
 
@@ -146,73 +158,6 @@ def lightness(color: Any, light: float = 0.94) -> str:
     r_c, g_c, b_c = hls_to_rgb(h, light, s)
     return f"#{int(r_c * 255):02x}{int(g_c * 255):02x}{int(b_c * 255):02x}"
 
-
-def _downsample(
-    eq: pd.DataFrame,
-    fills_df: pd.DataFrame,
-    market_df: pd.DataFrame,
-    max_points: int = 5000,
-    alloc_df: pd.DataFrame | None = None,
-    keep_indices: set[int] | None = None,
-) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame | None]:
-    """Downsample plotting data to *max_points* rows.
-
-    Preserves first/last points, fill-event rows, equity peak, and max
-    drawdown to keep key visual events intact.  Fills' ``bar`` column is
-    remapped to match the new indices.
-
-    If *alloc_df* is provided it is downsampled to the same rows.
-    """
-    n = len(eq)
-    if n <= max_points:
-        return eq, fills_df, market_df, alloc_df
-
-    # Build set of "must keep" original indices
-    keep: set[int] = {0, n - 1}  # first & last
-    if keep_indices:
-        keep.update(int(idx) for idx in keep_indices if 0 <= int(idx) < n)
-
-    # Rows where fills occurred
-    if not fills_df.empty:
-        keep.update(fills_df["bar"].astype(int).tolist())
-
-    # Equity peak and max drawdown
-    keep.add(int(eq["equity"].idxmax()))
-    keep.add(int(eq["drawdown_pct"].idxmax()))
-
-    # Uniformly spaced samples to fill up to max_points
-    budget = max_points - len(keep)
-    if budget > 0:
-        uniform = np.linspace(0, n - 1, budget, dtype=int)
-        keep.update(uniform.tolist())
-
-    keep_sorted = sorted(keep)
-
-    # Build old→new index mapping
-    old_to_new = {old_idx: new_idx for new_idx, old_idx in enumerate(keep_sorted)}
-
-    # Downsample eq and market_df
-    eq_ds = eq.iloc[keep_sorted].reset_index(drop=True)
-    market_ds = (
-        market_df.iloc[keep_sorted].reset_index(drop=True) if not market_df.empty else market_df
-    )
-
-    # Downsample alloc_df to same rows
-    alloc_ds: pd.DataFrame | None = None
-    if alloc_df is not None and not alloc_df.empty:
-        alloc_ds = alloc_df.iloc[keep_sorted].reset_index(drop=True)
-
-    # Remap fills bar indices
-    if not fills_df.empty:
-        fills_ds = fills_df.copy()
-        fills_ds["bar"] = fills_ds["bar"].astype(int).map(old_to_new)
-        # Drop any fills that didn't map (shouldn't happen since we kept them)
-        fills_ds = fills_ds.dropna(subset=["bar"])
-        fills_ds["bar"] = fills_ds["bar"].astype(int)
-    else:
-        fills_ds = fills_df
-
-    return eq_ds, fills_ds, market_ds, alloc_ds
 
 
 def _series_from_pairs(values: pd.Series | Sequence[tuple[Any, float]] | None) -> pd.Series:
@@ -299,48 +244,17 @@ def _rolling_sharpe_array(values: np.ndarray) -> tuple[np.ndarray, int | None]:
     return sharpe, window
 
 
-def _overlay_keep_indices(
-    eq_datetimes: pd.Series, overlay_series: Mapping[str, pd.Series]
-) -> set[int]:
-    keep: set[int] = set()
-    if not overlay_series:
-        return keep
-
-    for series in overlay_series.values():
-        aligned = _align_overlay_series(series, eq_datetimes)
-        valid_idx = np.flatnonzero(~np.isnan(aligned))
-        if valid_idx.size == 0:
-            continue
-
-        keep.add(int(valid_idx[0]))
-        keep.add(int(valid_idx[-1]))
-
-        valid_values = aligned[valid_idx]
-        keep.add(int(valid_idx[int(np.nanargmax(valid_values))]))
-        keep.add(int(valid_idx[int(np.nanargmin(valid_values))]))
-
-        drawdown = _drawdown_array(aligned)
-        dd_idx = np.flatnonzero(~np.isnan(drawdown))
-        if dd_idx.size:
-            keep.add(int(dd_idx[int(np.nanargmax(drawdown[dd_idx]))]))
-
-    return keep
-
 
 def _build_dataframes(
     result: BacktestResult,
     bar: PinnedProgress[None] | None = None,
     max_markets: int = 10,
-    max_points: int = 5000,
 ):
     """Convert a :class:`BacktestResult` into plotting-ready DataFrames.
 
     Only the top *max_markets* markets (by price range among traded markets)
     are fully aligned to the equity timeline.  This avoids building a
     20 000-column DataFrame that would consume tens of GB of RAM.
-
-    The result is downsampled to at most *max_points* bars so the
-    serialised Bokeh JSON stays small enough for the browser to render.
 
     Returns
     -------
@@ -459,18 +373,7 @@ def _build_dataframes(
     else:
         market_df = pd.DataFrame(index=eq.index)
 
-    overlay_mapping = _normalize_overlay_mapping(
-        getattr(result, "overlay_series", {}).get("equity", {})
-    )
-    keep_indices = _overlay_keep_indices(eq["datetime"], overlay_mapping)
-
-    # Downsample to keep the Bokeh JSON small enough for the browser
-    n_bars_original = len(eq)
-    eq, fills_df, market_df, _ = _downsample(
-        eq, fills_df, market_df, max_points=max_points, keep_indices=keep_indices
-    )
-
-    return eq, fills_df, market_df, n_bars_original
+    return eq, fills_df, market_df, len(eq)
 
 
 def _build_allocation_data(
@@ -736,8 +639,6 @@ def plot(
         bar.write(
             f"  {n_bars_original:,} bars, {n_fills_total:,} fills, {n_total_markets:,} markets"
         )
-        if n_bars_original > len(eq):
-            bar.write(f"  Downsampled: {n_bars_original:,} → {len(eq):,} bars")
     index = eq.index
 
     if not market_df.empty:
@@ -1029,6 +930,122 @@ return this.labels[index] || "";
         fig.yaxis.formatter = NumeralTickFormatter(format="$ 0,0")
         return fig
 
+    def _add_zero_centered_shading(fig, values: np.ndarray) -> None:
+        n_points = len(values)
+        if n_points == 0:
+            return
+
+        safe_values = np.nan_to_num(values, nan=0.0)
+        pos_values = np.maximum(safe_values, 0.0)
+        neg_values = np.minimum(safe_values, 0.0)
+        zero_line = np.zeros(n_points)
+        idx_arr = np.arange(n_points, dtype=float)
+
+        fig.patch(
+            x=np.r_[idx_arr, idx_arr[::-1]].tolist(),
+            y=np.r_[pos_values, zero_line[::-1]].tolist(),
+            fill_color=BULL_COLOR.to_hex(),
+            fill_alpha=0.15,
+            line_color=None,
+        )
+        fig.patch(
+            x=np.r_[idx_arr, idx_arr[::-1]].tolist(),
+            y=np.r_[neg_values, zero_line[::-1]].tolist(),
+            fill_color=BEAR_COLOR.to_hex(),
+            fill_alpha=0.15,
+            line_color=None,
+        )
+
+    def _plot_total_drawdown():
+        fig = _new_sub("Total Drawdown", PANEL_TOTAL_DRAWDOWN, height=90)
+        source.add(eq["drawdown_pct"].values, "total_dd_pct")
+        renderer = fig.line("index", "total_dd_pct", source=source, line_width=1.3)
+        argmax = int(eq["drawdown_pct"].idxmax())
+        fig.scatter(
+            argmax,
+            eq["drawdown_pct"].iloc[argmax],
+            color="red",
+            size=8,
+            legend_label="Peak (-{:.1f}%)".format(100 * eq["drawdown_pct"].iloc[argmax]),
+        )
+        _set_tooltips(fig, [("Drawdown", "@total_dd_pct{-0.[0]%}")], renderers=[renderer])
+        fig.yaxis.formatter = NumeralTickFormatter(format="-0.[0]%")
+        return fig
+
+    def _plot_total_rolling_sharpe():
+        primary_sharpe, window = _rolling_sharpe_array(eq["equity"].to_numpy(dtype=float))
+        if window is None:
+            return None
+
+        fig = _new_sub("Total Rolling Sharpe", PANEL_TOTAL_ROLLING_SHARPE, height=100)
+        fig.add_layout(
+            Span(
+                location=0,
+                dimension="width",
+                line_color="#666666",
+                line_dash="dashed",
+                line_width=1,
+            )
+        )
+        source.add(primary_sharpe, "total_rolling_sharpe")
+        renderer = fig.line(
+            "index",
+            "total_rolling_sharpe",
+            source=source,
+            line_width=1.3,
+            line_color="#9467bd",
+        )
+        _add_zero_centered_shading(fig, primary_sharpe)
+        _set_tooltips(
+            fig, [("Rolling Sharpe", "@total_rolling_sharpe{0.000}")], renderers=[renderer]
+        )
+        fig.yaxis.axis_label = f"Sharpe ({window}-bar)"
+        fig.legend.visible = False
+        return fig
+
+    def _plot_total_cash():
+        fig = _new_sub("Total Cash / Equity", PANEL_TOTAL_CASH_EQUITY, height=90)
+        cash_renderer = fig.line(
+            "index",
+            "cash",
+            source=source,
+            line_width=1.3,
+            line_color="#1f77b4",
+            legend_label="Cash",
+        )
+        source.add(eq["equity"].values, "total_equity_dollar")
+        fig.line(
+            "index",
+            "total_equity_dollar",
+            source=source,
+            line_width=1.3,
+            line_color="#2ca02c",
+            legend_label="Equity",
+        )
+        pos_value = (eq["equity"] - eq["cash"]).values
+        source.add(pos_value, "total_pos_value")
+        fig.line(
+            "index",
+            "total_pos_value",
+            source=source,
+            line_width=1.3,
+            line_color="#ff7f0e",
+            line_dash="dashed",
+            legend_label="Positions ($)",
+        )
+        _set_tooltips(
+            fig,
+            [
+                ("Cash", "@cash{$0,0.00}"),
+                ("Equity", "@total_equity_dollar{$0,0.00}"),
+                ("Position Value", "@total_pos_value{$0,0.00}"),
+                ("# Positions", "@num_positions{0,0}"),
+            ],
+            renderers=[cash_renderer],
+        )
+        fig.yaxis.formatter = NumeralTickFormatter(format="$ 0,0")
+        return fig
+
     def _plot_pl():
         fig = _new_sub("Profit / Loss", PANEL_MARKET_PNL, height=110)
         fig.add_layout(
@@ -1064,59 +1081,56 @@ return this.labels[index] || "";
             if pnl_records:
                 pnl_df = pd.DataFrame(pnl_records).sort_values("bar")
 
-                if False:  # always use scatter triangles (minitrade style)
-                    pass
+                sz = np.abs(pnl_df["pnl"].values).astype(float)
+                if sz.max() > sz.min():
+                    sz = np.interp(sz, (sz.min(), sz.max()), (8, 20))
                 else:
-                    sz = np.abs(pnl_df["pnl"].values).astype(float)
-                    if sz.max() > sz.min():
-                        sz = np.interp(sz, (sz.min(), sz.max()), (8, 20))
-                    else:
-                        sz = np.full_like(sz, 12.0)
-                    pnl_long = np.where(pnl_df["pnl"].values > 0, pnl_df["pnl"].values, np.nan)
-                    pnl_short = np.where(pnl_df["pnl"].values <= 0, pnl_df["pnl"].values, np.nan)
-                    positive = np.where(pnl_df["pnl"].values > 0, "1", "0")
-                    pnl_src = ColumnDataSource(
-                        {
-                            "index": pnl_df["bar"].values,
-                            "datetime": pnl_df["datetime"].values,
-                            "pnl_long": pnl_long,
-                            "pnl_short": pnl_short,
-                            "positive": positive,
-                            "market_id": pnl_df["market_id"].values,
-                            "size_marker": sz,
-                        }
-                    )
-                    cmap = factor_cmap("positive", COLORS, ["0", "1"])
-                    r1 = fig.scatter(
-                        "index",
-                        "pnl_long",
-                        source=pnl_src,
-                        fill_color=cmap,
-                        marker="triangle",
-                        line_color="black",
-                        size="size_marker",
-                    )
-                    r2 = fig.scatter(
-                        "index",
-                        "pnl_short",
-                        source=pnl_src,
-                        fill_color=cmap,
-                        marker="inverted_triangle",
-                        line_color="black",
-                        size="size_marker",
-                    )
-                    _set_tooltips(
-                        fig,
-                        [("Market", "@market_id"), ("P/L", "@pnl_long{+$0,0.00}")],
-                        vline=False,
-                        renderers=[r1],
-                    )
-                    _set_tooltips(
-                        fig,
-                        [("Market", "@market_id"), ("P/L", "@pnl_short{+$0,0.00}")],
-                        vline=False,
-                        renderers=[r2],
-                    )
+                    sz = np.full_like(sz, 12.0)
+                pnl_long = np.where(pnl_df["pnl"].values > 0, pnl_df["pnl"].values, np.nan)
+                pnl_short = np.where(pnl_df["pnl"].values <= 0, pnl_df["pnl"].values, np.nan)
+                positive = np.where(pnl_df["pnl"].values > 0, "1", "0")
+                pnl_src = ColumnDataSource(
+                    {
+                        "index": pnl_df["bar"].values,
+                        "datetime": pnl_df["datetime"].values,
+                        "pnl_long": pnl_long,
+                        "pnl_short": pnl_short,
+                        "positive": positive,
+                        "market_id": pnl_df["market_id"].values,
+                        "size_marker": sz,
+                    }
+                )
+                cmap = factor_cmap("positive", COLORS, ["0", "1"])
+                r1 = fig.scatter(
+                    "index",
+                    "pnl_long",
+                    source=pnl_src,
+                    fill_color=cmap,
+                    marker="triangle",
+                    line_color="black",
+                    size="size_marker",
+                )
+                r2 = fig.scatter(
+                    "index",
+                    "pnl_short",
+                    source=pnl_src,
+                    fill_color=cmap,
+                    marker="inverted_triangle",
+                    line_color="black",
+                    size="size_marker",
+                )
+                _set_tooltips(
+                    fig,
+                    [("Market", "@market_id"), ("P/L", "@pnl_long{+$0,0.00}")],
+                    vline=False,
+                    renderers=[r1],
+                )
+                _set_tooltips(
+                    fig,
+                    [("Market", "@market_id"), ("P/L", "@pnl_short{+$0,0.00}")],
+                    vline=False,
+                    renderers=[r2],
+                )
 
         elif not fills_df.empty:
             relevant_fills = (
@@ -1849,6 +1863,10 @@ return this.labels[index] || "";
 
     panel_step_labels = {
         PANEL_TOTAL_EQUITY: "Total Equity",
+        PANEL_TOTAL_DRAWDOWN: "Total Drawdown",
+        PANEL_TOTAL_ROLLING_SHARPE: "Total Rolling Sharpe",
+        PANEL_TOTAL_CASH_EQUITY: "Total Cash / Equity",
+        PANEL_TOTAL_BRIER_ADVANTAGE: "Total Brier Advantage",
         PANEL_EQUITY: "Equity",
         PANEL_MARKET_PNL: "Profit / Loss",
         PANEL_PERIODIC_PNL: "P&L (periodic)",
@@ -1865,6 +1883,12 @@ return this.labels[index] || "";
     for panel_id in requested_panels:
         if panel_id == PANEL_TOTAL_EQUITY:
             panel = _plot_total_equity_panel()
+        elif panel_id == PANEL_TOTAL_DRAWDOWN:
+            panel = _plot_total_drawdown()
+        elif panel_id == PANEL_TOTAL_ROLLING_SHARPE:
+            panel = _plot_total_rolling_sharpe()
+        elif panel_id == PANEL_TOTAL_CASH_EQUITY:
+            panel = _plot_total_cash()
         elif panel_id == PANEL_EQUITY:
             panel = _plot_equity()
         elif panel_id == PANEL_MARKET_PNL:
@@ -1898,6 +1922,9 @@ return this.labels[index] || "";
 
     shared_axis_panels = {
         PANEL_TOTAL_EQUITY,
+        PANEL_TOTAL_DRAWDOWN,
+        PANEL_TOTAL_ROLLING_SHARPE,
+        PANEL_TOTAL_CASH_EQUITY,
         PANEL_EQUITY,
         PANEL_MARKET_PNL,
         PANEL_PERIODIC_PNL,

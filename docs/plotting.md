@@ -54,13 +54,13 @@ when many sims are present.
 
 Inside the summary report there is another important split:
 
-- `total_equity`, `periodic_pnl`, and `monthly_returns` collapse the basket into
-  one aggregate series, so they stay readable even when the basket gets large
+- `total_equity`, `total_drawdown`, `total_rolling_sharpe`,
+  `total_cash_equity`, `total_brier_advantage`, `periodic_pnl`, and
+  `monthly_returns` collapse the basket into one aggregate series, so they stay
+  readable even when the basket gets large
 - `equity`, `allocation`, `drawdown`, `rolling_sharpe`, `cash_equity`, and
   `brier_advantage` keep one line per market or sim, so they are best when you
   still want cross-market comparison inside the same report
-- `brier_advantage` still works at the basket level because it groups by market
-  slug or labeled sim instead of assuming one isolated replay
 - `market_pnl` and `yes_price` are detail-heavy panels; they are usually better
   in per-sim charts because they get noisy quickly once the summary report
   would need one line or one marker stream per replay
@@ -172,6 +172,10 @@ The default naming rules are:
 The supported panel ids are:
 
 - `total_equity`
+- `total_drawdown`
+- `total_rolling_sharpe`
+- `total_cash_equity`
+- `total_brier_advantage`
 - `equity`
 - `market_pnl`
 - `periodic_pnl`

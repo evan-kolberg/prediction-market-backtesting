@@ -63,26 +63,3 @@ def build_strategies_from_configs(
             strategy_configs=strategy_configs, instrument_id=instrument_id
         )
     ]
-
-
-def resolve_strategy_factory(
-    *, strategy_factory, strategy_configs: Sequence[StrategyConfigSpec] | None
-):
-    if strategy_factory is not None and strategy_configs:
-        raise ValueError("Use strategy_factory or strategy_configs, not both.")
-    if strategy_factory is not None:
-        return strategy_factory
-    if not strategy_configs:
-        raise ValueError("strategy_configs is required when strategy_factory is not provided.")
-
-    def _factory(instrument_id: InstrumentId) -> Strategy:
-        strategies = build_strategies_from_configs(
-            strategy_configs=strategy_configs, instrument_id=instrument_id
-        )
-        if len(strategies) != 1:
-            raise ValueError(
-                "Prediction-market single-market runners currently support exactly one strategy config per run."
-            )
-        return strategies[0]
-
-    return _factory

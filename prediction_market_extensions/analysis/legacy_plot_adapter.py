@@ -39,37 +39,13 @@ from prediction_market_extensions.analysis.legacy_backtesting.models import (
     DEFAULT_DETAIL_PLOT_PANELS,
 )
 from prediction_market_extensions.analysis.legacy_backtesting.models import PANEL_BRIER_ADVANTAGE
+from prediction_market_extensions.analysis.legacy_backtesting.models import (
+    PANEL_TOTAL_BRIER_ADVANTAGE,
+)
 from prediction_market_extensions.analysis.legacy_backtesting.models import normalize_plot_panels
 from nautilus_trader.analysis.reporter import ReportProvider
 
 
-LEGACY_BACKTESTING_ROOT = Path(__file__).resolve().parent / "legacy_backtesting"
-
-
-def _yes_price_fill_marker_budget(max_points: int) -> int:
-    """
-    Return the readable YES-price fill-marker budget for one chart.
-    """
-    if max_points <= 0:
-        return 250
-    return max(50, min(250, max_points // 10))
-
-
-def _yes_price_fill_marker_limit(fill_count: int, max_points: int) -> int | None:
-    """
-    Return the marker cap to apply on dense YES-price charts, if any.
-    """
-    marker_budget = _yes_price_fill_marker_budget(max_points)
-    if fill_count <= marker_budget:
-        return None
-    return marker_budget
-
-
-def _should_hide_yes_price_fill_markers(fill_count: int, max_points: int) -> bool:
-    """
-    Backward-compatible predicate for callers that still remove dense markers.
-    """
-    return _yes_price_fill_marker_limit(fill_count, max_points) is not None
 
 
 def _parse_float(value: Any, default: float = 0.0) -> float:
@@ -195,16 +171,6 @@ def prepare_cumulative_brier_advantage(
     return frame
 
 
-def resolve_legacy_plot_repo(explicit_path: str | Path | None = None) -> Path:
-    """
-    Return the vendored legacy plotting package root inside this repository.
-    """
-    _ = explicit_path
-    plotting_path = LEGACY_BACKTESTING_ROOT / "plotting.py"
-    if not plotting_path.exists():
-        raise FileNotFoundError(f"Vendored legacy plotting module is missing: {plotting_path}")
-    return LEGACY_BACKTESTING_ROOT
-
 
 def _load_legacy_modules(repo_path: Path | None = None) -> tuple[Any, Any]:
     _ = repo_path
@@ -217,63 +183,6 @@ def _load_legacy_modules(repo_path: Path | None = None) -> tuple[Any, Any]:
     )
     return models, plotting
 
-
-def _configure_legacy_downsampling(
-    plotting_module: Any, *, adaptive: bool = True, max_points: int = 5000
-) -> None:
-    """
-    Configure legacy dataframe downsampling.
-    """
-    downsample_fn = getattr(plotting_module, "_downsample", None)
-    if downsample_fn is None:
-        return
-
-    if not adaptive:
-
-        def _identity_downsample(
-            eq, fills_df, market_df, max_points=5000, alloc_df=None, keep_indices=None
-        ):
-            return eq, fills_df, market_df, alloc_df
-
-        plotting_module._downsample = _identity_downsample
-        return
-
-    requested_max_points = max(2, int(max_points))
-
-    def _adaptive_downsample(
-        eq, fills_df, market_df, max_points=5000, alloc_df=None, keep_indices=None
-    ):
-        total_points = sum(
-            len(frame)
-            for frame in (eq, fills_df, market_df, alloc_df)
-            if frame is not None and hasattr(frame, "__len__")
-        )
-        if total_points <= requested_max_points:
-            return eq, fills_df, market_df, alloc_df
-
-        return downsample_fn(
-            eq,
-            fills_df,
-            market_df,
-            max_points=requested_max_points,
-            alloc_df=alloc_df,
-            keep_indices=keep_indices,
-        )
-
-    plotting_module._downsample = _adaptive_downsample
-
-
-def _disable_legacy_downsampling(plotting_module: Any) -> None:
-    """
-    Backward-compatible helper for callers that explicitly want dense rendering.
-    """
-
-    def _identity_downsample(
-        eq, fills_df, market_df, max_points=5000, alloc_df=None, keep_indices=None
-    ):
-        return eq, fills_df, market_df, alloc_df
-
-    plotting_module._downsample = _identity_downsample
 
 
 def _extract_account_report(engine: Any) -> pd.DataFrame:
@@ -630,26 +539,6 @@ def _build_dense_portfolio_snapshots(
     ]
 
 
-def _build_market_pnls(positions_report: pd.DataFrame) -> dict[str, float]:
-    if positions_report is None or positions_report.empty:
-        return {}
-
-    frame = positions_report.copy()
-    if frame.index.name and frame.index.name not in frame.columns:
-        frame = frame.reset_index()
-
-    pnls: dict[str, float] = {}
-    for _, row in frame.iterrows():
-        market_id = str(
-            _first_value(row, "market_id", "instrument_id", "ticker", "symbol") or ""
-        ).strip()
-        if not market_id:
-            continue
-        realized = _parse_float(_first_value(row, "realized_pnl", "pnl"), default=0.0)
-        pnls[market_id] = pnls.get(market_id, 0.0) + realized
-
-    return pnls
-
 
 def _normalize_market_prices(
     market_prices: Mapping[str, Sequence[tuple[Any, float]]] | None,
@@ -751,18 +640,6 @@ def _platform_enum(models_module: Any, platform: str) -> Any:
     return models_module.Platform.KALSHI
 
 
-def _append_chart_panel(layout: Any, panel: Any) -> Any:
-    try:
-        from bokeh.layouts import column
-    except ImportError as exc:  # pragma: no cover - runtime dependency
-        raise ImportError("Bokeh is required for legacy chart rendering.") from exc
-
-    if hasattr(layout, "children"):
-        layout.children.append(panel)
-        return layout
-
-    return column(layout, panel, sizing_mode="stretch_width")
-
 
 def _mark_panel_figure(fig: Any, panel_id: str) -> Any:
     fig.name = panel_id
@@ -845,7 +722,14 @@ def _style_panel_legend(fig: Any) -> None:
         legend.click_policy = "hide"
 
 
-def _build_brier_panel(brier_frame: pd.DataFrame) -> Any | None:
+def _build_brier_timeseries_panel(
+    brier_frame: pd.DataFrame,
+    *,
+    panel_id: str,
+    axis_label: str,
+    legend_label: str,
+    line_color: str = "#2ca0f0",
+) -> Any | None:
     if brier_frame.empty:
         return None
 
@@ -901,8 +785,8 @@ def _build_brier_panel(brier_frame: pd.DataFrame) -> Any | None:
         y="cumulative_brier_advantage",
         source=source,
         line_width=2.0,
-        line_color="#2ca0f0",
-        legend_label="Cum. Brier Advantage",
+        line_color=line_color,
+        legend_label=legend_label,
     )
     fig.add_layout(
         Span(
@@ -927,25 +811,34 @@ def _build_brier_panel(brier_frame: pd.DataFrame) -> Any | None:
     )
 
     fig.xaxis.axis_label = "Date"
-    fig.yaxis.axis_label = "Cumulative Brier Advantage"
+    fig.yaxis.axis_label = axis_label
     fig.yaxis.formatter = NumeralTickFormatter(format="0.0000")
     _style_panel_legend(fig)
     wheel_zoom = next((tool for tool in fig.tools if isinstance(tool, WheelZoomTool)), None)
     if wheel_zoom is not None:
         wheel_zoom.maintain_focus = False  # type: ignore[attr-defined]
 
-    return _mark_panel_figure(fig, PANEL_BRIER_ADVANTAGE)
+    return _mark_panel_figure(fig, panel_id)
 
 
-def _append_brier_placeholder_panel(layout: Any, message: str) -> Any:
-    return _append_chart_panel(layout, _build_brier_placeholder_panel(message))
+def _build_brier_panel(brier_frame: pd.DataFrame) -> Any | None:
+    return _build_brier_timeseries_panel(
+        brier_frame,
+        panel_id=PANEL_BRIER_ADVANTAGE,
+        axis_label="Cumulative Brier Advantage",
+        legend_label="Cum. Brier Advantage",
+    )
 
 
-def _append_brier_panel(layout: Any, brier_frame: pd.DataFrame) -> Any:
-    panel = _build_brier_panel(brier_frame)
-    if panel is None:
-        return layout
-    return _append_chart_panel(layout, panel)
+def _build_total_brier_panel(brier_frame: pd.DataFrame) -> Any | None:
+    return _build_brier_timeseries_panel(
+        brier_frame,
+        panel_id=PANEL_TOTAL_BRIER_ADVANTAGE,
+        axis_label="Total Cumulative Brier Advantage",
+        legend_label="Total Cum. Brier Advantage",
+        line_color="#1f77b4",
+    )
+
 
 
 def _iter_layout_nodes(node: Any):
@@ -1150,9 +1043,6 @@ def _legend_item_label_text(item: Any) -> str:
     return str(label)
 
 
-def _set_legend_item_label_text(item: Any, text: str) -> None:
-    item.label = {"value": text}
-
 
 def _remove_yes_price_profitability_legend_items(fig: Any) -> set[Any]:
     renderers_to_drop: set[Any] = set()
@@ -1196,106 +1086,6 @@ def _remove_yes_price_profitability_connectors(layout: Any) -> None:
     if renderers_to_drop:
         yes_fig.renderers = [r for r in yes_fig.renderers if r not in renderers_to_drop]
 
-
-def _remove_yes_price_fill_markers(layout: Any) -> None:  # noqa: C901
-    """
-    Remove synthetic fill marker overlays from the YES price panel.
-    """
-    yes_fig = None
-    for fig in _iter_figures(layout):
-        labels = [str(axis.axis_label or "") for axis in getattr(fig, "yaxis", [])]
-        if any(label == "YES Price" for label in labels):
-            yes_fig = fig
-            break
-
-    if yes_fig is None:
-        return
-
-    renderers_to_drop: set[Any] = set()
-
-    for renderer in getattr(yes_fig, "renderers", []):
-        glyph = getattr(renderer, "glyph", None)
-        source = getattr(renderer, "data_source", None)
-        data = getattr(source, "data", None)
-        if glyph is None or not isinstance(data, dict):
-            continue
-        if glyph.__class__.__name__ not in {"Scatter", "Circle"}:
-            continue
-        keys = set(data.keys())
-        if {"action", "side", "quantity", "price", "market_id"}.issubset(keys):
-            renderers_to_drop.add(renderer)
-
-    if renderers_to_drop:
-        yes_fig.renderers = [r for r in yes_fig.renderers if r not in renderers_to_drop]
-        for legend in getattr(yes_fig, "legend", []):
-            kept_items = []
-            for item in list(getattr(legend, "items", [])):
-                lower = _legend_item_label_text(item).lower()
-                item_renderers = [
-                    r for r in getattr(item, "renderers", []) if r not in renderers_to_drop
-                ]
-                if "fills" in lower or not item_renderers:
-                    continue
-                item.renderers = item_renderers
-                kept_items.append(item)
-            legend.items = kept_items
-        for tool in getattr(yes_fig, "tools", []):
-            renderers = getattr(tool, "renderers", None)
-            if isinstance(renderers, list | tuple):
-                tool.renderers = [r for r in renderers if r not in renderers_to_drop]
-
-
-def _is_yes_price_fill_renderer(renderer: Any) -> bool:
-    glyph = getattr(renderer, "glyph", None)
-    source = getattr(renderer, "data_source", None)
-    data = getattr(source, "data", None)
-    if glyph is None or not isinstance(data, dict):
-        return False
-    if glyph.__class__.__name__ not in {"Scatter", "Circle"}:
-        return False
-    keys = set(data.keys())
-    return {"action", "side", "quantity", "price", "market_id"}.issubset(keys)
-
-
-def _limit_yes_price_fill_markers(layout: Any, *, max_markers: int) -> None:  # noqa: C901
-    """
-    Keep a readable sample of YES-price fill markers instead of dropping them.
-    """
-    if max_markers <= 0:
-        _remove_yes_price_fill_markers(layout)
-        return
-
-    yes_fig = _find_figure_with_yaxis_label(layout, lambda label: label == "YES Price")
-    if yes_fig is None:
-        return
-
-    for renderer in getattr(yes_fig, "renderers", []):
-        if not _is_yes_price_fill_renderer(renderer):
-            continue
-
-        source = getattr(renderer, "data_source", None)
-        data = getattr(source, "data", None)
-        if source is None or not isinstance(data, dict):
-            continue
-
-        frame = pd.DataFrame({key: list(value) for key, value in data.items()})
-        total = len(frame)
-        if total <= max_markers:
-            continue
-
-        limited = _downsample_frame_rows(
-            frame, max_points=max_markers, extrema_columns=("price", "index")
-        )
-        source.data = {column: limited[column].tolist() for column in frame.columns}
-
-        shown = len(limited)
-        for legend in getattr(yes_fig, "legend", []):
-            for item in list(getattr(legend, "items", [])):
-                if renderer not in getattr(item, "renderers", []):
-                    continue
-                if "fills" not in _legend_item_label_text(item).lower():
-                    continue
-                _set_legend_item_label_text(item, f"Fills ({shown:,} shown of {total:,})")
 
 
 def _standardize_periodic_pnl_panel(layout: Any) -> None:
@@ -1374,95 +1164,11 @@ def _relabel_market_pnl_panel(layout: Any, axis_label: str = "Market P&L") -> No
                 updated.append((label, value))
         tool.tooltips = updated
 
-
-def _relabel_periodic_pnl_panel(layout: Any, axis_label: str) -> None:
-    target = _find_figure_with_yaxis_label(layout, lambda label: "periodic" in label.lower())
-    if target is None:
-        return
-
-    if getattr(target, "yaxis", None):
-        target.yaxis[0].axis_label = axis_label
-
-
-def _remove_panels_by_yaxis_labels(layout: Any, labels: set[str]) -> None:
-    if not labels:
-        return
-
-    def _should_keep(obj: Any) -> bool:
-        axes = getattr(obj, "yaxis", None)
-        if not axes:
-            return True
-        axis_labels = {str(axis.axis_label or "") for axis in axes}
-        return axis_labels.isdisjoint(labels)
-
-    def _prune(node: Any) -> None:
-        children = getattr(node, "children", None)
-        if not children:
-            return
-
-        filtered_children: list[Any] = []
-        for child in children:
-            obj = child[0] if isinstance(child, tuple) else child
-            if obj is not None and not _should_keep(obj):
-                continue
-            if obj is not None:
-                _prune(obj)
-            filtered_children.append(child)
-        node.children = filtered_children
-
-    _prune(layout)
-
-
-def _extract_yes_price_colors(layout: Any) -> dict[str, Any]:
-    target = _find_figure_with_yaxis_label(layout, lambda label: label == "YES Price")
-    if target is None:
-        return {}
-
-    color_by_market: dict[str, Any] = {}
-    for renderer in _yes_price_line_renderers(target):
-        glyph = getattr(renderer, "glyph", None)
-        if glyph is None:
-            continue
-        y_field = _field_name(getattr(glyph, "y", None))
-        if not y_field or not y_field.startswith("price_"):
-            continue
-        color = getattr(glyph, "line_color", None)
-        if color is None:
-            continue
-        color_by_market[y_field.removeprefix("price_")] = color
-
-    return color_by_market
-
-
-def _downsample_frame_rows(
-    frame: pd.DataFrame, *, max_points: int, extrema_columns: Sequence[str] = ()
-) -> pd.DataFrame:
-    if frame.empty or len(frame) <= max_points:
-        return frame
-
-    keep: set[int] = {0, len(frame) - 1}
-    for column in extrema_columns:
-        if column not in frame:
-            continue
-        values = pd.to_numeric(frame[column], errors="coerce").to_numpy(dtype=float)
-        if len(values) == 0 or np.isnan(values).all():
-            continue
-        keep.add(int(np.nanargmax(values)))
-        keep.add(int(np.nanargmin(values)))
-
-    budget = max(0, int(max_points) - len(keep))
-    if budget > 0:
-        keep.update(np.linspace(0, len(frame) - 1, num=budget, dtype=int).tolist())
-
-    return frame.iloc[sorted(keep)].copy()
-
-
 def _build_multi_market_brier_panel(  # noqa: C901
     brier_frames: Mapping[str, pd.DataFrame],
     *,
     axis_label: str = "Cumulative Brier Advantage",
     color_by_market: Mapping[str, Any] | None = None,
-    max_points_per_market: int = 400,
 ) -> Any | None:
     valid_frames = {
         market_id: frame.copy()
@@ -1522,11 +1228,6 @@ def _build_multi_market_brier_panel(  # noqa: C901
 
         frame.index = frame.index.tz_convert("UTC").tz_localize(None)
         frame = frame[~frame.index.duplicated(keep="last")]
-        frame = _downsample_frame_rows(
-            frame,
-            max_points=max_points_per_market,
-            extrema_columns=("cumulative_brier_advantage", "brier_advantage"),
-        )
 
         source = ColumnDataSource(
             {
@@ -1594,24 +1295,6 @@ def _build_multi_market_brier_panel(  # noqa: C901
 
     return _mark_panel_figure(fig, PANEL_BRIER_ADVANTAGE)
 
-
-def _append_multi_market_brier_panel(
-    layout: Any,
-    brier_frames: Mapping[str, pd.DataFrame],
-    *,
-    axis_label: str = "Cumulative Brier Advantage",
-    color_by_market: Mapping[str, Any] | None = None,
-    max_points_per_market: int = 400,
-) -> Any:
-    panel = _build_multi_market_brier_panel(
-        brier_frames,
-        axis_label=axis_label,
-        color_by_market=color_by_market,
-        max_points_per_market=max_points_per_market,
-    )
-    if panel is None:
-        return layout
-    return _append_chart_panel(layout, panel)
 
 
 def _standardize_yes_price_hover(layout: Any) -> None:
@@ -1686,18 +1369,12 @@ def _apply_layout_overrides(
     layout: Any,
     initial_cash: float,
     *,
-    hide_yes_price_fill_markers: bool = False,
-    max_yes_price_fill_markers: int | None = None,
     relabel_market_pnl: bool = False,
 ) -> Any:
     _ = initial_cash  # Keep signature stable for callers and future layout transforms.
     layout = _remove_data_banner(layout)
     _focus_allocation_panel(layout)
     _remove_yes_price_profitability_connectors(layout)
-    if hide_yes_price_fill_markers:
-        _remove_yes_price_fill_markers(layout)
-    elif max_yes_price_fill_markers is not None:
-        _limit_yes_price_fill_markers(layout, max_markers=max_yes_price_fill_markers)
     _standardize_periodic_pnl_panel(layout)
     if relabel_market_pnl:
         _relabel_market_pnl_panel(layout)
@@ -1743,8 +1420,6 @@ def build_legacy_backtest_layout(
     open_browser: bool = False,
     max_markets: int = 30,
     progress: bool = False,
-    adaptive_downsampling: bool = True,
-    max_downsample_points: int = 5000,
     plot_panels: Sequence[str] | None = None,
 ) -> tuple[Any, str]:
     """
@@ -1752,9 +1427,6 @@ def build_legacy_backtest_layout(
     """
     _ = legacy_repo_path  # Legacy code is vendored in-repo.
     models_module, plotting_module = _load_legacy_modules()
-    _configure_legacy_downsampling(
-        plotting_module, adaptive=adaptive_downsampling, max_points=max_downsample_points
-    )
 
     account_report = _extract_account_report(engine)
     fills_report = engine.trader.generate_order_fills_report()
@@ -1799,16 +1471,21 @@ def build_legacy_backtest_layout(
     chart_title = f"{strategy_name} legacy chart"
 
     extra_panels: dict[str, Any] = {}
-    if PANEL_BRIER_ADVANTAGE in resolved_plot_panels:
+    if PANEL_BRIER_ADVANTAGE in resolved_plot_panels or PANEL_TOTAL_BRIER_ADVANTAGE in resolved_plot_panels:
         brier_frame = prepare_cumulative_brier_advantage(
             user_probabilities=user_probabilities,
             market_probabilities=market_probabilities,
             outcomes=outcomes,
         )
         if not brier_frame.empty:
-            panel = _build_brier_panel(brier_frame)
-            if panel is not None:
-                extra_panels[PANEL_BRIER_ADVANTAGE] = panel
+            if PANEL_BRIER_ADVANTAGE in resolved_plot_panels:
+                panel = _build_brier_panel(brier_frame)
+                if panel is not None:
+                    extra_panels[PANEL_BRIER_ADVANTAGE] = panel
+            if PANEL_TOTAL_BRIER_ADVANTAGE in resolved_plot_panels:
+                panel = _build_total_brier_panel(brier_frame)
+                if panel is not None:
+                    extra_panels[PANEL_TOTAL_BRIER_ADVANTAGE] = panel
         else:
             unavailable_reason = _brier_unavailable_reason(
                 user_probabilities=user_probabilities,
@@ -1816,9 +1493,14 @@ def build_legacy_backtest_layout(
                 outcomes=outcomes,
             )
             if unavailable_reason is not None:
-                extra_panels[PANEL_BRIER_ADVANTAGE] = _build_brier_placeholder_panel(
-                    unavailable_reason
-                )
+                if PANEL_BRIER_ADVANTAGE in resolved_plot_panels:
+                    extra_panels[PANEL_BRIER_ADVANTAGE] = _build_brier_placeholder_panel(
+                        unavailable_reason
+                    )
+                if PANEL_TOTAL_BRIER_ADVANTAGE in resolved_plot_panels:
+                    extra_panels[PANEL_TOTAL_BRIER_ADVANTAGE] = _build_brier_placeholder_panel(
+                        unavailable_reason
+                    )
 
     layout = plotting_module.plot(
         result,
@@ -1835,46 +1517,3 @@ def build_legacy_backtest_layout(
     )
 
     return layout, chart_title
-
-
-def create_legacy_backtest_chart(
-    engine: Any,
-    output_path: str | Path,
-    strategy_name: str,
-    platform: str,
-    initial_cash: float,
-    market_prices: Mapping[str, Sequence[tuple[Any, float]]] | None = None,
-    user_probabilities: pd.Series | None = None,
-    market_probabilities: pd.Series | None = None,
-    outcomes: pd.Series | None = None,
-    legacy_repo_path: str | Path | None = None,
-    open_browser: bool = False,
-    max_markets: int = 30,
-    progress: bool = False,
-    adaptive_downsampling: bool = True,
-    max_downsample_points: int = 5000,
-    plot_panels: Sequence[str] | None = None,
-) -> str:
-    """
-    Render a legacy-style interactive chart from a Nautilus backtest engine.
-    """
-    layout, chart_title = build_legacy_backtest_layout(
-        engine=engine,
-        output_path=output_path,
-        strategy_name=strategy_name,
-        platform=platform,
-        initial_cash=initial_cash,
-        market_prices=market_prices,
-        user_probabilities=user_probabilities,
-        market_probabilities=market_probabilities,
-        outcomes=outcomes,
-        legacy_repo_path=legacy_repo_path,
-        open_browser=open_browser,
-        max_markets=max_markets,
-        progress=progress,
-        adaptive_downsampling=adaptive_downsampling,
-        max_downsample_points=max_downsample_points,
-        plot_panels=plot_panels,
-    )
-
-    return save_legacy_backtest_layout(layout, output_path, chart_title)

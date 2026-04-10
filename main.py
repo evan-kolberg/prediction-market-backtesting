@@ -238,20 +238,6 @@ def _filter_backtests(backtests: list[dict[str, Any]], query: str) -> list[int]:
     ]
 
 
-def _runner_details(backtest: dict[str, Any], shortcut: str | None) -> str:
-    details: list[str] = [_menu_label(backtest)]
-    description = str(backtest.get("description") or "").strip()
-    name = str(backtest.get("name") or _runner_stem(backtest))
-    meta = [f"runner: {name}"]
-    if shortcut is not None:
-        meta.append(f"shortcut: {shortcut}")
-    if description:
-        meta.append(f"description: {description}")
-    details.extend(meta)
-    details.extend(("", "Preview", _runner_preview(backtest)))
-    return "\n".join(details)
-
-
 def _shortcut_candidates(backtest: dict[str, Any]) -> list[str]:
     words = re.findall(
         r"[A-Za-z]+", f"{backtest.get('name', '')} {_runner_stem(backtest)} {_menu_label(backtest)}"

@@ -567,21 +567,6 @@ def _strip_prefixed_remote_source(source: str, *, prefixes: Sequence[str]) -> st
     return None
 
 
-def _display_explicit_source(source: str) -> str:
-    archive_base_url = _strip_prefixed_remote_source(source, prefixes=_PMXT_ARCHIVE_SOURCE_PREFIXES)
-    if archive_base_url is not None:
-        return f"archive {archive_base_url}"
-    raw_root = _strip_prefixed_local_source(source, prefixes=_PMXT_RAW_LOCAL_SOURCE_PREFIXES)
-    if raw_root is not None:
-        return f"local {raw_root}"
-    relay_base_url = _strip_prefixed_remote_source(source, prefixes=_PMXT_RELAY_SOURCE_PREFIXES)
-    if relay_base_url is not None:
-        return f"relay {relay_base_url}"
-    raise ValueError(
-        f"Unsupported PMXT explicit source {source!r}. Use one of: local:, archive:, relay:."
-    )
-
-
 def _classify_explicit_pmxt_sources(
     sources: Sequence[str],
 ) -> tuple[str | None, str | None, str | None, tuple[str, ...], tuple[str, ...]]:

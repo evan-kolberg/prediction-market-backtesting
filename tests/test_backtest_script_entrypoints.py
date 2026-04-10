@@ -57,7 +57,10 @@ TRADE_TICK_JOINT_RUNNERS = [
     Path("backtests/polymarket_trade_tick_joint_portfolio_runner.py"),
 ]
 
-SCRIPT_ENTRYPOINT_PATHS = [Path("scripts/pmxt_download_raws.py")]
+SCRIPT_ENTRYPOINT_PATHS = [
+    Path("scripts/pmxt_download_raws.py"),
+    Path("scripts/run_all_backtests.py"),
+]
 
 REPO_BOOTSTRAP_HELPERS = {Path("backtests/_script_helpers.py"), Path("scripts/_script_helpers.py")}
 
@@ -272,7 +275,8 @@ def test_pmxt_quote_tick_independent_runners_expose_explicit_summary_contract(
     assert data.data_type == "quote_tick"
     assert data.vendor == "pmxt"
     assert len(replays) > 1
-    assert globals_dict["EMIT_HTML"] is True
+    expected_emit_html = relative_path.stem == "polymarket_quote_tick_independent_25_replay_runner"
+    assert globals_dict["EMIT_HTML"] is expected_emit_html
     assert globals_dict["CHART_OUTPUT_PATH"] == "output"
     assert isinstance(globals_dict["SUMMARY_PLOT_PANELS"], tuple)
     assert globals_dict["SUMMARY_PLOT_PANELS"]
@@ -281,7 +285,7 @@ def test_pmxt_quote_tick_independent_runners_expose_explicit_summary_contract(
     assert report.summary_plot_panels == globals_dict["SUMMARY_PLOT_PANELS"]
     assert experiment.return_summary_series is True
     assert experiment.multi_replay_mode == "independent"
-    assert experiment.emit_html is True
+    assert experiment.emit_html is expected_emit_html
     assert experiment.chart_output_path == "output"
     assert experiment.detail_plot_panels == globals_dict["DETAIL_PLOT_PANELS"]
 
@@ -371,7 +375,7 @@ def test_trade_tick_independent_runners_emit_summary_contract(
     experiment = globals_dict["EXPERIMENT"]
     report = globals_dict["REPORT"]
 
-    assert globals_dict["EMIT_HTML"] is True
+    assert globals_dict["EMIT_HTML"] is False
     assert globals_dict["CHART_OUTPUT_PATH"] == "output"
     assert experiment.return_summary_series is True
     assert experiment.multi_replay_mode == "independent"
@@ -392,7 +396,7 @@ def test_trade_tick_joint_runners_emit_summary_contract(
     experiment = globals_dict["EXPERIMENT"]
     report = globals_dict["REPORT"]
 
-    assert globals_dict["EMIT_HTML"] is True
+    assert globals_dict["EMIT_HTML"] is False
     assert globals_dict["CHART_OUTPUT_PATH"] == "output"
     assert experiment.return_summary_series is True
     assert experiment.multi_replay_mode == "joint_portfolio"
