@@ -1,3 +1,8 @@
+[data-sidebar="group"] > [data-sidebar="group-content"] > [data-sidebar="menu"] > [data-sidebar="menu-item"] > [data-sidebar="menu-button"] {
+  padding-top: 0.65rem !important;
+  padding-bottom: 0.65rem !important;
+}
+
 article pre {
   max-height: none !important;
   overflow-x: auto;
