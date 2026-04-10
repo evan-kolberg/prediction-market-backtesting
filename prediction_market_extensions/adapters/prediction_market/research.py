@@ -52,8 +52,18 @@ from prediction_market_extensions.analysis import legacy_plot_adapter as legacy_
 from prediction_market_extensions.analysis.legacy_backtesting.models import (
     DEFAULT_SUMMARY_PLOT_PANELS,
 )
+from prediction_market_extensions.analysis.legacy_backtesting.models import PANEL_ALLOCATION
+from prediction_market_extensions.analysis.legacy_backtesting.models import PANEL_CASH_EQUITY
+from prediction_market_extensions.analysis.legacy_backtesting.models import PANEL_DRAWDOWN
+from prediction_market_extensions.analysis.legacy_backtesting.models import PANEL_EQUITY
+from prediction_market_extensions.analysis.legacy_backtesting.models import PANEL_MARKET_PNL
+from prediction_market_extensions.analysis.legacy_backtesting.models import PANEL_ROLLING_SHARPE
+from prediction_market_extensions.analysis.legacy_backtesting.models import PANEL_YES_PRICE
 from prediction_market_extensions.analysis.legacy_backtesting.models import normalize_plot_panels
 from prediction_market_extensions.analysis.legacy_backtesting.models import PANEL_BRIER_ADVANTAGE
+from prediction_market_extensions.analysis.legacy_backtesting.models import (
+    PANEL_TOTAL_BRIER_ADVANTAGE,
+)
 from prediction_market_extensions.analysis.legacy_plot_adapter import build_legacy_backtest_layout
 from prediction_market_extensions.analysis.legacy_plot_adapter import save_legacy_backtest_layout
 from nautilus_trader.analysis.reporter import ReportProvider
@@ -314,6 +324,37 @@ def _aggregate_brier_frames(results: Sequence[dict[str, Any]]) -> dict[str, pd.D
     return frames
 
 
+def _aggregate_total_brier_frame(results: Sequence[dict[str, Any]]) -> pd.DataFrame:
+    frames = _aggregate_brier_frames(results)
+    if not frames:
+        return pd.DataFrame()
+
+    point_series: list[pd.Series] = []
+    for frame in frames.values():
+        series = frame.get("brier_advantage")
+        if series is None:
+            continue
+        point_series.append(pd.to_numeric(series, errors="coerce"))
+
+    if not point_series:
+        return pd.DataFrame()
+
+    aggregate_points = pd.concat(point_series, axis=1).sum(axis=1, skipna=True)
+    aggregate_points = aggregate_points.groupby(aggregate_points.index).sum().sort_index()
+    if aggregate_points.empty:
+        return pd.DataFrame()
+
+    aggregate_points.index = pd.to_datetime(aggregate_points.index, utc=True, errors="coerce")
+    aggregate_points = aggregate_points[~aggregate_points.index.isna()]
+    if aggregate_points.empty:
+        return pd.DataFrame()
+
+    aggregate_points = aggregate_points.groupby(aggregate_points.index).sum().sort_index()
+    frame = pd.DataFrame({"brier_advantage": aggregate_points.astype(float)})
+    frame["cumulative_brier_advantage"] = frame["brier_advantage"].cumsum()
+    return frame
+
+
 def _aggregate_brier_unavailable_reason(results: Sequence[dict[str, Any]]) -> str | None:
     user_series = pd.Series(dtype=float)
     market_series = pd.Series(dtype=float)
@@ -333,6 +374,23 @@ def _aggregate_brier_unavailable_reason(results: Sequence[dict[str, Any]]) -> st
         user_probabilities=user_series,
         market_probabilities=market_series,
         outcomes=outcome_series,
+    )
+
+
+def _summary_panels_need_market_prices(plot_panels: Sequence[str]) -> bool:
+    return any(panel in {PANEL_YES_PRICE, PANEL_ALLOCATION} for panel in plot_panels)
+
+
+def _summary_panels_need_fill_events(plot_panels: Sequence[str]) -> bool:
+    return any(
+        panel in {PANEL_YES_PRICE, PANEL_MARKET_PNL, PANEL_ALLOCATION} for panel in plot_panels
+    )
+
+
+def _summary_panels_need_overlay_series(plot_panels: Sequence[str]) -> bool:
+    return any(
+        panel in {PANEL_EQUITY, PANEL_DRAWDOWN, PANEL_ROLLING_SHARPE, PANEL_CASH_EQUITY}
+        for panel in plot_panels
     )
 
 
@@ -503,60 +561,6 @@ def run_market_backtest(
     return result
 
 
-def save_combined_backtest_report(
-    *,
-    results: Sequence[dict[str, Any]],
-    output_path: str | Path,
-    title: str,
-    market_key: str,
-    pnl_label: str,
-) -> str | None:
-    """
-    Save one HTML page by concatenating the generated per-market chart HTML bodies.
-    """
-    chart_paths: list[Path] = []
-    for result in results:
-        chart_path = result.get("chart_path")
-        if chart_path is None:
-            continue
-        chart_paths.append(Path(str(chart_path)).expanduser().resolve())
-
-    if not chart_paths:
-        return None
-
-    output_abs = Path(output_path).expanduser().resolve()
-    output_abs.parent.mkdir(parents=True, exist_ok=True)
-    first_html = chart_paths[0].read_text(encoding="utf-8")
-    head_match = re.search(
-        r"<head[^>]*>(?P<head>.*)</head>", first_html, flags=re.IGNORECASE | re.DOTALL
-    )
-    if head_match is None:
-        raise ValueError(f"Unable to locate <head> in {chart_paths[0]}")
-
-    body_pattern = re.compile(r"<body[^>]*>(?P<body>.*)</body>", flags=re.IGNORECASE | re.DOTALL)
-    body_chunks: list[str] = []
-    for chart_path in chart_paths:
-        html_text = chart_path.read_text(encoding="utf-8")
-        body_match = body_pattern.search(html_text)
-        if body_match is None:
-            raise ValueError(f"Unable to locate <body> in {chart_path}")
-        body_chunks.append(body_match.group("body").strip())
-
-    combined_html = (
-        "<!DOCTYPE html>\n"
-        '<html lang="en">\n'
-        "  <head>\n"
-        f"{head_match.group('head').strip()}\n"
-        "  </head>\n"
-        "  <body>\n"
-        f"{'\n\n'.join(body_chunks)}\n"
-        "  </body>\n"
-        "</html>\n"
-    )
-    output_abs.write_text(combined_html, encoding="utf-8")
-    return str(output_abs)
-
-
 def save_aggregate_backtest_report(
     *,
     results: Sequence[dict[str, Any]],
@@ -564,7 +568,6 @@ def save_aggregate_backtest_report(
     title: str,
     market_key: str,
     pnl_label: str,
-    max_points_per_market: int = 400,
     plot_panels: Sequence[str] | None = None,
 ) -> str | None:
     """
@@ -574,11 +577,10 @@ def save_aggregate_backtest_report(
         return None
 
     models_module, plotting_module = legacy_plot_adapter._load_legacy_modules()
-    downsample_point_limit = max(5000, max_points_per_market * 12)
     resolved_plot_panels = normalize_plot_panels(plot_panels, default=DEFAULT_SUMMARY_PLOT_PANELS)
-    legacy_plot_adapter._configure_legacy_downsampling(
-        plotting_module, adaptive=True, max_points=downsample_point_limit
-    )
+    include_market_prices = _summary_panels_need_market_prices(resolved_plot_panels)
+    include_fill_events = _summary_panels_need_fill_events(resolved_plot_panels)
+    include_overlay_series = _summary_panels_need_overlay_series(resolved_plot_panels)
 
     market_prices: dict[str, list[tuple[datetime, float]]] = {}
     fills: list[Any] = []
@@ -593,23 +595,25 @@ def save_aggregate_backtest_report(
 
         price_series = _pairs_to_series(result.get("price_series") or [])
         if not price_series.empty:
-            market_prices[label] = [
-                (_to_legacy_datetime(ts), float(value)) for ts, value in price_series.items()
-            ]
+            if include_market_prices:
+                market_prices[label] = [
+                    (_to_legacy_datetime(ts), float(value)) for ts, value in price_series.items()
+                ]
             active_ranges[label] = (price_series.index[0], price_series.index[-1])
             timeline_points.update(price_series.index.to_list())
 
-        fills.extend(
-            _deserialize_fill_events(
-                market_id=label,
-                fill_events=result.get("fill_events") or [],
-                models_module=models_module,
+        if include_fill_events:
+            fills.extend(
+                _deserialize_fill_events(
+                    market_id=label,
+                    fill_events=result.get("fill_events") or [],
+                    models_module=models_module,
+                )
             )
-        )
-        for event in result.get("fill_events") or []:
-            timestamp = pd.to_datetime(event.get("timestamp"), utc=True, errors="coerce")
-            if not pd.isna(timestamp):
-                timeline_points.add(timestamp)
+            for event in result.get("fill_events") or []:
+                timestamp = pd.to_datetime(event.get("timestamp"), utc=True, errors="coerce")
+                if not pd.isna(timestamp):
+                    timeline_points.add(timestamp)
 
         equity_series = _pairs_to_series(result.get("equity_series") or [])
         cash_series = _pairs_to_series(result.get("cash_series") or [])
@@ -755,9 +759,11 @@ def save_aggregate_backtest_report(
         final_equity=float(final_equity),
         num_markets_traded=sum(1 for item in results if int(item.get("fills") or 0) > 0),
         num_markets_resolved=len(results),
-        market_prices=market_prices,
+        market_prices=market_prices if include_market_prices else {},
         market_pnls={},
-        overlay_series={"equity": overlay_equity, "cash": overlay_cash},
+        overlay_series=(
+            {"equity": overlay_equity, "cash": overlay_cash} if include_overlay_series else {}
+        ),
         hide_primary_panel_series=True,
         primary_series_name="Aggregate",
         prepend_total_equity_panel=True,
@@ -775,7 +781,6 @@ def save_aggregate_backtest_report(
             panel = legacy_plot_adapter._build_multi_market_brier_panel(
                 brier_frames,
                 axis_label="Cumulative Brier Advantage",
-                max_points_per_market=max_points_per_market,
             )
             if panel is not None:
                 extra_panels[PANEL_BRIER_ADVANTAGE] = panel
@@ -783,6 +788,18 @@ def save_aggregate_backtest_report(
             unavailable_reason = _aggregate_brier_unavailable_reason(results)
             if unavailable_reason is not None:
                 extra_panels[PANEL_BRIER_ADVANTAGE] = (
+                    legacy_plot_adapter._build_brier_placeholder_panel(unavailable_reason)
+                )
+    if PANEL_TOTAL_BRIER_ADVANTAGE in resolved_plot_panels:
+        total_brier_frame = _aggregate_total_brier_frame(results)
+        if not total_brier_frame.empty:
+            panel = legacy_plot_adapter._build_total_brier_panel(total_brier_frame)
+            if panel is not None:
+                extra_panels[PANEL_TOTAL_BRIER_ADVANTAGE] = panel
+        else:
+            unavailable_reason = _aggregate_brier_unavailable_reason(results)
+            if unavailable_reason is not None:
+                extra_panels[PANEL_TOTAL_BRIER_ADVANTAGE] = (
                     legacy_plot_adapter._build_brier_placeholder_panel(unavailable_reason)
                 )
     layout = plotting_module.plot(
@@ -797,10 +814,6 @@ def save_aggregate_backtest_report(
     layout = legacy_plot_adapter._apply_layout_overrides(
         layout,
         initial_cash=float(initial_cash),
-        max_yes_price_fill_markers=legacy_plot_adapter._yes_price_fill_marker_limit(
-            fill_count=len(fills),
-            max_points=downsample_point_limit,
-        ),
     )
     return save_legacy_backtest_layout(layout, output_abs, title)
 
@@ -812,7 +825,6 @@ def save_joint_portfolio_backtest_report(
     title: str,
     market_key: str,
     pnl_label: str,
-    max_points_per_market: int = 400,
     plot_panels: Sequence[str] | None = None,
 ) -> str | None:
     """
@@ -822,11 +834,9 @@ def save_joint_portfolio_backtest_report(
         return None
 
     models_module, plotting_module = legacy_plot_adapter._load_legacy_modules()
-    downsample_point_limit = max(5000, max_points_per_market * 12)
     resolved_plot_panels = normalize_plot_panels(plot_panels, default=DEFAULT_SUMMARY_PLOT_PANELS)
-    legacy_plot_adapter._configure_legacy_downsampling(
-        plotting_module, adaptive=True, max_points=downsample_point_limit
-    )
+    include_market_prices = _summary_panels_need_market_prices(resolved_plot_panels)
+    include_fill_events = _summary_panels_need_fill_events(resolved_plot_panels)
 
     market_prices: dict[str, list[tuple[datetime, float]]] = {}
     fills: list[Any] = []
@@ -845,23 +855,25 @@ def save_joint_portfolio_backtest_report(
         label = str(result.get(market_key) or "unknown")
         price_series = _pairs_to_series(result.get("price_series") or [])
         if not price_series.empty:
-            market_prices[label] = [
-                (_to_legacy_datetime(ts), float(value)) for ts, value in price_series.items()
-            ]
+            if include_market_prices:
+                market_prices[label] = [
+                    (_to_legacy_datetime(ts), float(value)) for ts, value in price_series.items()
+                ]
             active_ranges[label] = (price_series.index[0], price_series.index[-1])
             timeline_points.update(price_series.index.to_list())
 
-        fills.extend(
-            _deserialize_fill_events(
-                market_id=label,
-                fill_events=result.get("fill_events") or [],
-                models_module=models_module,
+        if include_fill_events:
+            fills.extend(
+                _deserialize_fill_events(
+                    market_id=label,
+                    fill_events=result.get("fill_events") or [],
+                    models_module=models_module,
+                )
             )
-        )
-        for event in result.get("fill_events") or []:
-            timestamp = pd.to_datetime(event.get("timestamp"), utc=True, errors="coerce")
-            if not pd.isna(timestamp):
-                timeline_points.add(timestamp)
+            for event in result.get("fill_events") or []:
+                timestamp = pd.to_datetime(event.get("timestamp"), utc=True, errors="coerce")
+                if not pd.isna(timestamp):
+                    timeline_points.add(timestamp)
 
     if portfolio_equity.empty and portfolio_cash.empty:
         return None
@@ -923,7 +935,7 @@ def save_joint_portfolio_backtest_report(
 
     result = models_module.BacktestResult(
         equity_curve=equity_curve,
-        fills=fills,
+        fills=fills if include_fill_events else [],
         metrics=metrics,
         strategy_name=title,
         platform=models_module.Platform.POLYMARKET,
@@ -933,7 +945,7 @@ def save_joint_portfolio_backtest_report(
         final_equity=float(final_equity),
         num_markets_traded=sum(1 for item in results if int(item.get("fills") or 0) > 0),
         num_markets_resolved=len(results),
-        market_prices=market_prices,
+        market_prices=market_prices if include_market_prices else {},
         market_pnls={},
         overlay_series={},
         primary_series_name="Joint Portfolio",
@@ -952,7 +964,6 @@ def save_joint_portfolio_backtest_report(
             panel = legacy_plot_adapter._build_multi_market_brier_panel(
                 brier_frames,
                 axis_label="Cumulative Brier Advantage",
-                max_points_per_market=max_points_per_market,
             )
             if panel is not None:
                 extra_panels[PANEL_BRIER_ADVANTAGE] = panel
@@ -960,6 +971,18 @@ def save_joint_portfolio_backtest_report(
             unavailable_reason = _aggregate_brier_unavailable_reason(results)
             if unavailable_reason is not None:
                 extra_panels[PANEL_BRIER_ADVANTAGE] = (
+                    legacy_plot_adapter._build_brier_placeholder_panel(unavailable_reason)
+                )
+    if PANEL_TOTAL_BRIER_ADVANTAGE in resolved_plot_panels:
+        total_brier_frame = _aggregate_total_brier_frame(results)
+        if not total_brier_frame.empty:
+            panel = legacy_plot_adapter._build_total_brier_panel(total_brier_frame)
+            if panel is not None:
+                extra_panels[PANEL_TOTAL_BRIER_ADVANTAGE] = panel
+        else:
+            unavailable_reason = _aggregate_brier_unavailable_reason(results)
+            if unavailable_reason is not None:
+                extra_panels[PANEL_TOTAL_BRIER_ADVANTAGE] = (
                     legacy_plot_adapter._build_brier_placeholder_panel(unavailable_reason)
                 )
     layout = plotting_module.plot(
@@ -974,10 +997,6 @@ def save_joint_portfolio_backtest_report(
     layout = legacy_plot_adapter._apply_layout_overrides(
         layout,
         initial_cash=float(initial_cash),
-        max_yes_price_fill_markers=legacy_plot_adapter._yes_price_fill_marker_limit(
-            fill_count=len(fills),
-            max_points=downsample_point_limit,
-        ),
     )
     return save_legacy_backtest_layout(layout, output_abs, title)
 
