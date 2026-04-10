@@ -18,33 +18,33 @@ other subdirectory under `backtests/` should be support code only.
 Good public examples:
 
 - reusable EMA logic:
-  [`strategies/ema_crossover.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/strategies/ema_crossover.py)
+  [`strategies/ema_crossover.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/v2/strategies/ema_crossover.py)
 - reusable late-favorite limit-hold logic:
-  [`strategies/late_favorite_limit_hold.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/strategies/late_favorite_limit_hold.py)
+  [`strategies/late_favorite_limit_hold.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/v2/strategies/late_favorite_limit_hold.py)
 - Kalshi native trade-tick runner:
-  [`backtests/kalshi_trade_tick_breakout.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/kalshi_trade_tick_breakout.py)
+  [`backtests/kalshi_trade_tick_breakout.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/v2/backtests/kalshi_trade_tick_breakout.py)
 - Kalshi native trade-tick joint-portfolio basket runner:
-  [`backtests/kalshi_trade_tick_joint_portfolio_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/kalshi_trade_tick_joint_portfolio_runner.py)
+  [`backtests/kalshi_trade_tick_joint_portfolio_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/v2/backtests/kalshi_trade_tick_joint_portfolio_runner.py)
 - Kalshi native trade-tick independent basket runner:
-  [`backtests/kalshi_trade_tick_independent_multi_replay_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/kalshi_trade_tick_independent_multi_replay_runner.py)
+  [`backtests/kalshi_trade_tick_independent_multi_replay_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/v2/backtests/kalshi_trade_tick_independent_multi_replay_runner.py)
 - Polymarket native trade-tick runner:
-  [`backtests/polymarket_trade_tick_vwap_reversion.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_trade_tick_vwap_reversion.py)
+  [`backtests/polymarket_trade_tick_vwap_reversion.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/v2/backtests/polymarket_trade_tick_vwap_reversion.py)
 - Polymarket native trade-tick joint-portfolio basket runner:
-  [`backtests/polymarket_trade_tick_joint_portfolio_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_trade_tick_joint_portfolio_runner.py)
+  [`backtests/polymarket_trade_tick_joint_portfolio_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/v2/backtests/polymarket_trade_tick_joint_portfolio_runner.py)
 - Polymarket native trade-tick independent basket runner:
-  [`backtests/polymarket_trade_tick_independent_multi_replay_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_trade_tick_independent_multi_replay_runner.py)
+  [`backtests/polymarket_trade_tick_independent_multi_replay_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/v2/backtests/polymarket_trade_tick_independent_multi_replay_runner.py)
 - Polymarket quote-tick runner with PMXT vendor data:
-  [`backtests/polymarket_quote_tick_ema_crossover.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_quote_tick_ema_crossover.py)
+  [`backtests/polymarket_quote_tick_ema_crossover.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/v2/backtests/polymarket_quote_tick_ema_crossover.py)
 - PMXT joint-portfolio basket runner:
-  [`backtests/polymarket_quote_tick_joint_portfolio_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_quote_tick_joint_portfolio_runner.py)
+  [`backtests/polymarket_quote_tick_joint_portfolio_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/v2/backtests/polymarket_quote_tick_joint_portfolio_runner.py)
 - PMXT independent basket runner:
-  [`backtests/polymarket_quote_tick_independent_multi_replay_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_quote_tick_independent_multi_replay_runner.py)
+  [`backtests/polymarket_quote_tick_independent_multi_replay_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/v2/backtests/polymarket_quote_tick_independent_multi_replay_runner.py)
 - PMXT independent 25-replay basket runner:
-  [`backtests/polymarket_quote_tick_independent_25_replay_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_quote_tick_independent_25_replay_runner.py)
+  [`backtests/polymarket_quote_tick_independent_25_replay_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/v2/backtests/polymarket_quote_tick_independent_25_replay_runner.py)
 - PMXT optimizer runner:
-  [`backtests/polymarket_quote_tick_ema_optimizer.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_quote_tick_ema_optimizer.py)
+  [`backtests/polymarket_quote_tick_ema_optimizer.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/v2/backtests/polymarket_quote_tick_ema_optimizer.py)
 - generic optimizer notebook research runner:
-  [`backtests/generic_optimizer_research.ipynb`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/generic_optimizer_research.ipynb)
+  [`backtests/generic_optimizer_research.ipynb`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/v2/backtests/generic_optimizer_research.ipynb)
 
 Those public runners are intended as readable research demos, not profitability
 claims. Result payloads now separate the requested replay window from the data
@@ -243,21 +243,22 @@ The corresponding runner patterns are:
   `REPORT.summary_report=True`, `return_summary_series=True`, and
   `multi_replay_mode="independent"`
 
-This split is deliberate. It lets one run keep the dense detail that matters
-for inspection, such as execution markers and per-market PnL structure, without
-forcing a basket run to inline every raw chart into one browser page.
+Keep the roles separate:
+
+- `DETAIL_PLOT_PANELS` is the drilldown surface for one replay, so it can stay
+  execution-heavy
+- `SUMMARY_PLOT_PANELS` is the basket overview surface, so it should stay
+  readable when more than one replay is present
 
 In practice:
 
 - single-market runs treat the detail HTML as the primary artifact
-- midsize baskets can rely on both the detail HTML files and the shared summary
+- midsize baskets often want both the per-sim HTML files and the shared summary
   report
-- large baskets, including 400+ sim sweeps, rely on the summary report for the
-  overview while the per-sim HTML files remain the drilldown surface
+- large baskets rely on the summary report for the overview while the per-sim
+  HTML files remain the drilldown surface
 
-That is why `SUMMARY_PLOT_PANELS` should focus on panels that summarize across
-runs cleanly, while `DETAIL_PLOT_PANELS` can stay richer and more execution
-oriented.
+Panel selection guidance lives in [`plotting.md`](plotting.md#scaling-model).
 
 Minimal shapes:
 
@@ -342,7 +343,7 @@ Current parameter-search helpers live under
 
 The public optimizer example is:
 
-- [`backtests/polymarket_quote_tick_ema_optimizer.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_quote_tick_ema_optimizer.py)
+- [`backtests/polymarket_quote_tick_ema_optimizer.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/v2/backtests/polymarket_quote_tick_ema_optimizer.py)
 
 That runner is intentionally research-oriented. It writes leaderboard and
 summary artifacts under `output/` by default and keeps `EMIT_HTML = False` so
@@ -457,7 +458,7 @@ The notebook contract is intentionally thin:
 
 The public research example is:
 
-- [`backtests/generic_optimizer_research.ipynb`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/generic_optimizer_research.ipynb)
+- [`backtests/generic_optimizer_research.ipynb`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/v2/backtests/generic_optimizer_research.ipynb)
 
 That notebook is intentionally optimizer-contract driven rather than
 strategy-specific. Change the `OPTIMIZER_MODULE` cell to any runner module that

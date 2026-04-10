@@ -129,14 +129,31 @@ def test_plotting_docs_distinguish_portfolio_and_comparison_summary_panels() -> 
     plotting_text = (DOCS_ROOT / "plotting.md").read_text()
     normalized = re.sub(r"\s+", " ", plotting_text)
 
-    assert "portfolio-wide panels collapse the whole basket into one combined series" in normalized
-    assert "comparison panels keep one line per market or per labeled sim" in normalized
     assert (
-        "`total_equity`, `periodic_pnl`, and `monthly_returns` are portfolio-wide summary panels"
+        'Use the detail HTML when the question is "what happened in this one replay?"' in normalized
+    )
+    assert (
+        'Use the summary report when the question is "how did this basket behave overall?"'
+        in normalized
+    )
+    assert (
+        "`total_equity`, `periodic_pnl`, and `monthly_returns` collapse the basket into one aggregate series"
     ) in normalized
     assert (
         "`equity`, `allocation`, `drawdown`, `rolling_sharpe`, `cash_equity`, "
-        "and `brier_advantage` are comparison panels"
+        "and `brier_advantage` keep one line per market or sim"
     ) in normalized
-    assert "`brier_advantage` works on market slugs, not just individual sims" in normalized
-    assert "`total_equity`, `periodic_pnl`, `drawdown`, and `monthly_returns`" not in normalized
+    assert (
+        "`market_pnl` and `yes_price` are detail-heavy panels; they are usually better in per-sim charts"
+    ) in normalized
+    assert (
+        "Some public runners deliberately opt `market_pnl` and `yes_price` into summary reports"
+        in normalized
+    )
+
+
+def test_docs_do_not_link_to_removed_main_branch() -> None:
+    for doc_path in sorted(DOCS_ROOT.glob("*.md")):
+        text = doc_path.read_text()
+        assert "blob/main/" not in text, f"stale GitHub blob link in {doc_path}"
+        assert "tree/main/" not in text, f"stale GitHub tree link in {doc_path}"
