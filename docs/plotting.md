@@ -74,6 +74,38 @@ On dense single-sim `yes_price` panels, fill markers are still preserved, but
 the adapter may sample them down to a readable marker budget instead of
 drawing every single point.
 
+## Downsampling
+
+The plotting layer automatically downsamples equity curves that exceed 5 000
+data points before Bokeh serialization. This keeps HTML file sizes bounded
+regardless of how long the replay window is:
+
+| Input bars | Output bars | HTML size |
+| ---------- | ----------- | --------- |
+| 500        | 500         | ~0.5 MB   |
+| 10 000     | ~5 000      | ~0.9 MB   |
+| 100 000    | ~5 000      | ~0.9 MB   |
+| 446 000    | ~5 000      | ~0.9 MB   |
+
+The downsampler uses stride-based selection with important-point preservation:
+
+- fill bars are always kept so trade markers remain accurate
+- the equity peak and max-drawdown bar are always kept
+- the first and last bars are always kept
+- remaining budget is filled with evenly spaced bars
+
+Market price DataFrames, allocation DataFrames, and fill bar indices are all
+remapped in sync so panels stay consistent after reduction.
+
+Without downsampling a 446 K-bar backtest produced a 31 MB HTML file. With
+downsampling the same data produces under 1 MB. The `test_downsample_html_size`
+test suite enforces that a 100 K-bar backtest stays under 5 MB and that
+doubling bar count does not meaningfully increase file size.
+
+Summary reports built by the aggregate and joint-portfolio report paths also
+skip serializing per-market price series, fill events, and overlay curves when
+the selected `SUMMARY_PLOT_PANELS` do not include panels that render them.
+
 ## Output Types
 
 There are two distinct HTML/report modes in the repo layer:

@@ -37,7 +37,7 @@ NAME = "polymarket_quote_tick_ema_optimizer"
 DESCRIPTION = "Random-search EMA optimizer with explicit train and holdout windows on PMXT L2 data"
 MARKET_SLUG = "will-ludvig-aberg-win-the-2026-masters-tournament"
 
-EMIT_HTML = False
+EMIT_HTML = True
 CHART_OUTPUT_PATH = "output"
 
 DATA = MarketDataConfig(

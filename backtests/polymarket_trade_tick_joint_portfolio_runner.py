@@ -33,7 +33,7 @@ DESCRIPTION = (
     "Joint-portfolio VWAP-reversion backtest on a fixed Polymarket basket pinned to market close"
 )
 
-EMIT_HTML = False
+EMIT_HTML = True
 CHART_OUTPUT_PATH = "output"
 DETAIL_PLOT_PANELS = (
     "total_equity",

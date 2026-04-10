@@ -102,6 +102,7 @@ Detailed guides have been filed away in the [docs index](https://evan-kolberg.gi
   - [How To See This Output](https://evan-kolberg.github.io/prediction-market-backtesting/pmxt-fetch-sources/#how-to-see-this-output)
 - [Plotting](https://evan-kolberg.github.io/prediction-market-backtesting/plotting/)
   - [Scaling Model](https://evan-kolberg.github.io/prediction-market-backtesting/plotting/#scaling-model)
+  - [Downsampling](https://evan-kolberg.github.io/prediction-market-backtesting/plotting/#downsampling)
   - [Output Types](https://evan-kolberg.github.io/prediction-market-backtesting/plotting/#output-types)
   - [Output Paths](https://evan-kolberg.github.io/prediction-market-backtesting/plotting/#output-paths)
   - [Example Summary Output](https://evan-kolberg.github.io/prediction-market-backtesting/plotting/#example-summary-output)

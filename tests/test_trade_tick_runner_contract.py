@@ -8,7 +8,7 @@ from prediction_market_extensions.backtesting._replay_specs import TradeReplay
 
 EXPECTED_INITIAL_CASH = 100.0
 EXPECTED_EMIT_HTML = True
-EXPECTED_MULTI_RUNNER_EMIT_HTML = False
+EXPECTED_MULTI_RUNNER_EMIT_HTML = True
 EXPECTED_CHART_OUTPUT_PATH = "output"
 EXPECTED_KALSHI_DETAIL_PLOT_PANELS = (
     "equity",

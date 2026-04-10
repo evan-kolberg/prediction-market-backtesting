@@ -33,7 +33,7 @@ NAME = "polymarket_quote_tick_independent_multi_replay_runner"
 
 DESCRIPTION = "Independent PMXT quote-tick backtests using varied historical replays"
 
-EMIT_HTML = False
+EMIT_HTML = True
 CHART_OUTPUT_PATH = "output"
 DETAIL_PLOT_PANELS = (
     "total_equity",
