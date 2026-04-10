@@ -3,7 +3,7 @@
 This page covers the two PMXT infrastructure paths that still matter in this
 repository:
 
-- the active mirror-only relay in [`pmxt_relay/`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/pmxt_relay/README.md)
+- the active mirror-only relay in [`pmxt_relay/`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/v2/pmxt_relay/README.md)
 
 The active public recommendation is still local-first:
 
@@ -33,7 +33,7 @@ What it does not do anymore:
 
 The current deployment and operations details live in:
 
-- [`pmxt_relay/README.md`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/pmxt_relay/README.md)
+- [`pmxt_relay/README.md`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/v2/pmxt_relay/README.md)
 
 Operational note:
 
@@ -66,9 +66,9 @@ The active relay docs here stay focused on VPS infrastructure. If you only need
 a one-off local raw download for a PC or external drive, use the local workflow
 docs instead:
 
-- [`docs/pmxt-byod.md`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/docs/pmxt-byod.md)
-- [`docs/setup.md`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/docs/setup.md)
+- [`docs/pmxt-byod.md`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/v2/docs/pmxt-byod.md)
+- [`docs/setup.md`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/v2/docs/setup.md)
 
 If you only need the active mirror service, use:
 
-- [`pmxt_relay/README.md`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/pmxt_relay/README.md)
+- [`pmxt_relay/README.md`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/v2/pmxt_relay/README.md)

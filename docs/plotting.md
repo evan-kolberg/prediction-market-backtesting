@@ -3,28 +3,18 @@
 Single-market plotting is built into the shared runner flow used by the public
 prediction-market backtests.
 
-The repo-layer plotting contract is intentionally split into two surfaces:
+The repo-layer plotting contract has two surfaces:
 
-- one detailed HTML file per loaded replay or labeled sim
+- one detail HTML file per loaded replay or labeled sim
 - one aggregate summary HTML file for the whole basket when the runner asks for it
 
-Inside that aggregate summary surface, there is another important split:
-
-- portfolio-wide panels collapse the whole basket into one combined series, so
-  they stay one line even if you run hundreds or effectively unbounded sims
-- comparison panels keep one line per market or per labeled sim, so the point
-  is cross-sim comparison rather than one aggregate portfolio path
-
-That separation is what lets charting stay useful across very different run
-sizes. One market can still show execution markers, PnL ticks, and the rest of
-the dense legacy detail. A basket of 30, 400, or more sims can still open
-quickly because the shared summary report is built from aggregated summary
-series instead of trying to inline every raw tick, fill, and panel from every
-run into one browser page.
+Use the detail HTML when the question is "what happened in this one replay?"
+Use the summary report when the question is "how did this basket behave
+overall?"
 
 Every public runner now exposes explicit plotting controls at top level:
 
-- `EMIT_HTML` keeps per-run HTML generation on or off in the file itself
+- `EMIT_HTML` turns per-run HTML generation on or off in the file itself
 - `CHART_OUTPUT_PATH` keeps the destination explicit instead of hiding it in
   shared defaults
 - `DETAIL_PLOT_PANELS` chooses which per-sim panels render and in what order
@@ -33,13 +23,13 @@ Every public runner now exposes explicit plotting controls at top level:
 
 Good examples:
 
-- [`backtests/polymarket_trade_tick_vwap_reversion.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_trade_tick_vwap_reversion.py)
-- [`backtests/polymarket_quote_tick_ema_crossover.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_quote_tick_ema_crossover.py)
-- [`backtests/polymarket_quote_tick_joint_portfolio_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_quote_tick_joint_portfolio_runner.py)
-- [`backtests/polymarket_quote_tick_independent_multi_replay_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_quote_tick_independent_multi_replay_runner.py)
-- [`backtests/polymarket_trade_tick_joint_portfolio_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_trade_tick_joint_portfolio_runner.py)
-- [`backtests/polymarket_trade_tick_independent_multi_replay_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_trade_tick_independent_multi_replay_runner.py)
-- [`backtests/polymarket_quote_tick_ema_optimizer.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_quote_tick_ema_optimizer.py)
+- [`backtests/polymarket_trade_tick_vwap_reversion.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/v2/backtests/polymarket_trade_tick_vwap_reversion.py)
+- [`backtests/polymarket_quote_tick_ema_crossover.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/v2/backtests/polymarket_quote_tick_ema_crossover.py)
+- [`backtests/polymarket_quote_tick_joint_portfolio_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/v2/backtests/polymarket_quote_tick_joint_portfolio_runner.py)
+- [`backtests/polymarket_quote_tick_independent_multi_replay_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/v2/backtests/polymarket_quote_tick_independent_multi_replay_runner.py)
+- [`backtests/polymarket_trade_tick_joint_portfolio_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/v2/backtests/polymarket_trade_tick_joint_portfolio_runner.py)
+- [`backtests/polymarket_trade_tick_independent_multi_replay_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/v2/backtests/polymarket_trade_tick_independent_multi_replay_runner.py)
+- [`backtests/polymarket_quote_tick_ema_optimizer.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/v2/backtests/polymarket_quote_tick_ema_optimizer.py)
 
 ## Scaling Model
 
@@ -51,47 +41,38 @@ Think about plotting in terms of overview versus drilldown:
 - midsize basket, such as 10 to 30 sims:
   one detail HTML per sim still works well, and one aggregate summary chart is
   still a useful shared overview
-- large basket, such as 400+ sims:
+- large basket, such as 100s of sims:
   the same contract still holds, but the summary report becomes the primary
   overview surface while detailed inspection happens by opening the individual
   per-sim HTML files on demand
 
-The important constraint is that the repo no longer promises one mega-page with
-every chart inlined. Trying to concatenate hundreds of Bokeh documents or plot
-every fill across every sim in one page does not scale honestly. The current
-approach keeps the dense information where it belongs, inside the individual
-run that produced it, and keeps the aggregate report focused on the panels that
-summarize across runs cleanly.
+The repo does not promise one mega-page with every panel from every replay
+inlined together. That would scale poorly and hide the useful signal in noise.
+The current split keeps dense execution detail inside the replay that produced
+it and keeps the basket summary focused on panels that still mean something
+when many sims are present.
 
-On dense single-sim YES-price panels, fill markers are still preserved, but the
-adapter may sample them down to a readable marker budget instead of drawing
-every single fill point.
+Inside the summary report there is another important split:
 
-That distinction also applies inside the summary HTML itself:
+- `total_equity`, `periodic_pnl`, and `monthly_returns` collapse the basket into
+  one aggregate series, so they stay readable even when the basket gets large
+- `equity`, `allocation`, `drawdown`, `rolling_sharpe`, `cash_equity`, and
+  `brier_advantage` keep one line per market or sim, so they are best when you
+  still want cross-market comparison inside the same report
+- `brier_advantage` still works at the basket level because it groups by market
+  slug or labeled sim instead of assuming one isolated replay
+- `market_pnl` and `yes_price` are detail-heavy panels; they are usually better
+  in per-sim charts because they get noisy quickly once the summary report
+  would need one line or one marker stream per replay
 
-- `total_equity`, `periodic_pnl`, and `monthly_returns` are portfolio-wide summary
-  panels built from the combined basket, so they stay one aggregate line or one
-  aggregate bar series
-- `equity`, `allocation`, `drawdown`, `rolling_sharpe`, `cash_equity`, and `brier_advantage`
-  are comparison panels, so they can draw one line per market or per sim inside the same
-  summary report
-- `brier_advantage` works on market slugs, not just individual sims
+The shared default summary panel set is intentionally conservative. Some public
+runners deliberately opt `market_pnl` and `yes_price` into summary reports for
+smaller curated baskets, and that can be useful, but it is not the right
+default once the basket size grows.
 
-Put briefly:
-Portfolio-wide panels
-- `total_equity`
-- `periodic_pnl`
-- `monthly_returns`
-
-Composite/comparison panels
-- `equity`
-- `allocation`
-- `drawdown`
-- `rolling_sharpe`
-- `cash_equity`
-- `brier_advantage`
-
-Beware that for summary/aggregate output charts, the composite panels will scale linearly with each market. Each trade or tick or market will get their own line. Perfect for up to 30 sims, but becomes much too noisy after that. For hundreds of sims, it's better to stick to portfiolio-wide panels. I plan on adding more portfolio-wide panels in the future.
+On dense single-sim `yes_price` panels, fill markers are still preserved, but
+the adapter may sample them down to a readable marker budget instead of
+drawing every single point.
 
 ## Output Types
 
@@ -114,35 +95,34 @@ Typical public-runner combinations:
   per-replay legacy charts plus `SUMMARY_REPORT_PATH` and
   `multi_replay_mode="independent"`
 
-This gives users the best of both worlds:
+This gives users two clean artifacts instead of one overloaded one:
 
-- detail charts can stay rich and execution-focused for one market or one sim
-- the basket summary can mix true portfolio-wide panels such as
-  `total_equity`, `periodic_pnl`, and `monthly_returns` with comparison panels
-  such as `equity`, `drawdown`, and `cash_equity`
-- large baskets do not have to give up drilldown, because each run still keeps
-  its own full-detail HTML artifact
+- detail charts stay rich and execution-focused for one replay
+- the basket summary stays readable because it is built from summary-series data
+- large baskets still keep drilldown, because each replay can keep its own
+  full-detail HTML artifact
 
-The default summary panel set intentionally excludes panels such as
-`yes_price` and `market_pnl`, because those are most useful at the individual
-run level and do not scale cleanly once they would need one line or one marker
-stream per sim.
-
-Important runtime detail:
+Important runtime details:
 
 - `SUMMARY_REPORT_PATH` depends on summary-series data being returned from the
   backtest, so runners that use it also set `return_summary_series=True` in the
   experiment config
 - `DETAIL_PLOT_PANELS` and `SUMMARY_PLOT_PANELS` are ordered tuples of stable
   panel ids, so the runner chooses both inclusion and vertical stacking order
+- `SUMMARY_PLOT_PANELS` does not have to match `DETAIL_PLOT_PANELS`; many good
+  runners keep the summary report simpler than the per-sim charts
+
+If you are unsure which panels belong where, use `DETAIL_PLOT_PANELS` for
+single-replay inspection and keep `SUMMARY_PLOT_PANELS` focused on either
+portfolio-wide panels or a small number of comparison panels. The runner
+contract details live in [`backtests.md`](backtests.md#html-and-report-modes).
 
 ## Output Paths
 
 Public runners now spell the default destination out as
 `CHART_OUTPUT_PATH="output"`. The shared runner layer resolves that relative
-path from the repo root, so it consistently lands in this repo's
-`output/` directory instead of depending on the shell's current working
-directory.
+path from the repo root, so it consistently lands in this repo's `output/`
+directory instead of depending on the shell's current working directory.
 
 That means direct script execution still writes to the repo-local `output/`
 directory:
@@ -217,20 +197,19 @@ independent aggregate output.
 
 The clearest multi-market plotting runner files:
 
-- [`backtests/kalshi_trade_tick_joint_portfolio_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/kalshi_trade_tick_joint_portfolio_runner.py)
-- [`backtests/kalshi_trade_tick_independent_multi_replay_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/kalshi_trade_tick_independent_multi_replay_runner.py)
-- [`backtests/polymarket_trade_tick_joint_portfolio_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_trade_tick_joint_portfolio_runner.py)
-- [`backtests/polymarket_trade_tick_independent_multi_replay_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_trade_tick_independent_multi_replay_runner.py)
-- [`backtests/polymarket_quote_tick_joint_portfolio_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_quote_tick_joint_portfolio_runner.py)
-- [`backtests/polymarket_quote_tick_independent_multi_replay_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_quote_tick_independent_multi_replay_runner.py)
-- [`backtests/polymarket_quote_tick_independent_25_replay_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/main/backtests/polymarket_quote_tick_independent_25_replay_runner.py)
+- [`backtests/kalshi_trade_tick_joint_portfolio_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/v2/backtests/kalshi_trade_tick_joint_portfolio_runner.py)
+- [`backtests/kalshi_trade_tick_independent_multi_replay_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/v2/backtests/kalshi_trade_tick_independent_multi_replay_runner.py)
+- [`backtests/polymarket_trade_tick_joint_portfolio_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/v2/backtests/polymarket_trade_tick_joint_portfolio_runner.py)
+- [`backtests/polymarket_trade_tick_independent_multi_replay_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/v2/backtests/polymarket_trade_tick_independent_multi_replay_runner.py)
+- [`backtests/polymarket_quote_tick_joint_portfolio_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/v2/backtests/polymarket_quote_tick_joint_portfolio_runner.py)
+- [`backtests/polymarket_quote_tick_independent_multi_replay_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/v2/backtests/polymarket_quote_tick_independent_multi_replay_runner.py)
+- [`backtests/polymarket_quote_tick_independent_25_replay_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/v2/backtests/polymarket_quote_tick_independent_25_replay_runner.py)
 
 Those runners now write one per-market legacy chart per replay and one basket
 summary chart under `output/`, typically with names like:
 
 - `output/kalshi_trade_tick_joint_portfolio_runner_<market>_legacy.html`
 - `output/polymarket_trade_tick_independent_multi_replay_runner_<market>_legacy.html`
-
 - `output/kalshi_trade_tick_joint_portfolio_runner_joint_portfolio.html`
 - `output/polymarket_trade_tick_independent_multi_replay_runner_independent_aggregate.html`
 
@@ -238,23 +217,3 @@ The PMXT basket example runners write per-replay detail charts plus one summary
 chart:
 
 - `output/polymarket_quote_tick_joint_portfolio_runner_joint_portfolio.html`
-- `output/polymarket_quote_tick_independent_multi_replay_runner_independent_aggregate.html`
-
-`SUMMARY_REPORT_PATH` is the basket summary surface. In joint mode it is a true
-shared-account portfolio chart. In independent mode it is a stitched aggregate
-across isolated runs. Large baskets should rely on that summary surface plus
-on-demand per-sim detail charts instead of one concatenated mega-page.
-
-That means the scaling story is stable across run sizes:
-
-- if you run one market, the detail chart is the main artifact
-- if you run a few dozen markets or labeled sims, the summary report remains a
-  convenient shared overview
-- if you run hundreds of sims, the summary report still scales because it is
-  built from summary series, while the detailed execution view stays available
-  one sim at a time
-
-In the fixed basket runners, "multi-market" is literal: one report spans
-multiple different market slugs or tickers. In the PMXT labeled replay runners,
-the basket report spans multiple labeled replays even when repeated samples use
-the same underlying market slug.
