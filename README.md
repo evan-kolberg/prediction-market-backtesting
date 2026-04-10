@@ -29,6 +29,13 @@
 
 **Thanks to [PMXT](https://github.com/pmxt-dev/pmxt) for providing this data for free!**
 
+**New in Version 2:**
+- Nautilus 1.225.0, via PyPI in lieu of a subtree
+- Better backtest runner classes
+- IPython notebook support (.ipynb files)
+- Joint portfolio multi sim runners
+- Growing support for statistical optimizers
+
 Backtesting framework for prediction market strategies on
 [Kalshi](https://kalshi.com) and [Polymarket](https://polymarket.com), built on
 top of [NautilusTrader](https://github.com/nautechsystems/nautilus_trader) with
