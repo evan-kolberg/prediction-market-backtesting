@@ -11,9 +11,6 @@ from prediction_market_extensions.adapters.prediction_market.research import (
     save_joint_portfolio_backtest_report,
 )
 from prediction_market_extensions.adapters.prediction_market import research
-from prediction_market_extensions.analysis.legacy_backtesting.models import (
-    PANEL_TOTAL_BRIER_ADVANTAGE,
-)
 
 
 def test_save_aggregate_backtest_report_accepts_mixed_iso_timestamp_precision(tmp_path) -> None:
@@ -214,6 +211,11 @@ def test_save_aggregate_backtest_report_adds_brier_placeholder_when_outcomes_mis
     )
 
     monkeypatch.setattr(
+        research,
+        "_configure_summary_report_downsampling",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
         research.legacy_plot_adapter,
         "_apply_layout_overrides",
         lambda layout, initial_cash, **kwargs: layout,
@@ -312,6 +314,11 @@ def test_save_joint_portfolio_backtest_report_adds_brier_placeholder_when_outcom
     )
 
     monkeypatch.setattr(
+        research,
+        "_configure_summary_report_downsampling",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
         research.legacy_plot_adapter,
         "_apply_layout_overrides",
         lambda layout, initial_cash, **kwargs: layout,
@@ -379,98 +386,6 @@ def test_save_joint_portfolio_backtest_report_adds_brier_placeholder_when_outcom
     assert plot_calls[0]["extra_panels"]["brier_advantage"] is placeholder_panel
 
 
-def test_save_aggregate_backtest_report_adds_total_brier_placeholder_when_outcomes_missing(
-    monkeypatch: pytest.MonkeyPatch, tmp_path
-) -> None:
-    plot_calls: list[dict[str, object]] = []
-    placeholder_panel = object()
-
-    class _BacktestResult:
-        def __init__(self, **kwargs) -> None:
-            self.kwargs = kwargs
-
-    def _snapshot(**kwargs):
-        return SimpleNamespace(**kwargs)
-
-    monkeypatch.setattr(
-        research.legacy_plot_adapter,
-        "_load_legacy_modules",
-        lambda: (
-            SimpleNamespace(
-                BacktestResult=_BacktestResult,
-                PortfolioSnapshot=_snapshot,
-                Platform=SimpleNamespace(POLYMARKET="POLYMARKET"),
-            ),
-            SimpleNamespace(plot=lambda *args, **kwargs: plot_calls.append(kwargs) or object()),
-        ),
-    )
-    monkeypatch.setattr(
-        research.legacy_plot_adapter,
-        "_apply_layout_overrides",
-        lambda layout, initial_cash, **kwargs: layout,
-    )
-    monkeypatch.setattr(
-        research.legacy_plot_adapter,
-        "_build_brier_placeholder_panel",
-        lambda message: placeholder_panel,
-    )
-    monkeypatch.setattr(
-        research,
-        "_deserialize_fill_events",
-        lambda **kwargs: [SimpleNamespace() for _ in kwargs["fill_events"]],
-    )
-    monkeypatch.setattr(
-        research,
-        "save_legacy_backtest_layout",
-        lambda layout, output_path, title: str(output_path),
-    )
-
-    results = [
-        {
-            "slug": "market-a",
-            "trades": 10,
-            "fills": 0,
-            "pnl": 1.0,
-            "price_series": [
-                ("2026-03-14T17:57:40+00:00", 0.40),
-                ("2026-03-14T17:58:40+00:00", 0.42),
-            ],
-            "user_probability_series": [
-                ("2026-03-14T17:57:40+00:00", 0.41),
-                ("2026-03-14T17:58:40+00:00", 0.43),
-            ],
-            "market_probability_series": [
-                ("2026-03-14T17:57:40+00:00", 0.40),
-                ("2026-03-14T17:58:40+00:00", 0.42),
-            ],
-            "outcome_series": [],
-            "pnl_series": [
-                ("2026-03-14T17:57:40+00:00", 0.0),
-                ("2026-03-14T17:58:40+00:00", 1.0),
-            ],
-            "equity_series": [
-                ("2026-03-14T17:57:40+00:00", 100.0),
-                ("2026-03-14T17:58:40+00:00", 101.0),
-            ],
-            "cash_series": [
-                ("2026-03-14T17:57:40+00:00", 96.0),
-                ("2026-03-14T17:58:40+00:00", 96.0),
-            ],
-        }
-    ]
-
-    save_aggregate_backtest_report(
-        results=results,
-        output_path=tmp_path / "aggregate_total_brier_placeholder.html",
-        title="aggregate total placeholder chart",
-        market_key="slug",
-        pnl_label="PnL (USDC)",
-        plot_panels=(PANEL_TOTAL_BRIER_ADVANTAGE,),
-    )
-
-    assert plot_calls[0]["extra_panels"][PANEL_TOTAL_BRIER_ADVANTAGE] is placeholder_panel
-
-
 def test_save_aggregate_backtest_report_limits_dense_yes_price_fill_markers(
     monkeypatch: pytest.MonkeyPatch, tmp_path
 ) -> None:
@@ -497,6 +412,11 @@ def test_save_aggregate_backtest_report_limits_dense_yes_price_fill_markers(
         ),
     )
 
+    monkeypatch.setattr(
+        research,
+        "_configure_summary_report_downsampling",
+        lambda *args, **kwargs: None,
+    )
     monkeypatch.setattr(
         research.legacy_plot_adapter,
         "_apply_layout_overrides",
@@ -564,7 +484,7 @@ def test_save_aggregate_backtest_report_limits_dense_yes_price_fill_markers(
     )
 
     assert report_path == str((tmp_path / "aggregate_dense_fills.html").resolve())
-    assert apply_calls == [{}]
+    assert apply_calls == [{"max_yes_price_fill_markers": 250}]
 
 
 def test_save_joint_portfolio_backtest_report_limits_dense_yes_price_fill_markers(
@@ -593,6 +513,11 @@ def test_save_joint_portfolio_backtest_report_limits_dense_yes_price_fill_marker
         ),
     )
 
+    monkeypatch.setattr(
+        research,
+        "_configure_summary_report_downsampling",
+        lambda *args, **kwargs: None,
+    )
     monkeypatch.setattr(
         research.legacy_plot_adapter,
         "_apply_layout_overrides",
@@ -656,7 +581,7 @@ def test_save_joint_portfolio_backtest_report_limits_dense_yes_price_fill_marker
     )
 
     assert report_path == str((tmp_path / "joint_dense_fills.html").resolve())
-    assert apply_calls == [{}]
+    assert apply_calls == [{"max_yes_price_fill_markers": 250}]
 
 
 def test_save_aggregate_backtest_report_prunes_unused_payload_for_total_only_panels(
@@ -685,6 +610,11 @@ def test_save_aggregate_backtest_report_prunes_unused_payload_for_total_only_pan
             ),
             SimpleNamespace(plot=lambda *args, **kwargs: object()),
         ),
+    )
+    monkeypatch.setattr(
+        research,
+        "_configure_summary_report_downsampling",
+        lambda *args, **kwargs: None,
     )
     monkeypatch.setattr(
         research.legacy_plot_adapter,
@@ -802,6 +732,11 @@ def test_save_aggregate_backtest_report_keeps_market_payload_when_summary_panels
             ),
             SimpleNamespace(plot=lambda *args, **kwargs: object()),
         ),
+    )
+    monkeypatch.setattr(
+        research,
+        "_configure_summary_report_downsampling",
+        lambda *args, **kwargs: None,
     )
     monkeypatch.setattr(
         research.legacy_plot_adapter,

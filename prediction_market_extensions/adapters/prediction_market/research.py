@@ -61,9 +61,6 @@ from prediction_market_extensions.analysis.legacy_backtesting.models import PANE
 from prediction_market_extensions.analysis.legacy_backtesting.models import PANEL_YES_PRICE
 from prediction_market_extensions.analysis.legacy_backtesting.models import normalize_plot_panels
 from prediction_market_extensions.analysis.legacy_backtesting.models import PANEL_BRIER_ADVANTAGE
-from prediction_market_extensions.analysis.legacy_backtesting.models import (
-    PANEL_TOTAL_BRIER_ADVANTAGE,
-)
 from prediction_market_extensions.analysis.legacy_plot_adapter import build_legacy_backtest_layout
 from prediction_market_extensions.analysis.legacy_plot_adapter import save_legacy_backtest_layout
 from nautilus_trader.analysis.reporter import ReportProvider
@@ -324,37 +321,6 @@ def _aggregate_brier_frames(results: Sequence[dict[str, Any]]) -> dict[str, pd.D
     return frames
 
 
-def _aggregate_total_brier_frame(results: Sequence[dict[str, Any]]) -> pd.DataFrame:
-    frames = _aggregate_brier_frames(results)
-    if not frames:
-        return pd.DataFrame()
-
-    point_series: list[pd.Series] = []
-    for frame in frames.values():
-        series = frame.get("brier_advantage")
-        if series is None:
-            continue
-        point_series.append(pd.to_numeric(series, errors="coerce"))
-
-    if not point_series:
-        return pd.DataFrame()
-
-    aggregate_points = pd.concat(point_series, axis=1).sum(axis=1, skipna=True)
-    aggregate_points = aggregate_points.groupby(aggregate_points.index).sum().sort_index()
-    if aggregate_points.empty:
-        return pd.DataFrame()
-
-    aggregate_points.index = pd.to_datetime(aggregate_points.index, utc=True, errors="coerce")
-    aggregate_points = aggregate_points[~aggregate_points.index.isna()]
-    if aggregate_points.empty:
-        return pd.DataFrame()
-
-    aggregate_points = aggregate_points.groupby(aggregate_points.index).sum().sort_index()
-    frame = pd.DataFrame({"brier_advantage": aggregate_points.astype(float)})
-    frame["cumulative_brier_advantage"] = frame["brier_advantage"].cumsum()
-    return frame
-
-
 def _aggregate_brier_unavailable_reason(results: Sequence[dict[str, Any]]) -> str | None:
     user_series = pd.Series(dtype=float)
     market_series = pd.Series(dtype=float)
@@ -392,6 +358,98 @@ def _summary_panels_need_overlay_series(plot_panels: Sequence[str]) -> bool:
         panel in {PANEL_EQUITY, PANEL_DRAWDOWN, PANEL_ROLLING_SHARPE, PANEL_CASH_EQUITY}
         for panel in plot_panels
     )
+
+
+def _yes_price_fill_marker_budget(max_points: int) -> int:
+    if max_points <= 0:
+        return 250
+    return max(50, min(250, max_points // 10))
+
+
+def _summary_yes_price_fill_marker_limit(fill_count: int, max_points: int) -> int | None:
+    legacy_limit_fn = getattr(legacy_plot_adapter, "_yes_price_fill_marker_limit", None)
+    if callable(legacy_limit_fn):
+        return legacy_limit_fn(fill_count=fill_count, max_points=max_points)
+
+    marker_budget = _yes_price_fill_marker_budget(max_points)
+    if fill_count <= marker_budget:
+        return None
+    return marker_budget
+
+
+def _configure_summary_report_downsampling(
+    plotting_module: Any, *, adaptive: bool = True, max_points: int = 5000
+) -> None:
+    legacy_configure_fn = getattr(legacy_plot_adapter, "_configure_legacy_downsampling", None)
+    if callable(legacy_configure_fn):
+        legacy_configure_fn(plotting_module, adaptive=adaptive, max_points=max_points)
+        return
+
+    downsample_fn = getattr(plotting_module, "_downsample", None)
+    if downsample_fn is None:
+        return
+
+    if not adaptive:
+
+        def _identity_downsample(
+            eq, fills_df, market_df, max_points=5000, alloc_df=None, keep_indices=None
+        ):
+            return eq, fills_df, market_df, alloc_df
+
+        plotting_module._downsample = _identity_downsample
+        return
+
+    requested_max_points = max(2, int(max_points))
+
+    def _adaptive_downsample(
+        eq, fills_df, market_df, max_points=5000, alloc_df=None, keep_indices=None
+    ):
+        total_points = sum(
+            len(frame)
+            for frame in (eq, fills_df, market_df, alloc_df)
+            if frame is not None and hasattr(frame, "__len__")
+        )
+        if total_points <= requested_max_points:
+            return eq, fills_df, market_df, alloc_df
+
+        return downsample_fn(
+            eq,
+            fills_df,
+            market_df,
+            max_points=requested_max_points,
+            alloc_df=alloc_df,
+            keep_indices=keep_indices,
+        )
+
+    plotting_module._downsample = _adaptive_downsample
+
+
+def _build_summary_brier_panel(
+    brier_frames: dict[str, pd.DataFrame], *, axis_label: str, max_points_per_market: int
+) -> Any | None:
+    build_panel_fn = legacy_plot_adapter._build_multi_market_brier_panel
+    try:
+        return build_panel_fn(
+            brier_frames,
+            axis_label=axis_label,
+            max_points_per_market=max_points_per_market,
+        )
+    except TypeError:
+        return build_panel_fn(brier_frames, axis_label=axis_label)
+
+
+def _apply_summary_layout_overrides(
+    layout: Any, *, initial_cash: float, max_yes_price_fill_markers: int | None
+) -> Any:
+    apply_fn = legacy_plot_adapter._apply_layout_overrides
+    try:
+        return apply_fn(
+            layout,
+            initial_cash=float(initial_cash),
+            max_yes_price_fill_markers=max_yes_price_fill_markers,
+        )
+    except TypeError:
+        return apply_fn(layout, initial_cash=float(initial_cash))
 
 
 def run_market_backtest(
@@ -561,6 +619,60 @@ def run_market_backtest(
     return result
 
 
+def save_combined_backtest_report(
+    *,
+    results: Sequence[dict[str, Any]],
+    output_path: str | Path,
+    title: str,
+    market_key: str,
+    pnl_label: str,
+) -> str | None:
+    """
+    Save one HTML page by concatenating the generated per-market chart HTML bodies.
+    """
+    chart_paths: list[Path] = []
+    for result in results:
+        chart_path = result.get("chart_path")
+        if chart_path is None:
+            continue
+        chart_paths.append(Path(str(chart_path)).expanduser().resolve())
+
+    if not chart_paths:
+        return None
+
+    output_abs = Path(output_path).expanduser().resolve()
+    output_abs.parent.mkdir(parents=True, exist_ok=True)
+    first_html = chart_paths[0].read_text(encoding="utf-8")
+    head_match = re.search(
+        r"<head[^>]*>(?P<head>.*)</head>", first_html, flags=re.IGNORECASE | re.DOTALL
+    )
+    if head_match is None:
+        raise ValueError(f"Unable to locate <head> in {chart_paths[0]}")
+
+    body_pattern = re.compile(r"<body[^>]*>(?P<body>.*)</body>", flags=re.IGNORECASE | re.DOTALL)
+    body_chunks: list[str] = []
+    for chart_path in chart_paths:
+        html_text = chart_path.read_text(encoding="utf-8")
+        body_match = body_pattern.search(html_text)
+        if body_match is None:
+            raise ValueError(f"Unable to locate <body> in {chart_path}")
+        body_chunks.append(body_match.group("body").strip())
+
+    combined_html = (
+        "<!DOCTYPE html>\n"
+        '<html lang="en">\n'
+        "  <head>\n"
+        f"{head_match.group('head').strip()}\n"
+        "  </head>\n"
+        "  <body>\n"
+        f"{'\n\n'.join(body_chunks)}\n"
+        "  </body>\n"
+        "</html>\n"
+    )
+    output_abs.write_text(combined_html, encoding="utf-8")
+    return str(output_abs)
+
+
 def save_aggregate_backtest_report(
     *,
     results: Sequence[dict[str, Any]],
@@ -568,6 +680,7 @@ def save_aggregate_backtest_report(
     title: str,
     market_key: str,
     pnl_label: str,
+    max_points_per_market: int = 400,
     plot_panels: Sequence[str] | None = None,
 ) -> str | None:
     """
@@ -577,7 +690,11 @@ def save_aggregate_backtest_report(
         return None
 
     models_module, plotting_module = legacy_plot_adapter._load_legacy_modules()
+    downsample_point_limit = max(5000, max_points_per_market * 12)
     resolved_plot_panels = normalize_plot_panels(plot_panels, default=DEFAULT_SUMMARY_PLOT_PANELS)
+    _configure_summary_report_downsampling(
+        plotting_module, adaptive=True, max_points=downsample_point_limit
+    )
     include_market_prices = _summary_panels_need_market_prices(resolved_plot_panels)
     include_fill_events = _summary_panels_need_fill_events(resolved_plot_panels)
     include_overlay_series = _summary_panels_need_overlay_series(resolved_plot_panels)
@@ -778,9 +895,10 @@ def save_aggregate_backtest_report(
     if PANEL_BRIER_ADVANTAGE in resolved_plot_panels:
         brier_frames = _aggregate_brier_frames(results)
         if brier_frames:
-            panel = legacy_plot_adapter._build_multi_market_brier_panel(
+            panel = _build_summary_brier_panel(
                 brier_frames,
                 axis_label="Cumulative Brier Advantage",
+                max_points_per_market=max_points_per_market,
             )
             if panel is not None:
                 extra_panels[PANEL_BRIER_ADVANTAGE] = panel
@@ -788,18 +906,6 @@ def save_aggregate_backtest_report(
             unavailable_reason = _aggregate_brier_unavailable_reason(results)
             if unavailable_reason is not None:
                 extra_panels[PANEL_BRIER_ADVANTAGE] = (
-                    legacy_plot_adapter._build_brier_placeholder_panel(unavailable_reason)
-                )
-    if PANEL_TOTAL_BRIER_ADVANTAGE in resolved_plot_panels:
-        total_brier_frame = _aggregate_total_brier_frame(results)
-        if not total_brier_frame.empty:
-            panel = legacy_plot_adapter._build_total_brier_panel(total_brier_frame)
-            if panel is not None:
-                extra_panels[PANEL_TOTAL_BRIER_ADVANTAGE] = panel
-        else:
-            unavailable_reason = _aggregate_brier_unavailable_reason(results)
-            if unavailable_reason is not None:
-                extra_panels[PANEL_TOTAL_BRIER_ADVANTAGE] = (
                     legacy_plot_adapter._build_brier_placeholder_panel(unavailable_reason)
                 )
     layout = plotting_module.plot(
@@ -811,9 +917,13 @@ def save_aggregate_backtest_report(
         plot_panels=resolved_plot_panels,
         extra_panels=extra_panels,
     )
-    layout = legacy_plot_adapter._apply_layout_overrides(
+    layout = _apply_summary_layout_overrides(
         layout,
         initial_cash=float(initial_cash),
+        max_yes_price_fill_markers=_summary_yes_price_fill_marker_limit(
+            fill_count=len(fills),
+            max_points=downsample_point_limit,
+        ),
     )
     return save_legacy_backtest_layout(layout, output_abs, title)
 
@@ -825,6 +935,7 @@ def save_joint_portfolio_backtest_report(
     title: str,
     market_key: str,
     pnl_label: str,
+    max_points_per_market: int = 400,
     plot_panels: Sequence[str] | None = None,
 ) -> str | None:
     """
@@ -834,7 +945,11 @@ def save_joint_portfolio_backtest_report(
         return None
 
     models_module, plotting_module = legacy_plot_adapter._load_legacy_modules()
+    downsample_point_limit = max(5000, max_points_per_market * 12)
     resolved_plot_panels = normalize_plot_panels(plot_panels, default=DEFAULT_SUMMARY_PLOT_PANELS)
+    _configure_summary_report_downsampling(
+        plotting_module, adaptive=True, max_points=downsample_point_limit
+    )
     include_market_prices = _summary_panels_need_market_prices(resolved_plot_panels)
     include_fill_events = _summary_panels_need_fill_events(resolved_plot_panels)
 
@@ -961,9 +1076,10 @@ def save_joint_portfolio_backtest_report(
     if PANEL_BRIER_ADVANTAGE in resolved_plot_panels:
         brier_frames = _aggregate_brier_frames(results)
         if brier_frames:
-            panel = legacy_plot_adapter._build_multi_market_brier_panel(
+            panel = _build_summary_brier_panel(
                 brier_frames,
                 axis_label="Cumulative Brier Advantage",
+                max_points_per_market=max_points_per_market,
             )
             if panel is not None:
                 extra_panels[PANEL_BRIER_ADVANTAGE] = panel
@@ -971,18 +1087,6 @@ def save_joint_portfolio_backtest_report(
             unavailable_reason = _aggregate_brier_unavailable_reason(results)
             if unavailable_reason is not None:
                 extra_panels[PANEL_BRIER_ADVANTAGE] = (
-                    legacy_plot_adapter._build_brier_placeholder_panel(unavailable_reason)
-                )
-    if PANEL_TOTAL_BRIER_ADVANTAGE in resolved_plot_panels:
-        total_brier_frame = _aggregate_total_brier_frame(results)
-        if not total_brier_frame.empty:
-            panel = legacy_plot_adapter._build_total_brier_panel(total_brier_frame)
-            if panel is not None:
-                extra_panels[PANEL_TOTAL_BRIER_ADVANTAGE] = panel
-        else:
-            unavailable_reason = _aggregate_brier_unavailable_reason(results)
-            if unavailable_reason is not None:
-                extra_panels[PANEL_TOTAL_BRIER_ADVANTAGE] = (
                     legacy_plot_adapter._build_brier_placeholder_panel(unavailable_reason)
                 )
     layout = plotting_module.plot(
@@ -994,9 +1098,13 @@ def save_joint_portfolio_backtest_report(
         plot_panels=resolved_plot_panels,
         extra_panels=extra_panels,
     )
-    layout = legacy_plot_adapter._apply_layout_overrides(
+    layout = _apply_summary_layout_overrides(
         layout,
         initial_cash=float(initial_cash),
+        max_yes_price_fill_markers=_summary_yes_price_fill_marker_limit(
+            fill_count=len(fills),
+            max_points=downsample_point_limit,
+        ),
     )
     return save_legacy_backtest_layout(layout, output_abs, title)
 
