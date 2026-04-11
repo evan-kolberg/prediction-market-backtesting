@@ -136,6 +136,39 @@ def extract_price_points(
     return points
 
 
+def downsample_price_points(
+    points: list[PricePoint], max_points: int = 5000
+) -> list[PricePoint]:
+    """Stride-based downsampling that preserves first, last, and price extrema."""
+    n = len(points)
+    if n <= max_points:
+        return points
+
+    prices = [p for _, p in points]
+    must_keep = {0, n - 1}
+    # Preserve global min/max price indices
+    min_idx = 0
+    max_idx = 0
+    for i, p in enumerate(prices):
+        if p < prices[min_idx]:
+            min_idx = i
+        if p > prices[max_idx]:
+            max_idx = i
+    must_keep.add(min_idx)
+    must_keep.add(max_idx)
+
+    budget = max(100, max_points - len(must_keep))
+    stride = max(1, n // budget)
+    selected = sorted(must_keep | set(range(0, n, stride)))
+    if len(selected) > max_points:
+        strided = set(range(0, n, stride))
+        remaining = max_points - len(must_keep)
+        stride2 = max(1, len(strided) // remaining) if remaining > 0 else n
+        selected = sorted(must_keep | set(list(sorted(strided))[::stride2]))
+
+    return [points[i] for i in selected]
+
+
 def _probability_frame(points: Sequence[PricePoint]) -> pd.DataFrame:
     rows: list[tuple[pd.Timestamp, float]] = []
     for ts_raw, price in points:

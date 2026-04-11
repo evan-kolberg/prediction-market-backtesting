@@ -31,7 +31,7 @@ NAME = "kalshi_trade_tick_joint_portfolio_runner"
 
 DESCRIPTION = "Joint-portfolio breakout backtest on a fixed Kalshi basket using trade ticks"
 
-EMIT_HTML = True
+EMIT_HTML = False
 CHART_OUTPUT_PATH = "output"
 DETAIL_PLOT_PANELS = (
     "equity",

@@ -33,7 +33,7 @@ NAME = "polymarket_quote_tick_joint_portfolio_runner"
 
 DESCRIPTION = "Joint-portfolio PMXT quote-tick backtest using varied historical replays"
 
-EMIT_HTML = True
+EMIT_HTML = False
 CHART_OUTPUT_PATH = "output"
 DETAIL_PLOT_PANELS = (
     "total_equity",

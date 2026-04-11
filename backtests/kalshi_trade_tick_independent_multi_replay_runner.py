@@ -31,7 +31,7 @@ NAME = "kalshi_trade_tick_independent_multi_replay_runner"
 
 DESCRIPTION = "Independent breakout backtests on a fixed Kalshi basket using trade ticks"
 
-EMIT_HTML = True
+EMIT_HTML = False
 CHART_OUTPUT_PATH = "output"
 DETAIL_PLOT_PANELS = (
     "equity",

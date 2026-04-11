@@ -19,7 +19,7 @@ EXPECTED_PMXT_LATENCY = {
     "cancel_latency_ms": 5.0,
 }
 EXPECTED_RUNNER_EMIT_HTML = True
-EXPECTED_MULTI_RUNNER_EMIT_HTML = True
+EXPECTED_MULTI_RUNNER_EMIT_HTML = False
 EXPECTED_OPTIMIZER_EMIT_HTML = True
 EXPECTED_CHART_OUTPUT_PATH = "output"
 EXPECTED_DETAIL_PLOT_PANELS = (
@@ -176,7 +176,7 @@ def test_quote_tick_joint_runner_uses_explicit_summary_plot_contract() -> None:
 def test_quote_tick_25_sim_runner_uses_explicit_summary_plot_contract() -> None:
     module = _import_runner(RUNNER_25)
 
-    assert module.EMIT_HTML is EXPECTED_RUNNER_EMIT_HTML
+    assert module.EMIT_HTML is EXPECTED_MULTI_RUNNER_EMIT_HTML
     assert module.CHART_OUTPUT_PATH == EXPECTED_CHART_OUTPUT_PATH
     assert module.DATA.sources == EXPECTED_PMXT_SOURCES
     assert module.DETAIL_PLOT_PANELS == EXPECTED_DETAIL_PLOT_PANELS
