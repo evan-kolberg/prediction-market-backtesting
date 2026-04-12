@@ -14,9 +14,10 @@ overall?"
 
 Every public runner now exposes explicit plotting controls at top level:
 
-- `EMIT_HTML` turns per-run HTML generation on or off in the file itself
-- `CHART_OUTPUT_PATH` keeps the destination explicit instead of hiding it in
-  shared defaults
+- the `emit_html` kwarg on `build_replay_experiment(...)` turns per-run HTML
+  generation on or off in the file itself
+- the `chart_output_path` kwarg keeps the destination explicit instead of
+  hiding it in shared defaults
 - `DETAIL_PLOT_PANELS` chooses which per-sim panels render and in what order
 - `SUMMARY_PLOT_PANELS` chooses which aggregate multi-market panels render and
   in what order when a runner emits a summary report
@@ -118,7 +119,7 @@ the selected `SUMMARY_PLOT_PANELS` do not include panels that render them.
 There are two distinct HTML/report modes in the repo layer:
 
 - per-sim legacy chart:
-  enabled by `EMIT_HTML = True` and written under `CHART_OUTPUT_PATH`
+  enabled by `emit_html=True` and written under `chart_output_path`
 - aggregate multi-market report:
   enabled by `REPORT.summary_report=True` plus `SUMMARY_REPORT_PATH`; this is a
   true aggregate report built from summary series, not a pasted-together page
@@ -126,17 +127,17 @@ There are two distinct HTML/report modes in the repo layer:
 Typical public-runner combinations:
 
 - single-market runner:
-  `EMIT_HTML=True`, `CHART_OUTPUT_PATH`, and `DETAIL_PLOT_PANELS`
+  `emit_html=True`, `chart_output_path="output"`, and `DETAIL_PLOT_PANELS`
 - joint-portfolio basket runner:
-  `EMIT_HTML=False` (no per-replay detail charts), summary-only via
+  `emit_html=False` (no per-replay detail charts), summary-only via
   `SUMMARY_REPORT_PATH` and `multi_replay_mode="joint_portfolio"`
 - independent basket runner:
-  `EMIT_HTML=False` (no per-replay detail charts), summary-only via
+  `emit_html=False` (no per-replay detail charts), summary-only via
   `SUMMARY_REPORT_PATH` and `multi_replay_mode="independent"`
 
-Multi-market runners default to `EMIT_HTML=False` because per-replay detail
+Multi-market runners default to `emit_html=False` because per-replay detail
 charts are expensive to generate and rarely needed when the summary report is
-the primary output. Set `EMIT_HTML=True` on a multi-market runner if you need
+the primary output. Set `emit_html=True` on a multi-market runner if you need
 per-replay drilldown charts.
 
 This gives users a fast, focused artifact:
@@ -144,7 +145,7 @@ This gives users a fast, focused artifact:
 - the basket summary stays readable because it is built from summary-series data
 - single-market runners keep rich, execution-focused detail charts
 - if per-replay drilldown is needed on a multi-market runner, re-enable
-  `EMIT_HTML=True` for that run
+  `emit_html=True` for that run
 
 Important runtime details:
 
@@ -164,7 +165,7 @@ contract details live in [`backtests.md`](backtests.md#html-and-report-modes).
 ## Output Paths
 
 Public runners now spell the default destination out as
-`CHART_OUTPUT_PATH="output"`. The shared runner layer resolves that relative
+`chart_output_path="output"`. The shared runner layer resolves that relative
 path from the repo root, so it consistently lands in this repo's `output/`
 directory instead of depending on the shell's current working directory.
 
@@ -178,16 +179,16 @@ uv run python backtests/polymarket_quote_tick_ema_crossover.py
 The generated HTML lands under `prediction-market-backtesting/output/`, not
 under whichever directory you launched the command from.
 
-The shared runner layer still accepts `CHART_OUTPUT_PATH=None` as a legacy
+The shared runner layer still accepts `chart_output_path=None` as a legacy
 shorthand for the same repo-root `output/` destination, but public runner files
 should be explicit.
 
 If you want to override that, set:
 
-- `CHART_OUTPUT_PATH="output/custom.html"` for one explicit file path
-- `CHART_OUTPUT_PATH="output/charts"` for one explicit directory
-- `CHART_OUTPUT_PATH="output/{name}_{market_id}.html"` for an explicit template
-- `CHART_OUTPUT_PATH="/absolute/path/to/charts"` for a true absolute path
+- `chart_output_path="output/custom.html"` for one explicit file path
+- `chart_output_path="output/charts"` for one explicit directory
+- `chart_output_path="output/{name}_{market_id}.html"` for an explicit template
+- `chart_output_path="/absolute/path/to/charts"` for a true absolute path
 
 Only `{name}` and `{market_id}` are valid template placeholders.
 
@@ -206,7 +207,7 @@ Charts are written to `output/`, typically with names like:
 
 The default naming rules are:
 
-- `CHART_OUTPUT_PATH="output"`:
+- `chart_output_path="output"`:
   `output/<runner_name>_<market_or_sim_label>_legacy.html`
 - `SUMMARY_REPORT_PATH="output/<runner_name>_joint_portfolio.html"`:
   one shared-account report spanning the whole basket
@@ -254,7 +255,7 @@ The clearest multi-market plotting runner files:
 - [`backtests/polymarket_quote_tick_independent_25_replay_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/v2/backtests/polymarket_quote_tick_independent_25_replay_runner.py)
 
 Those runners now write one basket summary chart under `output/` (per-replay
-detail charts are off by default via `EMIT_HTML=False`):
+detail charts are off by default via `emit_html=False`):
 
 - `output/kalshi_trade_tick_joint_portfolio_runner_joint_portfolio.html`
 - `output/polymarket_trade_tick_independent_multi_replay_runner_independent_aggregate.html`
