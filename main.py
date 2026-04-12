@@ -4,10 +4,13 @@
 Discovers runnable modules in flat runner entrypoints under `backtests/` and
 `backtests/private/` and presents an interactive menu. Each backtest file must expose:
 
-    NAME        str   — display name shown in the menu
-    DESCRIPTION str   — one-line description shown in the menu
-    EXPERIMENT  object — manifest executed by the shared experiment dispatcher
+    EXPERIMENT  object — manifest executed by the shared experiment dispatcher,
+                         constructed with explicit `name=` and `description=` kwargs
     run()       sync or async — optional thin entry point called when selected
+
+The display name and one-line description are pulled from the `name=` and
+`description=` kwargs of the EXPERIMENT constructor call via AST scanning so the
+menu does not need to import each runner module on startup.
 
 Run via:
     uv run python main.py
@@ -120,6 +123,25 @@ def _has_assignment(module_ast: ast.Module, target_name: str) -> bool:
     return False
 
 
+def _experiment_constructor_kwargs(module_ast: ast.Module) -> dict[str, str] | None:
+    """Extract `name=`/`description=` literal kwargs from the EXPERIMENT assignment call."""
+    for node in module_ast.body:
+        if not isinstance(node, (ast.Assign, ast.AnnAssign)):
+            continue
+        if "EXPERIMENT" not in _assignment_targets(node):
+            continue
+        if not isinstance(node.value, ast.Call):
+            continue
+        kwargs: dict[str, str] = {}
+        for keyword in node.value.keywords:
+            if keyword.arg in {"name", "description"}:
+                literal = _literal_string(keyword.value)
+                if literal is not None:
+                    kwargs[keyword.arg] = literal
+        return kwargs
+    return None
+
+
 def _has_run_entrypoint(module_ast: ast.Module) -> bool:
     for node in module_ast.body:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == "run":
@@ -152,19 +174,14 @@ def _load_runner_metadata(path: Path) -> dict[str, Any] | None:
 
     name = path.stem
     description = ""
-    for node in module_ast.body:
-        if not isinstance(node, (ast.Assign, ast.AnnAssign)):
-            continue
-        targets = _assignment_targets(node)
-        if not targets:
-            continue
-        literal = _literal_string(node.value)
-        if literal is None:
-            continue
-        if "NAME" in targets:
-            name = literal
-        if "DESCRIPTION" in targets:
-            description = literal
+    experiment_kwargs = _experiment_constructor_kwargs(module_ast)
+    if experiment_kwargs is not None:
+        kw_name = experiment_kwargs.get("name")
+        kw_description = experiment_kwargs.get("description")
+        if kw_name:
+            name = kw_name
+        if kw_description:
+            description = kw_description
 
     return {
         "name": name,

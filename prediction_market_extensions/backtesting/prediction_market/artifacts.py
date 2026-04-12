@@ -20,6 +20,9 @@ from prediction_market_extensions.adapters.prediction_market.backtest_utils impo
     build_market_prices,
 )
 from prediction_market_extensions.adapters.prediction_market.backtest_utils import (
+    downsample_price_points,
+)
+from prediction_market_extensions.adapters.prediction_market.backtest_utils import (
     extract_price_points,
 )
 from prediction_market_extensions.adapters.prediction_market.backtest_utils import (
@@ -136,6 +139,7 @@ class PredictionMarketArtifactBuilder:
                 loaded_sim.records,
                 price_attr="mid_price" if self.data_type == "quote_tick" else "price",
             )
+            price_points = downsample_price_points(price_points, max_points=5000)
             market_prices_by_market_id[loaded_sim.market_id] = build_market_prices(
                 price_points, resample_rule=self.chart_resample_rule
             )
@@ -178,10 +182,16 @@ class PredictionMarketArtifactBuilder:
         fills_report: pd.DataFrame,
         include_portfolio_series: bool,
     ) -> dict[str, Any]:
+        needs_detail_chart = self.emit_html or self.return_chart_layout
+        summary_only = self.return_summary_series and not needs_detail_chart
+
         price_points = extract_price_points(
             loaded_sim.records,
             price_attr="mid_price" if self.data_type == "quote_tick" else "price",
         )
+        if summary_only:
+            price_points = downsample_price_points(price_points, max_points=5000)
+
         market_prices = build_market_prices(price_points, resample_rule=self.chart_resample_rule)
         user_probabilities, market_probabilities, outcomes = build_brier_inputs(
             price_points,
@@ -192,7 +202,7 @@ class PredictionMarketArtifactBuilder:
 
         chart_layout = None
         chart_title = f"{self.name}:{loaded_sim.market_id} legacy chart"
-        if self.emit_html or self.return_chart_layout:
+        if needs_detail_chart:
             output_path = self.resolve_chart_output_path(market_id=loaded_sim.market_id)
             output_path.parent.mkdir(parents=True, exist_ok=True)
             try:

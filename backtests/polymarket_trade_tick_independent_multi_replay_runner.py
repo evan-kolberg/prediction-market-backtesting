@@ -27,14 +27,6 @@ from prediction_market_extensions.backtesting._timing_harness import timing_harn
 from prediction_market_extensions.backtesting.data_sources import Native, Polymarket, TradeTick
 
 
-NAME = "polymarket_trade_tick_independent_multi_replay_runner"
-
-DESCRIPTION = (
-    "Independent VWAP-reversion backtests on a fixed Polymarket basket pinned to market close"
-)
-
-EMIT_HTML = True
-CHART_OUTPUT_PATH = "output"
 DETAIL_PLOT_PANELS = (
     "total_equity",
     "equity",
@@ -52,7 +44,9 @@ DETAIL_PLOT_PANELS = (
     "total_brier_advantage",
     "brier_advantage",
 )
-SUMMARY_REPORT_PATH = f"output/{NAME}_independent_aggregate.html"
+SUMMARY_REPORT_PATH = (
+    "output/polymarket_trade_tick_independent_multi_replay_runner_independent_aggregate.html"
+)
 SUMMARY_PLOT_PANELS = (
     "total_equity",
     "total_drawdown",
@@ -142,8 +136,10 @@ REPORT = MarketReportConfig(
 )
 
 EXPERIMENT = build_replay_experiment(
-    name=NAME,
-    description=DESCRIPTION,
+    name="polymarket_trade_tick_independent_multi_replay_runner",
+    description=(
+        "Independent VWAP-reversion backtests on a fixed Polymarket basket pinned to market close"
+    ),
     data=DATA,
     replays=REPLAYS,
     strategy_configs=STRATEGY_CONFIGS,
@@ -154,8 +150,8 @@ EXPERIMENT = build_replay_experiment(
     report=REPORT,
     empty_message="No fixed Polymarket basket sims met the trade-tick requirements.",
     partial_message="Completed {completed} of {total} fixed basket sims.",
-    emit_html=EMIT_HTML,
-    chart_output_path=CHART_OUTPUT_PATH,
+    emit_html=False,
+    chart_output_path="output",
     detail_plot_panels=DETAIL_PLOT_PANELS,
     return_summary_series=True,
     multi_replay_mode="independent",

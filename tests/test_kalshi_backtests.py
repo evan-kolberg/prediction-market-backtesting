@@ -65,7 +65,7 @@ def test_kalshi_single_runner_builds_expected_trade_tick_strategy(
     assert isinstance(strategy, TradeTickBreakoutStrategy)
     assert isinstance(strategy.config, TradeTickBreakoutConfig)
     assert module.REPLAYS == (EXPECTED_SINGLE_REPLAY,)
-    assert module.EXPERIMENT.name == module.NAME
+    assert module.EXPERIMENT.name == "kalshi_trade_tick_breakout"
     assert module.EXPERIMENT.data == module.DATA
     assert module.EXPERIMENT.replays == module.REPLAYS
     assert module.EXPERIMENT.initial_cash == 100.0

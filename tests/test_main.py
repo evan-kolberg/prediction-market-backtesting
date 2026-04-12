@@ -226,8 +226,7 @@ def test_discover_reads_metadata_without_importing_modules(tmp_path: Path, monke
     backtests_root.mkdir()
     (backtests_root / "__init__.py").write_text("", encoding="utf-8")
     (backtests_root / "demo_runner.py").write_text(
-        'NAME = "custom_demo"\n'
-        'DESCRIPTION = "Demo runner"\n'
+        'EXPERIMENT = build_replay_experiment(name="custom_demo", description="Demo runner")\n'
         'raise RuntimeError("should not import during discovery")\n'
         "def run() -> None:\n"
         "    pass\n",

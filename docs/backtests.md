@@ -105,11 +105,6 @@ from prediction_market_extensions.backtesting._replay_specs import QuoteReplay
 from prediction_market_extensions.backtesting._timing_harness import timing_harness
 from prediction_market_extensions.backtesting.data_sources import PMXT, Polymarket, QuoteTick
 
-NAME = "polymarket_quote_tick_ema_crossover"
-DESCRIPTION = "EMA crossover momentum on one Polymarket market"
-EMIT_HTML = True
-CHART_OUTPUT_PATH = "output"
-
 DATA = MarketDataConfig(
     platform=Polymarket,
     data_type=QuoteTick,
@@ -162,8 +157,8 @@ EXECUTION = ExecutionModelConfig(
 )
 
 EXPERIMENT = build_replay_experiment(
-    name=NAME,
-    description=DESCRIPTION,
+    name="polymarket_quote_tick_ema_crossover",
+    description="EMA crossover momentum on one Polymarket market",
     data=DATA,
     replays=REPLAYS,
     strategy_configs=STRATEGY_CONFIGS,
@@ -174,8 +169,8 @@ EXPERIMENT = build_replay_experiment(
     execution=EXECUTION,
     report=REPORT,
     empty_message="No sims met the quote-tick requirements.",
-    emit_html=EMIT_HTML,
-    chart_output_path=CHART_OUTPUT_PATH,
+    emit_html=True,
+    chart_output_path="output",
 )
 
 @timing_harness
@@ -185,10 +180,6 @@ def run() -> None:
 
 Every public runner should expose:
 
-- `NAME`
-- `DESCRIPTION`
-- `EMIT_HTML`
-- `CHART_OUTPUT_PATH`
 - `DETAIL_PLOT_PANELS` when the runner emits per-sim legacy HTML charts
 - `SUMMARY_REPORT_PATH` when the runner emits one aggregate multi-market HTML page
 - `SUMMARY_PLOT_PANELS` when the runner emits an aggregate multi-market HTML page
@@ -201,23 +192,26 @@ Every public runner should expose:
 - `EXPERIMENT`
 - `run()`
 
-Use `CHART_OUTPUT_PATH="output"` for the normal public-runner default. The
-shared runner layer resolves that relative path from the repo root so it lands
-under this repo's `output/` directory consistently.
+The runner's `name`, `description`, `emit_html`, and `chart_output_path` are
+passed as literal kwargs directly into `build_replay_experiment(...)` rather
+than being exposed as top-level module constants. Use
+`chart_output_path="output"` for the normal public-runner default. The shared
+runner layer resolves that relative path from the repo root so it lands under
+this repo's `output/` directory consistently.
 
 Optimizer runners are the one deliberate variant in that contract. Parameter
 search runners expose `BASE_REPLAY`, `TRAIN_WINDOWS`, `HOLDOUT_WINDOWS`,
 `STRATEGY_SPEC`, `PARAMETER_GRID`, and `PARAMETER_SEARCH` instead of `REPLAYS`
-plus chart-summary report fields. They still keep `NAME`, `DESCRIPTION`,
-`EMIT_HTML`, `CHART_OUTPUT_PATH`, `DATA`, `EXECUTION`, `EXPERIMENT`, and
-`run()` at top level so the menu, tests, and direct runner path stay uniform.
+plus chart-summary report fields. They still keep `DATA`, `EXECUTION`,
+`EXPERIMENT`, and `run()` at top level so the menu, tests, and direct runner
+path stay uniform.
 
 ## HTML And Report Modes
 
 The repo-layer runner contract distinguishes two different output shapes:
 
 - per-sim legacy chart:
-  controlled by `EMIT_HTML`, `CHART_OUTPUT_PATH`, and `DETAIL_PLOT_PANELS`
+  controlled by `emit_html`, `chart_output_path`, and `DETAIL_PLOT_PANELS`
 - aggregate multi-market report:
   controlled by `REPORT.summary_report=True`, `SUMMARY_REPORT_PATH`, and
   `SUMMARY_PLOT_PANELS`
@@ -231,7 +225,7 @@ Those are not interchangeable:
 The corresponding runner patterns are:
 
 - single-market runner:
-  `EMIT_HTML = True`, `CHART_OUTPUT_PATH = "output"`, and
+  `emit_html=True`, `chart_output_path="output"`, and
   `DETAIL_PLOT_PANELS = (...)`
 - joint-portfolio runner:
   the single-market settings plus `SUMMARY_REPORT_PATH`,
@@ -263,8 +257,6 @@ Panel selection guidance lives in [`plotting.md`](plotting.md#scaling-model).
 Minimal shapes:
 
 ```python
-EMIT_HTML = True
-CHART_OUTPUT_PATH = "output"
 DETAIL_PLOT_PANELS = (
     "equity",
     "market_pnl",
@@ -284,7 +276,7 @@ DETAIL_PLOT_PANELS = (
 ```
 
 ```python
-SUMMARY_REPORT_PATH = f"output/{NAME}_joint_portfolio.html"
+SUMMARY_REPORT_PATH = "output/polymarket_quote_tick_joint_portfolio_runner_joint_portfolio.html"
 SUMMARY_PLOT_PANELS = (
     "total_equity",
     "total_drawdown",
@@ -304,8 +296,8 @@ REPORT = MarketReportConfig(
 
 EXPERIMENT = build_replay_experiment(
     ...,
-    emit_html=EMIT_HTML,
-    chart_output_path=CHART_OUTPUT_PATH,
+    emit_html=False,
+    chart_output_path="output",
     detail_plot_panels=DETAIL_PLOT_PANELS,
     return_summary_series=True,
     multi_replay_mode="joint_portfolio",
@@ -316,7 +308,7 @@ Practical constraints:
 
 - `SUMMARY_REPORT_PATH` depends on summary-series data, so the experiment must
   opt into `return_summary_series=True`
-- `CHART_OUTPUT_PATH` templates may reference only `{name}` and `{market_id}`
+- `chart_output_path` templates may reference only `{name}` and `{market_id}`
 - panel lists are ordered tuples of stable ids, so inclusion and layout order
   are explicit in the runner file
 - known-but-unavailable panels are skipped; unknown panel ids raise immediately
@@ -348,7 +340,7 @@ The public optimizer example is:
 - [`backtests/polymarket_quote_tick_ema_optimizer.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/v2/backtests/polymarket_quote_tick_ema_optimizer.py)
 
 That runner is intentionally research-oriented. It writes leaderboard and
-summary artifacts under `output/` by default and keeps `EMIT_HTML = False` so
+summary artifacts under `output/` by default and keeps `emit_html=False` so
 one parameter sweep does not emit one legacy chart per trial.
 
 ## Designing Good Runner Files
@@ -422,7 +414,7 @@ uv run python backtests/polymarket_quote_tick_joint_portfolio_runner.py
 uv run python backtests/polymarket_quote_tick_independent_multi_replay_runner.py
 ```
 
-When a runner keeps `CHART_OUTPUT_PATH="output"`, those direct commands still
+When a runner keeps `chart_output_path="output"`, those direct commands still
 write into this repo's `output/` directory. The shared runner layer resolves
 that relative path from the repo root rather than from your shell's current
 working directory.
@@ -432,7 +424,7 @@ pin absolute sample windows; public Kalshi trade-tick runners also pin
 `end_time` so the bundled market stays directly runnable. Native trade-tick
 runners without that pin still use rolling lookbacks. If you want a different
 market, window, cash value, vendor source priority, or chart behavior, edit
-`DATA`, `REPLAYS`, `STRATEGY_CONFIGS`, `EMIT_HTML`, or `CHART_OUTPUT_PATH` in
+`DATA`, `REPLAYS`, `STRATEGY_CONFIGS`, or the `emit_html` / `chart_output_path` kwargs in
 the runner file, or copy the file into
 `backtests/private/` and customize it there.
 
@@ -482,8 +474,9 @@ definition. The file itself should carry the actual values.
 
 Use these top-level objects as the edit surface:
 
-- `EMIT_HTML` to skip per-run HTML output when you are sweeping many runners
-- `CHART_OUTPUT_PATH` for an explicit file, directory, or `{name}` /
+- the `emit_html` kwarg on `build_replay_experiment(...)` to skip per-run HTML
+  output when you are sweeping many runners
+- the `chart_output_path` kwarg for an explicit file, directory, or `{name}` /
   `{market_id}` template
 - `DETAIL_PLOT_PANELS` for explicit per-sim panel inclusion and ordering
 - `SUMMARY_REPORT_PATH` for one aggregate HTML report when the runner should

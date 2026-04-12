@@ -82,7 +82,7 @@ uv run python backtests/polymarket_quote_tick_independent_multi_replay_runner.py
 ```
 
 Those direct runs write HTML artifacts into the repo-local `output/` directory
-when the runner keeps `CHART_OUTPUT_PATH="output"`.
+when the runner keeps `chart_output_path="output"`.
 
 For a research-oriented notebook example, select
 `backtests/generic_optimizer_research.ipynb` from the menu. It targets any

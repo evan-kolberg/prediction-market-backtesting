@@ -36,6 +36,7 @@
 - Joint portfolio multi replay runners
 - Growing support for statistical optimizers
 - New aggregate charts
+- Massive improvements charting gen speed
 
 Looking for the old version? That was renamed to [Version 1](https://github.com/evan-kolberg/prediction-market-backtesting/tree/v1)
 

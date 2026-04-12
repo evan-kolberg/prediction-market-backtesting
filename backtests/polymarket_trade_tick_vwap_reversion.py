@@ -29,12 +29,6 @@ from prediction_market_extensions.backtesting._timing_harness import timing_harn
 from prediction_market_extensions.backtesting.data_sources import Native, Polymarket, TradeTick
 
 
-NAME = "polymarket_trade_tick_vwap_reversion"
-
-DESCRIPTION = "VWAP dislocation mean-reversion on a single Polymarket market"
-
-EMIT_HTML = True
-CHART_OUTPUT_PATH = "output"
 DETAIL_PLOT_PANELS = (
     "total_equity",
     "equity",
@@ -96,8 +90,8 @@ REPORT = MarketReportConfig(
 
 
 EXPERIMENT = build_replay_experiment(
-    name=NAME,
-    description=DESCRIPTION,
+    name="polymarket_trade_tick_vwap_reversion",
+    description="VWAP dislocation mean-reversion on a single Polymarket market",
     data=DATA,
     replays=REPLAYS,
     strategy_configs=STRATEGY_CONFIGS,
@@ -107,8 +101,8 @@ EXPERIMENT = build_replay_experiment(
     min_price_range=0.005,
     report=REPORT,
     empty_message="No Polymarket VWAP-reversion sims met the trade-tick requirements.",
-    emit_html=EMIT_HTML,
-    chart_output_path=CHART_OUTPUT_PATH,
+    emit_html=True,
+    chart_output_path="output",
     detail_plot_panels=DETAIL_PLOT_PANELS,
 )
 

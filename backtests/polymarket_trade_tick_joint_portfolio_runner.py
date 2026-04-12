@@ -27,14 +27,6 @@ from prediction_market_extensions.backtesting._timing_harness import timing_harn
 from prediction_market_extensions.backtesting.data_sources import Native, Polymarket, TradeTick
 
 
-NAME = "polymarket_trade_tick_joint_portfolio_runner"
-
-DESCRIPTION = (
-    "Joint-portfolio VWAP-reversion backtest on a fixed Polymarket basket pinned to market close"
-)
-
-EMIT_HTML = True
-CHART_OUTPUT_PATH = "output"
 DETAIL_PLOT_PANELS = (
     "total_equity",
     "equity",
@@ -75,7 +67,7 @@ DATA = MarketDataConfig(
 
 FIXED_LOOKBACK_DAYS = 7
 
-SUMMARY_REPORT_PATH = f"output/{NAME}_joint_portfolio.html"
+SUMMARY_REPORT_PATH = "output/polymarket_trade_tick_joint_portfolio_runner_joint_portfolio.html"
 EMPTY_MESSAGE = (
     "No fixed joint-portfolio Polymarket basket replays met the trade-tick requirements."
 )
@@ -145,8 +137,10 @@ REPORT = MarketReportConfig(
 )
 
 EXPERIMENT = build_replay_experiment(
-    name=NAME,
-    description=DESCRIPTION,
+    name="polymarket_trade_tick_joint_portfolio_runner",
+    description=(
+        "Joint-portfolio VWAP-reversion backtest on a fixed Polymarket basket pinned to market close"
+    ),
     data=DATA,
     replays=REPLAYS,
     strategy_configs=STRATEGY_CONFIGS,
@@ -157,8 +151,8 @@ EXPERIMENT = build_replay_experiment(
     report=REPORT,
     empty_message=EMPTY_MESSAGE,
     partial_message=PARTIAL_MESSAGE,
-    emit_html=EMIT_HTML,
-    chart_output_path=CHART_OUTPUT_PATH,
+    emit_html=False,
+    chart_output_path="output",
     detail_plot_panels=DETAIL_PLOT_PANELS,
     return_summary_series=True,
     multi_replay_mode="joint_portfolio",
