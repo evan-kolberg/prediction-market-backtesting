@@ -348,3 +348,73 @@ def test_run_parameter_optimization_writes_artifacts(tmp_path: Path) -> None:
     assert payload["train_windows"] == [window.name for window in config.train_windows]
     assert payload["holdout_windows"] == [window.name for window in config.holdout_windows]
     assert set(payload["best_candidate"]["params"]) == {"edge"}
+
+
+def test_joint_portfolio_drawdown_captures_diversification() -> None:
+    # Two anti-correlated equity curves: market A dips while B rises, and
+    # vice versa. Joint portfolio drawdown should be much smaller than the
+    # sum of per-market drawdowns (which is the naive conservative estimate).
+    market_a = [
+        ("2026-01-01T00:00:00Z", 100.0),
+        ("2026-01-01T01:00:00Z", 90.0),
+        ("2026-01-01T02:00:00Z", 110.0),
+        ("2026-01-01T03:00:00Z", 100.0),
+    ]
+    market_b = [
+        ("2026-01-01T00:00:00Z", 100.0),
+        ("2026-01-01T01:00:00Z", 110.0),
+        ("2026-01-01T02:00:00Z", 90.0),
+        ("2026-01-01T03:00:00Z", 100.0),
+    ]
+    per_market_drawdowns = optimizer._max_drawdown_currency(
+        market_a
+    ) + optimizer._max_drawdown_currency(market_b)
+    joint = optimizer._joint_portfolio_drawdown([market_a, market_b])
+    assert per_market_drawdowns == pytest.approx(30.0)
+    assert joint < per_market_drawdowns
+    assert joint == pytest.approx(0.0, abs=1e-9)
+
+
+def test_joint_portfolio_drawdown_tracks_concurrent_losses() -> None:
+    # Two correlated curves that drop at the same time should produce a
+    # joint drawdown equal to the sum of individual drawdowns.
+    series = [
+        ("2026-01-01T00:00:00Z", 100.0),
+        ("2026-01-01T01:00:00Z", 80.0),
+        ("2026-01-01T02:00:00Z", 100.0),
+    ]
+    joint = optimizer._joint_portfolio_drawdown([series, series])
+    assert joint == pytest.approx(40.0)
+
+
+def test_parameter_search_config_accepts_base_replays_for_multi_market(
+    tmp_path: Path,
+) -> None:
+    replays = (
+        QuoteReplay(market_slug="market-one", token_index=0),
+        QuoteReplay(market_slug="market-two", token_index=0),
+    )
+    config = optimizer.ParameterSearchConfig(
+        name="joint_test",
+        data=MarketDataConfig(
+            platform=Polymarket, data_type=QuoteTick, vendor=PMXT, sources=("local:/tmp",)
+        ),
+        base_replays=replays,
+        strategy_spec={
+            "strategy_path": "strategies:DemoStrategy",
+            "config_path": "strategies:DemoConfig",
+            "config": {"edge": "__SEARCH__:edge"},
+        },
+        parameter_grid={"edge": (1, 2)},
+        train_windows=(_window("train-a", "2026-01-01T00:00:00Z", "2026-01-01T02:00:00Z"),),
+        holdout_windows=(),
+        max_trials=1,
+        artifact_root=tmp_path,
+    )
+    assert len(config.base_replays) == 2
+    window = config.train_windows[0]
+    kwargs = optimizer._build_backtest_kwargs(
+        config=config, trial_id=1, window=window, params=(("edge", 1),)
+    )
+    assert len(kwargs["replays"]) == 2
+    assert all(r.start_time == window.start_time for r in kwargs["replays"])

@@ -28,6 +28,7 @@ PUBLIC_SCRIPT_RUNNER_PATHS = sorted(
 
 EXPECTED_PUBLIC_RUNNER_PATHS = [
     Path("backtests/generic_optimizer_research.ipynb"),
+    Path("backtests/generic_tpe_research.ipynb"),
     Path("backtests/kalshi_trade_tick_breakout.py"),
     Path("backtests/kalshi_trade_tick_independent_multi_replay_runner.py"),
     Path("backtests/kalshi_trade_tick_joint_portfolio_runner.py"),

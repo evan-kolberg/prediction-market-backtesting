@@ -65,8 +65,9 @@ class ParameterSearchWindow:
 class ParameterSearchConfig:
     name: str
     data: MarketDataConfig
-    base_replay: ReplaySpec
     strategy_spec: StrategyConfigSpec
+    base_replay: ReplaySpec | None = None
+    base_replays: Sequence[ReplaySpec] = ()
     parameter_grid: Mapping[str, Sequence[Any]] = field(default_factory=dict)
     parameter_space: Mapping[str, ParameterSpec] = field(default_factory=dict)
     sampler: Literal["random", "tpe"] = SAMPLER_RANDOM
@@ -98,12 +99,24 @@ class ParameterSearchConfig:
             platform=self.data.platform, data_type=self.data.data_type, vendor=self.data.vendor
         )
 
-        market_slug = getattr(self.base_replay, "market_slug", None)
-        market_ticker = getattr(self.base_replay, "market_ticker", None)
-        if market_slug is None and market_ticker is None:
-            raise ValueError(
-                "ParameterSearchConfig.base_replay must define market_slug or market_ticker."
-            )
+        if self.base_replay is None and not self.base_replays:
+            raise ValueError("ParameterSearchConfig requires base_replay or base_replays.")
+        # base_replays takes precedence; base_replay is a single-market shortcut.
+        # Both may be set after dataclasses.replace(), in which case we trust
+        # base_replays (which was normalized on the prior instance) and leave
+        # base_replay alone for backward-compat repr.
+        if self.base_replays:
+            normalized_replays = tuple(self.base_replays)
+        else:
+            normalized_replays = (self.base_replay,)
+        for replay in normalized_replays:
+            market_slug = getattr(replay, "market_slug", None)
+            market_ticker = getattr(replay, "market_ticker", None)
+            if market_slug is None and market_ticker is None:
+                raise ValueError(
+                    "Every ParameterSearchConfig replay must define market_slug or market_ticker."
+                )
+        object.__setattr__(self, "base_replays", normalized_replays)
         if self.max_trials <= 0:
             raise ValueError("max_trials must be positive.")
         if self.holdout_top_k <= 0:
@@ -340,6 +353,12 @@ def _windowed_replay(*, base_replay: ReplaySpec, window: ParameterSearchWindow) 
     return replace(base_replay, **replacement_kwargs)
 
 
+def _windowed_replays(
+    *, base_replays: Sequence[ReplaySpec], window: ParameterSearchWindow
+) -> tuple[ReplaySpec, ...]:
+    return tuple(_windowed_replay(base_replay=r, window=window) for r in base_replays)
+
+
 def _build_backtest(
     *,
     config: ParameterSearchConfig,
@@ -408,11 +427,11 @@ def _build_backtest_kwargs(
 ) -> dict[str, Any]:
     params_map = dict(params)
     bound_strategy_spec = _replace_search_placeholders(config.strategy_spec, params_map)
-    replay = _windowed_replay(base_replay=config.base_replay, window=window)
+    replays = _windowed_replays(base_replays=config.base_replays, window=window)
     return {
         "name": f"{config.name}:{window.name}:trial-{trial_id:03d}",
         "data": config.data,
-        "replays": (replay,),
+        "replays": replays,
         "strategy_configs": [bound_strategy_spec],
         "initial_cash": config.initial_cash,
         "probability_window": config.probability_window,
@@ -545,6 +564,68 @@ def _max_drawdown_currency(equity_series: object) -> float:
     return max_drawdown
 
 
+def _joint_portfolio_drawdown(equity_series_list: Sequence[object]) -> float:
+    """Compute max drawdown of a synthesized joint-portfolio equity curve.
+
+    Each market's equity series is reindexed onto the union timeline with
+    forward-fill (and back-fill for the leading edge), then summed. The
+    drawdown is measured on the aggregated curve, so diversification
+    across markets can reduce the penalty — which is the point of
+    optimizing a joint portfolio.
+    """
+    if not equity_series_list:
+        return 0.0
+
+    import pandas as pd
+
+    frames: list[pd.Series] = []
+    for series in equity_series_list:
+        if not isinstance(series, Sequence):
+            continue
+        timestamps: list[Any] = []
+        values: list[float] = []
+        for point in series:
+            ts: Any = None
+            value: Any = None
+            if isinstance(point, Mapping):
+                ts = point.get("timestamp") or point.get("time") or point.get("t")
+                value = point.get("value")
+            elif (
+                isinstance(point, Sequence)
+                and not isinstance(point, str | bytes)
+                and len(point) >= 2
+            ):
+                ts = point[0]
+                value = point[1]
+            if ts is None or not isinstance(value, int | float):
+                continue
+            timestamps.append(ts)
+            values.append(float(value))
+        if not timestamps:
+            continue
+        index = pd.to_datetime(timestamps, utc=True, errors="coerce")
+        frame = pd.Series(values, index=index).dropna().sort_index()
+        if not frame.empty:
+            frames.append(frame)
+
+    if not frames:
+        return 0.0
+
+    combined_index = frames[0].index
+    for frame in frames[1:]:
+        combined_index = combined_index.union(frame.index)
+    combined_index = combined_index.sort_values()
+
+    joint = None
+    for frame in frames:
+        reindexed = frame.reindex(combined_index).ffill().bfill()
+        joint = reindexed if joint is None else joint + reindexed
+    if joint is None or joint.empty:
+        return 0.0
+    running_peak = joint.cummax()
+    return float((running_peak - joint).max())
+
+
 def _as_float(value: object, *, default: float = 0.0) -> float:
     if isinstance(value, int | float):
         return float(value)
@@ -615,7 +696,7 @@ def _evaluate_window(
             error=str(exc),
         )
 
-    if len(results) != 1:
+    if not results:
         return _WindowEvaluation(
             window_name=window.name,
             score=config.invalid_score,
@@ -625,15 +706,32 @@ def _evaluate_window(
             requested_coverage_ratio=0.0,
             terminated_early=True,
             status="invalid_result_count",
-            error=f"expected 1 result, received {len(results)}",
+            error="received 0 results",
         )
 
-    result = results[0]
-    pnl = _as_float(result.get("pnl"))
-    fills = _as_int(result.get("fills"))
-    requested_coverage_ratio = _as_float(result.get("requested_coverage_ratio"), default=0.0)
-    terminated_early = bool(result.get("terminated_early"))
-    max_drawdown_currency = _max_drawdown_currency(result.get("equity_series"))
+    expected_market_count = len(config.base_replays)
+    if expected_market_count and len(results) != expected_market_count:
+        return _WindowEvaluation(
+            window_name=window.name,
+            score=config.invalid_score,
+            pnl=0.0,
+            max_drawdown_currency=0.0,
+            fills=0,
+            requested_coverage_ratio=0.0,
+            terminated_early=True,
+            status="invalid_result_count",
+            error=f"expected {expected_market_count} results, received {len(results)}",
+        )
+
+    pnl = sum(_as_float(r.get("pnl")) for r in results)
+    fills = sum(_as_int(r.get("fills")) for r in results)
+    coverages = [_as_float(r.get("requested_coverage_ratio"), default=0.0) for r in results]
+    requested_coverage_ratio = (sum(coverages) / len(coverages)) if coverages else 0.0
+    terminated_early = any(bool(r.get("terminated_early")) for r in results)
+    if len(results) == 1:
+        max_drawdown_currency = _max_drawdown_currency(results[0].get("equity_series"))
+    else:
+        max_drawdown_currency = _joint_portfolio_drawdown([r.get("equity_series") for r in results])
     score = _score_result(
         pnl=pnl,
         max_drawdown_currency=max_drawdown_currency,
@@ -811,6 +909,7 @@ def _summary_payload(
         "name": summary.name,
         "optimizer_type": summary.optimizer_type,
         "sampler": config.sampler,
+        "market_count": len(config.base_replays),
         "objective_name": summary.objective_name,
         "generated_at": datetime.now(UTC).isoformat(),
         "candidate_pool_size": summary.candidate_pool_size,

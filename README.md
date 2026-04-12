@@ -37,6 +37,7 @@
 - Growing support for statistical optimizers
 - New aggregate charts
 - Massive improvements charting gen speed
+- Tree-structured Parzen Estimator via Optuna
 
 Looking for the old version? That was renamed to [Version 1](https://github.com/evan-kolberg/prediction-market-backtesting/tree/v1)
 
@@ -75,6 +76,15 @@ Detailed guides have been filed away in the [docs index](https://evan-kolberg.gi
   - [Data Vendor Notes](https://evan-kolberg.github.io/prediction-market-backtesting/backtests/#data-vendor-notes)
     - [Native Vendors](https://evan-kolberg.github.io/prediction-market-backtesting/backtests/#native-vendors)
     - [PMXT](https://evan-kolberg.github.io/prediction-market-backtesting/backtests/#pmxt)
+- [Research](https://evan-kolberg.github.io/prediction-market-backtesting/research/)
+  - [Overview](https://evan-kolberg.github.io/prediction-market-backtesting/research/#overview)
+  - [Scoring](https://evan-kolberg.github.io/prediction-market-backtesting/research/#scoring)
+  - [Joint-Portfolio Mode](https://evan-kolberg.github.io/prediction-market-backtesting/research/#joint-portfolio-mode)
+  - [Samplers](https://evan-kolberg.github.io/prediction-market-backtesting/research/#samplers)
+    - [Random Grid (`sampler="random"`)](https://evan-kolberg.github.io/prediction-market-backtesting/research/#random-grid-samplerrandom)
+    - [TPE (`sampler="tpe"`)](https://evan-kolberg.github.io/prediction-market-backtesting/research/#tpe-samplertpe)
+  - [Caveats](https://evan-kolberg.github.io/prediction-market-backtesting/research/#caveats)
+  - [Notebook Output Persistence](https://evan-kolberg.github.io/prediction-market-backtesting/research/#notebook-output-persistence)
 - [Execution Modeling](https://evan-kolberg.github.io/prediction-market-backtesting/execution-modeling/)
   - [Fees](https://evan-kolberg.github.io/prediction-market-backtesting/execution-modeling/#fees)
   - [Slippage](https://evan-kolberg.github.io/prediction-market-backtesting/execution-modeling/#slippage)
