@@ -29,12 +29,6 @@ from prediction_market_extensions.backtesting._timing_harness import timing_harn
 from prediction_market_extensions.backtesting.data_sources import PMXT, Polymarket, QuoteTick
 
 
-NAME = "polymarket_quote_tick_joint_portfolio_runner"
-
-DESCRIPTION = "Joint-portfolio PMXT quote-tick backtest using varied historical replays"
-
-EMIT_HTML = False
-CHART_OUTPUT_PATH = "output"
 DETAIL_PLOT_PANELS = (
     "total_equity",
     "equity",
@@ -52,7 +46,7 @@ DETAIL_PLOT_PANELS = (
     "total_brier_advantage",
     "brier_advantage",
 )
-SUMMARY_REPORT_PATH = f"output/{NAME}_joint_portfolio.html"
+SUMMARY_REPORT_PATH = "output/polymarket_quote_tick_joint_portfolio_runner_joint_portfolio.html"
 SUMMARY_PLOT_PANELS = (
     "total_equity",
     "total_drawdown",
@@ -172,8 +166,8 @@ REPORT = MarketReportConfig(
 )
 
 EXPERIMENT = build_replay_experiment(
-    name=NAME,
-    description=DESCRIPTION,
+    name="polymarket_quote_tick_joint_portfolio_runner",
+    description="Joint-portfolio PMXT quote-tick backtest using varied historical replays",
     data=DATA,
     replays=REPLAYS,
     strategy_configs=STRATEGY_CONFIGS,
@@ -185,8 +179,8 @@ EXPERIMENT = build_replay_experiment(
     report=REPORT,
     empty_message=EMPTY_MESSAGE,
     partial_message=PARTIAL_MESSAGE,
-    emit_html=EMIT_HTML,
-    chart_output_path=CHART_OUTPUT_PATH,
+    emit_html=False,
+    chart_output_path="output",
     detail_plot_panels=DETAIL_PLOT_PANELS,
     return_summary_series=True,
     multi_replay_mode="joint_portfolio",

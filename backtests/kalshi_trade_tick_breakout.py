@@ -32,12 +32,6 @@ from prediction_market_extensions.backtesting._timing_harness import timing_harn
 from prediction_market_extensions.backtesting.data_sources import Kalshi, Native, TradeTick
 
 
-NAME = "kalshi_trade_tick_breakout"
-
-DESCRIPTION = "Volatility breakout strategy on a single Kalshi market using trade ticks"
-
-EMIT_HTML = True
-CHART_OUTPUT_PATH = "output"
 DETAIL_PLOT_PANELS = (
     "equity",
     "market_pnl",
@@ -93,8 +87,8 @@ REPORT = MarketReportConfig(
 
 
 EXPERIMENT = build_replay_experiment(
-    name=NAME,
-    description=DESCRIPTION,
+    name="kalshi_trade_tick_breakout",
+    description="Volatility breakout strategy on a single Kalshi market using trade ticks",
     data=DATA,
     replays=REPLAYS,
     strategy_configs=STRATEGY_CONFIGS,
@@ -104,8 +98,8 @@ EXPERIMENT = build_replay_experiment(
     min_price_range=0.03,
     report=REPORT,
     empty_message="No Kalshi breakout sims met the trade-tick requirements.",
-    emit_html=EMIT_HTML,
-    chart_output_path=CHART_OUTPUT_PATH,
+    emit_html=True,
+    chart_output_path="output",
     detail_plot_panels=DETAIL_PLOT_PANELS,
 )
 

@@ -86,7 +86,7 @@ def test_direct_script_entrypoints_import_without_repo_root_on_sys_path(
 
     globals_dict = runpy.run_path(str(script_path), run_name="__script_test__")
 
-    assert "NAME" in globals_dict
+    assert "EXPERIMENT" in globals_dict
     assert "run" in globals_dict
 
 
@@ -143,12 +143,6 @@ def test_public_runner_modules_expose_metadata_contract(
 
     globals_dict = runpy.run_path(str(script_path), run_name="__script_test__")
 
-    assert isinstance(globals_dict.get("NAME"), str) and globals_dict["NAME"]
-    assert isinstance(globals_dict.get("DESCRIPTION"), str) and globals_dict["DESCRIPTION"]
-    assert isinstance(globals_dict.get("EMIT_HTML"), bool)
-    assert "CHART_OUTPUT_PATH" in globals_dict
-    assert isinstance(globals_dict["CHART_OUTPUT_PATH"], str)
-    assert globals_dict["CHART_OUTPUT_PATH"]
     if "DATA" in globals_dict:
         data = globals_dict["DATA"]
         assert getattr(data, "platform", None) in {"kalshi", "polymarket"}
@@ -157,28 +151,20 @@ def test_public_runner_modules_expose_metadata_contract(
         assert isinstance(getattr(data, "sources", ()), tuple)
     if "EXPERIMENT" in globals_dict:
         experiment = globals_dict["EXPERIMENT"]
+        assert isinstance(getattr(experiment, "name", None), str) and experiment.name
+        assert isinstance(getattr(experiment, "description", None), str) and experiment.description
         optimization = getattr(experiment, "optimization", None)
-        if optimization is not None:
-            assert getattr(optimization, "emit_html", None) == globals_dict["EMIT_HTML"]
-            assert (
-                getattr(optimization, "chart_output_path", object())
-                == globals_dict["CHART_OUTPUT_PATH"]
-            )
-        else:
-            assert getattr(experiment, "emit_html", None) == globals_dict["EMIT_HTML"]
-            assert (
-                getattr(experiment, "chart_output_path", object())
-                == globals_dict["CHART_OUTPUT_PATH"]
-            )
+        target = optimization if optimization is not None else experiment
+        assert isinstance(getattr(target, "emit_html", None), bool)
+        assert isinstance(getattr(target, "chart_output_path", None), str)
+        assert target.chart_output_path
     parameter_search = globals_dict.get(
         "PARAMETER_SEARCH", globals_dict.get("OPTIMIZER", globals_dict.get("OPTIMIZATION"))
     )
     if parameter_search is not None:
-        assert getattr(parameter_search, "emit_html", None) == globals_dict["EMIT_HTML"]
-        assert (
-            getattr(parameter_search, "chart_output_path", object())
-            == globals_dict["CHART_OUTPUT_PATH"]
-        )
+        assert isinstance(getattr(parameter_search, "emit_html", None), bool)
+        assert isinstance(getattr(parameter_search, "chart_output_path", None), str)
+        assert parameter_search.chart_output_path
     assert callable(globals_dict.get("run"))
 
 
@@ -246,8 +232,6 @@ def test_pmxt_single_market_quote_tick_runners_expose_explicit_experiment_consta
     assert replays[0].market_slug
     assert replays[0].start_time
     assert replays[0].end_time
-    assert globals_dict["EMIT_HTML"] is True
-    assert globals_dict["CHART_OUTPUT_PATH"] == "output"
     assert experiment.initial_cash == 100.0
     assert experiment.min_quotes == 500
     assert experiment.min_price_range == 0.005
@@ -270,13 +254,11 @@ def test_pmxt_quote_tick_independent_runners_expose_explicit_summary_contract(
     report = globals_dict["REPORT"]
     experiment = globals_dict["EXPERIMENT"]
 
-    assert globals_dict["NAME"] == relative_path.stem
+    assert experiment.name == relative_path.stem
     assert data.platform == "polymarket"
     assert data.data_type == "quote_tick"
     assert data.vendor == "pmxt"
     assert len(replays) > 1
-    assert globals_dict["EMIT_HTML"] is False
-    assert globals_dict["CHART_OUTPUT_PATH"] == "output"
     assert isinstance(globals_dict["SUMMARY_PLOT_PANELS"], tuple)
     assert globals_dict["SUMMARY_PLOT_PANELS"]
     assert report.summary_report is True
@@ -302,11 +284,12 @@ def test_pmxt_quote_tick_joint_runners_expose_explicit_summary_contract(
     experiment = globals_dict["EXPERIMENT"]
     report = globals_dict["REPORT"]
 
-    assert globals_dict["NAME"] == relative_path.stem
+    assert experiment.name == relative_path.stem
     assert report.summary_report is True
     assert report.summary_report_path == globals_dict["SUMMARY_REPORT_PATH"]
     assert experiment.return_summary_series is True
     assert experiment.multi_replay_mode == "joint_portfolio"
+    assert experiment.emit_html is False
     assert experiment.chart_output_path == "output"
 
 
@@ -348,8 +331,6 @@ def test_pmxt_quote_tick_optimizer_runners_expose_explicit_search_configuration(
     assert parameter_search.data is data
     assert parameter_search.base_replay is base_replay
     assert parameter_search.strategy_spec is globals_dict["STRATEGY_SPEC"]
-    assert globals_dict["EMIT_HTML"] is True
-    assert globals_dict["CHART_OUTPUT_PATH"] == "output"
     assert parameter_search.emit_html is True
     assert parameter_search.chart_output_path == "output"
     assert dict(parameter_search.parameter_grid) == parameter_grid
@@ -374,8 +355,8 @@ def test_trade_tick_independent_runners_emit_summary_contract(
     experiment = globals_dict["EXPERIMENT"]
     report = globals_dict["REPORT"]
 
-    assert globals_dict["EMIT_HTML"] is False
-    assert globals_dict["CHART_OUTPUT_PATH"] == "output"
+    assert experiment.emit_html is False
+    assert experiment.chart_output_path == "output"
     assert experiment.return_summary_series is True
     assert experiment.multi_replay_mode == "independent"
     assert report.summary_report is True
@@ -395,8 +376,8 @@ def test_trade_tick_joint_runners_emit_summary_contract(
     experiment = globals_dict["EXPERIMENT"]
     report = globals_dict["REPORT"]
 
-    assert globals_dict["EMIT_HTML"] is False
-    assert globals_dict["CHART_OUTPUT_PATH"] == "output"
+    assert experiment.emit_html is False
+    assert experiment.chart_output_path == "output"
     assert experiment.return_summary_series is True
     assert experiment.multi_replay_mode == "joint_portfolio"
     assert report.summary_report is True

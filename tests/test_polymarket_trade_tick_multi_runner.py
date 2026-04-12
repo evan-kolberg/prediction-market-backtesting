@@ -186,8 +186,11 @@ def test_trade_tick_independent_runner_uses_run_experiment(
 
     module.run()
 
-    assert module.CHART_OUTPUT_PATH == "output"
-    assert module.SUMMARY_REPORT_PATH == f"output/{module.NAME}_independent_aggregate.html"
+    assert module.EXPERIMENT.chart_output_path == "output"
+    assert (
+        module.SUMMARY_REPORT_PATH
+        == "output/polymarket_trade_tick_independent_multi_replay_runner_independent_aggregate.html"
+    )
     assert module.REPORT.summary_report is True
     assert module.REPORT.summary_report_path == module.SUMMARY_REPORT_PATH
     assert module.EXPERIMENT.chart_output_path == "output"

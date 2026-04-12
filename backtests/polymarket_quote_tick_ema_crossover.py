@@ -31,12 +31,6 @@ from prediction_market_extensions.backtesting._timing_harness import timing_harn
 from prediction_market_extensions.backtesting.data_sources import PMXT, Polymarket, QuoteTick
 
 
-NAME = "polymarket_quote_tick_ema_crossover"
-
-DESCRIPTION = "EMA crossover momentum on a single Polymarket market using PMXT L2 data"
-
-EMIT_HTML = True
-CHART_OUTPUT_PATH = "output"
 DETAIL_PLOT_PANELS = (
     "total_equity",
     "equity",
@@ -108,8 +102,8 @@ EXECUTION = ExecutionModelConfig(
 )
 
 EXPERIMENT = build_replay_experiment(
-    name=NAME,
-    description=DESCRIPTION,
+    name="polymarket_quote_tick_ema_crossover",
+    description="EMA crossover momentum on a single Polymarket market using PMXT L2 data",
     data=DATA,
     replays=REPLAYS,
     strategy_configs=STRATEGY_CONFIGS,
@@ -120,8 +114,8 @@ EXPERIMENT = build_replay_experiment(
     execution=EXECUTION,
     report=REPORT,
     empty_message="No PMXT EMA crossover sims met the quote-tick requirements.",
-    emit_html=EMIT_HTML,
-    chart_output_path=CHART_OUTPUT_PATH,
+    emit_html=True,
+    chart_output_path="output",
     detail_plot_panels=DETAIL_PLOT_PANELS,
 )
 
