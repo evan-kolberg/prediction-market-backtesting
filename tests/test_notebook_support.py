@@ -147,6 +147,10 @@ def test_display_html_artifacts_prefers_summary_report_and_lists_extras(
 
     assert displayed[0][0] == "Markdown"
     assert "demo_joint_portfolio.html" in displayed[0][1]
-    assert displayed[1] == ("HTML", "<html><body>summary</body></html>")
+    assert displayed[1][0] == "HTML"
+    iframe_html = displayed[1][1]
+    assert iframe_html.startswith("<iframe ")
+    assert "srcdoc=" in iframe_html
+    assert "&lt;html&gt;&lt;body&gt;summary&lt;/body&gt;&lt;/html&gt;" in iframe_html
     assert displayed[2][0] == "Markdown"
     assert "demo_detail_legacy.html" in displayed[2][1]

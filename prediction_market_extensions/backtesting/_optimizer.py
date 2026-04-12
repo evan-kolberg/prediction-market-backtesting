@@ -11,6 +11,7 @@ from collections.abc import Callable
 from collections.abc import Mapping
 from collections.abc import Sequence
 from dataclasses import dataclass
+from dataclasses import field
 from dataclasses import replace
 from datetime import UTC
 from datetime import datetime
@@ -20,6 +21,7 @@ from random import Random
 from statistics import median
 from types import MappingProxyType
 from typing import Any
+from typing import Literal
 from typing import TYPE_CHECKING
 
 from prediction_market_extensions.backtesting._execution_config import ExecutionModelConfig
@@ -40,9 +42,13 @@ SEARCH_PLACEHOLDER_PREFIX = "__SEARCH__:"
 OPTIMIZER_TYPE_PARAMETER_SEARCH = "parameter_search"
 DEFAULT_INVALID_SCORE = -1_000_000_000.0
 _TOP_CANDIDATE_COUNT = 5
+SAMPLER_RANDOM = "random"
+SAMPLER_TPE = "tpe"
+_SUPPORTED_SAMPLERS = (SAMPLER_RANDOM, SAMPLER_TPE)
 
 type ParameterValues = tuple[tuple[str, Any], ...]
 type BacktestEvaluator = Callable[[PredictionMarketBacktest], object]
+type ParameterSpec = Mapping[str, Any]
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -61,8 +67,10 @@ class ParameterSearchConfig:
     data: MarketDataConfig
     base_replay: ReplaySpec
     strategy_spec: StrategyConfigSpec
-    parameter_grid: Mapping[str, Sequence[Any]]
-    train_windows: Sequence[ParameterSearchWindow]
+    parameter_grid: Mapping[str, Sequence[Any]] = field(default_factory=dict)
+    parameter_space: Mapping[str, ParameterSpec] = field(default_factory=dict)
+    sampler: Literal["random", "tpe"] = SAMPLER_RANDOM
+    train_windows: Sequence[ParameterSearchWindow] = ()
     holdout_windows: Sequence[ParameterSearchWindow] = ()
     max_trials: int = 16
     random_seed: int = 0
@@ -102,15 +110,56 @@ class ParameterSearchConfig:
             raise ValueError("holdout_top_k must be positive.")
         if self.min_fills_per_window < 0:
             raise ValueError("min_fills_per_window must be non-negative.")
+        if self.sampler not in _SUPPORTED_SAMPLERS:
+            raise ValueError(f"sampler must be one of {_SUPPORTED_SAMPLERS}, got {self.sampler!r}.")
+
+        has_grid = bool(self.parameter_grid)
+        has_space = bool(self.parameter_space)
+        if not has_grid and not has_space:
+            raise ValueError("parameter_grid or parameter_space must be provided.")
+
+        # An already-normalized parameter_space (e.g. via dataclasses.replace on an
+        # already-constructed config) has MappingProxy entries with a "type" key.
+        # Treat that as authoritative and skip re-validation of the raw space.
+        space_already_normalized = has_space and all(
+            isinstance(spec, Mapping) and "type" in spec and isinstance(spec, MappingProxyType)
+            for spec in self.parameter_space.values()
+        )
+        if has_grid and has_space and not space_already_normalized:
+            raise ValueError("Provide parameter_grid OR parameter_space, not both.")
 
         normalized_grid: dict[str, tuple[Any, ...]] = {}
-        for name, values in self.parameter_grid.items():
-            normalized_values = tuple(values)
-            if not normalized_values:
-                raise ValueError(f"parameter_grid[{name!r}] must not be empty.")
-            normalized_grid[str(name)] = normalized_values
-        if not normalized_grid:
-            raise ValueError("parameter_grid must not be empty.")
+        normalized_space: dict[str, ParameterSpec] = {}
+        if space_already_normalized:
+            for name, spec in self.parameter_space.items():
+                normalized_space[str(name)] = spec
+                if spec["type"] == "categorical":
+                    normalized_grid[str(name)] = tuple(spec["choices"])
+        elif has_grid:
+            for name, values in self.parameter_grid.items():
+                normalized_values = tuple(values)
+                if not normalized_values:
+                    raise ValueError(f"parameter_grid[{name!r}] must not be empty.")
+                normalized_grid[str(name)] = normalized_values
+                normalized_space[str(name)] = MappingProxyType(
+                    {"type": "categorical", "choices": normalized_values}
+                )
+        else:
+            for name, spec in self.parameter_space.items():
+                validated = _validate_parameter_spec(str(name), spec)
+                normalized_space[str(name)] = validated
+                if validated["type"] == "categorical":
+                    normalized_grid[str(name)] = tuple(validated["choices"])
+
+        if (
+            self.sampler == SAMPLER_RANDOM
+            and not has_grid
+            and any(spec["type"] != "categorical" for spec in normalized_space.values())
+        ):
+            raise ValueError(
+                "sampler='random' requires a discrete parameter_grid or an all-categorical "
+                "parameter_space. Use sampler='tpe' for continuous spaces."
+            )
 
         placeholders = _collect_search_placeholders(self.strategy_spec)
         if not placeholders:
@@ -118,20 +167,20 @@ class ParameterSearchConfig:
                 "strategy_spec must contain at least one __SEARCH__:<name> placeholder."
             )
 
-        missing_keys = placeholders.difference(normalized_grid)
+        search_keys = set(normalized_space)
+        missing_keys = placeholders.difference(search_keys)
         if missing_keys:
             raise ValueError(
-                "parameter_grid is missing values for placeholders: "
+                "search space is missing values for placeholders: "
                 + ", ".join(sorted(missing_keys))
             )
 
-        unused_keys = set(normalized_grid).difference(placeholders)
+        unused_keys = search_keys.difference(placeholders)
         if unused_keys:
-            raise ValueError(
-                "parameter_grid includes unused keys: " + ", ".join(sorted(unused_keys))
-            )
+            raise ValueError("search space includes unused keys: " + ", ".join(sorted(unused_keys)))
 
         object.__setattr__(self, "parameter_grid", MappingProxyType(normalized_grid))
+        object.__setattr__(self, "parameter_space", MappingProxyType(normalized_space))
         object.__setattr__(self, "train_windows", tuple(self.train_windows))
         object.__setattr__(self, "holdout_windows", tuple(self.holdout_windows))
         artifact_root = Path(self.artifact_root).expanduser()
@@ -191,6 +240,34 @@ class _WindowEvaluation:
     terminated_early: bool
     status: str
     error: str | None = None
+
+
+def _validate_parameter_spec(name: str, spec: Any) -> ParameterSpec:
+    if not isinstance(spec, Mapping):
+        raise ValueError(f"parameter_space[{name!r}] must be a mapping, got {type(spec).__name__}.")
+    spec_type = spec.get("type")
+    if spec_type == "categorical":
+        choices = spec.get("choices")
+        if not choices:
+            raise ValueError(f"parameter_space[{name!r}] categorical needs non-empty 'choices'.")
+        return MappingProxyType({"type": "categorical", "choices": tuple(choices)})
+    if spec_type in ("int", "float"):
+        low = spec.get("low")
+        high = spec.get("high")
+        if low is None or high is None:
+            raise ValueError(f"parameter_space[{name!r}] {spec_type} needs 'low' and 'high'.")
+        if low >= high:
+            raise ValueError(f"parameter_space[{name!r}]: low must be < high.")
+        log = bool(spec.get("log", False))
+        step = spec.get("step")
+        payload: dict[str, Any] = {"type": spec_type, "low": low, "high": high, "log": log}
+        if step is not None:
+            payload["step"] = step
+        return MappingProxyType(payload)
+    raise ValueError(
+        f"parameter_space[{name!r}] has unsupported type {spec_type!r}; "
+        "expected 'categorical', 'int', or 'float'."
+    )
 
 
 def _collect_search_placeholders(value: Any) -> set[str]:
@@ -733,6 +810,7 @@ def _summary_payload(
     return {
         "name": summary.name,
         "optimizer_type": summary.optimizer_type,
+        "sampler": config.sampler,
         "objective_name": summary.objective_name,
         "generated_at": datetime.now(UTC).isoformat(),
         "candidate_pool_size": summary.candidate_pool_size,
@@ -804,25 +882,134 @@ def _print_top_candidates(
         )
 
 
-def run_parameter_search(
-    config: ParameterSearchConfig, *, evaluator: BacktestEvaluator | None = None
-) -> ParameterSearchSummary:
+def _evaluate_train_windows(
+    *,
+    config: ParameterSearchConfig,
+    evaluator: BacktestEvaluator | None,
+    trial_id: int,
+    params: ParameterValues,
+) -> tuple[_WindowEvaluation, ...]:
+    return tuple(
+        _evaluate_window(
+            config=config, evaluator=evaluator, trial_id=trial_id, params=params, window=window
+        )
+        for window in config.train_windows
+    )
+
+
+def _run_random_trials(
+    config: ParameterSearchConfig,
+    *,
+    evaluator: BacktestEvaluator | None,
+) -> tuple[
+    dict[int, tuple[_WindowEvaluation, ...]],
+    dict[int, ParameterSearchLeaderboardRow],
+    int,
+    int,
+]:
     candidate_pool = _parameter_candidates(config.parameter_grid)
     sampled_params = _sample_parameter_sets(config)
-
     train_evaluations_by_trial: dict[int, tuple[_WindowEvaluation, ...]] = {}
     train_rows: dict[int, ParameterSearchLeaderboardRow] = {}
     for trial_id, params in enumerate(sampled_params, start=1):
-        train_evaluations = tuple(
-            _evaluate_window(
-                config=config, evaluator=evaluator, trial_id=trial_id, params=params, window=window
-            )
-            for window in config.train_windows
+        train_evaluations = _evaluate_train_windows(
+            config=config, evaluator=evaluator, trial_id=trial_id, params=params
         )
         train_evaluations_by_trial[trial_id] = train_evaluations
         train_rows[trial_id] = _build_leaderboard_row(
             trial_id=trial_id, params=params, train_evaluations=train_evaluations
         )
+    return train_evaluations_by_trial, train_rows, len(candidate_pool), len(sampled_params)
+
+
+def _suggest_params_from_trial(
+    trial: Any, parameter_space: Mapping[str, ParameterSpec]
+) -> ParameterValues:
+    values: list[tuple[str, Any]] = []
+    for name, spec in parameter_space.items():
+        spec_type = spec["type"]
+        if spec_type == "categorical":
+            value = trial.suggest_categorical(name, list(spec["choices"]))
+        elif spec_type == "int":
+            value = trial.suggest_int(
+                name, int(spec["low"]), int(spec["high"]), log=bool(spec.get("log", False))
+            )
+        elif spec_type == "float":
+            step = spec.get("step")
+            if step is not None and not spec.get("log", False):
+                value = trial.suggest_float(
+                    name, float(spec["low"]), float(spec["high"]), step=float(step)
+                )
+            else:
+                value = trial.suggest_float(
+                    name,
+                    float(spec["low"]),
+                    float(spec["high"]),
+                    log=bool(spec.get("log", False)),
+                )
+        else:  # pragma: no cover - validated in __post_init__
+            raise ValueError(f"unsupported spec type {spec_type!r}")
+        values.append((name, value))
+    return tuple(values)
+
+
+def _run_tpe_trials(
+    config: ParameterSearchConfig,
+    *,
+    evaluator: BacktestEvaluator | None,
+) -> tuple[
+    dict[int, tuple[_WindowEvaluation, ...]],
+    dict[int, ParameterSearchLeaderboardRow],
+    int,
+    int,
+]:
+    try:
+        import optuna
+    except ImportError as exc:
+        raise RuntimeError(
+            "sampler='tpe' requires optuna. Install it with `uv pip install optuna`."
+        ) from exc
+
+    optuna.logging.set_verbosity(optuna.logging.WARNING)
+    sampler = optuna.samplers.TPESampler(seed=config.random_seed)
+    study = optuna.create_study(direction="maximize", sampler=sampler)
+
+    train_evaluations_by_trial: dict[int, tuple[_WindowEvaluation, ...]] = {}
+    train_rows: dict[int, ParameterSearchLeaderboardRow] = {}
+
+    for trial_id in range(1, config.max_trials + 1):
+        trial = study.ask()
+        params = _suggest_params_from_trial(trial, config.parameter_space)
+        train_evaluations = _evaluate_train_windows(
+            config=config, evaluator=evaluator, trial_id=trial_id, params=params
+        )
+        train_evaluations_by_trial[trial_id] = train_evaluations
+        row = _build_leaderboard_row(
+            trial_id=trial_id, params=params, train_evaluations=train_evaluations
+        )
+        train_rows[trial_id] = row
+        study.tell(trial, row.train_median_score)
+
+    return train_evaluations_by_trial, train_rows, config.max_trials, config.max_trials
+
+
+def run_parameter_search(
+    config: ParameterSearchConfig, *, evaluator: BacktestEvaluator | None = None
+) -> ParameterSearchSummary:
+    if config.sampler == SAMPLER_TPE:
+        (
+            train_evaluations_by_trial,
+            train_rows,
+            candidate_pool_size,
+            evaluated_trials,
+        ) = _run_tpe_trials(config, evaluator=evaluator)
+    else:
+        (
+            train_evaluations_by_trial,
+            train_rows,
+            candidate_pool_size,
+            evaluated_trials,
+        ) = _run_random_trials(config, evaluator=evaluator)
 
     rows_by_train = sorted(train_rows.values(), key=_train_row_sort_key)
     holdout_enabled = bool(config.holdout_windows)
@@ -858,8 +1045,8 @@ def run_parameter_search(
     summary = ParameterSearchSummary(
         name=config.name,
         objective_name="risk_adjusted_score",
-        candidate_pool_size=len(candidate_pool),
-        evaluated_trials=len(sampled_params),
+        candidate_pool_size=candidate_pool_size,
+        evaluated_trials=evaluated_trials,
         train_window_names=tuple(window.name for window in config.train_windows),
         holdout_window_names=tuple(window.name for window in config.holdout_windows),
         best_row=best_row,
@@ -876,10 +1063,17 @@ def run_parameter_search(
     )
 
     print()
-    print(
-        f"Parameter search complete for {config.name}: "
-        f"evaluated {summary.evaluated_trials} of {summary.candidate_pool_size} parameter combinations."
-    )
+    if config.sampler == SAMPLER_TPE:
+        print(
+            f"Parameter search complete for {config.name} "
+            f"(sampler=tpe): evaluated {summary.evaluated_trials} trials."
+        )
+    else:
+        print(
+            f"Parameter search complete for {config.name} "
+            f"(sampler=random): evaluated {summary.evaluated_trials} of "
+            f"{summary.candidate_pool_size} parameter combinations."
+        )
     print(
         "Selected params: "
         + json.dumps(_json_safe(_params_dict(summary.selected_params)), sort_keys=True)
