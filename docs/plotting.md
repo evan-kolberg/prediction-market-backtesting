@@ -102,6 +102,13 @@ downsampling the same data produces under 1 MB. The `test_downsample_html_size`
 test suite enforces that a 100 K-bar backtest stays under 5 MB and that
 doubling bar count does not meaningfully increase file size.
 
+When building summary series for multi-market reports, the artifact pipeline
+also downsamples price points to 5 000 before constructing dense equity curves.
+This avoids rebuilding full-resolution portfolio timelines (often 300K–600K
+points per market) that would be downsampled again in the chart layer anyway.
+This early downsampling reduces artifact build time from minutes to seconds on
+large baskets.
+
 Summary reports built by the aggregate and joint-portfolio report paths also
 skip serializing per-market price series, fill events, and overlay curves when
 the selected `SUMMARY_PLOT_PANELS` do not include panels that render them.
@@ -119,20 +126,25 @@ There are two distinct HTML/report modes in the repo layer:
 Typical public-runner combinations:
 
 - single-market runner:
-  `EMIT_HTML`, `CHART_OUTPUT_PATH`, and `DETAIL_PLOT_PANELS`
+  `EMIT_HTML=True`, `CHART_OUTPUT_PATH`, and `DETAIL_PLOT_PANELS`
 - joint-portfolio basket runner:
-  per-replay legacy charts plus `SUMMARY_REPORT_PATH` and
-  `multi_replay_mode="joint_portfolio"`
+  `EMIT_HTML=False` (no per-replay detail charts), summary-only via
+  `SUMMARY_REPORT_PATH` and `multi_replay_mode="joint_portfolio"`
 - independent basket runner:
-  per-replay legacy charts plus `SUMMARY_REPORT_PATH` and
-  `multi_replay_mode="independent"`
+  `EMIT_HTML=False` (no per-replay detail charts), summary-only via
+  `SUMMARY_REPORT_PATH` and `multi_replay_mode="independent"`
 
-This gives users two clean artifacts instead of one overloaded one:
+Multi-market runners default to `EMIT_HTML=False` because per-replay detail
+charts are expensive to generate and rarely needed when the summary report is
+the primary output. Set `EMIT_HTML=True` on a multi-market runner if you need
+per-replay drilldown charts.
 
-- detail charts stay rich and execution-focused for one replay
+This gives users a fast, focused artifact:
+
 - the basket summary stays readable because it is built from summary-series data
-- large baskets still keep drilldown, because each replay can keep its own
-  full-detail HTML artifact
+- single-market runners keep rich, execution-focused detail charts
+- if per-replay drilldown is needed on a multi-market runner, re-enable
+  `EMIT_HTML=True` for that run
 
 Important runtime details:
 
@@ -241,15 +253,12 @@ The clearest multi-market plotting runner files:
 - [`backtests/polymarket_quote_tick_independent_multi_replay_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/v2/backtests/polymarket_quote_tick_independent_multi_replay_runner.py)
 - [`backtests/polymarket_quote_tick_independent_25_replay_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/v2/backtests/polymarket_quote_tick_independent_25_replay_runner.py)
 
-Those runners now write one per-market legacy chart per replay and one basket
-summary chart under `output/`, typically with names like:
+Those runners now write one basket summary chart under `output/` (per-replay
+detail charts are off by default via `EMIT_HTML=False`):
 
-- `output/kalshi_trade_tick_joint_portfolio_runner_<market>_legacy.html`
-- `output/polymarket_trade_tick_independent_multi_replay_runner_<market>_legacy.html`
 - `output/kalshi_trade_tick_joint_portfolio_runner_joint_portfolio.html`
 - `output/polymarket_trade_tick_independent_multi_replay_runner_independent_aggregate.html`
 
-The PMXT basket example runners write per-replay detail charts plus one summary
-chart:
+The PMXT basket example runners write one summary chart:
 
 - `output/polymarket_quote_tick_joint_portfolio_runner_joint_portfolio.html`

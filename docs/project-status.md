@@ -19,6 +19,10 @@ No repo-level open issues are tracked here right now.
 
 ## Recently Fixed
 
+- [x] multi-market runners now default to `EMIT_HTML=False` and the artifact
+  pipeline downsamples price points to 5 000 before building dense equity
+  curves, cutting wall time from ~320s to ~26s on an 8-market basket
+  [PR#84](https://github.com/evan-kolberg/prediction-market-backtesting/pull/84)
 - [x] HTML chart files are now downsampled to ~5 000 points before Bokeh
   serialization, reducing a 446 K-bar chart from 31 MB to under 1 MB;
   redundant ColumnDataSource columns and intermediate DataFrames were also

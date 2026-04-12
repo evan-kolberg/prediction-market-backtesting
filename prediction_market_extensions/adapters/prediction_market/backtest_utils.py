@@ -136,9 +136,7 @@ def extract_price_points(
     return points
 
 
-def downsample_price_points(
-    points: list[PricePoint], max_points: int = 5000
-) -> list[PricePoint]:
+def downsample_price_points(points: list[PricePoint], max_points: int = 5000) -> list[PricePoint]:
     """Stride-based downsampling that preserves first, last, and price extrema."""
     n = len(points)
     if n <= max_points:
