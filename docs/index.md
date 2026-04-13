@@ -24,3 +24,9 @@ surface.
 - [Testing](testing.md)
 - [Project Status](project-status.md)
 - [License Notes](license.md)
+
+## Acknowledgements
+
+Thank you to everyone who has starred, forked, filed issues, and sent notes about this project — and to the friends, collaborators, and strangers-turned-advisors I talked to along the way. None of this would exist without you.
+
+![159 stars in a single day on the repo](assets/stars-159-in-one-day.png)
