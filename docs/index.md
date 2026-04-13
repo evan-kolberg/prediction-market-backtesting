@@ -25,8 +25,9 @@ surface.
 - [Project Status](project-status.md)
 - [License Notes](license.md)
 
-## Acknowledgements
+### Acknowledgements
 
-Thank you to everyone who has starred, forked, filed issues, and sent notes about this project — and to the friends, collaborators, and strangers-turned-advisors I talked to along the way. None of this would exist without you.
+I'd like to thank everybody who I talked to along the way, as well as everybody who has starred, forked, filed issues, and asked questions about this project. Being only 19, I started with very little knowledge about the inner workings of market on a microstructure level, and can now have a lot more experience in strategy research and optimization. This repository started when I wanted to test my friend's hypotheses, and serves as my attempt at an all-in-one backtesting solution for prectiction markets, with easy access to data and abstractions around a well-known backtesting framework. 
 
 ![159 stars in a single day on the repo](assets/stars-159-in-one-day.png)
+> 159 stars gained in a single day!
