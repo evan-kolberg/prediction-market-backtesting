@@ -148,7 +148,7 @@ def test_pmxt_joint_multi_runner_uses_fixed_windows(monkeypatch: pytest.MonkeyPa
     assert isinstance(strategy, QuoteTickVWAPReversionStrategy)
     assert isinstance(strategy.config, QuoteTickVWAPReversionConfig)
     assert module.DATA.sources == EXPECTED_PMXT_SOURCES
-    assert len(module.REPLAYS) == 8
+    assert len(module.REPLAYS) == 5
     assert module.DETAIL_PLOT_PANELS == EXPECTED_DETAIL_PLOT_PANELS
     assert module.SUMMARY_PLOT_PANELS == EXPECTED_MULTI_SIM_SUMMARY_PLOT_PANELS
     assert module.REPORT.summary_report is True
