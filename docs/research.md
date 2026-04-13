@@ -123,8 +123,4 @@ Notebook: `backtests/generic_tpe_research.ipynb`.
 
 The notebooks embed Bokeh chart HTML inline using an `<iframe srcdoc="...">` wrapper. Jupyter stores `text/html` outputs as text in the `.ipynb` JSON, and iframes execute scripts in `srcdoc` every time they attach to the DOM — so the chart renders immediately on notebook reopen without re-running any cells. Charts larger than 8 MB fall back to raw embedding with a warning.
 
-Example of an embedded Bokeh chart rendered from a persisted notebook output (joint-portfolio holdout replay):
-
-![Joint-portfolio holdout replay chart embedded from notebook output](assets/research-joint-portfolio-holdout.png)
-
 ![Notebook optimizer run completing in 67m 41.7s](assets/research-optimizer-67m41s.png)
