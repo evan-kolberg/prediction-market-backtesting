@@ -273,6 +273,13 @@ def _validate_parameter_spec(name: str, spec: Any) -> ParameterSpec:
             raise ValueError(f"parameter_space[{name!r}]: low must be < high.")
         log = bool(spec.get("log", False))
         step = spec.get("step")
+        if step is not None:
+            if log:
+                raise ValueError(
+                    f"parameter_space[{name!r}]: step is not supported with log sampling."
+                )
+            if step <= 0:
+                raise ValueError(f"parameter_space[{name!r}]: step must be positive.")
         payload: dict[str, Any] = {"type": spec_type, "low": low, "high": high, "log": log}
         if step is not None:
             payload["step"] = step
@@ -384,7 +391,7 @@ def _coerce_parameter_values(
     *, config: ParameterSearchConfig, params: ParameterValues | Mapping[str, Any]
 ) -> ParameterValues:
     if isinstance(params, Mapping):
-        return tuple((name, params[name]) for name in config.parameter_grid)
+        return tuple((name, params[name]) for name in config.parameter_space)
     return params
 
 
@@ -1030,9 +1037,13 @@ def _suggest_params_from_trial(
         if spec_type == "categorical":
             value = trial.suggest_categorical(name, list(spec["choices"]))
         elif spec_type == "int":
-            value = trial.suggest_int(
-                name, int(spec["low"]), int(spec["high"]), log=bool(spec.get("log", False))
-            )
+            step = spec.get("step")
+            if step is not None:
+                value = trial.suggest_int(name, int(spec["low"]), int(spec["high"]), step=int(step))
+            else:
+                value = trial.suggest_int(
+                    name, int(spec["low"]), int(spec["high"]), log=bool(spec.get("log", False))
+                )
         elif spec_type == "float":
             step = spec.get("step")
             if step is not None and not spec.get("log", False):

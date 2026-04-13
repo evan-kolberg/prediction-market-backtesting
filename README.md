@@ -37,7 +37,7 @@
 - Growing support for statistical optimizers
 - New aggregate charts
 - Massive improvements charting gen speed
-- Tree-structured Parzen Estimator via Optuna
+- an attempt at a Tree-structured Parzen Estimator via Optuna
 
 Looking for the old version? That was renamed to [Version 1](https://github.com/evan-kolberg/prediction-market-backtesting/tree/v1)
 
@@ -78,6 +78,7 @@ Detailed guides have been filed away in the [docs index](https://evan-kolberg.gi
     - [PMXT](https://evan-kolberg.github.io/prediction-market-backtesting/backtests/#pmxt)
 - [Research](https://evan-kolberg.github.io/prediction-market-backtesting/research/)
   - [Overview](https://evan-kolberg.github.io/prediction-market-backtesting/research/#overview)
+  - [Warm PMXT Cache Before Notebook Runs](https://evan-kolberg.github.io/prediction-market-backtesting/research/#warm-pmxt-cache-before-notebook-runs)
   - [Scoring](https://evan-kolberg.github.io/prediction-market-backtesting/research/#scoring)
   - [Joint-Portfolio Mode](https://evan-kolberg.github.io/prediction-market-backtesting/research/#joint-portfolio-mode)
   - [Samplers](https://evan-kolberg.github.io/prediction-market-backtesting/research/#samplers)

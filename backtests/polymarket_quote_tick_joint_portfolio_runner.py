@@ -70,62 +70,48 @@ DATA = MarketDataConfig(
     ),
 )
 
+# Long-dated example markets. PMXT quote-tick collection started in
+# late February 2026, so every replay uses 2026-03-01 → 2026-04-11 — ~6
+# weeks of quote history per market. Use this to time a single
+# joint-portfolio run end-to-end before scaling the TPE notebook trial count.
+_LONG_WINDOW_START = "2026-03-01T00:00:00Z"
+_LONG_WINDOW_END = "2026-04-11T23:59:59Z"
+
 REPLAYS = (
     QuoteReplay(
-        market_slug="will-openai-launch-a-new-consumer-hardware-product-by-march-31-2026",
+        market_slug="human-moon-landing-in-2026",
         token_index=0,
-        start_time="2026-03-23T00:00:00Z",
-        end_time="2026-03-24T23:59:59Z",
-        metadata={"sim_label": "openai-launch-mar-23-24"},
+        start_time=_LONG_WINDOW_START,
+        end_time=_LONG_WINDOW_END,
+        metadata={"sim_label": "moon-landing-2026"},
     ),
     QuoteReplay(
-        market_slug="will-ludvig-aberg-win-the-2026-masters-tournament",
+        market_slug="new-coronavirus-pandemic-in-2026",
         token_index=0,
-        start_time="2026-04-05T00:00:00Z",
-        end_time="2026-04-07T23:59:59Z",
-        metadata={"sim_label": "aberg-masters-full-window"},
+        start_time=_LONG_WINDOW_START,
+        end_time=_LONG_WINDOW_END,
+        metadata={"sim_label": "coronavirus-pandemic-2026"},
     ),
     QuoteReplay(
-        market_slug="will-the-tennessee-titans-draft-a-quarterback-in-the-first-round-of-the-2026-nfl-draft",
+        market_slug="will-openais-market-cap-be-between-750b-and-1t-at-market-close-on-ipo-day",
         token_index=0,
-        start_time="2026-04-06T00:00:00Z",
-        end_time="2026-04-07T23:59:59Z",
-        metadata={"sim_label": "titans-draft-two-day-window"},
+        start_time=_LONG_WINDOW_START,
+        end_time=_LONG_WINDOW_END,
+        metadata={"sim_label": "openai-ipo-market-cap-750b-1t"},
     ),
     QuoteReplay(
-        market_slug="will-fc-heidenheim-be-relegated-from-the-bundesliga-after-the-202526-season-382",
+        market_slug="okx-ipo-in-2026",
         token_index=0,
-        start_time="2026-04-07T12:00:00Z",
-        end_time="2026-04-07T23:59:59Z",
-        metadata={"sim_label": "heidenheim-late-session"},
+        start_time=_LONG_WINDOW_START,
+        end_time=_LONG_WINDOW_END,
+        metadata={"sim_label": "okx-ipo-2026"},
     ),
     QuoteReplay(
-        market_slug="will-the-south-african-reserve-bank-decrease-the-repo-rate-after-the-may-meeting",
+        market_slug="nothing-ever-happens-2026",
         token_index=0,
-        start_time="2026-04-06T12:00:00Z",
-        end_time="2026-04-07T23:59:59Z",
-        metadata={"sim_label": "sarb-rate-watch-window"},
-    ),
-    QuoteReplay(
-        market_slug="will-nana-araba-wilmot-win-top-chef-season-23",
-        token_index=0,
-        start_time="2026-04-06T06:00:00Z",
-        end_time="2026-04-07T18:00:00Z",
-        metadata={"sim_label": "top-chef-finale-runup"},
-    ),
-    QuoteReplay(
-        market_slug="will-drake-release-an-album-in-2026",
-        token_index=0,
-        start_time="2026-04-05T12:00:00Z",
-        end_time="2026-04-07T23:59:59Z",
-        metadata={"sim_label": "drake-weekend-window"},
-    ),
-    QuoteReplay(
-        market_slug="will-ethan-agarwal-get-the-first-or-second-most-votes-in-the-2026-california-governor-primary-election",
-        token_index=0,
-        start_time="2026-04-07T00:00:00Z",
-        end_time="2026-04-07T23:59:59Z",
-        metadata={"sim_label": "agarwal-election-day"},
+        start_time=_LONG_WINDOW_START,
+        end_time=_LONG_WINDOW_END,
+        metadata={"sim_label": "nothing-ever-happens-2026"},
     ),
 )
 

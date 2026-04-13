@@ -42,6 +42,8 @@ def _make_config(
     name: str = "optimizer_test",
     strategy_spec: dict[str, object] | None = None,
     parameter_grid: dict[str, tuple[object, ...]] | None = None,
+    parameter_space: dict[str, dict[str, object]] | None = None,
+    sampler: str = "random",
     train_windows: tuple[optimizer.ParameterSearchWindow, ...] | None = None,
     holdout_windows: tuple[optimizer.ParameterSearchWindow, ...] | None = None,
     max_trials: int = 3,
@@ -59,6 +61,7 @@ def _make_config(
         }
     )
     resolved_parameter_grid = parameter_grid if parameter_grid is not None else {"edge": (1, 2, 3)}
+    resolved_parameter_space = parameter_space if parameter_space is not None else {}
     resolved_train_windows = (
         train_windows
         if train_windows is not None
@@ -81,6 +84,8 @@ def _make_config(
         base_replay=QuoteReplay(market_slug="demo-market", token_index=0),
         strategy_spec=resolved_strategy_spec,
         parameter_grid=resolved_parameter_grid,
+        parameter_space=resolved_parameter_space,
+        sampler=sampler,
         train_windows=resolved_train_windows,
         holdout_windows=resolved_holdout_windows,
         max_trials=max_trials,
@@ -250,6 +255,78 @@ def test_build_optimization_window_backtest_supports_generic_holdout_replays(
     assert backtest.strategy_configs[0]["strategy_path"] == "strategies:DemoStrategy"
     assert backtest.strategy_configs[0]["config_path"] == "strategies:DemoConfig"
     assert backtest.strategy_configs[0]["config"]["edge"] == 2
+
+
+def test_build_parameter_search_window_backtest_accepts_mapping_params_for_tpe_space(
+    tmp_path: Path,
+) -> None:
+    config = _make_config(
+        tmp_path,
+        strategy_spec={
+            "strategy_path": "strategies:DemoStrategy",
+            "config_path": "strategies:DemoConfig",
+            "config": {"edge": "__SEARCH__:edge", "lookback": "__SEARCH__:lookback"},
+        },
+        parameter_grid={},
+        parameter_space={
+            "edge": {"type": "float", "low": 0.001, "high": 0.01, "log": True},
+            "lookback": {"type": "int", "low": 16, "high": 128},
+        },
+        sampler="tpe",
+    )
+
+    backtest = optimizer.build_parameter_search_window_backtest(
+        config=config,
+        window=config.train_windows[0],
+        params={"edge": 0.003, "lookback": 64},
+    )
+
+    assert backtest.strategy_configs[0]["config"] == {"edge": 0.003, "lookback": 64}
+
+
+def test_tpe_int_step_is_forwarded_to_optuna(tmp_path: Path) -> None:
+    config = _make_config(
+        tmp_path,
+        strategy_spec={
+            "strategy_path": "strategies:DemoStrategy",
+            "config_path": "strategies:DemoConfig",
+            "config": {"lookback": "__SEARCH__:lookback"},
+        },
+        parameter_grid={},
+        parameter_space={"lookback": {"type": "int", "low": 16, "high": 128, "step": 8}},
+        sampler="tpe",
+    )
+
+    class Trial:
+        kwargs: dict[str, object] | None = None
+
+        def suggest_int(self, name: str, low: int, high: int, **kwargs: object) -> int:
+            self.kwargs = {"name": name, "low": low, "high": high, **kwargs}
+            return 24
+
+    trial = Trial()
+
+    assert optimizer._suggest_params_from_trial(trial, config.parameter_space) == (
+        ("lookback", 24),
+    )
+    assert trial.kwargs == {"name": "lookback", "low": 16, "high": 128, "step": 8}
+
+
+def test_tpe_step_rejects_log_sampling(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="step is not supported with log sampling"):
+        _make_config(
+            tmp_path,
+            strategy_spec={
+                "strategy_path": "strategies:DemoStrategy",
+                "config_path": "strategies:DemoConfig",
+                "config": {"edge": "__SEARCH__:edge"},
+            },
+            parameter_grid={},
+            parameter_space={
+                "edge": {"type": "float", "low": 0.001, "high": 0.01, "log": True, "step": 0.001}
+            },
+            sampler="tpe",
+        )
 
 
 def test_optimizer_reruns_only_top_k_train_candidates_on_holdout_and_selects_by_holdout(

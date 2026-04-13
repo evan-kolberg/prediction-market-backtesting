@@ -308,7 +308,9 @@ Practical constraints:
 
 - `SUMMARY_REPORT_PATH` depends on summary-series data, so the experiment must
   opt into `return_summary_series=True`
-- `chart_output_path` templates may reference only `{name}` and `{market_id}`
+- `chart_output_path` templates may reference `{name}` and `{market_id}`; independent
+  multi-replay detail charts may also reference `{sim_label}` for stable per-replay
+  names
 - panel lists are ordered tuples of stable ids, so inclusion and layout order
   are explicit in the runner file
 - known-but-unavailable panels are skipped; unknown panel ids raise immediately

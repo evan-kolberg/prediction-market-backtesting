@@ -58,6 +58,9 @@ from prediction_market_extensions.analysis.legacy_backtesting.models import PANE
 from prediction_market_extensions.analysis.legacy_backtesting.models import PANEL_EQUITY
 from prediction_market_extensions.analysis.legacy_backtesting.models import PANEL_MARKET_PNL
 from prediction_market_extensions.analysis.legacy_backtesting.models import PANEL_ROLLING_SHARPE
+from prediction_market_extensions.analysis.legacy_backtesting.models import (
+    PANEL_TOTAL_BRIER_ADVANTAGE,
+)
 from prediction_market_extensions.analysis.legacy_backtesting.models import PANEL_YES_PRICE
 from prediction_market_extensions.analysis.legacy_backtesting.models import normalize_plot_panels
 from prediction_market_extensions.analysis.legacy_backtesting.models import PANEL_BRIER_ADVANTAGE
@@ -150,6 +153,83 @@ def _dense_account_series_from_engine_for_markets(
         equity.groupby(equity.index).last().sort_index(),
         cash.groupby(cash.index).last().sort_index(),
     )
+
+
+def _dense_market_account_series_from_fill_events(
+    *,
+    market_id: str,
+    market_prices: Sequence[tuple[datetime, float]],
+    fill_events: Sequence[dict[str, Any]],
+    initial_cash: float,
+) -> tuple[pd.Series, pd.Series]:
+    models_module, _ = legacy_plot_adapter._load_legacy_modules()
+    fills = _deserialize_fill_events(
+        market_id=market_id,
+        fill_events=fill_events,
+        models_module=models_module,
+    )
+    normalized_market_prices = legacy_plot_adapter._market_prices_with_fill_points(
+        {market_id: market_prices}, fills
+    )
+    dense_dt = legacy_plot_adapter._build_dense_timeline(fills, normalized_market_prices)
+    if len(dense_dt) == 0:
+        return pd.Series(dtype=float), pd.Series(dtype=float)
+
+    cash_changes = pd.Series(0.0, index=dense_dt, dtype=float)
+    for fill in fills:
+        fill_ts = pd.Timestamp(fill.timestamp).to_datetime64()
+        bar_idx = int(dense_dt.searchsorted(fill_ts, side="right") - 1)
+        bar_idx = max(0, min(len(dense_dt) - 1, bar_idx))
+        action = str(fill.action.value).lower()
+        gross = float(fill.price) * float(fill.quantity)
+        cash_delta = -gross if action == "buy" else gross
+        cash_delta -= float(fill.commission)
+        cash_changes.iloc[bar_idx] = float(cash_changes.iloc[bar_idx]) + cash_delta
+
+    cash = float(initial_cash) + cash_changes.cumsum()
+    if not fills:
+        index = pd.to_datetime(dense_dt, utc=True)
+        cash.index = index
+        return cash.copy(), cash
+
+    dense_dts = dense_dt.to_numpy(dtype="datetime64[ns]")
+    position_changes, fill_price_map = legacy_plot_adapter._replay_fill_position_deltas(
+        fills, dense_dts
+    )
+    if not position_changes:
+        index = pd.to_datetime(dense_dt, utc=True)
+        cash.index = index
+        return cash.copy(), cash
+
+    position_quantities = {market: changes.cumsum() for market, changes in position_changes.items()}
+    price_on_bar: dict[str, Any] = {}
+    market_last_ts: dict[str, Any] = {}
+    for position_market_id in position_quantities:
+        prices, last_ts = legacy_plot_adapter._aligned_market_prices(
+            market_id=position_market_id,
+            market_prices=normalized_market_prices,
+            dense_dts=dense_dts,
+            n_bars=len(dense_dt),
+            fallback_price=fill_price_map.get(position_market_id, 0.5),
+        )
+        price_on_bar[position_market_id] = prices
+        market_last_ts[position_market_id] = last_ts
+
+    legacy_plot_adapter._apply_resolution_cutoffs(
+        position_quantities,
+        position_changes,
+        market_last_ts,
+        dense_dts,
+    )
+    position_value, _ = legacy_plot_adapter._mark_to_market(position_quantities, price_on_bar)
+
+    equity = cash + pd.Series(position_value, index=dense_dt, dtype=float)
+    index = pd.to_datetime(dense_dt, utc=True)
+    equity.index = index
+    cash.index = index
+    return equity.groupby(equity.index).last().sort_index(), cash.groupby(
+        cash.index
+    ).last().sort_index()
 
 
 def _pairs_to_series(pairs: Sequence[tuple[str, float]] | Sequence[tuple[Any, float]]) -> pd.Series:
@@ -436,6 +516,72 @@ def _build_summary_brier_panel(
         )
     except TypeError:
         return build_panel_fn(brier_frames, axis_label=axis_label)
+
+
+def _build_total_summary_brier_frame(brier_frames: Mapping[str, pd.DataFrame]) -> pd.DataFrame:
+    frames: list[pd.DataFrame] = []
+    for frame in brier_frames.values():
+        if frame.empty or "brier_advantage" not in frame:
+            continue
+
+        normalized = frame[["brier_advantage"]].copy()
+        normalized.index = pd.to_datetime(normalized.index, utc=True, errors="coerce")
+        normalized = normalized[~normalized.index.isna()]
+        if not normalized.empty:
+            frames.append(normalized)
+
+    if not frames:
+        return pd.DataFrame()
+
+    combined = pd.concat(frames).sort_index()
+    combined = combined.groupby(combined.index)["brier_advantage"].sum().to_frame()
+    combined["cumulative_brier_advantage"] = combined["brier_advantage"].cumsum()
+    return combined
+
+
+def _build_summary_brier_extra_panels(
+    *,
+    results: Sequence[dict[str, Any]],
+    resolved_plot_panels: Sequence[str],
+    max_points_per_market: int,
+) -> dict[str, Any]:
+    extra_panels: dict[str, Any] = {}
+    if (
+        PANEL_BRIER_ADVANTAGE not in resolved_plot_panels
+        and PANEL_TOTAL_BRIER_ADVANTAGE not in resolved_plot_panels
+    ):
+        return extra_panels
+
+    brier_frames = _aggregate_brier_frames(results)
+    if brier_frames:
+        if PANEL_TOTAL_BRIER_ADVANTAGE in resolved_plot_panels:
+            total_frame = _build_total_summary_brier_frame(brier_frames)
+            panel = legacy_plot_adapter._build_total_brier_panel(total_frame)
+            if panel is not None:
+                extra_panels[PANEL_TOTAL_BRIER_ADVANTAGE] = panel
+        if PANEL_BRIER_ADVANTAGE in resolved_plot_panels:
+            panel = _build_summary_brier_panel(
+                brier_frames,
+                axis_label="Cumulative Brier Advantage",
+                max_points_per_market=max_points_per_market,
+            )
+            if panel is not None:
+                extra_panels[PANEL_BRIER_ADVANTAGE] = panel
+        return extra_panels
+
+    unavailable_reason = _aggregate_brier_unavailable_reason(results)
+    if unavailable_reason is None:
+        return extra_panels
+
+    if PANEL_TOTAL_BRIER_ADVANTAGE in resolved_plot_panels:
+        extra_panels[PANEL_TOTAL_BRIER_ADVANTAGE] = (
+            legacy_plot_adapter._build_brier_placeholder_panel(unavailable_reason)
+        )
+    if PANEL_BRIER_ADVANTAGE in resolved_plot_panels:
+        extra_panels[PANEL_BRIER_ADVANTAGE] = legacy_plot_adapter._build_brier_placeholder_panel(
+            unavailable_reason
+        )
+    return extra_panels
 
 
 def _apply_summary_layout_overrides(
@@ -891,23 +1037,11 @@ def save_aggregate_backtest_report(
 
     output_abs = Path(output_path).expanduser().resolve()
     output_abs.parent.mkdir(parents=True, exist_ok=True)
-    extra_panels: dict[str, Any] = {}
-    if PANEL_BRIER_ADVANTAGE in resolved_plot_panels:
-        brier_frames = _aggregate_brier_frames(results)
-        if brier_frames:
-            panel = _build_summary_brier_panel(
-                brier_frames,
-                axis_label="Cumulative Brier Advantage",
-                max_points_per_market=max_points_per_market,
-            )
-            if panel is not None:
-                extra_panels[PANEL_BRIER_ADVANTAGE] = panel
-        else:
-            unavailable_reason = _aggregate_brier_unavailable_reason(results)
-            if unavailable_reason is not None:
-                extra_panels[PANEL_BRIER_ADVANTAGE] = (
-                    legacy_plot_adapter._build_brier_placeholder_panel(unavailable_reason)
-                )
+    extra_panels = _build_summary_brier_extra_panels(
+        results=results,
+        resolved_plot_panels=resolved_plot_panels,
+        max_points_per_market=max_points_per_market,
+    )
     layout = plotting_module.plot(
         result,
         filename=str(output_abs),
@@ -952,9 +1086,12 @@ def save_joint_portfolio_backtest_report(
     )
     include_market_prices = _summary_panels_need_market_prices(resolved_plot_panels)
     include_fill_events = _summary_panels_need_fill_events(resolved_plot_panels)
+    include_overlay_series = _summary_panels_need_overlay_series(resolved_plot_panels)
 
     market_prices: dict[str, list[tuple[datetime, float]]] = {}
     fills: list[Any] = []
+    equity_series_by_market: dict[str, pd.Series] = {}
+    cash_series_by_market: dict[str, pd.Series] = {}
     active_ranges: dict[str, tuple[pd.Timestamp, pd.Timestamp]] = {}
     timeline_points: set[pd.Timestamp] = set()
 
@@ -976,6 +1113,20 @@ def save_joint_portfolio_backtest_report(
                 ]
             active_ranges[label] = (price_series.index[0], price_series.index[-1])
             timeline_points.update(price_series.index.to_list())
+
+        if include_overlay_series:
+            equity_series = _pairs_to_series(result.get("equity_series") or [])
+            cash_series = _pairs_to_series(result.get("cash_series") or [])
+            if not equity_series.empty:
+                equity_series_by_market[label] = equity_series.astype(float)
+                timeline_points.update(equity_series.index.to_list())
+                if label not in active_ranges:
+                    active_ranges[label] = (equity_series.index[0], equity_series.index[-1])
+            if not cash_series.empty:
+                cash_series_by_market[label] = cash_series.astype(float)
+                timeline_points.update(cash_series.index.to_list())
+                if label not in active_ranges:
+                    active_ranges[label] = (cash_series.index[0], cash_series.index[-1])
 
         if include_fill_events:
             fills.extend(
@@ -1025,6 +1176,50 @@ def save_joint_portfolio_backtest_report(
         active_mask = (timeline >= start) & (timeline <= end)
         active_count.loc[active_mask] = active_count.loc[active_mask] + 1
 
+    overlay_equity: dict[str, pd.Series] = {}
+    overlay_cash: dict[str, pd.Series] = {}
+    if include_overlay_series:
+        for label, (start, end) in active_ranges.items():
+            equity_series = equity_series_by_market.get(label, pd.Series(dtype=float))
+            cash_series = cash_series_by_market.get(label, pd.Series(dtype=float))
+            if equity_series.empty and cash_series.empty:
+                continue
+
+            if equity_series.empty:
+                start_equity = float(cash_series.iloc[0]) if not cash_series.empty else 0.0
+                end_equity = float(cash_series.iloc[-1]) if not cash_series.empty else start_equity
+                equity_series = pd.Series(
+                    [start_equity, end_equity],
+                    index=pd.DatetimeIndex([start, end]),
+                    dtype=float,
+                )
+            if cash_series.empty:
+                cash_series = pd.Series(
+                    [float(equity_series.iloc[0]), float(equity_series.iloc[-1])],
+                    index=pd.DatetimeIndex([start, end]),
+                    dtype=float,
+                )
+
+            full_equity = _align_series_to_timeline(
+                equity_series,
+                timeline,
+                before=float(equity_series.iloc[0]),
+                after=float(equity_series.iloc[-1]),
+            )
+            full_cash = _align_series_to_timeline(
+                cash_series,
+                timeline,
+                before=float(cash_series.iloc[0]),
+                after=float(cash_series.iloc[-1]),
+            )
+            active_mask = (timeline >= start) & (timeline <= end)
+            clipped_equity = full_equity.copy()
+            clipped_cash = full_cash.copy()
+            clipped_equity.loc[~active_mask] = float("nan")
+            clipped_cash.loc[~active_mask] = float("nan")
+            overlay_equity[label] = clipped_equity
+            overlay_cash[label] = clipped_cash
+
     initial_cash = float(aligned_equity.iloc[0])
     final_equity = float(aligned_equity.iloc[-1])
     equity_curve = [
@@ -1061,8 +1256,14 @@ def save_joint_portfolio_backtest_report(
         num_markets_traded=sum(1 for item in results if int(item.get("fills") or 0) > 0),
         num_markets_resolved=len(results),
         market_prices=market_prices if include_market_prices else {},
-        market_pnls={},
-        overlay_series={},
+        market_pnls={
+            str(item.get(market_key) or "unknown"): float(item.get("pnl") or 0.0)
+            for item in results
+        },
+        overlay_series=(
+            {"equity": overlay_equity, "cash": overlay_cash} if include_overlay_series else {}
+        ),
+        hide_primary_panel_series=bool(overlay_equity or overlay_cash),
         primary_series_name="Joint Portfolio",
         prepend_total_equity_panel=True,
         total_equity_panel_label="Joint Portfolio Equity",
@@ -1072,23 +1273,11 @@ def save_joint_portfolio_backtest_report(
 
     output_abs = Path(output_path).expanduser().resolve()
     output_abs.parent.mkdir(parents=True, exist_ok=True)
-    extra_panels: dict[str, Any] = {}
-    if PANEL_BRIER_ADVANTAGE in resolved_plot_panels:
-        brier_frames = _aggregate_brier_frames(results)
-        if brier_frames:
-            panel = _build_summary_brier_panel(
-                brier_frames,
-                axis_label="Cumulative Brier Advantage",
-                max_points_per_market=max_points_per_market,
-            )
-            if panel is not None:
-                extra_panels[PANEL_BRIER_ADVANTAGE] = panel
-        else:
-            unavailable_reason = _aggregate_brier_unavailable_reason(results)
-            if unavailable_reason is not None:
-                extra_panels[PANEL_BRIER_ADVANTAGE] = (
-                    legacy_plot_adapter._build_brier_placeholder_panel(unavailable_reason)
-                )
+    extra_panels = _build_summary_brier_extra_panels(
+        results=results,
+        resolved_plot_panels=resolved_plot_panels,
+        max_points_per_market=max_points_per_market,
+    )
     layout = plotting_module.plot(
         result,
         filename=str(output_abs),

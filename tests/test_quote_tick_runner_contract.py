@@ -162,7 +162,20 @@ def test_quote_tick_joint_runner_uses_explicit_summary_plot_contract() -> None:
     assert module.REPORT.summary_plot_panels == module.SUMMARY_PLOT_PANELS
     assert module.EXPERIMENT.return_summary_series is True
     assert module.EXPERIMENT.multi_replay_mode == "joint_portfolio"
-    assert len(module.REPLAYS) == 8
+    assert tuple(replay.market_slug for replay in module.REPLAYS) == (
+        "human-moon-landing-in-2026",
+        "new-coronavirus-pandemic-in-2026",
+        "will-openais-market-cap-be-between-750b-and-1t-at-market-close-on-ipo-day",
+        "okx-ipo-in-2026",
+        "nothing-ever-happens-2026",
+    )
+    assert len({str((replay.metadata or {}).get("sim_label")) for replay in module.REPLAYS}) == len(
+        module.REPLAYS
+    )
+    for replay in module.REPLAYS:
+        assert replay.token_index == 0
+        assert replay.start_time == module._LONG_WINDOW_START
+        assert replay.end_time == module._LONG_WINDOW_END
 
 
 def test_quote_tick_25_sim_runner_uses_explicit_summary_plot_contract() -> None:

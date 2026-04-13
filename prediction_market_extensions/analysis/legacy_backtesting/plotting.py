@@ -1150,88 +1150,14 @@ return this.labels[index] || "";
             )
         )
 
-        market_pnls = getattr(result, "market_pnls", {})
-
-        if market_pnls:
-            pnl_records = []
-            for mid, pnl_val in market_pnls.items():
-                if pnl_val == 0.0:
-                    continue
-                mkt_fills = (
-                    fills_df[fills_df["market_id"] == mid] if not fills_df.empty else pd.DataFrame()
-                )
-                if mkt_fills.empty:
-                    continue
-                pnl_records.append(
-                    {
-                        "bar": int(mkt_fills["bar"].iloc[-1]),
-                        "datetime": mkt_fills["datetime"].iloc[-1],
-                        "pnl": pnl_val,
-                        "market_id": mid,
-                    }
-                )
-            if pnl_records:
-                pnl_df = pd.DataFrame(pnl_records).sort_values("bar")
-
-                sz = np.abs(pnl_df["pnl"].values).astype(float)
-                if sz.max() > sz.min():
-                    sz = np.interp(sz, (sz.min(), sz.max()), (8, 20))
-                else:
-                    sz = np.full_like(sz, 12.0)
-                pnl_long = np.where(pnl_df["pnl"].values > 0, pnl_df["pnl"].values, np.nan)
-                pnl_short = np.where(pnl_df["pnl"].values <= 0, pnl_df["pnl"].values, np.nan)
-                positive = np.where(pnl_df["pnl"].values > 0, "1", "0")
-                pnl_src = ColumnDataSource(
-                    {
-                        "index": pnl_df["bar"].values,
-                        "datetime": pnl_df["datetime"].values,
-                        "pnl_long": pnl_long,
-                        "pnl_short": pnl_short,
-                        "positive": positive,
-                        "market_id": pnl_df["market_id"].values,
-                        "size_marker": sz,
-                    }
-                )
-                cmap = factor_cmap("positive", COLORS, ["0", "1"])
-                r1 = fig.scatter(
-                    "index",
-                    "pnl_long",
-                    source=pnl_src,
-                    fill_color=cmap,
-                    marker="triangle",
-                    line_color="black",
-                    size="size_marker",
-                )
-                r2 = fig.scatter(
-                    "index",
-                    "pnl_short",
-                    source=pnl_src,
-                    fill_color=cmap,
-                    marker="inverted_triangle",
-                    line_color="black",
-                    size="size_marker",
-                )
-                _set_tooltips(
-                    fig,
-                    [("Market", "@market_id"), ("P/L", "@pnl_long{+$0,0.00}")],
-                    vline=False,
-                    renderers=[r1],
-                )
-                _set_tooltips(
-                    fig,
-                    [("Market", "@market_id"), ("P/L", "@pnl_short{+$0,0.00}")],
-                    vline=False,
-                    renderers=[r2],
-                )
-
-        elif not fills_df.empty:
+        if not fills_df.empty:
             relevant_fills = (
                 fills_df[fills_df["market_id"].isin(display_markets)]
                 if display_markets
                 else fills_df
             )
             if relevant_fills.empty:
-                relevant_fills = fills_df.head(200)
+                relevant_fills = fills_df
             pnl_vals = np.where(
                 relevant_fills["action"] == "sell",
                 relevant_fills["price"] * relevant_fills["quantity"],

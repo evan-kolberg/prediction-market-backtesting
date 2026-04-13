@@ -15,6 +15,7 @@ surface.
 
 - [Setup](setup.md)
 - [Backtests And Runners](backtests.md)
+- [Research](research.md)
 - [Execution Modeling](execution-modeling.md)
 - [Data Vendors, Local Mirrors, And Raw PMXT](pmxt-byod.md)
 - [Mirror And Relay Ops](pmxt-relay.md)

@@ -114,7 +114,7 @@ class PredictionMarketArtifactBuilder:
         loaded_sims: Sequence[LoadedReplay],
         fills_report: pd.DataFrame,
     ) -> dict[str, dict[str, Any]]:
-        include_portfolio_series = len(loaded_sims) == 1
+        include_portfolio_series = self.return_summary_series
         return {
             loaded_sim.market_id: self._build_market_artifacts_for_loaded_sim(
                 engine=engine,
@@ -295,6 +295,9 @@ class PredictionMarketArtifactBuilder:
                 {loaded_sim.market_id: market_prices}, legacy_fills
             ).get(loaded_sim.market_id, market_prices)
         )
+        fill_events = prediction_market_research._serialize_fill_events(
+            market_id=loaded_sim.market_id, fills_report=fills_report
+        )
         series_artifacts: dict[str, Any] = {
             "price_series": prediction_market_research._series_to_iso_pairs(
                 prediction_market_research._pairs_to_series(market_prices_with_fills)
@@ -312,21 +315,29 @@ class PredictionMarketArtifactBuilder:
             "outcome_series": prediction_market_research._series_to_iso_pairs(outcomes)
             if not outcomes.empty
             else [],
-            "fill_events": prediction_market_research._serialize_fill_events(
-                market_id=loaded_sim.market_id, fills_report=fills_report
-            ),
+            "fill_events": fill_events,
         }
         if not include_portfolio_series:
             return series_artifacts
 
-        dense_equity_series, dense_cash_series = (
-            prediction_market_research._dense_account_series_from_engine(
-                engine=engine,
-                market_id=loaded_sim.market_id,
-                market_prices=market_prices,
-                initial_cash=self.initial_cash,
+        if self.sim_count == 1:
+            dense_equity_series, dense_cash_series = (
+                prediction_market_research._dense_account_series_from_engine(
+                    engine=engine,
+                    market_id=loaded_sim.market_id,
+                    market_prices=market_prices,
+                    initial_cash=self.initial_cash,
+                )
             )
-        )
+        else:
+            dense_equity_series, dense_cash_series = (
+                prediction_market_research._dense_market_account_series_from_fill_events(
+                    market_id=loaded_sim.market_id,
+                    market_prices=market_prices,
+                    fill_events=fill_events,
+                    initial_cash=self.initial_cash,
+                )
+            )
         pnl_series = (
             dense_equity_series - float(dense_equity_series.iloc[0])
             if not dense_equity_series.empty

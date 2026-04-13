@@ -190,7 +190,9 @@ If you want to override that, set:
 - `chart_output_path="output/{name}_{market_id}.html"` for an explicit template
 - `chart_output_path="/absolute/path/to/charts"` for a true absolute path
 
-Only `{name}` and `{market_id}` are valid template placeholders.
+Normal detail-chart templates may reference `{name}` and `{market_id}`.
+Independent multi-replay detail charts may also reference `{sim_label}` so
+repeated market slugs can still write distinct chart files.
 
 When a shared runner points at a single file path, it appends the market id
 before the suffix. The PMXT multi-sim helper also preserves unique per-sim
