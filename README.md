@@ -57,6 +57,7 @@ Detailed guides have been filed away in the [docs index](https://evan-kolberg.gi
 ## Table of Contents
 
 - [Docs Index](https://evan-kolberg.github.io/prediction-market-backtesting/)
+  - [Acknowledgements](https://evan-kolberg.github.io/prediction-market-backtesting/#acknowledgements)
 - [Setup](https://evan-kolberg.github.io/prediction-market-backtesting/setup/)
   - [Prerequisites](https://evan-kolberg.github.io/prediction-market-backtesting/setup/#prerequisites)
   - [Install](https://evan-kolberg.github.io/prediction-market-backtesting/setup/#install)

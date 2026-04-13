@@ -121,7 +121,8 @@ def test_root_readme_records_all_docs_and_subheaders() -> None:
                 continue
 
             anchor = _slugify(match.group("title"))
-            target = f"{README_DOCS_URL_PREFIX}{doc_path.stem}/#{anchor}"
+            stem_segment = "" if doc_path.stem == "index" else f"{doc_path.stem}/"
+            target = f"{README_DOCS_URL_PREFIX}{stem_segment}#{anchor}"
             assert target in readme_text, f"missing docs heading link in root README: {target}"
 
 
