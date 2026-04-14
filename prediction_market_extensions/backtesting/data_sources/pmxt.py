@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import os
 import time
+from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from contextlib import suppress
 from contextvars import ContextVar
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterator, Sequence
 from urllib.request import Request
 from urllib.request import urlopen
 
@@ -198,7 +198,7 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
         del hour
         # The active relay only serves raw hours, so runner code never attempts
         # any alternate relay data path here.
-        return None
+        return
 
     @classmethod
     def _resolve_source_priority(cls) -> tuple[str, ...]:

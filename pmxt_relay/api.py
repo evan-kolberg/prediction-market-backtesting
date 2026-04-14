@@ -141,8 +141,7 @@ def _disk_percent(path: Path) -> float:
 
 
 def _system_metrics_snapshot(config: RelayConfig) -> dict[str, float]:
-    global _SYSTEM_METRICS_CACHE
-    global _SYSTEM_METRICS_CACHE_AT
+    global _SYSTEM_METRICS_CACHE, _SYSTEM_METRICS_CACHE_AT
 
     now = time.monotonic()
     with _SYSTEM_METRICS_CACHE_LOCK:

@@ -92,8 +92,7 @@ def supported_market_data_keys() -> tuple[MarketDataKey, ...]:
 def build_single_market_replay(
     *, support: MarketDataSupport, field_values: dict[str, Any]
 ) -> ReplaySpec:
-    replay = support.adapter.build_single_market_replay(field_values=field_values)
-    return replay
+    return support.adapter.build_single_market_replay(field_values=field_values)
 
 
 __all__ = [

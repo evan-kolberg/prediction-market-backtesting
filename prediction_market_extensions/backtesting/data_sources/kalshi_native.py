@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
-from typing import Any, Iterator, Sequence
+from typing import Any
 
 import msgspec
 

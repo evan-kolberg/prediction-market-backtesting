@@ -258,7 +258,7 @@ def normalize_gamma_market_to_clob_format(gamma_market: dict[str, Any]) -> dict[
         }
         tokens.append(token_entry)
 
-    normalized = {
+    return {
         # Core identifiers
         "condition_id": gamma_market.get("conditionId"),
         "question_id": gamma_market.get("questionID"),
@@ -299,7 +299,6 @@ def normalize_gamma_market_to_clob_format(gamma_market: dict[str, Any]) -> dict[
         # Preserve original data for reference
         "_gamma_original": gamma_market,
     }
-    return normalized
 
 
 async def list_markets(

@@ -80,7 +80,7 @@ class PredictionMarketArtifactBuilder:
         result: dict[str, Any] = {
             loaded_sim.market_key: loaded_sim.market_id,
             loaded_sim.count_key: loaded_sim.count,
-            "fills": int(len(instrument_fills)),
+            "fills": len(instrument_fills),
             "pnl": float(pnl),
             "instrument_id": instrument_id,
             "outcome": loaded_sim.outcome,

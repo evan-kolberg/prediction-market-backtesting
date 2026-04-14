@@ -211,8 +211,7 @@ def _extract_account_report(engine: Any) -> pd.DataFrame:
         raise ValueError("Account report has no valid timestamps.")
 
     frame.index = frame.index.tz_convert("UTC").tz_localize(None)
-    frame = frame.groupby(frame.index).last().sort_index()
-    return frame
+    return frame.groupby(frame.index).last().sort_index()
 
 
 def _infer_market_side(models_module: Any, market_id: str) -> Any:
@@ -349,10 +348,8 @@ def _build_dense_timeline(
 ) -> pd.DatetimeIndex:
     timeline: set[datetime] = set()
     for points in market_prices.values():
-        for ts, _ in points:
-            timeline.add(ts)
-    for fill in fills:
-        timeline.add(fill.timestamp)
+        timeline.update(ts for ts, _ in points)
+    timeline.update(fill.timestamp for fill in fills)
     return pd.DatetimeIndex(sorted(timeline))
 
 
@@ -1044,8 +1041,7 @@ def _remove_yes_price_profitability_legend_items(fig: Any) -> set[Any]:
         for item in list(getattr(legend, "items", [])):
             lower = _legend_item_label_text(item).lower()
             if "profitable" in lower or "losing" in lower:
-                for renderer in getattr(item, "renderers", []):
-                    renderers_to_drop.add(renderer)
+                renderers_to_drop.update(getattr(item, "renderers", []))
                 continue
             kept_items.append(item)
         legend.items = kept_items

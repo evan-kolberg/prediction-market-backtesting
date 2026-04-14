@@ -21,7 +21,7 @@ Provides a data loader for historical Kalshi prediction market data.
 from __future__ import annotations
 
 import hashlib
-from typing import Any
+from typing import Any, ClassVar
 
 import msgspec
 import pandas as pd
@@ -68,9 +68,9 @@ class KalshiDataLoader:
         HTTP client to use for requests. If not provided, a new client is created.
     """
 
-    _INTERVAL_MAP: dict[str, int] = {"Minutes1": 1, "Hours1": 60, "Days1": 1440}
+    _INTERVAL_MAP: ClassVar[dict[str, int]] = {"Minutes1": 1, "Hours1": 60, "Days1": 1440}
 
-    _INTERVAL_TO_AGGREGATION: dict[str, BarAggregation] = {
+    _INTERVAL_TO_AGGREGATION: ClassVar[dict[str, BarAggregation]] = {
         "Minutes1": BarAggregation.MINUTE,
         "Hours1": BarAggregation.HOUR,
         "Days1": BarAggregation.DAY,

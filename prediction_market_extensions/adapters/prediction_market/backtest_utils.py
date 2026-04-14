@@ -162,7 +162,7 @@ def downsample_price_points(points: list[PricePoint], max_points: int = 5000) ->
         strided = set(range(0, n, stride))
         remaining = max_points - len(must_keep)
         stride2 = max(1, len(strided) // remaining) if remaining > 0 else n
-        selected = sorted(must_keep | set(list(sorted(strided))[::stride2]))
+        selected = sorted(must_keep | set(sorted(strided)[::stride2]))
 
     return [points[i] for i in selected]
 

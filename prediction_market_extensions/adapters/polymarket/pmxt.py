@@ -19,6 +19,7 @@ from contextlib import suppress
 from datetime import UTC
 from io import BytesIO
 from pathlib import Path
+from typing import ClassVar
 from urllib.parse import quote
 from urllib.request import Request
 from urllib.request import urlopen
@@ -85,8 +86,8 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
     """
 
     _PMXT_BASE_URL = "https://r2.pmxt.dev"
-    _PMXT_REMOTE_COLUMNS = ["market_id", "update_type", "data"]
-    _PMXT_COLUMNS = ["update_type", "data"]
+    _PMXT_REMOTE_COLUMNS: ClassVar[list[str]] = ["market_id", "update_type", "data"]
+    _PMXT_COLUMNS: ClassVar[list[str]] = ["update_type", "data"]
     _PMXT_CACHE_DIR_ENV = "PMXT_CACHE_DIR"
     _PMXT_DISABLE_CACHE_ENV = "PMXT_DISABLE_CACHE"
     _PMXT_LOCAL_ARCHIVE_DIR_ENV = "PMXT_LOCAL_ARCHIVE_DIR"

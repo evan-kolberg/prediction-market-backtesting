@@ -29,11 +29,11 @@ import re
 import subprocess
 import sys
 import time
-from functools import lru_cache
+from functools import cache
 from pathlib import Path
 from string import ascii_lowercase
 from string import ascii_uppercase
-from typing import Any
+from typing import Any, ClassVar
 
 from prediction_market_extensions import install_commission_patch
 
@@ -303,7 +303,7 @@ def _assign_shortcuts(backtests: list[dict[str, Any]]) -> dict[str, str | None]:
     return shortcuts
 
 
-@lru_cache(maxsize=None)
+@cache
 def _runner_file_preview(path: Path) -> str:
     try:
         return path.read_text(encoding="utf-8")
@@ -401,7 +401,7 @@ if TEXTUAL_AVAILABLE:
         }
         """
 
-        BINDINGS = [
+        BINDINGS: ClassVar[list[Binding]] = [
             Binding("q", "quit", "Quit"),
             Binding("slash", "focus_filter", "Filter", key_display="/"),
             Binding("escape", "dismiss_filter", "Back"),

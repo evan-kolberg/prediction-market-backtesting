@@ -416,7 +416,7 @@ def _downsample(
         must_list = sorted(must_keep)
         remaining_budget = max_points - len(must_list)
         stride2 = max(1, len(strided) // remaining_budget) if remaining_budget > 0 else n
-        thinned_strided = set(list(sorted(strided))[::stride2])
+        thinned_strided = set(sorted(strided)[::stride2])
         selected = sorted(must_keep | thinned_strided)
 
     idx_arr = np.array(selected)
@@ -591,8 +591,7 @@ def _build_allocation_data(
     if other_ids:
         col_data["Other"] = np.sum([pos_values[m] for m in other_ids], axis=0)
     col_data["Cash"] = np.maximum(eq["cash"].values, 0.0)
-    alloc = pd.DataFrame(col_data, index=eq.index)
-    return alloc
+    return pd.DataFrame(col_data, index=eq.index)
 
 
 # ---------------------------------------------------------------------------

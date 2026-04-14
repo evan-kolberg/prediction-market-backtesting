@@ -4,6 +4,7 @@ import logging
 import os
 import shutil
 import time
+from contextlib import suppress
 from datetime import UTC
 from datetime import datetime
 from datetime import timedelta
@@ -70,10 +71,8 @@ class RelayWorker:
         self.close()
 
     def __del__(self) -> None:
-        try:
+        with suppress(Exception):
             self.close()
-        except Exception:
-            pass
 
     def run_forever(self) -> None:
         try:
