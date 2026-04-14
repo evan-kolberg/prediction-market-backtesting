@@ -1,22 +1,23 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
-from typing import Any, Iterator, Sequence
+from typing import Any
 
 import msgspec
 
 from prediction_market_extensions.adapters.kalshi.loaders import KalshiDataLoader
 from prediction_market_extensions.adapters.kalshi.providers import market_dict_to_instrument
-
-from prediction_market_extensions.backtesting.data_sources._common import env_value
-from prediction_market_extensions.backtesting.data_sources._common import is_disabled
-from prediction_market_extensions.backtesting.data_sources._common import looks_like_local_path
-from prediction_market_extensions.backtesting.data_sources._common import normalize_urlish
-from prediction_market_extensions.backtesting.data_sources._common import trim_url_suffix
-
+from prediction_market_extensions.backtesting.data_sources._common import (
+    env_value,
+    is_disabled,
+    looks_like_local_path,
+    normalize_urlish,
+    trim_url_suffix,
+)
 
 KALSHI_REST_BASE_URL_ENV = "KALSHI_REST_BASE_URL"
 _KALSHI_REST_SUFFIXES = ("/markets/trades", "/markets", "/events", "/series")

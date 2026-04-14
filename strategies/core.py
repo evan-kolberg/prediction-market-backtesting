@@ -18,15 +18,12 @@
 
 from __future__ import annotations
 
-from decimal import Decimal
-from decimal import InvalidOperation
+from decimal import Decimal, InvalidOperation
 from typing import Protocol
 
-from nautilus_trader.model.enums import OrderSide
-from nautilus_trader.model.enums import TimeInForce
+from nautilus_trader.model.enums import OrderSide, TimeInForce
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.trading.strategy import Strategy
-
 
 ENTRY_AFFORDABILITY_BUFFER = Decimal("0.97")
 
@@ -46,8 +43,8 @@ def _decimal_or_none(value: object) -> Decimal | None:
 
 
 def _estimate_entry_unit_cost(*, reference_price: Decimal, taker_fee: Decimal) -> Decimal:
-    clamped_price = min(max(reference_price, Decimal("0")), Decimal("1"))
-    return clamped_price + (taker_fee * clamped_price * (Decimal("1") - clamped_price))
+    clamped_price = min(max(reference_price, Decimal(0)), Decimal(1))
+    return clamped_price + (taker_fee * clamped_price * (Decimal(1) - clamped_price))
 
 
 def _cap_entry_size_to_free_balance(
@@ -58,12 +55,12 @@ def _cap_entry_size_to_free_balance(
     free_balance: Decimal | None,
 ) -> Decimal:
     if desired_size <= 0:
-        return Decimal("0")
+        return Decimal(0)
     if reference_price is None or reference_price <= 0 or free_balance is None:
         return desired_size
 
     unit_cost = _estimate_entry_unit_cost(
-        reference_price=reference_price, taker_fee=max(taker_fee, Decimal("0"))
+        reference_price=reference_price, taker_fee=max(taker_fee, Decimal(0))
     )
     if unit_cost <= 0:
         return desired_size
@@ -71,18 +68,18 @@ def _cap_entry_size_to_free_balance(
     # Leave a small cash buffer so marketable entries do not spend exactly to
     # the displayed top-of-book estimate on thin books.
     affordable_size = (free_balance * ENTRY_AFFORDABILITY_BUFFER) / unit_cost
-    return max(Decimal("0"), min(desired_size, affordable_size))
+    return max(Decimal(0), min(desired_size, affordable_size))
 
 
 def _cap_entry_size_to_visible_liquidity(
     *, desired_size: Decimal, visible_size: Decimal | None
 ) -> Decimal:
     if desired_size <= 0:
-        return Decimal("0")
+        return Decimal(0)
     if visible_size is None:
         return desired_size
     if visible_size <= 0:
-        return Decimal("0")
+        return Decimal(0)
     return min(desired_size, visible_size)
 
 
@@ -96,7 +93,7 @@ def _effective_entry_reference_price(
     # binary prediction market. Size against that worst-case cash usage rather
     # than the last print to avoid manufacturing affordable size from stale
     # trade-only signals.
-    return Decimal("1")
+    return Decimal(1)
 
 
 class LongOnlyPredictionMarketStrategy(Strategy):
@@ -151,7 +148,7 @@ class LongOnlyPredictionMarketStrategy(Strategy):
             reference_price=_effective_entry_reference_price(
                 reference_price=_decimal_or_none(reference_price), visible_size=visible_size_decimal
             ),
-            taker_fee=_decimal_or_none(self._instrument.taker_fee) or Decimal("0"),
+            taker_fee=_decimal_or_none(self._instrument.taker_fee) or Decimal(0),
             free_balance=self._free_quote_balance(),
         )
         if capped_size <= 0:

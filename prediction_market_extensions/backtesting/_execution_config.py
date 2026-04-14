@@ -5,7 +5,6 @@ from math import isfinite
 
 from nautilus_trader.backtest.models import LatencyModel
 
-
 _NANOS_PER_MILLISECOND = 1_000_000
 
 

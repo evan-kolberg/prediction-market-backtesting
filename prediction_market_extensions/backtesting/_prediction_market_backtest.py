@@ -1,44 +1,45 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
-from collections.abc import Mapping
-from collections.abc import Sequence
+from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
-
-from prediction_market_extensions.adapters.prediction_market import LoadedReplay
-from prediction_market_extensions.adapters.prediction_market import ReplayCoverageStats
-from prediction_market_extensions.adapters.prediction_market import ReplayLoadRequest
-from prediction_market_extensions.adapters.prediction_market import ReplayWindow
-from prediction_market_extensions.adapters.prediction_market.fill_model import (
-    PredictionMarketTakerFillModel,
-)
 from nautilus_trader.backtest.config import BacktestEngineConfig
 from nautilus_trader.backtest.engine import BacktestEngine
 from nautilus_trader.common.component import is_backtest_force_stop
 from nautilus_trader.config import LoggingConfig
 from nautilus_trader.config import StrategyFactory as NautilusStrategyFactory
 from nautilus_trader.model.data import QuoteTick
-from nautilus_trader.model.identifiers import InstrumentId
-from nautilus_trader.model.identifiers import TraderId
+from nautilus_trader.model.identifiers import InstrumentId, TraderId
 from nautilus_trader.model.objects import Money
 from nautilus_trader.risk.config import RiskEngineConfig
 from nautilus_trader.trading.strategy import Strategy
 
+from prediction_market_extensions.adapters.prediction_market import (
+    LoadedReplay,
+    ReplayCoverageStats,
+    ReplayLoadRequest,
+    ReplayWindow,
+)
+from prediction_market_extensions.adapters.prediction_market.fill_model import (
+    PredictionMarketTakerFillModel,
+)
+from prediction_market_extensions.analysis.legacy_plot_adapter import DEFAULT_DETAIL_PLOT_PANELS
 from prediction_market_extensions.backtesting._backtest_runtime import build_backtest_run_state
 from prediction_market_extensions.backtesting._execution_config import ExecutionModelConfig
 from prediction_market_extensions.backtesting._market_data_config import MarketDataConfig
-from prediction_market_extensions.backtesting._replay_specs import MarketSimConfig
-from prediction_market_extensions.backtesting._replay_specs import ReplaySpec
-from prediction_market_extensions.backtesting._replay_specs import coerce_legacy_market_sim_config
+from prediction_market_extensions.backtesting._replay_specs import (
+    MarketSimConfig,
+    ReplaySpec,
+    coerce_legacy_market_sim_config,
+)
 from prediction_market_extensions.backtesting._strategy_configs import (
+    StrategyConfigSpec,
     build_importable_strategy_configs,
 )
-from prediction_market_extensions.backtesting._strategy_configs import StrategyConfigSpec
 from prediction_market_extensions.backtesting.data_sources.kalshi_native import (
     RunnerKalshiDataLoader,
 )
@@ -50,13 +51,11 @@ from prediction_market_extensions.backtesting.data_sources.polymarket_native imp
 )
 from prediction_market_extensions.backtesting.data_sources.registry import resolve_replay_adapter
 from prediction_market_extensions.backtesting.prediction_market import (
+    MarketReportConfig,
     PredictionMarketArtifactBuilder,
+    finalize_market_results,
+    run_reported_backtest,
 )
-from prediction_market_extensions.backtesting.prediction_market import MarketReportConfig
-from prediction_market_extensions.backtesting.prediction_market import finalize_market_results
-from prediction_market_extensions.backtesting.prediction_market import run_reported_backtest
-from prediction_market_extensions.analysis.legacy_plot_adapter import DEFAULT_DETAIL_PLOT_PANELS
-
 
 KalshiDataLoader = RunnerKalshiDataLoader
 PolymarketDataLoader = RunnerPolymarketDataLoader

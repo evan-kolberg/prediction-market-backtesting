@@ -2,25 +2,23 @@ from __future__ import annotations
 
 import os
 import time
-from contextlib import contextmanager
-from contextlib import suppress
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager, suppress
 from contextvars import ContextVar
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterator, Sequence
-from urllib.request import Request
-from urllib.request import urlopen
+from urllib.request import Request, urlopen
 
-import pyarrow.dataset as ds
 import pyarrow as pa
+import pyarrow.dataset as ds
 
 from prediction_market_extensions.adapters.polymarket.pmxt import PolymarketPMXTDataLoader
-
-from prediction_market_extensions.backtesting.data_sources._common import DISABLED_ENV_VALUES
-from prediction_market_extensions.backtesting.data_sources._common import env_value
-from prediction_market_extensions.backtesting.data_sources._common import normalize_local_path
-from prediction_market_extensions.backtesting.data_sources._common import normalize_urlish
-
+from prediction_market_extensions.backtesting.data_sources._common import (
+    DISABLED_ENV_VALUES,
+    env_value,
+    normalize_local_path,
+    normalize_urlish,
+)
 
 PMXT_DATA_SOURCE_ENV = "PMXT_DATA_SOURCE"
 PMXT_LOCAL_RAWS_DIR_ENV = "PMXT_LOCAL_RAWS_DIR"
@@ -198,7 +196,6 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
         del hour
         # The active relay only serves raw hours, so runner code never attempts
         # any alternate relay data path here.
-        return None
 
     @classmethod
     def _resolve_source_priority(cls) -> tuple[str, ...]:
@@ -329,7 +326,7 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
         with (
             urlopen(request, timeout=_PMXT_RUNNER_HTTP_TIMEOUT_SECS) as response,
             destination.open("wb") as handle,
-        ):  # noqa: S310
+        ):
             total_bytes = self._content_length_from_response(response)
             downloaded_bytes = 0
             last_emit = 0.0
@@ -378,7 +375,7 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
 
     def _download_payload_with_progress(self, url: str) -> bytes | None:
         request = Request(url, headers={"User-Agent": _PMXT_RUNNER_HTTP_USER_AGENT})
-        with urlopen(request, timeout=_PMXT_RUNNER_HTTP_TIMEOUT_SECS) as response:  # noqa: S310
+        with urlopen(request, timeout=_PMXT_RUNNER_HTTP_TIMEOUT_SECS) as response:
             total_bytes = self._content_length_from_response(response)
             downloaded_bytes = 0
             last_emit = 0.0
@@ -433,7 +430,7 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
                 source, method="HEAD", headers={"User-Agent": _PMXT_RUNNER_HTTP_USER_AGENT}
             )
             try:
-                with urlopen(request, timeout=_PMXT_RUNNER_HTTP_TIMEOUT_SECS) as response:  # noqa: S310
+                with urlopen(request, timeout=_PMXT_RUNNER_HTTP_TIMEOUT_SECS) as response:
                     total_bytes = self._content_length_from_response(response)
             except Exception:
                 total_bytes = None

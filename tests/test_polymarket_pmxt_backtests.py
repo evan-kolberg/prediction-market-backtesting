@@ -3,17 +3,16 @@ from __future__ import annotations
 import importlib
 
 import pytest
+from nautilus_trader.model.identifiers import InstrumentId, Symbol, Venue
 
 from prediction_market_extensions.backtesting._replay_specs import QuoteReplay
 from prediction_market_extensions.backtesting._strategy_configs import build_strategies_from_configs
-from nautilus_trader.model.identifiers import InstrumentId
-from nautilus_trader.model.identifiers import Symbol
-from nautilus_trader.model.identifiers import Venue
-from strategies import QuoteTickEMACrossoverConfig
-from strategies import QuoteTickEMACrossoverStrategy
-from strategies import QuoteTickVWAPReversionConfig
-from strategies import QuoteTickVWAPReversionStrategy
-
+from strategies import (
+    QuoteTickEMACrossoverConfig,
+    QuoteTickEMACrossoverStrategy,
+    QuoteTickVWAPReversionConfig,
+    QuoteTickVWAPReversionStrategy,
+)
 
 INSTRUMENT_ID = InstrumentId(Symbol("PM-TEST-YES"), Venue("POLYMARKET"))
 EXPECTED_PMXT_SOURCES = (

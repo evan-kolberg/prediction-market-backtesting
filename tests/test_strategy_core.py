@@ -1,14 +1,11 @@
 from __future__ import annotations
 
-from decimal import Decimal
-from decimal import ROUND_DOWN
+from decimal import ROUND_DOWN, Decimal
+
+from nautilus_trader.model.identifiers import InstrumentId, Symbol, Venue
 
 from strategies import QuoteTickVWAPReversionConfig
 from strategies.core import LongOnlyPredictionMarketStrategy
-from nautilus_trader.model.identifiers import InstrumentId
-from nautilus_trader.model.identifiers import Symbol
-from nautilus_trader.model.identifiers import Venue
-
 
 INSTRUMENT_ID = InstrumentId(Symbol("PM-TEST-YES"), Venue("POLYMARKET"))
 
@@ -24,7 +21,7 @@ class _FakeQuantity:
 class _FakeInstrument:
     def __init__(self, *, min_quantity: Decimal | None) -> None:
         self.quote_currency = "USDC.e"
-        self.taker_fee = Decimal("0")
+        self.taker_fee = Decimal(0)
         self.lot_size = None
         self.min_quantity = None if min_quantity is None else _FakeQuantity(min_quantity)
 
@@ -54,10 +51,10 @@ class _EntryQuantityHarness(LongOnlyPredictionMarketStrategy):
 
 def test_entry_quantity_skips_clipped_size_below_min_quantity() -> None:
     strategy = _EntryQuantityHarness(
-        trade_size=Decimal("25"),
+        trade_size=Decimal(25),
         free_balance=Decimal("0.35"),
         min_quantity=Decimal(
-            "5",
+            5,
         ),
     )
 
@@ -68,7 +65,7 @@ def test_entry_quantity_skips_clipped_size_below_min_quantity() -> None:
 
 def test_entry_quantity_keeps_clipped_size_when_no_min_quantity_exists() -> None:
     strategy = _EntryQuantityHarness(
-        trade_size=Decimal("25"), free_balance=Decimal("0.35"), min_quantity=None
+        trade_size=Decimal(25), free_balance=Decimal("0.35"), min_quantity=None
     )
 
     quantity = strategy._entry_quantity(reference_price=0.074, visible_size=100.0)
@@ -79,10 +76,10 @@ def test_entry_quantity_keeps_clipped_size_when_no_min_quantity_exists() -> None
 
 def test_entry_quantity_leaves_cash_headroom_before_min_quantity_boundary() -> None:
     strategy = _EntryQuantityHarness(
-        trade_size=Decimal("5"),
-        free_balance=Decimal("1"),
+        trade_size=Decimal(5),
+        free_balance=Decimal(1),
         min_quantity=Decimal(
-            "5",
+            5,
         ),
     )
 

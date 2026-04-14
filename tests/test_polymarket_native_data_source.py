@@ -5,17 +5,9 @@ import os
 
 from prediction_market_extensions.backtesting.data_sources.polymarket_native import (
     POLYMARKET_CLOB_BASE_URL_ENV,
-)
-from prediction_market_extensions.backtesting.data_sources.polymarket_native import (
     POLYMARKET_GAMMA_BASE_URL_ENV,
-)
-from prediction_market_extensions.backtesting.data_sources.polymarket_native import (
     POLYMARKET_TRADE_API_BASE_URL_ENV,
-)
-from prediction_market_extensions.backtesting.data_sources.polymarket_native import (
     RunnerPolymarketDataLoader,
-)
-from prediction_market_extensions.backtesting.data_sources.polymarket_native import (
     configured_polymarket_native_data_source,
 )
 

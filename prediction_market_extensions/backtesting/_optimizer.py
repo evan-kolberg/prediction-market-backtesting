@@ -7,22 +7,15 @@ import multiprocessing
 import pickle
 import tempfile
 import traceback
-from collections.abc import Callable
-from collections.abc import Mapping
-from collections.abc import Sequence
-from dataclasses import dataclass
-from dataclasses import field
-from dataclasses import replace
-from datetime import UTC
-from datetime import datetime
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass, field, replace
+from datetime import UTC, datetime
 from itertools import product
 from pathlib import Path
 from random import Random
 from statistics import median
 from types import MappingProxyType
-from typing import Any
-from typing import Literal
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Literal
 
 from prediction_market_extensions.backtesting._execution_config import ExecutionModelConfig
 from prediction_market_extensions.backtesting._market_data_config import MarketDataConfig
@@ -690,7 +683,7 @@ def _evaluate_window(
                 )
             )
         results = _coerce_results(raw_results)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return _WindowEvaluation(
             window_name=window.name,
             score=config.invalid_score,
@@ -828,7 +821,7 @@ def _final_row_sort_key(row: ParameterSearchLeaderboardRow) -> tuple[int, float,
 
 
 def _params_dict(params: ParameterValues) -> dict[str, Any]:
-    return {name: value for name, value in params}
+    return dict(params)
 
 
 def _json_safe(value: Any) -> Any:
@@ -1196,6 +1189,7 @@ def run_parameter_search(
 
 __all__ = [
     "OPTIMIZER_TYPE_PARAMETER_SEARCH",
+    "SEARCH_PLACEHOLDER_PREFIX",
     "OptimizationConfig",
     "OptimizationLeaderboardRow",
     "OptimizationSummary",
@@ -1204,7 +1198,6 @@ __all__ = [
     "ParameterSearchLeaderboardRow",
     "ParameterSearchSummary",
     "ParameterSearchWindow",
-    "SEARCH_PLACEHOLDER_PREFIX",
     "build_optimization_window_backtest",
     "build_parameter_search_window_backtest",
     "run_parameter_optimization",

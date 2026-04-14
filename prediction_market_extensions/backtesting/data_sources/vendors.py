@@ -21,4 +21,4 @@ Native = NATIVE_VENDOR
 PMXT = PMXT_VENDOR
 
 
-__all__ = ["MarketDataVendor", "Native", "NATIVE_VENDOR", "PMXT", "PMXT_VENDOR"]
+__all__ = ["NATIVE_VENDOR", "PMXT", "PMXT_VENDOR", "MarketDataVendor", "Native"]

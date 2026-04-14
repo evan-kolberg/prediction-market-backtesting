@@ -10,18 +10,15 @@ import re
 import shutil
 import tempfile
 import time
-from collections.abc import Callable
-from collections.abc import Iterator
-from concurrent.futures import Future
-from concurrent.futures import ThreadPoolExecutor
-from contextlib import contextmanager
-from contextlib import suppress
+from collections.abc import Callable, Iterator
+from concurrent.futures import Future, ThreadPoolExecutor
+from contextlib import contextmanager, suppress
 from datetime import UTC
 from io import BytesIO
 from pathlib import Path
+from typing import ClassVar
 from urllib.parse import quote
-from urllib.request import Request
-from urllib.request import urlopen
+from urllib.request import Request, urlopen
 
 import fsspec
 import msgspec
@@ -31,16 +28,16 @@ import pyarrow.compute as pc
 import pyarrow.dataset as ds
 import pyarrow.fs as pafs
 import pyarrow.parquet as pq
-
 from nautilus_trader.adapters.polymarket.common.enums import PolymarketOrderSide
 from nautilus_trader.adapters.polymarket.loaders import PolymarketDataLoader
-from nautilus_trader.adapters.polymarket.schemas.book import PolymarketBookLevel
-from nautilus_trader.adapters.polymarket.schemas.book import PolymarketBookSnapshot
-from nautilus_trader.adapters.polymarket.schemas.book import PolymarketQuote
-from nautilus_trader.adapters.polymarket.schemas.book import PolymarketQuotes
+from nautilus_trader.adapters.polymarket.schemas.book import (
+    PolymarketBookLevel,
+    PolymarketBookSnapshot,
+    PolymarketQuote,
+    PolymarketQuotes,
+)
 from nautilus_trader.model.book import OrderBook
-from nautilus_trader.model.data import OrderBookDeltas
-from nautilus_trader.model.data import QuoteTick
+from nautilus_trader.model.data import OrderBookDeltas, QuoteTick
 from nautilus_trader.model.enums import BookType
 
 
@@ -85,8 +82,8 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
     """
 
     _PMXT_BASE_URL = "https://r2.pmxt.dev"
-    _PMXT_REMOTE_COLUMNS = ["market_id", "update_type", "data"]
-    _PMXT_COLUMNS = ["update_type", "data"]
+    _PMXT_REMOTE_COLUMNS: ClassVar[list[str]] = ["market_id", "update_type", "data"]
+    _PMXT_COLUMNS: ClassVar[list[str]] = ["update_type", "data"]
     _PMXT_CACHE_DIR_ENV = "PMXT_CACHE_DIR"
     _PMXT_DISABLE_CACHE_ENV = "PMXT_DISABLE_CACHE"
     _PMXT_LOCAL_ARCHIVE_DIR_ENV = "PMXT_LOCAL_ARCHIVE_DIR"
@@ -705,7 +702,7 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
         total_bytes: int | None = None
         if "://" in source:
             try:
-                with urlopen(Request(source, method="HEAD")) as response:  # noqa: S310
+                with urlopen(Request(source, method="HEAD")) as response:
                     total_bytes = self._content_length_from_response(response)
             except Exception:
                 total_bytes = None
@@ -720,7 +717,7 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
 
     def _download_to_file_with_progress(self, url: str, destination: Path) -> int | None:
         destination.parent.mkdir(parents=True, exist_ok=True)
-        with urlopen(url) as response, destination.open("wb") as handle:  # noqa: S310
+        with urlopen(url) as response, destination.open("wb") as handle:
             total_bytes = self._content_length_from_response(response)
             downloaded_bytes = 0
             last_emit = 0.0
@@ -768,7 +765,7 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
         return total_bytes
 
     def _download_payload_with_progress(self, url: str) -> bytes | None:
-        with urlopen(url) as response:  # noqa: S310
+        with urlopen(url) as response:
             total_bytes = self._content_length_from_response(response)
             downloaded_bytes = 0
             last_emit = 0.0

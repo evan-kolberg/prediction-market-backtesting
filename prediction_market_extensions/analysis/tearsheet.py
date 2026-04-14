@@ -28,18 +28,14 @@ from __future__ import annotations
 import numbers
 from collections.abc import Callable
 from difflib import get_close_matches
-from typing import TYPE_CHECKING
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pandas as pd
-
 from nautilus_trader.analysis import TearsheetChart
 from nautilus_trader.core.correctness import PyCondition
 from nautilus_trader.core.datetime import format_optional_iso8601
 from nautilus_trader.core.nautilus_pyo3 import NAUTILUS_VERSION
-from nautilus_trader.model.data import Bar
-from nautilus_trader.model.data import BarType
-
+from nautilus_trader.model.data import Bar, BarType
 
 if TYPE_CHECKING:
     from nautilus_trader.backtest.engine import BacktestEngine
@@ -222,7 +218,7 @@ def _prepare_brier_advantage_data(
     return frame
 
 
-def _extract_account_equity_series(  # noqa: C901
+def _extract_account_equity_series(
     engine: BacktestEngine | None,
 ) -> tuple[pd.Series, str | None]:
     """
@@ -436,7 +432,7 @@ def list_charts() -> list[str]:
     return list(_CHART_REGISTRY.keys())
 
 
-def create_tearsheet(  # noqa: C901
+def create_tearsheet(
     engine: BacktestEngine,
     output_path: str | None = "tearsheet.html",
     title: str = "NautilusTrader Backtest Results",
@@ -721,8 +717,7 @@ def create_tearsheet_from_stats(
     if output_path:
         fig.write_html(output_path)
         return None
-    else:
-        return fig.to_html()
+    return fig.to_html()
 
 
 def create_equity_curve(
@@ -1419,7 +1414,7 @@ def _create_tearsheet_figure(
     return fig
 
 
-def _create_stats_table(  # noqa: C901
+def _create_stats_table(
     stats_pnls: dict[str, Any] | dict[str, dict[str, Any]],
     stats_returns: dict[str, Any],
     stats_general: dict[str, Any],
@@ -2183,7 +2178,7 @@ def create_bars_with_fills(
     return fig
 
 
-def _render_bars_with_fills(  # noqa: C901
+def _render_bars_with_fills(
     fig: go.Figure,
     row: int,
     col: int,

@@ -4,18 +4,22 @@ import asyncio
 from types import SimpleNamespace
 
 from prediction_market_extensions.backtesting import _prediction_market_runner as runner
-from prediction_market_extensions.backtesting._execution_config import ExecutionModelConfig
-from prediction_market_extensions.backtesting._execution_config import StaticLatencyConfig
+from prediction_market_extensions.backtesting._execution_config import (
+    ExecutionModelConfig,
+    StaticLatencyConfig,
+)
 from prediction_market_extensions.backtesting._prediction_market_backtest import (
     PredictionMarketBacktest,
 )
-from prediction_market_extensions.backtesting.data_sources import Native
-from prediction_market_extensions.backtesting.data_sources import PMXT
-from prediction_market_extensions.backtesting.data_sources import PMXT_VENDOR
-from prediction_market_extensions.backtesting.data_sources import Polymarket
-from prediction_market_extensions.backtesting.data_sources import QuoteTick
-from prediction_market_extensions.backtesting.data_sources import TradeTick
 from prediction_market_extensions.backtesting._replay_specs import QuoteReplay
+from prediction_market_extensions.backtesting.data_sources import (
+    PMXT,
+    PMXT_VENDOR,
+    Native,
+    Polymarket,
+    QuoteTick,
+    TradeTick,
+)
 
 
 def test_market_data_config_normalizes_values() -> None:

@@ -1,25 +1,18 @@
 from __future__ import annotations
 
-from collections import Counter
-from dataclasses import asdict
-from dataclasses import dataclass
-from datetime import UTC
-from datetime import datetime
-from datetime import timedelta
-from pathlib import Path
 import os
 import time
+from collections import Counter
+from dataclasses import asdict, dataclass
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from urllib.error import HTTPError
-from urllib.request import Request
-from urllib.request import urlopen
+from urllib.request import Request, urlopen
 
 from tqdm.auto import tqdm
 
-from pmxt_relay.archive import extract_archive_filenames
-from pmxt_relay.archive import fetch_archive_page
-from pmxt_relay.storage import parse_archive_hour
-from pmxt_relay.storage import raw_relative_path
-
+from pmxt_relay.archive import extract_archive_filenames, fetch_archive_page
+from pmxt_relay.storage import parse_archive_hour, raw_relative_path
 
 _USER_AGENT = "prediction-market-backtesting/1.0"
 _DEFAULT_ARCHIVE_LISTING_URL = "https://archive.pmxt.dev/data/Polymarket"
@@ -266,9 +259,9 @@ def _set_status(
     progress_bar.set_description_str(description, refresh=False)
     progress_bar.set_postfix_str(status, refresh=False)
     progress_bar.refresh()
-    setattr(progress_bar, "_pmxt_last_status_ts", now)
-    setattr(progress_bar, "_pmxt_last_status", status)
-    setattr(progress_bar, "_pmxt_last_description", description)
+    progress_bar._pmxt_last_status_ts = now
+    progress_bar._pmxt_last_status = status
+    progress_bar._pmxt_last_description = description
 
 
 def _write_progress_line(progress_bar: tqdm | None, line: str) -> None:
@@ -482,7 +475,7 @@ def download_raw_hours(
                     last_error = exc
                     if exc.code != 404:
                         continue
-                except Exception as exc:  # noqa: BLE001
+                except Exception as exc:
                     last_error = exc
                     continue
 

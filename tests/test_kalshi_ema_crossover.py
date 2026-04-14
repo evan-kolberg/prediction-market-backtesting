@@ -6,7 +6,6 @@ import pytest
 
 import backtests.kalshi_trade_tick_breakout as strat
 
-
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 

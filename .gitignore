@@ -3,6 +3,7 @@
 
 # Environment
 .env
+.uv-cache/
 
 # Python
 __pycache__/
@@ -24,6 +25,10 @@ data/
 
 # Output
 output/
+kalshi_catalog/
+
+# Local relay runtime
+.pmxt-relay/
 
 # Temp
 .tmp/
@@ -39,4 +44,4 @@ crates/*/uv.lock
 .mypy_cache/
 .pytest_cache/
 .ruff_cache/
-
+.benchmarks/

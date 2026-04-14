@@ -368,7 +368,7 @@ def test_load_market_batches_falls_back_to_direct_relay_download(tmp_path, monke
             self._payload = payload
             self._offset = 0
 
-        def __enter__(self) -> "_Response":
+        def __enter__(self) -> _Response:
             return self
 
         def __exit__(self, exc_type, exc, tb) -> bool:
@@ -427,7 +427,7 @@ def test_load_relay_raw_market_batches_downloads_to_temp_file(tmp_path, monkeypa
             self._payload = payload
             self._offset = 0
 
-        def __enter__(self) -> "_Response":
+        def __enter__(self) -> _Response:
             return self
 
         def __exit__(self, exc_type, exc, tb) -> bool:
@@ -500,7 +500,7 @@ def test_load_remote_market_batches_downloads_to_temp_file_and_emits_progress(
             self._payload = payload
             self._offset = 0
 
-        def __enter__(self) -> "_Response":
+        def __enter__(self) -> _Response:
             return self
 
         def __exit__(self, exc_type, exc, tb) -> bool:

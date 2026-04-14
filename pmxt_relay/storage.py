@@ -1,10 +1,8 @@
 from __future__ import annotations
 
 import re
-from datetime import UTC
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
-
 
 ARCHIVE_FILENAME_RE = re.compile(r"^polymarket_orderbook_(\d{4}-\d{2}-\d{2}T\d{2})\.parquet$")
 

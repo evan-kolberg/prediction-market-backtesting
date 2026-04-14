@@ -1,31 +1,28 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any
-from typing import Literal
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Literal
 
 import pandas as pd
 
 from prediction_market_extensions.backtesting._execution_config import ExecutionModelConfig
-from prediction_market_extensions.backtesting._prediction_market_backtest import MarketReportConfig
 from prediction_market_extensions.backtesting._prediction_market_backtest import (
+    MarketReportConfig,
     PredictionMarketBacktest,
-)
-from prediction_market_extensions.backtesting._prediction_market_backtest import (
     finalize_market_results,
 )
-from prediction_market_extensions.backtesting._result_policies import ResultPolicy
 from prediction_market_extensions.backtesting._replay_specs import ReplaySpec
+from prediction_market_extensions.backtesting._result_policies import ResultPolicy
 from prediction_market_extensions.backtesting._strategy_configs import StrategyConfigSpec
-from prediction_market_extensions.backtesting.optimizers import ParameterSearchConfig
-from prediction_market_extensions.backtesting.optimizers import ParameterSearchSummary
-from prediction_market_extensions.backtesting.optimizers import run_parameter_search
+from prediction_market_extensions.backtesting.optimizers import (
+    ParameterSearchConfig,
+    ParameterSearchSummary,
+    run_parameter_search,
+)
 
 if TYPE_CHECKING:
     from prediction_market_extensions.backtesting._market_data_config import MarketDataConfig

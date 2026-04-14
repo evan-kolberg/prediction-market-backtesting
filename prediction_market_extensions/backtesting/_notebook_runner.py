@@ -3,9 +3,11 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from prediction_market_extensions.backtesting._notebook_support import find_updated_html_artifacts
-from prediction_market_extensions.backtesting._notebook_support import partition_html_artifacts
-from prediction_market_extensions.backtesting._notebook_support import snapshot_html_artifacts
+from prediction_market_extensions.backtesting._notebook_support import (
+    find_updated_html_artifacts,
+    partition_html_artifacts,
+    snapshot_html_artifacts,
+)
 
 AUTO_EMBED_CELL_MARKER = "<!-- prediction-market-backtesting:auto-embedded-html -->"
 NOTEBOOK_METADATA_KEY = "prediction_market_backtest"

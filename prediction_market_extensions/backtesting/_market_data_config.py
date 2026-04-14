@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from prediction_market_extensions.backtesting.data_sources import MarketDataType
-from prediction_market_extensions.backtesting.data_sources import MarketDataVendor
-from prediction_market_extensions.backtesting.data_sources import MarketPlatform
+from prediction_market_extensions.backtesting.data_sources import (
+    MarketDataType,
+    MarketDataVendor,
+    MarketPlatform,
+)
 
 
 @dataclass(frozen=True)

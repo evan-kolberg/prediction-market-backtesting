@@ -71,9 +71,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "sync-once":
         worker = RelayWorker(config)
         try:
-            adopted = worker._adopt_local_raw_hours()  # noqa: SLF001
-            discovered = worker._discover_archive_hours()  # noqa: SLF001
-            mirrored = worker._mirror_pending_hours()  # noqa: SLF001
+            adopted = worker._adopt_local_raw_hours()
+            discovered = worker._discover_archive_hours()
+            mirrored = worker._mirror_pending_hours()
             print(
                 json.dumps(
                     {"adopted": adopted, "discovered": discovered, "mirrored": mirrored},

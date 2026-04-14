@@ -21,15 +21,12 @@ Provides data loaders for historical Polymarket data from various APIs.
 
 from __future__ import annotations
 
-from decimal import Decimal
-from decimal import InvalidOperation
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 import msgspec
 import pandas as pd
-
 from nautilus_trader.adapters.polymarket.common.constants import POLYMARKET_HTTP_RATE_LIMIT
-from prediction_market_extensions.adapters.polymarket.gamma_markets import infer_gamma_token_winners
 from nautilus_trader.adapters.polymarket.common.parsing import parse_polymarket_instrument
 from nautilus_trader.core import nautilus_pyo3
 from nautilus_trader.core.correctness import PyCondition
@@ -38,6 +35,8 @@ from nautilus_trader.model.data import TradeTick
 from nautilus_trader.model.enums import AggressorSide
 from nautilus_trader.model.identifiers import TradeId
 from nautilus_trader.model.instruments import BinaryOption
+
+from prediction_market_extensions.adapters.polymarket.gamma_markets import infer_gamma_token_winners
 
 
 class PolymarketDataLoader:

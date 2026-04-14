@@ -4,17 +4,14 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from prediction_market_extensions.adapters.prediction_market.research import print_backtest_summary
 from prediction_market_extensions.adapters.prediction_market.research import (
+    print_backtest_summary,
     save_aggregate_backtest_report,
-)
-from prediction_market_extensions.adapters.prediction_market.research import (
     save_joint_portfolio_backtest_report,
 )
 from prediction_market_extensions.analysis.legacy_backtesting.models import (
     DEFAULT_SUMMARY_PLOT_PANELS,
 )
-
 from prediction_market_extensions.backtesting._backtest_runtime import (
     print_backtest_result_warnings,
 )

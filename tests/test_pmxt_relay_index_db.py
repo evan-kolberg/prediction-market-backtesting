@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-from datetime import datetime
-from datetime import timezone
-from pathlib import Path
 import sqlite3
+from datetime import datetime, timezone
+from pathlib import Path
 
 import pytest
 
@@ -103,7 +102,7 @@ def test_upsert_discovered_hour_is_idempotent(tmp_path: Path):
 
         assert first_insert is True
         assert second_insert is False
-        row = index._conn.execute(  # noqa: SLF001
+        row = index._conn.execute(
             "SELECT archive_page, source_url FROM archive_hours WHERE filename = ?",
             ("polymarket_orderbook_2026-03-21T12.parquet",),
         ).fetchone()
@@ -145,7 +144,7 @@ def test_register_local_raw_marks_hour_ready(tmp_path: Path):
         )
 
         assert changed is True
-        row = index._conn.execute(  # noqa: SLF001
+        row = index._conn.execute(
             """
             SELECT local_path, content_length, mirror_status, mirrored_at
             FROM archive_hours
@@ -163,7 +162,7 @@ def test_relay_index_context_manager_closes_connection(tmp_path: Path):
     db_path = tmp_path / "relay.sqlite3"
     with RelayIndex(db_path) as index:
         index.initialize()
-        conn = index._conn  # noqa: SLF001
+        conn = index._conn
 
     with pytest.raises(sqlite3.ProgrammingError):
         conn.execute("SELECT 1")
@@ -281,7 +280,7 @@ def test_initialize_tolerates_duplicate_column_race_during_schema_upgrade(tmp_pa
     conn.close()
 
     with RelayIndex(db_path) as index:
-        real_conn = index._conn  # noqa: SLF001
+        real_conn = index._conn
 
         class _DuplicateColumnRaceConn:
             def __init__(self, wrapped: sqlite3.Connection) -> None:
@@ -304,7 +303,7 @@ def test_initialize_tolerates_duplicate_column_race_during_schema_upgrade(tmp_pa
                     raise sqlite3.OperationalError("duplicate column name: last_error_at")
                 return self._wrapped.execute(sql, params)
 
-        index._conn = _DuplicateColumnRaceConn(real_conn)  # type: ignore[assignment]  # noqa: SLF001
+        index._conn = _DuplicateColumnRaceConn(real_conn)  # type: ignore[assignment]
         index.initialize(apply_maintenance=False)
 
         columns = {

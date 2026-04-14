@@ -3,13 +3,10 @@ from __future__ import annotations
 from decimal import Decimal
 from types import SimpleNamespace
 
-from strategies import QuoteTickBreakoutConfig
-from strategies import QuoteTickBreakoutStrategy
 from nautilus_trader.model.enums import OrderSide
-from nautilus_trader.model.identifiers import InstrumentId
-from nautilus_trader.model.identifiers import Symbol
-from nautilus_trader.model.identifiers import Venue
+from nautilus_trader.model.identifiers import InstrumentId, Symbol, Venue
 
+from strategies import QuoteTickBreakoutConfig, QuoteTickBreakoutStrategy
 
 INSTRUMENT_ID = InstrumentId(Symbol("PM-TEST-YES"), Venue("POLYMARKET"))
 
@@ -47,7 +44,7 @@ def test_quote_breakout_requires_move_beyond_noise_before_entering() -> None:
     strategy = _BreakoutHarness(
         QuoteTickBreakoutConfig(
             instrument_id=INSTRUMENT_ID,
-            trade_size=Decimal("1"),
+            trade_size=Decimal(1),
             window=4,
             breakout_std=1.0,
             breakout_buffer=0.0005,
@@ -71,7 +68,7 @@ def test_quote_breakout_uses_hold_period_and_reentry_cooldown() -> None:
     strategy = _BreakoutHarness(
         QuoteTickBreakoutConfig(
             instrument_id=INSTRUMENT_ID,
-            trade_size=Decimal("1"),
+            trade_size=Decimal(1),
             window=4,
             breakout_std=1.0,
             breakout_buffer=0.0005,

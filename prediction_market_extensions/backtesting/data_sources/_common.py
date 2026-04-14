@@ -4,7 +4,6 @@ import re
 from pathlib import Path
 from urllib.parse import urlparse
 
-
 DISABLED_ENV_VALUES = {"", "0", "false", "no", "off", "none", "disabled"}
 
 _WINDOWS_DRIVE_RE = re.compile(r"^[A-Za-z]:[\\/]")

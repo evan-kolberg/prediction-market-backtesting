@@ -7,7 +7,6 @@ from pathlib import Path
 
 import pytest
 
-
 REPO_ROOT = Path(__file__).resolve().parents[1]
 BACKTESTS_ROOT = REPO_ROOT / "backtests"
 

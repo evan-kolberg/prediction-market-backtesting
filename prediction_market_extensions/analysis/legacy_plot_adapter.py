@@ -26,24 +26,21 @@ from __future__ import annotations
 
 import importlib
 import re
-from collections.abc import Mapping
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 import pandas as pd
+from nautilus_trader.analysis.reporter import ReportProvider
 
 from prediction_market_extensions.analysis.legacy_backtesting.models import (
     DEFAULT_DETAIL_PLOT_PANELS,
-)
-from prediction_market_extensions.analysis.legacy_backtesting.models import PANEL_BRIER_ADVANTAGE
-from prediction_market_extensions.analysis.legacy_backtesting.models import (
+    PANEL_BRIER_ADVANTAGE,
     PANEL_TOTAL_BRIER_ADVANTAGE,
+    normalize_plot_panels,
 )
-from prediction_market_extensions.analysis.legacy_backtesting.models import normalize_plot_panels
-from nautilus_trader.analysis.reporter import ReportProvider
 
 
 def _parse_float(value: Any, default: float = 0.0) -> float:
@@ -211,8 +208,7 @@ def _extract_account_report(engine: Any) -> pd.DataFrame:
         raise ValueError("Account report has no valid timestamps.")
 
     frame.index = frame.index.tz_convert("UTC").tz_localize(None)
-    frame = frame.groupby(frame.index).last().sort_index()
-    return frame
+    return frame.groupby(frame.index).last().sort_index()
 
 
 def _infer_market_side(models_module: Any, market_id: str) -> Any:
@@ -349,10 +345,8 @@ def _build_dense_timeline(
 ) -> pd.DatetimeIndex:
     timeline: set[datetime] = set()
     for points in market_prices.values():
-        for ts, _ in points:
-            timeline.add(ts)
-    for fill in fills:
-        timeline.add(fill.timestamp)
+        timeline.update(ts for ts, _ in points)
+    timeline.update(fill.timestamp for fill in fills)
     return pd.DatetimeIndex(sorted(timeline))
 
 
@@ -664,8 +658,7 @@ def _brier_unavailable_reason(
 
 def _build_brier_placeholder_panel(message: str) -> Any:
     try:
-        from bokeh.models import Label
-        from bokeh.models import Span
+        from bokeh.models import Label, Span
         from bokeh.plotting import figure
     except ImportError as exc:  # pragma: no cover - runtime dependency
         raise ImportError("Bokeh is required for legacy chart rendering.") from exc
@@ -728,12 +721,14 @@ def _build_brier_timeseries_panel(
         return None
 
     try:
-        from bokeh.models import ColumnDataSource
-        from bokeh.models import HoverTool
-        from bokeh.models import NumeralTickFormatter
-        from bokeh.models import Range1d
-        from bokeh.models import Span
-        from bokeh.models import WheelZoomTool
+        from bokeh.models import (
+            ColumnDataSource,
+            HoverTool,
+            NumeralTickFormatter,
+            Range1d,
+            Span,
+            WheelZoomTool,
+        )
         from bokeh.plotting import figure
     except ImportError as exc:  # pragma: no cover - runtime dependency
         raise ImportError("Bokeh is required for legacy chart rendering.") from exc
@@ -1044,8 +1039,7 @@ def _remove_yes_price_profitability_legend_items(fig: Any) -> set[Any]:
         for item in list(getattr(legend, "items", [])):
             lower = _legend_item_label_text(item).lower()
             if "profitable" in lower or "losing" in lower:
-                for renderer in getattr(item, "renderers", []):
-                    renderers_to_drop.add(renderer)
+                renderers_to_drop.update(getattr(item, "renderers", []))
                 continue
             kept_items.append(item)
         legend.items = kept_items
@@ -1081,9 +1075,7 @@ def _remove_yes_price_profitability_connectors(layout: Any) -> None:
 
 def _standardize_periodic_pnl_panel(layout: Any) -> None:
     try:
-        from bokeh.models import ColumnDataSource
-        from bokeh.models import HoverTool
-        from bokeh.models import NumeralTickFormatter
+        from bokeh.models import ColumnDataSource, HoverTool, NumeralTickFormatter
     except ImportError:
         return
 
@@ -1156,7 +1148,7 @@ def _relabel_market_pnl_panel(layout: Any, axis_label: str = "Market P&L") -> No
         tool.tooltips = updated
 
 
-def _build_multi_market_brier_panel(  # noqa: C901
+def _build_multi_market_brier_panel(
     brier_frames: Mapping[str, pd.DataFrame],
     *,
     axis_label: str = "Cumulative Brier Advantage",
@@ -1171,12 +1163,14 @@ def _build_multi_market_brier_panel(  # noqa: C901
         return None
 
     try:
-        from bokeh.models import ColumnDataSource
-        from bokeh.models import HoverTool
-        from bokeh.models import NumeralTickFormatter
-        from bokeh.models import Range1d
-        from bokeh.models import Span
-        from bokeh.models import WheelZoomTool
+        from bokeh.models import (
+            ColumnDataSource,
+            HoverTool,
+            NumeralTickFormatter,
+            Range1d,
+            Span,
+            WheelZoomTool,
+        )
         from bokeh.palettes import Category10
         from bokeh.plotting import figure
     except ImportError as exc:  # pragma: no cover - runtime dependency
@@ -1378,8 +1372,7 @@ def _save_layout(layout: Any, output_path: Path, title: str) -> None:
     Persist the final Bokeh layout after all adapter-level cleanup.
     """
     try:
-        from bokeh.io import output_file
-        from bokeh.io import save
+        from bokeh.io import output_file, save
     except ImportError as exc:  # pragma: no cover - runtime dependency
         raise ImportError("Bokeh is required for legacy chart rendering.") from exc
 

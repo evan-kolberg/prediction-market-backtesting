@@ -20,17 +20,22 @@ else:
 
 ensure_repo_root(__file__)
 
-from prediction_market_extensions.backtesting._execution_config import ExecutionModelConfig
-from prediction_market_extensions.backtesting._execution_config import StaticLatencyConfig
-from prediction_market_extensions.backtesting._experiments import ParameterSearchExperiment
-from prediction_market_extensions.backtesting._experiments import run_experiment
+from prediction_market_extensions.backtesting._execution_config import (
+    ExecutionModelConfig,
+    StaticLatencyConfig,
+)
+from prediction_market_extensions.backtesting._experiments import (
+    ParameterSearchExperiment,
+    run_experiment,
+)
 from prediction_market_extensions.backtesting._prediction_market_runner import MarketDataConfig
 from prediction_market_extensions.backtesting._replay_specs import QuoteReplay
 from prediction_market_extensions.backtesting._timing_harness import timing_harness
 from prediction_market_extensions.backtesting.data_sources import PMXT, Polymarket, QuoteTick
-from prediction_market_extensions.backtesting.optimizers import ParameterSearchConfig
-from prediction_market_extensions.backtesting.optimizers import ParameterSearchWindow
-
+from prediction_market_extensions.backtesting.optimizers import (
+    ParameterSearchConfig,
+    ParameterSearchWindow,
+)
 
 DATA = MarketDataConfig(
     platform=Polymarket,
@@ -77,7 +82,7 @@ STRATEGY_SPEC = {
     "strategy_path": "strategies:QuoteTickEMACrossoverStrategy",
     "config_path": "strategies:QuoteTickEMACrossoverConfig",
     "config": {
-        "trade_size": Decimal("5"),
+        "trade_size": Decimal(5),
         "fast_period": "__SEARCH__:fast_period",
         "slow_period": "__SEARCH__:slow_period",
         "entry_buffer": "__SEARCH__:entry_buffer",

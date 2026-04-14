@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import os
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
-import uuid
 
 
 def _env_int(name: str, default: int) -> int:

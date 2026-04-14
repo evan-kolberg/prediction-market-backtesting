@@ -20,33 +20,34 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING
 
-from prediction_market_extensions.adapters.kalshi.config import KalshiDataClientConfig
-from prediction_market_extensions.adapters.kalshi.providers import KalshiInstrumentProvider
-from nautilus_trader.data.messages import RequestBars
-from nautilus_trader.data.messages import RequestInstrument
-from nautilus_trader.data.messages import RequestInstruments
-from nautilus_trader.data.messages import RequestQuoteTicks
-from nautilus_trader.data.messages import RequestTradeTicks
-from nautilus_trader.data.messages import SubscribeBars
-from nautilus_trader.data.messages import SubscribeInstrumentClose
-from nautilus_trader.data.messages import SubscribeInstrumentStatus
-from nautilus_trader.data.messages import SubscribeOrderBook
-from nautilus_trader.data.messages import SubscribeQuoteTicks
-from nautilus_trader.data.messages import SubscribeTradeTicks
-from nautilus_trader.data.messages import UnsubscribeBars
-from nautilus_trader.data.messages import UnsubscribeInstrumentClose
-from nautilus_trader.data.messages import UnsubscribeInstrumentStatus
-from nautilus_trader.data.messages import UnsubscribeOrderBook
-from nautilus_trader.data.messages import UnsubscribeQuoteTicks
-from nautilus_trader.data.messages import UnsubscribeTradeTicks
+from nautilus_trader.data.messages import (
+    RequestBars,
+    RequestInstrument,
+    RequestInstruments,
+    RequestQuoteTicks,
+    RequestTradeTicks,
+    SubscribeBars,
+    SubscribeInstrumentClose,
+    SubscribeInstrumentStatus,
+    SubscribeOrderBook,
+    SubscribeQuoteTicks,
+    SubscribeTradeTicks,
+    UnsubscribeBars,
+    UnsubscribeInstrumentClose,
+    UnsubscribeInstrumentStatus,
+    UnsubscribeOrderBook,
+    UnsubscribeQuoteTicks,
+    UnsubscribeTradeTicks,
+)
 from nautilus_trader.live.data_client import LiveMarketDataClient
 from nautilus_trader.model.identifiers import ClientId
 
+from prediction_market_extensions.adapters.kalshi.config import KalshiDataClientConfig
+from prediction_market_extensions.adapters.kalshi.providers import KalshiInstrumentProvider
 
 if TYPE_CHECKING:
     from nautilus_trader.cache.cache import Cache
-    from nautilus_trader.common.component import LiveClock
-    from nautilus_trader.common.component import MessageBus
+    from nautilus_trader.common.component import LiveClock, MessageBus
 
 KALSHI_CLIENT_ID = "KALSHI"
 

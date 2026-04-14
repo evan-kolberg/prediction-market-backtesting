@@ -5,12 +5,11 @@ import logging
 import sqlite3
 import threading
 import time
-from datetime import UTC
-from datetime import datetime
+from contextlib import suppress
+from datetime import UTC, datetime
 from pathlib import Path
 
 from pmxt_relay.storage import parse_archive_hour
-
 
 LOG = logging.getLogger(__name__)
 _LOCKED_ERROR_SNIPPETS = (
@@ -91,10 +90,8 @@ class RelayIndex:
         self.close()
 
     def __del__(self) -> None:
-        try:
+        with suppress(Exception):
             self.close()
-        except Exception:
-            pass
 
     def initialize(
         self,
@@ -190,10 +187,8 @@ class RelayIndex:
         return not self._REQUIRED_ARCHIVE_COLUMNS.issubset(archive_columns)
 
     def _rollback_quietly(self) -> None:
-        try:
+        with suppress(sqlite3.Error):
             self._conn.rollback()
-        except sqlite3.Error:
-            pass
 
     def _run_with_lock_retry(
         self, operation, *, swallow_after_secs: float | None = None, default=None

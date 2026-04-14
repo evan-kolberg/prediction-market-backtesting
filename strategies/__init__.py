@@ -20,73 +20,86 @@
 Prediction market strategy examples.
 """
 
-from strategies.breakout import BarBreakoutConfig
-from strategies.breakout import BarBreakoutStrategy
-from strategies.breakout import QuoteTickBreakoutConfig
-from strategies.breakout import QuoteTickBreakoutStrategy
-from strategies.breakout import TradeTickBreakoutConfig
-from strategies.breakout import TradeTickBreakoutStrategy
-from strategies.deep_value import QuoteTickDeepValueHoldConfig
-from strategies.deep_value import QuoteTickDeepValueHoldStrategy
-from strategies.deep_value import TradeTickDeepValueHoldConfig
-from strategies.deep_value import TradeTickDeepValueHoldStrategy
-from strategies.ema_crossover import BarEMACrossoverConfig
-from strategies.ema_crossover import BarEMACrossoverStrategy
-from strategies.ema_crossover import QuoteTickEMACrossoverConfig
-from strategies.ema_crossover import QuoteTickEMACrossoverStrategy
-from strategies.ema_crossover import TradeTickEMACrossoverConfig
-from strategies.ema_crossover import TradeTickEMACrossoverStrategy
-from strategies.final_period_momentum import BarFinalPeriodMomentumConfig
-from strategies.final_period_momentum import BarFinalPeriodMomentumStrategy
-from strategies.final_period_momentum import QuoteTickFinalPeriodMomentumConfig
-from strategies.final_period_momentum import QuoteTickFinalPeriodMomentumStrategy
-from strategies.final_period_momentum import TradeTickFinalPeriodMomentumConfig
-from strategies.final_period_momentum import TradeTickFinalPeriodMomentumStrategy
-from strategies.late_favorite_limit_hold import QuoteTickLateFavoriteLimitHoldConfig
-from strategies.late_favorite_limit_hold import QuoteTickLateFavoriteLimitHoldStrategy
-from strategies.late_favorite_limit_hold import TradeTickLateFavoriteLimitHoldConfig
-from strategies.late_favorite_limit_hold import TradeTickLateFavoriteLimitHoldStrategy
-from strategies.mean_reversion import BarMeanReversionConfig
-from strategies.mean_reversion import BarMeanReversionStrategy
-from strategies.mean_reversion import QuoteTickMeanReversionConfig
-from strategies.mean_reversion import QuoteTickMeanReversionStrategy
-from strategies.mean_reversion import TradeTickMeanReversionConfig
-from strategies.mean_reversion import TradeTickMeanReversionStrategy
-from strategies.panic_fade import BarPanicFadeConfig
-from strategies.panic_fade import BarPanicFadeStrategy
-from strategies.panic_fade import QuoteTickPanicFadeConfig
-from strategies.panic_fade import QuoteTickPanicFadeStrategy
-from strategies.panic_fade import TradeTickPanicFadeConfig
-from strategies.panic_fade import TradeTickPanicFadeStrategy
-from strategies.rsi_reversion import BarRSIReversionConfig
-from strategies.rsi_reversion import BarRSIReversionStrategy
-from strategies.rsi_reversion import QuoteTickRSIReversionConfig
-from strategies.rsi_reversion import QuoteTickRSIReversionStrategy
-from strategies.rsi_reversion import TradeTickRSIReversionConfig
-from strategies.rsi_reversion import TradeTickRSIReversionStrategy
-from strategies.threshold_momentum import BarThresholdMomentumConfig
-from strategies.threshold_momentum import BarThresholdMomentumStrategy
-from strategies.threshold_momentum import QuoteTickThresholdMomentumConfig
-from strategies.threshold_momentum import QuoteTickThresholdMomentumStrategy
-from strategies.threshold_momentum import TradeTickThresholdMomentumConfig
-from strategies.threshold_momentum import TradeTickThresholdMomentumStrategy
-from strategies.vwap_reversion import QuoteTickVWAPReversionConfig
-from strategies.vwap_reversion import QuoteTickVWAPReversionStrategy
-from strategies.vwap_reversion import TradeTickVWAPReversionConfig
-from strategies.vwap_reversion import TradeTickVWAPReversionStrategy
-
+from strategies.breakout import (
+    BarBreakoutConfig,
+    BarBreakoutStrategy,
+    QuoteTickBreakoutConfig,
+    QuoteTickBreakoutStrategy,
+    TradeTickBreakoutConfig,
+    TradeTickBreakoutStrategy,
+)
+from strategies.deep_value import (
+    QuoteTickDeepValueHoldConfig,
+    QuoteTickDeepValueHoldStrategy,
+    TradeTickDeepValueHoldConfig,
+    TradeTickDeepValueHoldStrategy,
+)
+from strategies.ema_crossover import (
+    BarEMACrossoverConfig,
+    BarEMACrossoverStrategy,
+    QuoteTickEMACrossoverConfig,
+    QuoteTickEMACrossoverStrategy,
+    TradeTickEMACrossoverConfig,
+    TradeTickEMACrossoverStrategy,
+)
+from strategies.final_period_momentum import (
+    BarFinalPeriodMomentumConfig,
+    BarFinalPeriodMomentumStrategy,
+    QuoteTickFinalPeriodMomentumConfig,
+    QuoteTickFinalPeriodMomentumStrategy,
+    TradeTickFinalPeriodMomentumConfig,
+    TradeTickFinalPeriodMomentumStrategy,
+)
+from strategies.late_favorite_limit_hold import (
+    QuoteTickLateFavoriteLimitHoldConfig,
+    QuoteTickLateFavoriteLimitHoldStrategy,
+    TradeTickLateFavoriteLimitHoldConfig,
+    TradeTickLateFavoriteLimitHoldStrategy,
+)
+from strategies.mean_reversion import (
+    BarMeanReversionConfig,
+    BarMeanReversionStrategy,
+    QuoteTickMeanReversionConfig,
+    QuoteTickMeanReversionStrategy,
+    TradeTickMeanReversionConfig,
+    TradeTickMeanReversionStrategy,
+)
+from strategies.panic_fade import (
+    BarPanicFadeConfig,
+    BarPanicFadeStrategy,
+    QuoteTickPanicFadeConfig,
+    QuoteTickPanicFadeStrategy,
+    TradeTickPanicFadeConfig,
+    TradeTickPanicFadeStrategy,
+)
+from strategies.rsi_reversion import (
+    BarRSIReversionConfig,
+    BarRSIReversionStrategy,
+    QuoteTickRSIReversionConfig,
+    QuoteTickRSIReversionStrategy,
+    TradeTickRSIReversionConfig,
+    TradeTickRSIReversionStrategy,
+)
+from strategies.threshold_momentum import (
+    BarThresholdMomentumConfig,
+    BarThresholdMomentumStrategy,
+    QuoteTickThresholdMomentumConfig,
+    QuoteTickThresholdMomentumStrategy,
+    TradeTickThresholdMomentumConfig,
+    TradeTickThresholdMomentumStrategy,
+)
+from strategies.vwap_reversion import (
+    QuoteTickVWAPReversionConfig,
+    QuoteTickVWAPReversionStrategy,
+    TradeTickVWAPReversionConfig,
+    TradeTickVWAPReversionStrategy,
+)
 
 __all__ = [
     "BarBreakoutConfig",
     "BarBreakoutStrategy",
     "BarEMACrossoverConfig",
     "BarEMACrossoverStrategy",
-    "QuoteTickBreakoutConfig",
-    "QuoteTickBreakoutStrategy",
-    "QuoteTickDeepValueHoldConfig",
-    "QuoteTickDeepValueHoldStrategy",
-    "QuoteTickEMACrossoverConfig",
-    "QuoteTickEMACrossoverStrategy",
     "BarFinalPeriodMomentumConfig",
     "BarFinalPeriodMomentumStrategy",
     "BarMeanReversionConfig",
@@ -95,6 +108,14 @@ __all__ = [
     "BarPanicFadeStrategy",
     "BarRSIReversionConfig",
     "BarRSIReversionStrategy",
+    "BarThresholdMomentumConfig",
+    "BarThresholdMomentumStrategy",
+    "QuoteTickBreakoutConfig",
+    "QuoteTickBreakoutStrategy",
+    "QuoteTickDeepValueHoldConfig",
+    "QuoteTickDeepValueHoldStrategy",
+    "QuoteTickEMACrossoverConfig",
+    "QuoteTickEMACrossoverStrategy",
     "QuoteTickFinalPeriodMomentumConfig",
     "QuoteTickFinalPeriodMomentumStrategy",
     "QuoteTickLateFavoriteLimitHoldConfig",
@@ -125,8 +146,6 @@ __all__ = [
     "TradeTickPanicFadeStrategy",
     "TradeTickRSIReversionConfig",
     "TradeTickRSIReversionStrategy",
-    "BarThresholdMomentumConfig",
-    "BarThresholdMomentumStrategy",
     "TradeTickThresholdMomentumConfig",
     "TradeTickThresholdMomentumStrategy",
     "TradeTickVWAPReversionConfig",

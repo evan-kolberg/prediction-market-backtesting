@@ -28,8 +28,7 @@ via ``prediction_market_extensions.install_commission_patch()``.
 
 from __future__ import annotations
 
-from decimal import Decimal
-from decimal import ROUND_HALF_UP
+from decimal import ROUND_HALF_UP, Decimal
 
 
 def basis_points_as_decimal(basis_points: Decimal) -> Decimal:

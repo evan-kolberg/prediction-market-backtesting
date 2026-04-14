@@ -18,98 +18,107 @@
 
 import asyncio
 import json
-from collections import OrderedDict
-from collections import defaultdict
+from collections import OrderedDict, defaultdict
 from typing import Any
 
 import msgspec
-from py_clob_client.client import BalanceAllowanceParams
-from py_clob_client.client import ClobClient
-from py_clob_client.client import MarketOrderArgs
-from py_clob_client.client import OpenOrderParams
-from py_clob_client.client import OrderArgs
-from py_clob_client.client import PartialCreateOrderOptions
-from py_clob_client.client import TradeParams
-from py_clob_client.clob_types import AssetType
-from py_clob_client.clob_types import PostOrdersArgs
-from py_clob_client.exceptions import PolyApiException
-
 from nautilus_trader.adapters.polymarket.common.cache import get_polymarket_trades_key
-from nautilus_trader.adapters.polymarket.common.constants import POLYMARKET_CANCEL_ALREADY_DONE
-from nautilus_trader.adapters.polymarket.common.constants import POLYMARKET_FINALIZED_TRADE_STATUSES
-from nautilus_trader.adapters.polymarket.common.constants import POLYMARKET_INVALID_API_KEY
-from nautilus_trader.adapters.polymarket.common.constants import POLYMARKET_VENUE
-from nautilus_trader.adapters.polymarket.common.constants import VALID_POLYMARKET_TIME_IN_FORCE
+from nautilus_trader.adapters.polymarket.common.constants import (
+    POLYMARKET_CANCEL_ALREADY_DONE,
+    POLYMARKET_FINALIZED_TRADE_STATUSES,
+    POLYMARKET_INVALID_API_KEY,
+    POLYMARKET_VENUE,
+    VALID_POLYMARKET_TIME_IN_FORCE,
+)
 from nautilus_trader.adapters.polymarket.common.conversion import usdce_from_units
 from nautilus_trader.adapters.polymarket.common.credentials import PolymarketWebSocketAuth
-from nautilus_trader.adapters.polymarket.common.enums import PolymarketEventType
-from nautilus_trader.adapters.polymarket.common.enums import PolymarketTradeStatus
-from nautilus_trader.adapters.polymarket.common.parsing import calculate_commission
-from prediction_market_extensions.adapters.polymarket.parsing import infer_fee_exponent
-from nautilus_trader.adapters.polymarket.common.parsing import make_composite_trade_id
-from nautilus_trader.adapters.polymarket.common.parsing import validate_ethereum_address
-from nautilus_trader.adapters.polymarket.common.symbol import get_polymarket_condition_id
-from nautilus_trader.adapters.polymarket.common.symbol import get_polymarket_instrument_id
-from nautilus_trader.adapters.polymarket.common.symbol import get_polymarket_token_id
+from nautilus_trader.adapters.polymarket.common.enums import (
+    PolymarketEventType,
+    PolymarketTradeStatus,
+)
+from nautilus_trader.adapters.polymarket.common.parsing import (
+    calculate_commission,
+    make_composite_trade_id,
+    validate_ethereum_address,
+)
+from nautilus_trader.adapters.polymarket.common.symbol import (
+    get_polymarket_condition_id,
+    get_polymarket_instrument_id,
+    get_polymarket_token_id,
+)
 from nautilus_trader.adapters.polymarket.common.types import JSON
 from nautilus_trader.adapters.polymarket.config import PolymarketExecClientConfig
 from nautilus_trader.adapters.polymarket.http.conversion import convert_tif_to_polymarket_order_type
 from nautilus_trader.adapters.polymarket.http.errors import should_retry
 from nautilus_trader.adapters.polymarket.providers import PolymarketInstrumentProvider
 from nautilus_trader.adapters.polymarket.schemas.trade import PolymarketTradeReport
-from nautilus_trader.adapters.polymarket.schemas.user import PolymarketOpenOrder
-from nautilus_trader.adapters.polymarket.schemas.user import PolymarketUserOrder
-from nautilus_trader.adapters.polymarket.schemas.user import PolymarketUserTrade
-from nautilus_trader.adapters.polymarket.websocket.client import PolymarketWebSocketChannel
-from nautilus_trader.adapters.polymarket.websocket.client import PolymarketWebSocketClient
+from nautilus_trader.adapters.polymarket.schemas.user import (
+    PolymarketOpenOrder,
+    PolymarketUserOrder,
+    PolymarketUserTrade,
+)
+from nautilus_trader.adapters.polymarket.websocket.client import (
+    PolymarketWebSocketChannel,
+    PolymarketWebSocketClient,
+)
 from nautilus_trader.adapters.polymarket.websocket.types import USER_WS_MESSAGE
 from nautilus_trader.cache.cache import Cache
-from nautilus_trader.common.component import LiveClock
-from nautilus_trader.common.component import MessageBus
-from nautilus_trader.common.enums import LogColor
-from nautilus_trader.common.enums import LogLevel
-from nautilus_trader.core.datetime import millis_to_nanos
-from nautilus_trader.core.datetime import nanos_to_secs
-from nautilus_trader.core.datetime import secs_to_nanos
-from nautilus_trader.core.nautilus_pyo3 import HttpClient
-from nautilus_trader.core.nautilus_pyo3 import HttpResponse
+from nautilus_trader.common.component import LiveClock, MessageBus
+from nautilus_trader.common.enums import LogColor, LogLevel
+from nautilus_trader.core.datetime import millis_to_nanos, nanos_to_secs, secs_to_nanos
+from nautilus_trader.core.nautilus_pyo3 import HttpClient, HttpResponse
 from nautilus_trader.core.uuid import UUID4
-from nautilus_trader.execution.messages import BatchCancelOrders
-from nautilus_trader.execution.messages import CancelAllOrders
-from nautilus_trader.execution.messages import CancelOrder
-from nautilus_trader.execution.messages import GenerateFillReports
-from nautilus_trader.execution.messages import GenerateOrderStatusReport
-from nautilus_trader.execution.messages import GenerateOrderStatusReports
-from nautilus_trader.execution.messages import GeneratePositionStatusReports
-from nautilus_trader.execution.messages import QueryAccount
-from nautilus_trader.execution.messages import SubmitOrder
-from nautilus_trader.execution.messages import SubmitOrderList
-from nautilus_trader.execution.reports import FillReport
-from nautilus_trader.execution.reports import OrderStatusReport
-from nautilus_trader.execution.reports import PositionStatusReport
+from nautilus_trader.execution.messages import (
+    BatchCancelOrders,
+    CancelAllOrders,
+    CancelOrder,
+    GenerateFillReports,
+    GenerateOrderStatusReport,
+    GenerateOrderStatusReports,
+    GeneratePositionStatusReports,
+    QueryAccount,
+    SubmitOrder,
+    SubmitOrderList,
+)
+from nautilus_trader.execution.reports import FillReport, OrderStatusReport, PositionStatusReport
 from nautilus_trader.live.execution_client import LiveExecutionClient
 from nautilus_trader.live.retry import RetryManagerPool
 from nautilus_trader.model.currencies import USDC_POS
-from nautilus_trader.model.enums import AccountType
-from nautilus_trader.model.enums import ContingencyType
-from nautilus_trader.model.enums import LiquiditySide
-from nautilus_trader.model.enums import OmsType
-from nautilus_trader.model.enums import OrderSide
-from nautilus_trader.model.enums import OrderStatus
-from nautilus_trader.model.enums import OrderType
-from nautilus_trader.model.enums import PositionSide
-from nautilus_trader.model.enums import TimeInForce
-from nautilus_trader.model.enums import order_side_to_str
-from nautilus_trader.model.identifiers import AccountId
-from nautilus_trader.model.identifiers import ClientId
-from nautilus_trader.model.identifiers import ClientOrderId
-from nautilus_trader.model.identifiers import InstrumentId
-from nautilus_trader.model.identifiers import TradeId
-from nautilus_trader.model.identifiers import VenueOrderId
-from nautilus_trader.model.objects import AccountBalance
-from nautilus_trader.model.objects import Money
-from nautilus_trader.model.objects import Quantity
+from nautilus_trader.model.enums import (
+    AccountType,
+    ContingencyType,
+    LiquiditySide,
+    OmsType,
+    OrderSide,
+    OrderStatus,
+    OrderType,
+    PositionSide,
+    TimeInForce,
+    order_side_to_str,
+)
+from nautilus_trader.model.identifiers import (
+    AccountId,
+    ClientId,
+    ClientOrderId,
+    InstrumentId,
+    TradeId,
+    VenueOrderId,
+)
+from nautilus_trader.model.objects import AccountBalance, Money, Quantity
 from nautilus_trader.model.orders import Order
+from py_clob_client.client import (
+    BalanceAllowanceParams,
+    ClobClient,
+    MarketOrderArgs,
+    OpenOrderParams,
+    OrderArgs,
+    PartialCreateOrderOptions,
+    TradeParams,
+)
+from py_clob_client.clob_types import AssetType, PostOrdersArgs
+from py_clob_client.exceptions import PolyApiException
+
+from prediction_market_extensions.adapters.polymarket.parsing import infer_fee_exponent
 
 
 class PolymarketExecutionClient(LiveExecutionClient):
@@ -338,7 +347,7 @@ class PolymarketExecutionClient(LiveExecutionClient):
 
     # -- EXECUTION REPORTS ------------------------------------------------------------------------
 
-    async def generate_order_status_reports(  # noqa: C901
+    async def generate_order_status_reports(
         self, command: GenerateOrderStatusReports
     ) -> list[OrderStatusReport]:
         self._log.debug("Requesting OrderStatusReports...")
@@ -1391,14 +1400,13 @@ class PolymarketExecutionClient(LiveExecutionClient):
                     "resubmit with `quote_quantity=True`",
                 )
                 return
-        else:
-            if order.is_quote_quantity:
-                self._deny_market_order_quantity(
-                    order,
-                    "Polymarket market SELL orders require base-denominated quantities; "
-                    "resubmit with `quote_quantity=False`",
-                )
-                return
+        elif order.is_quote_quantity:
+            self._deny_market_order_quantity(
+                order,
+                "Polymarket market SELL orders require base-denominated quantities; "
+                "resubmit with `quote_quantity=False`",
+            )
+            return
 
         amount = float(order.quantity)
         order_type = convert_tif_to_polymarket_order_type(order.time_in_force)

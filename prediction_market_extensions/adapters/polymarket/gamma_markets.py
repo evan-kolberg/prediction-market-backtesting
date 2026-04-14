@@ -35,10 +35,7 @@ from math import ceil
 from typing import Any
 
 import msgspec
-
-from nautilus_trader.core.nautilus_pyo3 import HttpClient
-from nautilus_trader.core.nautilus_pyo3 import HttpResponse
-
+from nautilus_trader.core.nautilus_pyo3 import HttpClient, HttpResponse
 
 DEFAULT_GAMMA_BASE_URL = os.getenv("GAMMA_API_URL", "https://gamma-api.polymarket.com")
 
@@ -258,7 +255,7 @@ def normalize_gamma_market_to_clob_format(gamma_market: dict[str, Any]) -> dict[
         }
         tokens.append(token_entry)
 
-    normalized = {
+    return {
         # Core identifiers
         "condition_id": gamma_market.get("conditionId"),
         "question_id": gamma_market.get("questionID"),
@@ -299,7 +296,6 @@ def normalize_gamma_market_to_clob_format(gamma_market: dict[str, Any]) -> dict[
         # Preserve original data for reference
         "_gamma_original": gamma_market,
     }
-    return normalized
 
 
 async def list_markets(

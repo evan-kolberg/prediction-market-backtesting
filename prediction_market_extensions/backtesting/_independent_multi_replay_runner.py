@@ -5,15 +5,14 @@ from typing import Any
 
 from prediction_market_extensions.backtesting._artifact_paths import (
     resolve_independent_replay_detail_chart_output_path,
+    sanitize_chart_label,
 )
-from prediction_market_extensions.backtesting._artifact_paths import sanitize_chart_label
 from prediction_market_extensions.backtesting._isolated_replay_runner import (
     run_single_replay_backtest_in_subprocess,
 )
 from prediction_market_extensions.backtesting._prediction_market_backtest import (
     PredictionMarketBacktest,
 )
-
 
 _DEFAULT_PREDICTION_MARKET_BACKTEST_RUN_ASYNC = PredictionMarketBacktest.run_async
 

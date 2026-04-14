@@ -24,8 +24,7 @@ from __future__ import annotations
 import os
 import random
 import sys
-from collections.abc import Mapping
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from colorsys import hls_to_rgb, rgb_to_hls
 from functools import partial
 from itertools import cycle
@@ -58,37 +57,31 @@ from bokeh.transform import factor_cmap
 
 from prediction_market_extensions.analysis.legacy_backtesting.models import (
     DEFAULT_DETAIL_PLOT_PANELS,
-)
-from prediction_market_extensions.analysis.legacy_backtesting.models import normalize_plot_panels
-from prediction_market_extensions.analysis.legacy_backtesting.models import PANEL_ALLOCATION
-from prediction_market_extensions.analysis.legacy_backtesting.models import PANEL_BRIER_ADVANTAGE
-from prediction_market_extensions.analysis.legacy_backtesting.models import PANEL_CASH_EQUITY
-from prediction_market_extensions.analysis.legacy_backtesting.models import PANEL_DRAWDOWN
-from prediction_market_extensions.analysis.legacy_backtesting.models import PANEL_EQUITY
-from prediction_market_extensions.analysis.legacy_backtesting.models import PANEL_MARKET_PNL
-from prediction_market_extensions.analysis.legacy_backtesting.models import PANEL_MONTHLY_RETURNS
-from prediction_market_extensions.analysis.legacy_backtesting.models import PANEL_PERIODIC_PNL
-from prediction_market_extensions.analysis.legacy_backtesting.models import PANEL_ROLLING_SHARPE
-from prediction_market_extensions.analysis.legacy_backtesting.models import (
+    PANEL_ALLOCATION,
+    PANEL_BRIER_ADVANTAGE,
+    PANEL_CASH_EQUITY,
+    PANEL_DRAWDOWN,
+    PANEL_EQUITY,
+    PANEL_MARKET_PNL,
+    PANEL_MONTHLY_RETURNS,
+    PANEL_PERIODIC_PNL,
+    PANEL_ROLLING_SHARPE,
     PANEL_TOTAL_BRIER_ADVANTAGE,
-)
-from prediction_market_extensions.analysis.legacy_backtesting.models import (
     PANEL_TOTAL_CASH_EQUITY,
-)
-from prediction_market_extensions.analysis.legacy_backtesting.models import (
     PANEL_TOTAL_DRAWDOWN,
-)
-from prediction_market_extensions.analysis.legacy_backtesting.models import PANEL_TOTAL_EQUITY
-from prediction_market_extensions.analysis.legacy_backtesting.models import (
+    PANEL_TOTAL_EQUITY,
     PANEL_TOTAL_ROLLING_SHARPE,
+    PANEL_YES_PRICE,
+    normalize_plot_panels,
 )
-from prediction_market_extensions.analysis.legacy_backtesting.models import PANEL_YES_PRICE
 from prediction_market_extensions.analysis.legacy_backtesting.progress import PinnedProgress
 
 try:
     from bokeh.models import CustomJSTickFormatter
 except ImportError:
-    from bokeh.models import FuncTickFormatter as CustomJSTickFormatter  # type: ignore[no-redef, attr-defined]
+    from bokeh.models import (
+        FuncTickFormatter as CustomJSTickFormatter,  # type: ignore[no-redef, attr-defined]
+    )
 
 if TYPE_CHECKING:
     from prediction_market_extensions.analysis.legacy_backtesting.models import BacktestResult
@@ -328,9 +321,7 @@ def _build_dataframes(
         # --- select markets: all traded first, then random sample ---
         traded_ids = set(fills_df["market_id"]) if not fills_df.empty else set()
         # Always include every traded market
-        traded_with_data = [
-            mid for mid in traded_ids if mid in market_prices and market_prices[mid]
-        ]
+        traded_with_data = [mid for mid in traded_ids if market_prices.get(mid)]
         non_traded = [mid for mid in market_prices if mid not in traded_ids and market_prices[mid]]
         # Fill remaining budget with a random spread of non-traded markets
         budget = max(0, max_markets - len(traded_with_data))
@@ -353,7 +344,7 @@ def _build_dataframes(
             recs = market_prices[mid]
             if not recs:
                 continue
-            ts_list, price_list = zip(*recs)
+            ts_list, price_list = zip(*recs, strict=True)
             dt_arr = pd.to_datetime(list(ts_list))
             mkt = pd.DataFrame({"datetime": dt_arr, "price": list(price_list)})
             mkt = mkt.sort_values("datetime").drop_duplicates("datetime", keep="last")
@@ -416,7 +407,7 @@ def _downsample(
         must_list = sorted(must_keep)
         remaining_budget = max_points - len(must_list)
         stride2 = max(1, len(strided) // remaining_budget) if remaining_budget > 0 else n
-        thinned_strided = set(list(sorted(strided))[::stride2])
+        thinned_strided = set(sorted(strided)[::stride2])
         selected = sorted(must_keep | thinned_strided)
 
     idx_arr = np.array(selected)
@@ -478,9 +469,9 @@ def _build_allocation_data(
             pos_changes[mid] = np.zeros(n_bars)
         if f["action"] == "buy" and f["side"] == "yes":
             pos_changes[mid][bar_idx] += f["quantity"]
-        elif f["action"] == "sell" and f["side"] == "yes":
-            pos_changes[mid][bar_idx] -= f["quantity"]
-        elif f["action"] == "buy" and f["side"] == "no":
+        elif (f["action"] == "sell" and f["side"] == "yes") or (
+            f["action"] == "buy" and f["side"] == "no"
+        ):
             pos_changes[mid][bar_idx] -= f["quantity"]
         elif f["action"] == "sell" and f["side"] == "no":
             pos_changes[mid][bar_idx] += f["quantity"]
@@ -521,7 +512,7 @@ def _build_allocation_data(
     for mid in pos_qty:
         recs = market_prices.get(mid, []) if mid in expensive_set else []
         if recs:
-            ts_list, pr_list = zip(*recs)
+            ts_list, pr_list = zip(*recs, strict=True)
             ts_arr = pd.to_datetime(list(ts_list)).values.astype("datetime64[ns]")
             pr_arr = np.array(pr_list, dtype=float)
             order = np.argsort(ts_arr)
@@ -591,8 +582,7 @@ def _build_allocation_data(
     if other_ids:
         col_data["Other"] = np.sum([pos_values[m] for m in other_ids], axis=0)
     col_data["Cash"] = np.maximum(eq["cash"].values, 0.0)
-    alloc = pd.DataFrame(col_data, index=eq.index)
-    return alloc
+    return pd.DataFrame(col_data, index=eq.index)
 
 
 # ---------------------------------------------------------------------------
@@ -1870,7 +1860,9 @@ return this.labels[index] || "";
         if other_col:
             legend_items.append(LegendItem(label="Other", renderers=[renderers[-2]]))
         # Show top positions by peak value
-        for r_obj, lbl in list(zip(renderers, stack_labels))[: MAX_LEGEND - len(legend_items)]:
+        for r_obj, lbl in list(zip(renderers, stack_labels, strict=False))[
+            : MAX_LEGEND - len(legend_items)
+        ]:
             if lbl in ("Cash", "Other"):
                 continue
             legend_items.append(LegendItem(label=lbl, renderers=[r_obj]))

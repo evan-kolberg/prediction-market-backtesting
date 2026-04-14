@@ -19,10 +19,8 @@ from __future__ import annotations
 
 import re
 from collections.abc import Mapping
-from datetime import UTC
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
-
 
 GAME_TITLE_PATTERN = re.compile(r"\bvs\.?(?=\s)|\bat\b", re.IGNORECASE)
 DERIVATIVE_MARKET_PATTERN = re.compile(r"SPREAD|TOTAL", re.IGNORECASE)

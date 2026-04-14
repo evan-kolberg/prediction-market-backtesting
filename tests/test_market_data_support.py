@@ -1,20 +1,20 @@
 from __future__ import annotations
 
-import prediction_market_extensions.backtesting.data_sources as data_sources
-
-from prediction_market_extensions.backtesting._market_data_support import build_single_market_replay
+from prediction_market_extensions.backtesting import data_sources
 from prediction_market_extensions.backtesting._market_data_support import (
+    build_single_market_replay,
     resolve_market_data_support,
+    supported_market_data_keys,
 )
-from prediction_market_extensions.backtesting._market_data_support import supported_market_data_keys
-from prediction_market_extensions.backtesting._replay_specs import QuoteReplay
-from prediction_market_extensions.backtesting._replay_specs import TradeReplay
-from prediction_market_extensions.backtesting.data_sources import Kalshi
-from prediction_market_extensions.backtesting.data_sources import Native
-from prediction_market_extensions.backtesting.data_sources import PMXT
-from prediction_market_extensions.backtesting.data_sources import Polymarket
-from prediction_market_extensions.backtesting.data_sources import QuoteTick
-from prediction_market_extensions.backtesting.data_sources import TradeTick
+from prediction_market_extensions.backtesting._replay_specs import QuoteReplay, TradeReplay
+from prediction_market_extensions.backtesting.data_sources import (
+    PMXT,
+    Kalshi,
+    Native,
+    Polymarket,
+    QuoteTick,
+    TradeTick,
+)
 
 
 def test_support_matrix_matches_publicly_supported_combinations() -> None:

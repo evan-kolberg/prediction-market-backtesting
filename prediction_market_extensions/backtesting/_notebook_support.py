@@ -3,12 +3,8 @@ from __future__ import annotations
 import importlib
 import os
 import sys
-from collections.abc import Mapping
-from collections.abc import Sequence
-from contextlib import contextmanager
-from contextlib import ExitStack
-from contextlib import redirect_stderr
-from contextlib import redirect_stdout
+from collections.abc import Mapping, Sequence
+from contextlib import ExitStack, contextmanager, redirect_stderr, redirect_stdout
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -178,9 +174,7 @@ def display_html_artifacts(
         print("No new HTML artifacts were detected under output/.")
         return
 
-    from IPython.display import HTML
-    from IPython.display import Markdown
-    from IPython.display import display
+    from IPython.display import HTML, Markdown, display
 
     primary, additional = partition_html_artifacts(html_artifacts)
     primary_html = primary[-1]

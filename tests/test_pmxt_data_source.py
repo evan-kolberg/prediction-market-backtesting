@@ -11,17 +11,17 @@ import pyarrow.parquet as pq
 import pytest
 
 import prediction_market_extensions.backtesting.data_sources.pmxt as pmxt_module
-from prediction_market_extensions.backtesting.data_sources.pmxt import PMXT_DATA_SOURCE_ENV
-from prediction_market_extensions.backtesting.data_sources.pmxt import PMXT_LOCAL_RAWS_DIR_ENV
-from prediction_market_extensions.backtesting.data_sources.pmxt import PMXT_PREFETCH_WORKERS_ENV
-from prediction_market_extensions.backtesting.data_sources.pmxt import PMXT_REMOTE_BASE_URL_ENV
-from prediction_market_extensions.backtesting.data_sources.pmxt import PMXT_RAW_ROOT_ENV
-from prediction_market_extensions.backtesting.data_sources.pmxt import PMXT_RELAY_BASE_URL_ENV
-from prediction_market_extensions.backtesting.data_sources.pmxt import PMXT_SOURCE_PRIORITY_ENV
 from prediction_market_extensions.backtesting.data_sources.pmxt import (
+    PMXT_DATA_SOURCE_ENV,
+    PMXT_LOCAL_RAWS_DIR_ENV,
+    PMXT_PREFETCH_WORKERS_ENV,
+    PMXT_RAW_ROOT_ENV,
+    PMXT_RELAY_BASE_URL_ENV,
+    PMXT_REMOTE_BASE_URL_ENV,
+    PMXT_SOURCE_PRIORITY_ENV,
     RunnerPolymarketPMXTDataLoader,
+    configured_pmxt_data_source,
 )
-from prediction_market_extensions.backtesting.data_sources.pmxt import configured_pmxt_data_source
 
 
 def _make_loader(
@@ -86,9 +86,8 @@ def test_configured_pmxt_data_source_requires_local_mirror(monkeypatch):
     monkeypatch.setenv(PMXT_DATA_SOURCE_ENV, "raw-local")
     monkeypatch.delenv(PMXT_LOCAL_RAWS_DIR_ENV, raising=False)
 
-    with pytest.raises(ValueError, match=PMXT_LOCAL_RAWS_DIR_ENV):
-        with configured_pmxt_data_source():
-            pass
+    with pytest.raises(ValueError, match=PMXT_LOCAL_RAWS_DIR_ENV), configured_pmxt_data_source():
+        pass
 
 
 def test_configured_pmxt_data_source_preserves_explicit_source_order(monkeypatch, tmp_path):
@@ -139,9 +138,11 @@ def test_configured_pmxt_data_source_preserves_existing_prefetch_override(
 
 
 def test_configured_pmxt_data_source_rejects_cache_explicit_source() -> None:
-    with pytest.raises(ValueError, match="The cache layer is implicit"):
-        with configured_pmxt_data_source(sources=["cache"]):
-            pass
+    with (
+        pytest.raises(ValueError, match="The cache layer is implicit"),
+        configured_pmxt_data_source(sources=["cache"]),
+    ):
+        pass
 
 
 @pytest.mark.parametrize(
@@ -160,9 +161,11 @@ def test_configured_pmxt_data_source_rejects_cache_explicit_source() -> None:
 def test_configured_pmxt_data_source_rejects_legacy_or_unprefixed_explicit_sources(
     source: str,
 ) -> None:
-    with pytest.raises(ValueError, match="Use one of: local:, archive:, relay:"):
-        with configured_pmxt_data_source(sources=[source]):
-            pass
+    with (
+        pytest.raises(ValueError, match="Use one of: local:, archive:, relay:"),
+        configured_pmxt_data_source(sources=[source]),
+    ):
+        pass
 
 
 def test_configured_pmxt_data_source_isolates_concurrent_loader_config(

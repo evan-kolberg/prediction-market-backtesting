@@ -6,7 +6,6 @@ from typing import Any
 
 import pandas as pd
 
-
 type TimestampLike = pd.Timestamp | str | object
 
 

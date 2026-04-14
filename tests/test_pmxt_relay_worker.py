@@ -50,8 +50,8 @@ def test_mirror_hour_falls_back_to_get_when_head_is_rejected(tmp_path: Path, mon
     with RelayWorker(config, reset_inflight=False) as worker:
         filename = "polymarket_orderbook_2026-03-21T12.parquet"
         source_url = f"https://r2.pmxt.dev/{filename}"
-        worker._index.upsert_discovered_hour(filename, source_url, 1)  # noqa: SLF001
-        row = worker._index.list_hours_needing_mirror()[0]  # noqa: SLF001
+        worker._index.upsert_discovered_hour(filename, source_url, 1)
+        row = worker._index.list_hours_needing_mirror()[0]
         requested_methods: list[str] = []
 
         def fake_urlopen(request: Request, timeout):  # type: ignore[no-untyped-def]
@@ -70,13 +70,13 @@ def test_mirror_hour_falls_back_to_get_when_head_is_rejected(tmp_path: Path, mon
 
         monkeypatch.setattr("pmxt_relay.worker.urlopen", fake_urlopen)
 
-        worker._mirror_hour(row)  # noqa: SLF001
+        worker._mirror_hour(row)
 
         raw_path = config.raw_root / raw_relative_path(filename)
         assert raw_path.read_bytes() == b"raw-payload"
         assert requested_methods == ["HEAD", "GET"]
 
-        stats = worker._index.stats()  # noqa: SLF001
+        stats = worker._index.stats()
         assert stats["archive_hours"] == 1
         assert stats["mirrored_hours"] == 1
 
@@ -84,9 +84,9 @@ def test_mirror_hour_falls_back_to_get_when_head_is_rejected(tmp_path: Path, mon
 def test_run_once_only_discovers_adopts_and_mirrors(tmp_path: Path, monkeypatch) -> None:
     config = _make_config(tmp_path)
     with RelayWorker(config, reset_inflight=False) as worker:
-        monkeypatch.setattr(worker, "_discover_archive_hours", lambda: 2)  # noqa: SLF001
-        monkeypatch.setattr(worker, "_adopt_local_raw_hours", lambda: 3)  # noqa: SLF001
-        monkeypatch.setattr(worker, "_mirror_pending_hours", lambda: 5)  # noqa: SLF001
+        monkeypatch.setattr(worker, "_discover_archive_hours", lambda: 2)
+        monkeypatch.setattr(worker, "_adopt_local_raw_hours", lambda: 3)
+        monkeypatch.setattr(worker, "_mirror_pending_hours", lambda: 5)
 
         assert worker.run_once() == 10
 
@@ -98,10 +98,10 @@ def test_adopt_local_raw_marks_hours_as_mirrored(tmp_path: Path) -> None:
     raw_path.write_bytes(b"raw-payload")
 
     with RelayWorker(config, reset_inflight=False) as worker:
-        adopted = worker._adopt_local_raw_hours()  # noqa: SLF001
+        adopted = worker._adopt_local_raw_hours()
 
         assert adopted == 1
-        stats = worker._index.stats()  # noqa: SLF001
+        stats = worker._index.stats()
         assert stats["mirrored_hours"] == 1
 
 
@@ -110,8 +110,8 @@ def test_run_once_scans_full_local_tree_only_on_first_cycle(tmp_path: Path, monk
     with RelayWorker(config, reset_inflight=False) as worker:
         calls = {"full": 0, "pending": 0}
 
-        monkeypatch.setattr(worker, "_discover_archive_hours", lambda: 0)  # noqa: SLF001
-        monkeypatch.setattr(worker, "_mirror_pending_hours", lambda: 0)  # noqa: SLF001
+        monkeypatch.setattr(worker, "_discover_archive_hours", lambda: 0)
+        monkeypatch.setattr(worker, "_mirror_pending_hours", lambda: 0)
 
         def _adopt_all() -> int:
             calls["full"] += 1
@@ -121,8 +121,8 @@ def test_run_once_scans_full_local_tree_only_on_first_cycle(tmp_path: Path, monk
             calls["pending"] += 1
             return 0
 
-        monkeypatch.setattr(worker, "_adopt_all_local_raw_hours", _adopt_all)  # noqa: SLF001
-        monkeypatch.setattr(worker, "_adopt_pending_local_raw_hours", _adopt_pending)  # noqa: SLF001
+        monkeypatch.setattr(worker, "_adopt_all_local_raw_hours", _adopt_all)
+        monkeypatch.setattr(worker, "_adopt_pending_local_raw_hours", _adopt_pending)
 
         assert worker.run_once() == 0
         assert worker.run_once() == 0
@@ -135,11 +135,11 @@ def test_repeated_404s_are_quarantined(tmp_path: Path, monkeypatch) -> None:
     with RelayWorker(config, reset_inflight=False) as worker:
         filename = "polymarket_orderbook_2026-03-21T12.parquet"
         source_url = f"https://r2.pmxt.dev/{filename}"
-        worker._index.upsert_discovered_hour(filename, source_url, 1)  # noqa: SLF001
-        worker._index.mark_mirror_retry(  # noqa: SLF001
+        worker._index.upsert_discovered_hour(filename, source_url, 1)
+        worker._index.mark_mirror_retry(
             filename, error="HTTP Error 404: Not Found", next_retry_at="1970-01-01T00:00:00+00:00"
         )
-        worker._index.mark_mirror_retry(  # noqa: SLF001
+        worker._index.mark_mirror_retry(
             filename, error="HTTP Error 404: Not Found", next_retry_at="1970-01-01T00:00:00+00:00"
         )
 
@@ -147,18 +147,18 @@ def test_repeated_404s_are_quarantined(tmp_path: Path, monkeypatch) -> None:
             request = Request(row["source_url"])
             raise HTTPError(request.full_url, 404, "Not Found", hdrs=None, fp=None)
 
-        monkeypatch.setattr(worker, "_mirror_hour", _always_404)  # noqa: SLF001
+        monkeypatch.setattr(worker, "_mirror_hour", _always_404)
 
-        assert worker._mirror_pending_hours() == 0  # noqa: SLF001
+        assert worker._mirror_pending_hours() == 0
 
-        queue = worker._index.queue_summary()  # noqa: SLF001
-        stats = worker._index.stats()  # noqa: SLF001
-        events = worker._index.recent_events(limit=1)  # noqa: SLF001
+        queue = worker._index.queue_summary()
+        stats = worker._index.stats()
+        events = worker._index.recent_events(limit=1)
 
         assert queue["mirror_quarantined"] == 1
         assert queue["mirror_error"] == 1
         assert queue["mirror_retry_waiting"] == 1
         assert queue["next_retry_at"] is not None
         assert stats["mirror_quarantined"] == 1
-        assert worker._index.list_hours_needing_mirror() == []  # noqa: SLF001
+        assert worker._index.list_hours_needing_mirror() == []
         assert events[0]["event_type"] == "mirror_quarantined"

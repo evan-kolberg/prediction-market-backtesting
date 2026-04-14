@@ -3,18 +3,16 @@ from __future__ import annotations
 from decimal import Decimal
 from types import SimpleNamespace
 
-from prediction_market_extensions.backtesting._prediction_market_backtest import MarketSimConfig
+from nautilus_trader.model.identifiers import InstrumentId, Symbol, Venue
+
 from prediction_market_extensions.backtesting._prediction_market_backtest import (
+    MarketSimConfig,
     PredictionMarketBacktest,
+    _LoadedMarketSim,
 )
-from prediction_market_extensions.backtesting._prediction_market_backtest import _LoadedMarketSim
 from prediction_market_extensions.backtesting._prediction_market_runner import MarketDataConfig
 from prediction_market_extensions.backtesting._strategy_configs import build_strategies_from_configs
-from strategies import QuoteTickBreakoutConfig
-from strategies import QuoteTickBreakoutStrategy
-from nautilus_trader.model.identifiers import InstrumentId
-from nautilus_trader.model.identifiers import Symbol
-from nautilus_trader.model.identifiers import Venue
+from strategies import QuoteTickBreakoutConfig, QuoteTickBreakoutStrategy
 
 
 def test_strategy_configs_bind_primary_instrument_id() -> None:
@@ -25,7 +23,7 @@ def test_strategy_configs_bind_primary_instrument_id() -> None:
                 "strategy_path": "strategies:QuoteTickBreakoutStrategy",
                 "config_path": "strategies:QuoteTickBreakoutConfig",
                 "config": {
-                    "trade_size": Decimal("100"),
+                    "trade_size": Decimal(100),
                     "window": 20,
                     "breakout_std": 1.5,
                     "breakout_buffer": 0.001,
@@ -69,7 +67,7 @@ def test_prediction_market_backtest_binds_strategy_configs_across_sims() -> None
                 "strategy_path": "strategies:TradeTickLateFavoriteLimitHoldStrategy",
                 "config_path": "strategies:TradeTickLateFavoriteLimitHoldConfig",
                 "config": {
-                    "trade_size": Decimal("25"),
+                    "trade_size": Decimal(25),
                     "activation_start_time_ns": "__SIM_METADATA__:activation_start_time_ns",
                     "market_close_time_ns": "__SIM_METADATA__:market_close_time_ns",
                     "entry_price": 0.9,
@@ -117,7 +115,7 @@ def test_prediction_market_backtest_binds_strategy_configs_across_sims() -> None
         ),
     ]
 
-    importable_configs = backtest._build_importable_strategy_configs(loaded_sims)  # noqa: SLF001
+    importable_configs = backtest._build_importable_strategy_configs(loaded_sims)
 
     assert len(importable_configs) == 3
     assert importable_configs[0].config["market_close_time_ns"] == 111

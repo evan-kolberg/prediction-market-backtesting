@@ -8,13 +8,10 @@ from __future__ import annotations
 from decimal import Decimal
 
 from nautilus_trader.backtest.models import FillModel
-from nautilus_trader.core.rust.model import BookType
-from nautilus_trader.core.rust.model import OrderSide
-from nautilus_trader.core.rust.model import OrderType
+from nautilus_trader.core.rust.model import BookType, OrderSide, OrderType
 from nautilus_trader.model.book import OrderBook
 from nautilus_trader.model.data import BookOrder
 from nautilus_trader.model.objects import Quantity
-
 
 _KALSHI_ORDER_TICK = Decimal("0.01")
 _UNLIMITED_BOOK_SIZE = 1_000_000

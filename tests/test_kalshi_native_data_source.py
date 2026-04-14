@@ -5,11 +5,7 @@ import os
 
 from prediction_market_extensions.backtesting.data_sources.kalshi_native import (
     KALSHI_REST_BASE_URL_ENV,
-)
-from prediction_market_extensions.backtesting.data_sources.kalshi_native import (
     RunnerKalshiDataLoader,
-)
-from prediction_market_extensions.backtesting.data_sources.kalshi_native import (
     configured_kalshi_native_data_source,
 )
 
