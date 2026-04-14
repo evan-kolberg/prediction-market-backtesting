@@ -1,39 +1,30 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
+from nautilus_trader.backtest.engine import BacktestEngine
 
+from prediction_market_extensions.adapters.prediction_market import LoadedReplay
 from prediction_market_extensions.adapters.prediction_market import (
     research as prediction_market_research,
 )
-from prediction_market_extensions.adapters.prediction_market import LoadedReplay
 from prediction_market_extensions.adapters.prediction_market.backtest_utils import (
     build_brier_inputs,
-)
-from prediction_market_extensions.adapters.prediction_market.backtest_utils import (
     build_market_prices,
-)
-from prediction_market_extensions.adapters.prediction_market.backtest_utils import (
     downsample_price_points,
-)
-from prediction_market_extensions.adapters.prediction_market.backtest_utils import (
     extract_price_points,
-)
-from prediction_market_extensions.adapters.prediction_market.backtest_utils import (
     extract_realized_pnl,
 )
-from prediction_market_extensions.analysis.legacy_plot_adapter import build_legacy_backtest_layout
-from prediction_market_extensions.analysis.legacy_plot_adapter import save_legacy_backtest_layout
-from nautilus_trader.backtest.engine import BacktestEngine
-
+from prediction_market_extensions.analysis.legacy_plot_adapter import (
+    build_legacy_backtest_layout,
+    save_legacy_backtest_layout,
+)
 from prediction_market_extensions.backtesting._backtest_runtime import apply_backtest_run_state
-
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 

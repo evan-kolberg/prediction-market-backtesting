@@ -17,31 +17,27 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from collections.abc import Mapping
-from datetime import UTC
-from datetime import datetime
-from datetime import timedelta
+from collections.abc import Callable, Mapping
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
-import pandas as pd
 import msgspec
-
+import pandas as pd
 from nautilus_trader.adapters.polymarket.common.gamma_markets import list_markets
-from prediction_market_extensions.adapters.polymarket.market_selection import closed_time_utc
-from prediction_market_extensions.adapters.polymarket.market_selection import end_date_utc
-from prediction_market_extensions.adapters.polymarket.market_selection import event_start_utc
-from prediction_market_extensions.adapters.polymarket.market_selection import is_game_market
-from prediction_market_extensions.adapters.polymarket.market_selection import (
-    is_resolved_sports_market,
-)
-from prediction_market_extensions.adapters.polymarket.market_selection import is_sports_market
-from prediction_market_extensions.adapters.polymarket.market_selection import volume_24h
-from prediction_market_extensions.adapters.polymarket.market_selection import yes_price
 from nautilus_trader.adapters.polymarket.loaders import PolymarketDataLoader
 from nautilus_trader.core import nautilus_pyo3
 from nautilus_trader.model.data import TradeTick
 
+from prediction_market_extensions.adapters.polymarket.market_selection import (
+    closed_time_utc,
+    end_date_utc,
+    event_start_utc,
+    is_game_market,
+    is_resolved_sports_market,
+    is_sports_market,
+    volume_24h,
+    yes_price,
+)
 
 MarketPredicate = Callable[[Mapping[str, Any]], bool]
 MarketSortKey = Callable[[Mapping[str, Any]], float]

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from pathlib import Path
 import re
+from pathlib import Path
 
 
 def sanitize_chart_label(value: object, *, default: str) -> str:

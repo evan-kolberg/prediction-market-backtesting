@@ -6,8 +6,9 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
-import main as main_module
 import pytest
+
+import main as main_module
 
 
 def _strip_ansi(text: str) -> str:

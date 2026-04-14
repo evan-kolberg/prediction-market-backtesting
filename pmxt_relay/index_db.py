@@ -6,12 +6,10 @@ import sqlite3
 import threading
 import time
 from contextlib import suppress
-from datetime import UTC
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 from pmxt_relay.storage import parse_archive_hour
-
 
 LOG = logging.getLogger(__name__)
 _LOCKED_ERROR_SNIPPETS = (

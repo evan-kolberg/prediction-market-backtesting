@@ -11,17 +11,17 @@ import pyarrow.parquet as pq
 import pytest
 
 import prediction_market_extensions.backtesting.data_sources.pmxt as pmxt_module
-from prediction_market_extensions.backtesting.data_sources.pmxt import PMXT_DATA_SOURCE_ENV
-from prediction_market_extensions.backtesting.data_sources.pmxt import PMXT_LOCAL_RAWS_DIR_ENV
-from prediction_market_extensions.backtesting.data_sources.pmxt import PMXT_PREFETCH_WORKERS_ENV
-from prediction_market_extensions.backtesting.data_sources.pmxt import PMXT_REMOTE_BASE_URL_ENV
-from prediction_market_extensions.backtesting.data_sources.pmxt import PMXT_RAW_ROOT_ENV
-from prediction_market_extensions.backtesting.data_sources.pmxt import PMXT_RELAY_BASE_URL_ENV
-from prediction_market_extensions.backtesting.data_sources.pmxt import PMXT_SOURCE_PRIORITY_ENV
 from prediction_market_extensions.backtesting.data_sources.pmxt import (
+    PMXT_DATA_SOURCE_ENV,
+    PMXT_LOCAL_RAWS_DIR_ENV,
+    PMXT_PREFETCH_WORKERS_ENV,
+    PMXT_RAW_ROOT_ENV,
+    PMXT_RELAY_BASE_URL_ENV,
+    PMXT_REMOTE_BASE_URL_ENV,
+    PMXT_SOURCE_PRIORITY_ENV,
     RunnerPolymarketPMXTDataLoader,
+    configured_pmxt_data_source,
 )
-from prediction_market_extensions.backtesting.data_sources.pmxt import configured_pmxt_data_source
 
 
 def _make_loader(

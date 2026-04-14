@@ -1,15 +1,13 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import asdict
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
 import aiohttp
 import pyarrow.parquet as pq
 
-from pmxt_relay.archive import extract_archive_filenames
-from pmxt_relay.archive import fetch_archive_page
+from pmxt_relay.archive import extract_archive_filenames, fetch_archive_page
 from pmxt_relay.storage import raw_relative_path
 
 

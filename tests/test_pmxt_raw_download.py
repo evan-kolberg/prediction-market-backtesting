@@ -16,7 +16,7 @@ class _Response:
         self._offset = 0
         self.headers = headers or {}
 
-    def __enter__(self) -> "_Response":
+    def __enter__(self) -> _Response:
         return self
 
     def __exit__(self, exc_type, exc, tb) -> bool:

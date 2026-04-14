@@ -19,8 +19,8 @@ Run via:
 
 from __future__ import annotations
 
-import asyncio
 import ast
+import asyncio
 import importlib
 import importlib.util
 import inspect
@@ -31,8 +31,7 @@ import sys
 import time
 from functools import cache
 from pathlib import Path
-from string import ascii_lowercase
-from string import ascii_uppercase
+from string import ascii_lowercase, ascii_uppercase
 from typing import Any, ClassVar
 
 from prediction_market_extensions import install_commission_patch

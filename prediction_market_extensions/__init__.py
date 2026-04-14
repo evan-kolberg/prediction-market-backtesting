@@ -13,7 +13,8 @@ def install_commission_patch() -> None:
 
     This is the only startup hook required. Call once at process start.
     """
-    from prediction_market_extensions.adapters.polymarket import parsing as pm_parsing
     import nautilus_trader.adapters.polymarket.common.parsing as upstream_parsing
+
+    from prediction_market_extensions.adapters.polymarket import parsing as pm_parsing
 
     upstream_parsing.calculate_commission = pm_parsing.calculate_commission

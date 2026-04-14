@@ -3,15 +3,17 @@ from __future__ import annotations
 import importlib
 from types import SimpleNamespace
 
-from prediction_market_extensions.backtesting._backtest_runtime import build_backtest_run_state
+from prediction_market_extensions.backtesting import _prediction_market_backtest as backtest_module
 from prediction_market_extensions.backtesting._backtest_runtime import (
+    build_backtest_run_state,
     print_backtest_result_warnings,
 )
-from prediction_market_extensions.backtesting import _prediction_market_backtest as backtest_module
-from prediction_market_extensions.backtesting._execution_config import ExecutionModelConfig
-from prediction_market_extensions.backtesting._execution_config import StaticLatencyConfig
-from prediction_market_extensions.backtesting._prediction_market_backtest import MarketSimConfig
+from prediction_market_extensions.backtesting._execution_config import (
+    ExecutionModelConfig,
+    StaticLatencyConfig,
+)
 from prediction_market_extensions.backtesting._prediction_market_backtest import (
+    MarketSimConfig,
     PredictionMarketBacktest,
 )
 from prediction_market_extensions.backtesting._prediction_market_runner import MarketDataConfig
@@ -47,7 +49,7 @@ def test_prediction_market_backtest_build_engine_forwards_execution(monkeypatch)
         ),
     )
 
-    engine = backtest._build_engine()  # noqa: SLF001
+    engine = backtest._build_engine()
 
     assert len(engine.venues) == 1
     venue_kwargs = engine.venues[0]

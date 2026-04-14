@@ -6,8 +6,7 @@
 from __future__ import annotations
 
 import warnings
-from datetime import UTC
-from datetime import datetime
+from datetime import UTC, datetime
 from types import SimpleNamespace
 
 import pandas as pd
@@ -15,23 +14,17 @@ import pytest
 
 from prediction_market_extensions.analysis import legacy_plot_adapter as adapter
 from prediction_market_extensions.analysis.legacy_backtesting import plotting
-from prediction_market_extensions.analysis.legacy_backtesting.models import BacktestResult
-from prediction_market_extensions.analysis.legacy_backtesting.models import PANEL_BRIER_ADVANTAGE
-from prediction_market_extensions.analysis.legacy_backtesting.models import PANEL_EQUITY
 from prediction_market_extensions.analysis.legacy_backtesting.models import (
+    PANEL_BRIER_ADVANTAGE,
+    PANEL_EQUITY,
     PANEL_TOTAL_BRIER_ADVANTAGE,
-)
-from prediction_market_extensions.analysis.legacy_backtesting.models import (
     PANEL_TOTAL_CASH_EQUITY,
-)
-from prediction_market_extensions.analysis.legacy_backtesting.models import (
     PANEL_TOTAL_DRAWDOWN,
-)
-from prediction_market_extensions.analysis.legacy_backtesting.models import (
     PANEL_TOTAL_ROLLING_SHARPE,
+    BacktestResult,
+    Platform,
+    PortfolioSnapshot,
 )
-from prediction_market_extensions.analysis.legacy_backtesting.models import Platform
-from prediction_market_extensions.analysis.legacy_backtesting.models import PortfolioSnapshot
 
 
 class _DummyLayout:

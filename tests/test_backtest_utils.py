@@ -3,16 +3,14 @@
 # Modified in this repository on 2026-03-11 and 2026-03-15.
 # See the repository NOTICE file for provenance and licensing scope.
 
-from datetime import datetime
 import warnings
+from datetime import datetime
 
 from prediction_market_extensions.adapters.prediction_market.backtest_utils import (
     compute_binary_settlement_pnl,
-)
-from prediction_market_extensions.adapters.prediction_market.backtest_utils import (
     extract_price_points,
+    to_naive_utc,
 )
-from prediction_market_extensions.adapters.prediction_market.backtest_utils import to_naive_utc
 
 
 def test_compute_binary_settlement_pnl_marks_open_position_to_resolution():

@@ -4,12 +4,10 @@ from dataclasses import dataclass
 from typing import Any
 
 from prediction_market_extensions.adapters.prediction_market import HistoricalReplayAdapter
-
 from prediction_market_extensions.backtesting._replay_specs import ReplaySpec
 from prediction_market_extensions.backtesting.data_sources.replay_adapters import (
     BUILTIN_REPLAY_ADAPTERS,
 )
-
 
 type MarketDataKey = tuple[str, str, str]
 

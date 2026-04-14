@@ -1,14 +1,10 @@
 from __future__ import annotations
 
 import os
-from inspect import isawaitable
-from inspect import iscoroutinefunction
-from collections.abc import Awaitable
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from functools import wraps
-from typing import ParamSpec
-from typing import TypeVar
-
+from inspect import isawaitable, iscoroutinefunction
+from typing import ParamSpec, TypeVar
 
 P = ParamSpec("P")
 T = TypeVar("T")

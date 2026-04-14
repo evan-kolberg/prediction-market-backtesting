@@ -17,19 +17,14 @@
 
 from __future__ import annotations
 
-from abc import ABC
-from abc import abstractmethod
-from collections.abc import Mapping
-from collections.abc import Sequence
+from abc import ABC, abstractmethod
+from collections.abc import Mapping, Sequence
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from typing import Any
 
-from nautilus_trader.model.enums import AccountType
-from nautilus_trader.model.enums import BookType
-from nautilus_trader.model.enums import OmsType
-from nautilus_trader.model.identifiers import InstrumentId
-from nautilus_trader.model.identifiers import Venue
+from nautilus_trader.model.enums import AccountType, BookType, OmsType
+from nautilus_trader.model.identifiers import InstrumentId, Venue
 
 
 @dataclass(frozen=True)

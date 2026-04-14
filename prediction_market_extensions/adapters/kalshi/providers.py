@@ -22,18 +22,14 @@ import logging
 import math
 from datetime import datetime
 
-from prediction_market_extensions.adapters.kalshi.config import KalshiDataClientConfig
 from nautilus_trader.common.providers import InstrumentProvider
 from nautilus_trader.core.datetime import dt_to_unix_nanos
 from nautilus_trader.model.enums import AssetClass
-from nautilus_trader.model.identifiers import InstrumentId
-from nautilus_trader.model.identifiers import Symbol
-from nautilus_trader.model.identifiers import Venue
+from nautilus_trader.model.identifiers import InstrumentId, Symbol, Venue
 from nautilus_trader.model.instruments import BinaryOption
-from nautilus_trader.model.objects import Currency
-from nautilus_trader.model.objects import Price
-from nautilus_trader.model.objects import Quantity
+from nautilus_trader.model.objects import Currency, Price, Quantity
 
+from prediction_market_extensions.adapters.kalshi.config import KalshiDataClientConfig
 
 _log = logging.getLogger(__name__)
 

@@ -19,30 +19,28 @@ from __future__ import annotations
 
 import os
 import re
-from collections.abc import Mapping
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
+from nautilus_trader.analysis.reporter import ReportProvider
+from nautilus_trader.backtest.config import BacktestEngineConfig
+from nautilus_trader.backtest.engine import BacktestEngine
+from nautilus_trader.config import LoggingConfig
+from nautilus_trader.model.enums import AccountType, BookType, OmsType
+from nautilus_trader.model.identifiers import TraderId, Venue
+from nautilus_trader.model.objects import Currency, Money
+from nautilus_trader.risk.config import RiskEngineConfig
+from nautilus_trader.trading.strategy import Strategy
 
 from prediction_market_extensions.adapters.prediction_market.backtest_utils import (
     _timestamp_to_naive_utc_datetime,
-)
-from prediction_market_extensions.adapters.prediction_market.backtest_utils import (
     build_brier_inputs,
-)
-from prediction_market_extensions.adapters.prediction_market.backtest_utils import (
     build_market_prices,
-)
-from prediction_market_extensions.adapters.prediction_market.backtest_utils import (
     extract_price_points,
-)
-from prediction_market_extensions.adapters.prediction_market.backtest_utils import (
     extract_realized_pnl,
-)
-from prediction_market_extensions.adapters.prediction_market.backtest_utils import (
     infer_realized_outcome,
 )
 from prediction_market_extensions.adapters.prediction_market.fill_model import (
@@ -51,34 +49,21 @@ from prediction_market_extensions.adapters.prediction_market.fill_model import (
 from prediction_market_extensions.analysis import legacy_plot_adapter as legacy_plot_adapter
 from prediction_market_extensions.analysis.legacy_backtesting.models import (
     DEFAULT_SUMMARY_PLOT_PANELS,
-)
-from prediction_market_extensions.analysis.legacy_backtesting.models import PANEL_ALLOCATION
-from prediction_market_extensions.analysis.legacy_backtesting.models import PANEL_CASH_EQUITY
-from prediction_market_extensions.analysis.legacy_backtesting.models import PANEL_DRAWDOWN
-from prediction_market_extensions.analysis.legacy_backtesting.models import PANEL_EQUITY
-from prediction_market_extensions.analysis.legacy_backtesting.models import PANEL_MARKET_PNL
-from prediction_market_extensions.analysis.legacy_backtesting.models import PANEL_ROLLING_SHARPE
-from prediction_market_extensions.analysis.legacy_backtesting.models import (
+    PANEL_ALLOCATION,
+    PANEL_BRIER_ADVANTAGE,
+    PANEL_CASH_EQUITY,
+    PANEL_DRAWDOWN,
+    PANEL_EQUITY,
+    PANEL_MARKET_PNL,
+    PANEL_ROLLING_SHARPE,
     PANEL_TOTAL_BRIER_ADVANTAGE,
+    PANEL_YES_PRICE,
+    normalize_plot_panels,
 )
-from prediction_market_extensions.analysis.legacy_backtesting.models import PANEL_YES_PRICE
-from prediction_market_extensions.analysis.legacy_backtesting.models import normalize_plot_panels
-from prediction_market_extensions.analysis.legacy_backtesting.models import PANEL_BRIER_ADVANTAGE
-from prediction_market_extensions.analysis.legacy_plot_adapter import build_legacy_backtest_layout
-from prediction_market_extensions.analysis.legacy_plot_adapter import save_legacy_backtest_layout
-from nautilus_trader.analysis.reporter import ReportProvider
-from nautilus_trader.backtest.config import BacktestEngineConfig
-from nautilus_trader.backtest.engine import BacktestEngine
-from nautilus_trader.config import LoggingConfig
-from nautilus_trader.model.enums import AccountType
-from nautilus_trader.model.enums import BookType
-from nautilus_trader.model.enums import OmsType
-from nautilus_trader.model.identifiers import TraderId
-from nautilus_trader.model.identifiers import Venue
-from nautilus_trader.model.objects import Currency
-from nautilus_trader.model.objects import Money
-from nautilus_trader.risk.config import RiskEngineConfig
-from nautilus_trader.trading.strategy import Strategy
+from prediction_market_extensions.analysis.legacy_plot_adapter import (
+    build_legacy_backtest_layout,
+    save_legacy_backtest_layout,
+)
 
 
 def _extract_account_pnl_series(engine: BacktestEngine) -> pd.Series:

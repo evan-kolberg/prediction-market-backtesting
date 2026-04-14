@@ -11,9 +11,9 @@ from prediction_market_extensions.backtesting import (
     _independent_multi_replay_runner as independent_runner,
 )
 from prediction_market_extensions.backtesting._experiments import ReplayExperiment
-from prediction_market_extensions.backtesting._prediction_market_backtest import MarketReportConfig
-from prediction_market_extensions.backtesting._prediction_market_backtest import MarketSimConfig
 from prediction_market_extensions.backtesting._prediction_market_backtest import (
+    MarketReportConfig,
+    MarketSimConfig,
     PredictionMarketBacktest,
 )
 from prediction_market_extensions.backtesting._prediction_market_runner import MarketDataConfig

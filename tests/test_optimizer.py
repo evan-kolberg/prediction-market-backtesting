@@ -7,8 +7,10 @@ from pathlib import Path
 import pytest
 
 from prediction_market_extensions.backtesting import _optimizer as optimizer
-from prediction_market_extensions.backtesting._execution_config import ExecutionModelConfig
-from prediction_market_extensions.backtesting._execution_config import StaticLatencyConfig
+from prediction_market_extensions.backtesting._execution_config import (
+    ExecutionModelConfig,
+    StaticLatencyConfig,
+)
 from prediction_market_extensions.backtesting._prediction_market_backtest import (
     PredictionMarketBacktest,
 )

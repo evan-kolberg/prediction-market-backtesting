@@ -1,17 +1,16 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime
-from datetime import timezone
-import re
-import time
-from collections import defaultdict, deque
 import json
 import os
-from pathlib import Path
+import re
 import shutil
 import subprocess
 import threading
+import time
+from collections import defaultdict, deque
+from datetime import datetime, timezone
+from pathlib import Path
 from xml.sax.saxutils import escape
 
 from aiohttp import web

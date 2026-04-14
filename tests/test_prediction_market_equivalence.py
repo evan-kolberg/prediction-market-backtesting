@@ -5,10 +5,10 @@ from types import SimpleNamespace
 
 import pandas as pd
 
-from prediction_market_extensions.backtesting import _prediction_market_runner as runner
 from prediction_market_extensions.backtesting import _prediction_market_backtest as backtest_module
-from prediction_market_extensions.backtesting._prediction_market_backtest import MarketSimConfig
+from prediction_market_extensions.backtesting import _prediction_market_runner as runner
 from prediction_market_extensions.backtesting._prediction_market_backtest import (
+    MarketSimConfig,
     PredictionMarketBacktest,
 )
 from prediction_market_extensions.backtesting._prediction_market_runner import MarketDataConfig

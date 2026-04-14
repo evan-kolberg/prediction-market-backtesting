@@ -1,18 +1,19 @@
 from __future__ import annotations
 
 import importlib
-from datetime import datetime
-from datetime import timezone
+from datetime import datetime, timezone
 
 import pytest
 
-from prediction_market_extensions.backtesting._timing_test import _progress_bar_description
-from prediction_market_extensions.backtesting._timing_test import _progress_bar_position
-from prediction_market_extensions.backtesting._timing_test import _progress_bar_total
-from prediction_market_extensions.backtesting._timing_test import _active_transfer_progress
-from prediction_market_extensions.backtesting._timing_test import _format_completed_hour_line
-from prediction_market_extensions.backtesting._timing_test import _transfer_progress_fraction
-from prediction_market_extensions.backtesting._timing_test import _transfer_label
+from prediction_market_extensions.backtesting._timing_test import (
+    _active_transfer_progress,
+    _format_completed_hour_line,
+    _progress_bar_description,
+    _progress_bar_position,
+    _progress_bar_total,
+    _transfer_label,
+    _transfer_progress_fraction,
+)
 
 
 def test_transfer_label_identifies_local_raw_paths() -> None:
@@ -151,11 +152,11 @@ def test_active_transfer_progress_dedupes_by_hour() -> None:
 
 
 def test_install_timing_patches_runner_loader_override() -> None:
+    from prediction_market_extensions.adapters.polymarket.pmxt import PolymarketPMXTDataLoader
     from prediction_market_extensions.backtesting import _timing_test as timing_module
     from prediction_market_extensions.backtesting.data_sources.pmxt import (
         RunnerPolymarketPMXTDataLoader,
     )
-    from prediction_market_extensions.adapters.polymarket.pmxt import PolymarketPMXTDataLoader
 
     timing_module = importlib.reload(timing_module)
 

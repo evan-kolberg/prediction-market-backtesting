@@ -22,14 +22,12 @@ from collections import deque
 from decimal import Decimal
 from typing import Protocol
 
-from strategies.core import LongOnlyPredictionMarketStrategy
-from nautilus_trader.model.data import Bar
-from nautilus_trader.model.data import BarType
-from nautilus_trader.model.data import QuoteTick
-from nautilus_trader.model.data import TradeTick
+from nautilus_trader.model.data import Bar, BarType, QuoteTick, TradeTick
 from nautilus_trader.model.enums import OrderSide
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.trading.strategy import StrategyConfig
+
+from strategies.core import LongOnlyPredictionMarketStrategy
 
 
 class _PanicFadeConfig(Protocol):

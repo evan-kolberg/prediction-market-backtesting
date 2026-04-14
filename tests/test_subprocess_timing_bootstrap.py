@@ -4,8 +4,7 @@ import pickle
 from pathlib import Path
 from types import SimpleNamespace
 
-from prediction_market_extensions.backtesting import _isolated_replay_runner
-from prediction_market_extensions.backtesting import _optimizer
+from prediction_market_extensions.backtesting import _isolated_replay_runner, _optimizer
 
 
 class _FakeSendConn:

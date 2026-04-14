@@ -6,7 +6,6 @@ import os
 import pandas as pd
 import pytest
 
-
 EXPECTED_MARKET_SLUG = "will-openai-launch-a-new-consumer-hardware-product-by-march-31-2026"
 
 
@@ -15,9 +14,9 @@ EXPECTED_MARKET_SLUG = "will-openai-launch-a-new-consumer-hardware-product-by-ma
     reason="Set RUN_PMXT_INTEGRATION=1 to exercise the live PMXT archive",
 )
 def test_pmxt_loader_returns_quotes_and_book_deltas():
+    from nautilus_trader.model.data import OrderBookDeltas, QuoteTick
+
     from prediction_market_extensions.adapters.polymarket.pmxt import PolymarketPMXTDataLoader
-    from nautilus_trader.model.data import OrderBookDeltas
-    from nautilus_trader.model.data import QuoteTick
 
     async def _load():
         loader = await PolymarketPMXTDataLoader.from_market_slug(EXPECTED_MARKET_SLUG)

@@ -201,6 +201,7 @@ def install_timing() -> None:
     _installed = True
 
     from tqdm import tqdm
+
     from prediction_market_extensions.adapters.polymarket.pmxt import PolymarketPMXTDataLoader
 
     try:

@@ -6,7 +6,6 @@ from pathlib import Path
 from prediction_market_extensions.backtesting._replay_specs import QuoteReplay
 from prediction_market_extensions.backtesting.optimizers import ParameterSearchWindow
 
-
 EXPECTED_PMXT_SOURCES = (
     "local:/Volumes/LaCie/pmxt_raws",
     "archive:r2.pmxt.dev",

@@ -5,26 +5,28 @@ from dataclasses import dataclass
 from types import SimpleNamespace
 from typing import Any
 
+from nautilus_trader.model.currencies import USD
+from nautilus_trader.model.enums import AccountType, OmsType
+from nautilus_trader.model.identifiers import Venue
+
+from prediction_market_extensions.adapters.prediction_market import (
+    HistoricalReplayAdapter,
+    ReplayAdapterKey,
+    ReplayEngineProfile,
+    ReplayLoadRequest,
+)
 from prediction_market_extensions.backtesting import _prediction_market_backtest as backtest_module
-from prediction_market_extensions.backtesting._experiments import build_backtest_for_experiment
-from prediction_market_extensions.backtesting._experiments import build_replay_experiment
-from prediction_market_extensions.backtesting._market_data_support import MarketDataSupport
-from prediction_market_extensions.backtesting._market_data_support import build_single_market_replay
-from prediction_market_extensions.backtesting._market_data_support import (
-    register_market_data_support,
+from prediction_market_extensions.backtesting._experiments import (
+    build_backtest_for_experiment,
+    build_replay_experiment,
 )
 from prediction_market_extensions.backtesting._market_data_support import (
+    MarketDataSupport,
+    build_single_market_replay,
+    register_market_data_support,
     unregister_market_data_support,
 )
 from prediction_market_extensions.backtesting._prediction_market_runner import MarketDataConfig
-from prediction_market_extensions.adapters.prediction_market import HistoricalReplayAdapter
-from prediction_market_extensions.adapters.prediction_market import ReplayAdapterKey
-from prediction_market_extensions.adapters.prediction_market import ReplayEngineProfile
-from prediction_market_extensions.adapters.prediction_market import ReplayLoadRequest
-from nautilus_trader.model.currencies import USD
-from nautilus_trader.model.enums import AccountType
-from nautilus_trader.model.enums import OmsType
-from nautilus_trader.model.identifiers import Venue
 
 
 @dataclass(frozen=True)
@@ -104,7 +106,7 @@ def test_new_adapter_registers_without_core_executor_changes(monkeypatch) -> Non
         backtest = build_backtest_for_experiment(experiment)
 
         assert backtest.replays == (FakeReplay(market_slug="demo-market"),)
-        engine = backtest._build_engine()  # noqa: SLF001
+        engine = backtest._build_engine()
         assert len(engine.venues) == 1
         assert engine.venues[0]["venue"] == Venue("FAKE")
         assert engine.venues[0]["account_type"] == AccountType.CASH

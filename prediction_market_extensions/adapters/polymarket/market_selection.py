@@ -19,12 +19,10 @@ from __future__ import annotations
 
 import re
 from collections.abc import Mapping
-from datetime import UTC
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 import msgspec
-
 
 SPORT_TEXT_PATTERN = re.compile(
     r"\bnba\b|\bwnba\b|\bnfl\b|\bmlb\b|\bnhl\b|\bncaa\b|\bcbb\b|\bsoccer\b|\bfootball\b|"

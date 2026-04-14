@@ -1,30 +1,27 @@
 from __future__ import annotations
 
-from collections.abc import Callable
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
-
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.trading.strategy import Strategy
 
 from prediction_market_extensions.backtesting._execution_config import ExecutionModelConfig
-from prediction_market_extensions.backtesting._experiments import ReplayExperiment
-from prediction_market_extensions.backtesting._experiments import run_replay_experiment_async
+from prediction_market_extensions.backtesting._experiments import (
+    ReplayExperiment,
+    run_replay_experiment_async,
+)
+from prediction_market_extensions.backtesting._market_data_config import MarketDataConfig
 from prediction_market_extensions.backtesting._prediction_market_backtest import MarketReportConfig
 from prediction_market_extensions.backtesting._result_policies import ResultPolicy
-from prediction_market_extensions.backtesting._market_data_config import MarketDataConfig
 from prediction_market_extensions.backtesting._strategy_configs import StrategyConfigSpec
 from prediction_market_extensions.backtesting.data_sources.registry import (
     build_single_market_replay,
-)
-from prediction_market_extensions.backtesting.data_sources.registry import (
     resolve_market_data_support,
 )
-
 
 type StrategyFactory = Callable[[InstrumentId], Strategy]
 

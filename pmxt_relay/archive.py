@@ -2,9 +2,7 @@ from __future__ import annotations
 
 import re
 from urllib.parse import urlencode
-from urllib.request import Request
-from urllib.request import urlopen
-
+from urllib.request import Request, urlopen
 
 ARCHIVE_LINK_RE = re.compile(r"/dumps/(polymarket_orderbook_\d{4}-\d{2}-\d{2}T\d{2}\.parquet)")
 

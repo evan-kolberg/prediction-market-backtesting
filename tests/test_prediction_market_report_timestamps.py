@@ -5,13 +5,11 @@ from types import SimpleNamespace
 
 import pytest
 
+from prediction_market_extensions.adapters.prediction_market import research
 from prediction_market_extensions.adapters.prediction_market.research import (
     save_aggregate_backtest_report,
-)
-from prediction_market_extensions.adapters.prediction_market.research import (
     save_joint_portfolio_backtest_report,
 )
-from prediction_market_extensions.adapters.prediction_market import research
 
 
 def test_save_aggregate_backtest_report_accepts_mixed_iso_timestamp_precision(tmp_path) -> None:

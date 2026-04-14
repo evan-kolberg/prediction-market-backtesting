@@ -25,22 +25,17 @@ from typing import Any, ClassVar
 
 import msgspec
 import pandas as pd
-
-from prediction_market_extensions.adapters.kalshi.providers import KALSHI_REST_BASE
-from prediction_market_extensions.adapters.kalshi.providers import market_dict_to_instrument
 from nautilus_trader.core import nautilus_pyo3
 from nautilus_trader.core.datetime import secs_to_nanos
-from nautilus_trader.model.data import Bar
-from nautilus_trader.model.data import BarSpecification
-from nautilus_trader.model.data import BarType
-from nautilus_trader.model.data import TradeTick
-from nautilus_trader.model.enums import AggregationSource
-from nautilus_trader.model.enums import AggressorSide
-from nautilus_trader.model.enums import BarAggregation
-from nautilus_trader.model.enums import PriceType
+from nautilus_trader.model.data import Bar, BarSpecification, BarType, TradeTick
+from nautilus_trader.model.enums import AggregationSource, AggressorSide, BarAggregation, PriceType
 from nautilus_trader.model.identifiers import TradeId
 from nautilus_trader.model.instruments import BinaryOption
 
+from prediction_market_extensions.adapters.kalshi.providers import (
+    KALSHI_REST_BASE,
+    market_dict_to_instrument,
+)
 
 KALSHI_HTTP_RATE_LIMIT_RPS = 20  # Basic tier
 

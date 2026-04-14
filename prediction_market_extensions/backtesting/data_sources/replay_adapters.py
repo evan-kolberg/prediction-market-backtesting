@@ -1,40 +1,35 @@
 from __future__ import annotations
 
-from collections.abc import Callable
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
-from datetime import UTC
-from datetime import datetime
+from datetime import UTC, datetime
 from importlib import import_module
 from typing import Any
 
 import pandas as pd
+from nautilus_trader.adapters.polymarket import POLYMARKET_VENUE
+from nautilus_trader.model.currencies import USD, USDC_POS
+from nautilus_trader.model.data import QuoteTick
+from nautilus_trader.model.enums import AccountType, BookType, OmsType
+from nautilus_trader.model.identifiers import Venue
 
 from prediction_market_extensions.adapters.kalshi.fee_model import KalshiProportionalFeeModel
-from nautilus_trader.adapters.polymarket import POLYMARKET_VENUE
 from prediction_market_extensions.adapters.polymarket.fee_model import PolymarketFeeModel
-from prediction_market_extensions.adapters.prediction_market import HistoricalReplayAdapter
-from prediction_market_extensions.adapters.prediction_market import LoadedReplay
-from prediction_market_extensions.adapters.prediction_market import ReplayAdapterKey
-from prediction_market_extensions.adapters.prediction_market import ReplayCoverageStats
-from prediction_market_extensions.adapters.prediction_market import ReplayEngineProfile
-from prediction_market_extensions.adapters.prediction_market import ReplayLoadRequest
-from prediction_market_extensions.adapters.prediction_market import ReplayWindow
+from prediction_market_extensions.adapters.prediction_market import (
+    HistoricalReplayAdapter,
+    LoadedReplay,
+    ReplayAdapterKey,
+    ReplayCoverageStats,
+    ReplayEngineProfile,
+    ReplayLoadRequest,
+    ReplayWindow,
+)
 from prediction_market_extensions.adapters.prediction_market.backtest_utils import (
     infer_realized_outcome,
 )
-from nautilus_trader.model.currencies import USD
-from nautilus_trader.model.currencies import USDC_POS
-from nautilus_trader.model.data import QuoteTick
-from nautilus_trader.model.enums import AccountType
-from nautilus_trader.model.enums import BookType
-from nautilus_trader.model.enums import OmsType
-from nautilus_trader.model.identifiers import Venue
-
 from prediction_market_extensions.backtesting._backtest_runtime import _record_timestamp_ns
-from prediction_market_extensions.backtesting._replay_specs import QuoteReplay
-from prediction_market_extensions.backtesting._replay_specs import TradeReplay
+from prediction_market_extensions.backtesting._replay_specs import QuoteReplay, TradeReplay
 from prediction_market_extensions.backtesting.data_sources.kalshi_native import (
     RunnerKalshiDataLoader as KalshiDataLoader,
 )

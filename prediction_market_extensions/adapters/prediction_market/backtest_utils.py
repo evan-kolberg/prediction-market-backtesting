@@ -17,12 +17,10 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import datetime
 
 import pandas as pd
-
 
 PricePoint = tuple[object, float]
 _DEFAULT_TS_ATTRS = ("ts_event", "ts_init")

@@ -20,14 +20,15 @@ else:
 
 ensure_repo_root(__file__)
 
-from prediction_market_extensions.backtesting._experiments import build_replay_experiment
-from prediction_market_extensions.backtesting._experiments import run_experiment
+from prediction_market_extensions.backtesting._experiments import (
+    build_replay_experiment,
+    run_experiment,
+)
 from prediction_market_extensions.backtesting._prediction_market_backtest import MarketReportConfig
 from prediction_market_extensions.backtesting._prediction_market_runner import MarketDataConfig
 from prediction_market_extensions.backtesting._replay_specs import TradeReplay
 from prediction_market_extensions.backtesting._timing_harness import timing_harness
 from prediction_market_extensions.backtesting.data_sources import Native, Polymarket, TradeTick
-
 
 DETAIL_PLOT_PANELS = (
     "total_equity",
@@ -71,7 +72,7 @@ STRATEGY_CONFIGS = [
         "strategy_path": "strategies:TradeTickVWAPReversionStrategy",
         "config_path": "strategies:TradeTickVWAPReversionConfig",
         "config": {
-            "trade_size": Decimal("100"),
+            "trade_size": Decimal(100),
             "vwap_window": 30,
             "entry_threshold": 0.0015,
             "exit_threshold": 0.0003,

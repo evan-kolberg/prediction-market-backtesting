@@ -24,8 +24,7 @@ from __future__ import annotations
 import os
 import random
 import sys
-from collections.abc import Mapping
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from colorsys import hls_to_rgb, rgb_to_hls
 from functools import partial
 from itertools import cycle
@@ -58,37 +57,31 @@ from bokeh.transform import factor_cmap
 
 from prediction_market_extensions.analysis.legacy_backtesting.models import (
     DEFAULT_DETAIL_PLOT_PANELS,
-)
-from prediction_market_extensions.analysis.legacy_backtesting.models import normalize_plot_panels
-from prediction_market_extensions.analysis.legacy_backtesting.models import PANEL_ALLOCATION
-from prediction_market_extensions.analysis.legacy_backtesting.models import PANEL_BRIER_ADVANTAGE
-from prediction_market_extensions.analysis.legacy_backtesting.models import PANEL_CASH_EQUITY
-from prediction_market_extensions.analysis.legacy_backtesting.models import PANEL_DRAWDOWN
-from prediction_market_extensions.analysis.legacy_backtesting.models import PANEL_EQUITY
-from prediction_market_extensions.analysis.legacy_backtesting.models import PANEL_MARKET_PNL
-from prediction_market_extensions.analysis.legacy_backtesting.models import PANEL_MONTHLY_RETURNS
-from prediction_market_extensions.analysis.legacy_backtesting.models import PANEL_PERIODIC_PNL
-from prediction_market_extensions.analysis.legacy_backtesting.models import PANEL_ROLLING_SHARPE
-from prediction_market_extensions.analysis.legacy_backtesting.models import (
+    PANEL_ALLOCATION,
+    PANEL_BRIER_ADVANTAGE,
+    PANEL_CASH_EQUITY,
+    PANEL_DRAWDOWN,
+    PANEL_EQUITY,
+    PANEL_MARKET_PNL,
+    PANEL_MONTHLY_RETURNS,
+    PANEL_PERIODIC_PNL,
+    PANEL_ROLLING_SHARPE,
     PANEL_TOTAL_BRIER_ADVANTAGE,
-)
-from prediction_market_extensions.analysis.legacy_backtesting.models import (
     PANEL_TOTAL_CASH_EQUITY,
-)
-from prediction_market_extensions.analysis.legacy_backtesting.models import (
     PANEL_TOTAL_DRAWDOWN,
-)
-from prediction_market_extensions.analysis.legacy_backtesting.models import PANEL_TOTAL_EQUITY
-from prediction_market_extensions.analysis.legacy_backtesting.models import (
+    PANEL_TOTAL_EQUITY,
     PANEL_TOTAL_ROLLING_SHARPE,
+    PANEL_YES_PRICE,
+    normalize_plot_panels,
 )
-from prediction_market_extensions.analysis.legacy_backtesting.models import PANEL_YES_PRICE
 from prediction_market_extensions.analysis.legacy_backtesting.progress import PinnedProgress
 
 try:
     from bokeh.models import CustomJSTickFormatter
 except ImportError:
-    from bokeh.models import FuncTickFormatter as CustomJSTickFormatter  # type: ignore[no-redef, attr-defined]
+    from bokeh.models import (
+        FuncTickFormatter as CustomJSTickFormatter,  # type: ignore[no-redef, attr-defined]
+    )
 
 if TYPE_CHECKING:
     from prediction_market_extensions.analysis.legacy_backtesting.models import BacktestResult
@@ -329,7 +322,7 @@ def _build_dataframes(
         traded_ids = set(fills_df["market_id"]) if not fills_df.empty else set()
         # Always include every traded market
         traded_with_data = [
-            mid for mid in traded_ids if mid in market_prices and market_prices[mid]
+            mid for mid in traded_ids if market_prices.get(mid)
         ]
         non_traded = [mid for mid in market_prices if mid not in traded_ids and market_prices[mid]]
         # Fill remaining budget with a random spread of non-traded markets
@@ -478,9 +471,7 @@ def _build_allocation_data(
             pos_changes[mid] = np.zeros(n_bars)
         if f["action"] == "buy" and f["side"] == "yes":
             pos_changes[mid][bar_idx] += f["quantity"]
-        elif f["action"] == "sell" and f["side"] == "yes":
-            pos_changes[mid][bar_idx] -= f["quantity"]
-        elif f["action"] == "buy" and f["side"] == "no":
+        elif (f["action"] == "sell" and f["side"] == "yes") or (f["action"] == "buy" and f["side"] == "no"):
             pos_changes[mid][bar_idx] -= f["quantity"]
         elif f["action"] == "sell" and f["side"] == "no":
             pos_changes[mid][bar_idx] += f["quantity"]

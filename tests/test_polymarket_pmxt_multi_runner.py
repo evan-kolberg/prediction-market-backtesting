@@ -6,8 +6,8 @@ from types import SimpleNamespace
 from prediction_market_extensions.backtesting import (
     _independent_multi_replay_runner as independent_runner,
 )
-from prediction_market_extensions.backtesting._prediction_market_backtest import MarketSimConfig
 from prediction_market_extensions.backtesting._prediction_market_backtest import (
+    MarketSimConfig,
     PredictionMarketBacktest,
 )
 from prediction_market_extensions.backtesting._prediction_market_runner import MarketDataConfig

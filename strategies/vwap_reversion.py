@@ -21,11 +21,11 @@ from __future__ import annotations
 from collections import deque
 from decimal import Decimal
 
-from strategies.core import LongOnlyPredictionMarketStrategy
-from nautilus_trader.model.data import QuoteTick
-from nautilus_trader.model.data import TradeTick
+from nautilus_trader.model.data import QuoteTick, TradeTick
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.trading.strategy import StrategyConfig
+
+from strategies.core import LongOnlyPredictionMarketStrategy
 
 
 class TradeTickVWAPReversionConfig(StrategyConfig, frozen=True):  # type: ignore[call-arg]

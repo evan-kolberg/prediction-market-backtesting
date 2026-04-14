@@ -4,8 +4,7 @@ import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from types import SimpleNamespace
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
 
 from prediction_market_extensions.backtesting import _notebook_support as notebook_support
 from prediction_market_extensions.backtesting._timing_harness import ENABLE_TIMING_ENV

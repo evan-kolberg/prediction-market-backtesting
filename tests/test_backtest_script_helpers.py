@@ -5,9 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from backtests._script_helpers import ensure_repo_root
-from backtests._script_helpers import parse_bool_env
-from backtests._script_helpers import parse_csv_env
+from backtests._script_helpers import ensure_repo_root, parse_bool_env, parse_csv_env
 
 
 def test_ensure_repo_root_bootstraps_repo_path_and_commission_patch(

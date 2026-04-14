@@ -6,43 +6,33 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
+from nautilus_trader.backtest.config import BacktestEngineConfig
+from nautilus_trader.backtest.engine import BacktestEngine
+from nautilus_trader.common.component import is_backtest_force_stop
+from nautilus_trader.config import LoggingConfig
+from nautilus_trader.model.enums import AccountType, BookType, OmsType
+from nautilus_trader.model.identifiers import TraderId, Venue
+from nautilus_trader.model.objects import Currency, Money
+from nautilus_trader.risk.config import RiskEngineConfig
+from nautilus_trader.trading.strategy import Strategy
 
 from prediction_market_extensions.adapters.prediction_market import (
     research as prediction_market_research,
 )
 from prediction_market_extensions.adapters.prediction_market.backtest_utils import (
     build_brier_inputs,
-)
-from prediction_market_extensions.adapters.prediction_market.backtest_utils import (
     build_market_prices,
-)
-from prediction_market_extensions.adapters.prediction_market.backtest_utils import (
     extract_price_points,
-)
-from prediction_market_extensions.adapters.prediction_market.backtest_utils import (
     extract_realized_pnl,
-)
-from prediction_market_extensions.adapters.prediction_market.backtest_utils import (
     infer_realized_outcome,
 )
 from prediction_market_extensions.adapters.prediction_market.fill_model import (
     PredictionMarketTakerFillModel,
 )
-from prediction_market_extensions.analysis.legacy_plot_adapter import build_legacy_backtest_layout
-from prediction_market_extensions.analysis.legacy_plot_adapter import save_legacy_backtest_layout
-from nautilus_trader.backtest.config import BacktestEngineConfig
-from nautilus_trader.backtest.engine import BacktestEngine
-from nautilus_trader.common.component import is_backtest_force_stop
-from nautilus_trader.config import LoggingConfig
-from nautilus_trader.model.enums import AccountType
-from nautilus_trader.model.enums import BookType
-from nautilus_trader.model.enums import OmsType
-from nautilus_trader.model.identifiers import TraderId
-from nautilus_trader.model.identifiers import Venue
-from nautilus_trader.model.objects import Currency
-from nautilus_trader.model.objects import Money
-from nautilus_trader.risk.config import RiskEngineConfig
-from nautilus_trader.trading.strategy import Strategy
+from prediction_market_extensions.analysis.legacy_plot_adapter import (
+    build_legacy_backtest_layout,
+    save_legacy_backtest_layout,
+)
 
 
 def _record_timestamp_ns(record: object) -> int | None:

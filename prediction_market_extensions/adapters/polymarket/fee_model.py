@@ -19,9 +19,10 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from prediction_market_extensions.adapters.polymarket.parsing import calculate_commission
 from nautilus_trader.backtest.models import FeeModel
 from nautilus_trader.model.objects import Money
+
+from prediction_market_extensions.adapters.polymarket.parsing import calculate_commission
 
 
 class PolymarketFeeModel(FeeModel):

@@ -1,15 +1,12 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime
-from datetime import timedelta
-from datetime import timezone
 from dataclasses import replace
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
-from aiohttp.test_utils import TestClient
-from aiohttp.test_utils import TestServer
+from aiohttp.test_utils import TestClient, TestServer
 
 from pmxt_relay.api import (
     INDEX_APP_KEY,
@@ -59,10 +56,10 @@ def test_rate_limiter_periodically_prunes_stale_clients():
     limiter = RequestRateLimiter(requests_per_minute=2)
 
     assert limiter.allow("203.0.113.1", now=0.0) is True
-    assert "203.0.113.1" in limiter._requests  # noqa: SLF001
+    assert "203.0.113.1" in limiter._requests
 
     assert limiter.allow("198.51.100.7", now=61.0) is True
-    assert "203.0.113.1" not in limiter._requests  # noqa: SLF001
+    assert "203.0.113.1" not in limiter._requests
 
 
 def test_client_id_uses_forwarded_for_from_trusted_proxy():
@@ -187,8 +184,8 @@ def test_events_route_tolerates_invalid_payload_json(tmp_path: Path):
         config.ensure_directories()
         app = create_app(config)
         index = app[INDEX_APP_KEY]
-        with index._conn:  # noqa: SLF001
-            index._conn.execute(  # noqa: SLF001
+        with index._conn:
+            index._conn.execute(
                 """
                 INSERT INTO relay_events (
                     created_at,

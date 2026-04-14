@@ -4,8 +4,10 @@ import asyncio
 from types import SimpleNamespace
 
 from prediction_market_extensions.backtesting import _prediction_market_runner as runner
-from prediction_market_extensions.backtesting._execution_config import ExecutionModelConfig
-from prediction_market_extensions.backtesting._execution_config import StaticLatencyConfig
+from prediction_market_extensions.backtesting._execution_config import (
+    ExecutionModelConfig,
+    StaticLatencyConfig,
+)
 from prediction_market_extensions.backtesting._prediction_market_backtest import (
     PredictionMarketBacktest,
 )

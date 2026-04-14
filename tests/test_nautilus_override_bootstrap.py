@@ -3,13 +3,12 @@ from __future__ import annotations
 from pathlib import Path
 
 import nautilus_trader
+
 from prediction_market_extensions.adapters.polymarket.execution import PolymarketExecutionClient
 from prediction_market_extensions.adapters.polymarket.pmxt import PolymarketPMXTDataLoader
 from prediction_market_extensions.adapters.prediction_market import HistoricalReplayAdapter
 from prediction_market_extensions.analysis import config as analysis_config
-from prediction_market_extensions.analysis import legacy_plot_adapter
-from prediction_market_extensions.analysis import tearsheet
-
+from prediction_market_extensions.analysis import legacy_plot_adapter, tearsheet
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 EXTENSIONS_ROOT = REPO_ROOT / "prediction_market_extensions"
@@ -58,6 +57,7 @@ def test_commission_patch_installed() -> None:
     from decimal import Decimal
 
     from nautilus_trader.adapters.polymarket.common.parsing import calculate_commission
+
     from prediction_market_extensions.adapters.polymarket.parsing import (
         calculate_commission as pm_calculate_commission,
     )
@@ -68,9 +68,9 @@ def test_commission_patch_installed() -> None:
 
     # Verify the fee curve: at p=0.50, fee = qty * feeRate * 0.50 * 0.50
     fee = calculate_commission(
-        quantity=Decimal("100"),
+        quantity=Decimal(100),
         price=Decimal("0.50"),
-        fee_rate_bps=Decimal("200"),  # 2% = 200 bps
+        fee_rate_bps=Decimal(200),  # 2% = 200 bps
     )
     expected = 100 * 0.02 * 0.50 * 0.50  # = 0.50
     assert abs(fee - expected) < 0.001

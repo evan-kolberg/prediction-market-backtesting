@@ -4,7 +4,6 @@ import re
 import subprocess
 from pathlib import Path
 
-
 REPO_ROOT = Path(__file__).resolve().parents[1]
 NOTICE_PATH = REPO_ROOT / "NOTICE"
 ROOT_NOTICE_START = "LGPL-covered root files"

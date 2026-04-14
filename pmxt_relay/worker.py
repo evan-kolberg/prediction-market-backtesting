@@ -5,19 +5,14 @@ import os
 import shutil
 import time
 from contextlib import suppress
-from datetime import UTC
-from datetime import datetime
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from urllib.error import HTTPError
-from urllib.request import Request
-from urllib.request import urlopen
+from urllib.request import Request, urlopen
 
-from pmxt_relay.archive import extract_archive_filenames
-from pmxt_relay.archive import fetch_archive_page
+from pmxt_relay.archive import extract_archive_filenames, fetch_archive_page
 from pmxt_relay.config import RelayConfig
 from pmxt_relay.index_db import RelayIndex
 from pmxt_relay.storage import raw_relative_path
-
 
 LOG = logging.getLogger(__name__)
 _MIRROR_404_QUARANTINE_AFTER = 3
@@ -196,7 +191,7 @@ class RelayWorker:
         for row in self._index.list_hours_needing_mirror():
             try:
                 self._mirror_hour(row)
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 next_error_count = int(row["error_count"] or 0) + 1
                 if self._should_quarantine_error(exc, error_count=next_error_count):
                     next_retry_at = self._quarantine_retry_at()
@@ -303,7 +298,7 @@ class RelayWorker:
                 last_modified = response.headers.get("Last-Modified")
                 length_value = response.headers.get("Content-Length")
                 content_length = int(length_value) if length_value else None
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             head_error = (
                 f"HEAD {source_url} failed with {exc.code}"
                 if isinstance(exc, HTTPError)

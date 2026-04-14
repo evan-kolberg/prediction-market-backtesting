@@ -21,4 +21,4 @@ KALSHI_PLATFORM = Kalshi
 POLYMARKET_PLATFORM = Polymarket
 
 
-__all__ = ["Kalshi", "KALSHI_PLATFORM", "MarketPlatform", "Polymarket", "POLYMARKET_PLATFORM"]
+__all__ = ["KALSHI_PLATFORM", "POLYMARKET_PLATFORM", "Kalshi", "MarketPlatform", "Polymarket"]

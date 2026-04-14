@@ -35,10 +35,7 @@ from math import ceil
 from typing import Any
 
 import msgspec
-
-from nautilus_trader.core.nautilus_pyo3 import HttpClient
-from nautilus_trader.core.nautilus_pyo3 import HttpResponse
-
+from nautilus_trader.core.nautilus_pyo3 import HttpClient, HttpResponse
 
 DEFAULT_GAMMA_BASE_URL = os.getenv("GAMMA_API_URL", "https://gamma-api.polymarket.com")
 

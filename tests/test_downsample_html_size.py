@@ -28,7 +28,6 @@ from prediction_market_extensions.analysis.legacy_backtesting.plotting import (
     _downsample,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

@@ -20,10 +20,11 @@ from __future__ import annotations
 import math
 from decimal import Decimal
 
-from prediction_market_extensions.adapters.kalshi.providers import KALSHI_TAKER_FEE_RATE
 from nautilus_trader.backtest.config import FeeModelConfig
 from nautilus_trader.backtest.models import FeeModel
 from nautilus_trader.model.objects import Money
+
+from prediction_market_extensions.adapters.kalshi.providers import KALSHI_TAKER_FEE_RATE
 
 
 class KalshiProportionalFeeModelConfig(FeeModelConfig, frozen=True):

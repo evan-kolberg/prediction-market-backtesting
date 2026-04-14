@@ -3,15 +3,11 @@ from __future__ import annotations
 import importlib
 
 import pytest
+from nautilus_trader.model.identifiers import InstrumentId, Symbol, Venue
 
 from prediction_market_extensions.backtesting._replay_specs import TradeReplay
 from prediction_market_extensions.backtesting._strategy_configs import build_strategies_from_configs
-from strategies import TradeTickBreakoutConfig
-from strategies import TradeTickBreakoutStrategy
-from nautilus_trader.model.identifiers import InstrumentId
-from nautilus_trader.model.identifiers import Symbol
-from nautilus_trader.model.identifiers import Venue
-
+from strategies import TradeTickBreakoutConfig, TradeTickBreakoutStrategy
 
 INSTRUMENT_ID = InstrumentId(Symbol("KALSHI-TEST"), Venue("KALSHI"))
 

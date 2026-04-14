@@ -24,11 +24,11 @@ BAR_DATA = Bar
 
 
 __all__ = [
-    "Bar",
     "BAR_DATA",
+    "QUOTE_TICK_DATA",
+    "TRADE_TICK_DATA",
+    "Bar",
     "MarketDataType",
     "QuoteTick",
-    "QUOTE_TICK_DATA",
     "TradeTick",
-    "TRADE_TICK_DATA",
 ]
