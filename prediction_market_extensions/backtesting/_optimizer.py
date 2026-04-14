@@ -821,7 +821,7 @@ def _final_row_sort_key(row: ParameterSearchLeaderboardRow) -> tuple[int, float,
 
 
 def _params_dict(params: ParameterValues) -> dict[str, Any]:
-    return {name: value for name, value in params}
+    return dict(params)
 
 
 def _json_safe(value: Any) -> Any:

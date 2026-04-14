@@ -717,8 +717,7 @@ def create_tearsheet_from_stats(
     if output_path:
         fig.write_html(output_path)
         return None
-    else:
-        return fig.to_html()
+    return fig.to_html()
 
 
 def create_equity_curve(

@@ -259,9 +259,9 @@ def _set_status(
     progress_bar.set_description_str(description, refresh=False)
     progress_bar.set_postfix_str(status, refresh=False)
     progress_bar.refresh()
-    setattr(progress_bar, "_pmxt_last_status_ts", now)
-    setattr(progress_bar, "_pmxt_last_status", status)
-    setattr(progress_bar, "_pmxt_last_description", description)
+    progress_bar._pmxt_last_status_ts = now
+    progress_bar._pmxt_last_status = status
+    progress_bar._pmxt_last_description = description
 
 
 def _write_progress_line(progress_bar: tqdm | None, line: str) -> None:

@@ -39,9 +39,11 @@ def _make_config(tmp_path: Path) -> RelayConfig:
 
 
 def test_cpu_percent_uses_load_average():
-    with patch("pmxt_relay.api.os.cpu_count", return_value=4):
-        with patch("pmxt_relay.api.os.getloadavg", return_value=(3.5, 3.0, 2.5)):
-            assert _cpu_percent_from_loadavg() == 87.5
+    with (
+        patch("pmxt_relay.api.os.cpu_count", return_value=4),
+        patch("pmxt_relay.api.os.getloadavg", return_value=(3.5, 3.0, 2.5)),
+    ):
+        assert _cpu_percent_from_loadavg() == 87.5
 
 
 def test_rate_limiter_enforces_sliding_window():

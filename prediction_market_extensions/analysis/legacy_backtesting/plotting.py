@@ -344,7 +344,7 @@ def _build_dataframes(
             recs = market_prices[mid]
             if not recs:
                 continue
-            ts_list, price_list = zip(*recs)
+            ts_list, price_list = zip(*recs, strict=True)
             dt_arr = pd.to_datetime(list(ts_list))
             mkt = pd.DataFrame({"datetime": dt_arr, "price": list(price_list)})
             mkt = mkt.sort_values("datetime").drop_duplicates("datetime", keep="last")
@@ -512,7 +512,7 @@ def _build_allocation_data(
     for mid in pos_qty:
         recs = market_prices.get(mid, []) if mid in expensive_set else []
         if recs:
-            ts_list, pr_list = zip(*recs)
+            ts_list, pr_list = zip(*recs, strict=True)
             ts_arr = pd.to_datetime(list(ts_list)).values.astype("datetime64[ns]")
             pr_arr = np.array(pr_list, dtype=float)
             order = np.argsort(ts_arr)
@@ -1860,7 +1860,9 @@ return this.labels[index] || "";
         if other_col:
             legend_items.append(LegendItem(label="Other", renderers=[renderers[-2]]))
         # Show top positions by peak value
-        for r_obj, lbl in list(zip(renderers, stack_labels))[: MAX_LEGEND - len(legend_items)]:
+        for r_obj, lbl in list(zip(renderers, stack_labels, strict=False))[
+            : MAX_LEGEND - len(legend_items)
+        ]:
             if lbl in ("Cash", "Other"):
                 continue
             legend_items.append(LegendItem(label=lbl, renderers=[r_obj]))
