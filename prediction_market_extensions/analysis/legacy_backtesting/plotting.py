@@ -321,9 +321,7 @@ def _build_dataframes(
         # --- select markets: all traded first, then random sample ---
         traded_ids = set(fills_df["market_id"]) if not fills_df.empty else set()
         # Always include every traded market
-        traded_with_data = [
-            mid for mid in traded_ids if market_prices.get(mid)
-        ]
+        traded_with_data = [mid for mid in traded_ids if market_prices.get(mid)]
         non_traded = [mid for mid in market_prices if mid not in traded_ids and market_prices[mid]]
         # Fill remaining budget with a random spread of non-traded markets
         budget = max(0, max_markets - len(traded_with_data))
@@ -471,7 +469,9 @@ def _build_allocation_data(
             pos_changes[mid] = np.zeros(n_bars)
         if f["action"] == "buy" and f["side"] == "yes":
             pos_changes[mid][bar_idx] += f["quantity"]
-        elif (f["action"] == "sell" and f["side"] == "yes") or (f["action"] == "buy" and f["side"] == "no"):
+        elif (f["action"] == "sell" and f["side"] == "yes") or (
+            f["action"] == "buy" and f["side"] == "no"
+        ):
             pos_changes[mid][bar_idx] -= f["quantity"]
         elif f["action"] == "sell" and f["side"] == "no":
             pos_changes[mid][bar_idx] += f["quantity"]

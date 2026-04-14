@@ -22,7 +22,9 @@ def _normalized_config(
     if instrument_ids is None or instrument_ids == "__PRIMARY_INSTRUMENTS__":
         config["instrument_ids"] = [instrument_id]
 
-    if ("instrument_id" not in config and "instrument_ids" not in config) or config.get("instrument_id") in _PRIMARY_INSTRUMENT_SENTINELS:
+    if ("instrument_id" not in config and "instrument_ids" not in config) or config.get(
+        "instrument_id"
+    ) in _PRIMARY_INSTRUMENT_SENTINELS:
         config["instrument_id"] = instrument_id
 
     return config
