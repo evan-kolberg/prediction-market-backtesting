@@ -456,21 +456,14 @@ def _upstream_badge_payload(
     config: RelayConfig,
     now: datetime | None = None,
 ) -> dict[str, object]:
+    del queue
     current = datetime.now(timezone.utc) if now is None else now.astimezone(timezone.utc)
     last_event_at = _parse_db_timestamp(stats.get("last_event_at"))  # type: ignore[arg-type]
-    last_error_at = _parse_db_timestamp(stats.get("last_error_at"))  # type: ignore[arg-type]
-    latest_mirrored_hour = _parse_db_timestamp(
-        queue.get("latest_mirrored_hour")  # type: ignore[arg-type]
-    )
-    mirror_pending = int(queue.get("mirror_pending") or 0)
-    mirror_active = int(queue.get("mirror_active") or 0)
-    mirror_error = int(queue.get("mirror_error") or 0)
-    outstanding = mirror_pending + mirror_active + mirror_error
 
     if last_event_at is None:
         return _badge_payload(
             label="r2.pmxt.dev",
-            message="starting",
+            message="checking",
             color="yellow",
         )
 
@@ -479,46 +472,13 @@ def _upstream_badge_payload(
     if age_seconds > stale_threshold:
         return _badge_payload(
             label="r2.pmxt.dev",
-            message="stale",
+            message="offline",
             color="red",
-        )
-
-    if mirror_error > 0:
-        if last_error_at is not None:
-            error_age_seconds = max(0.0, (current - last_error_at).total_seconds())
-            if error_age_seconds <= max(config.poll_interval_secs * 2, 900):
-                return _badge_payload(
-                    label="r2.pmxt.dev",
-                    message="errors",
-                    color="red",
-                )
-
-        return _badge_payload(
-            label="r2.pmxt.dev",
-            message=f"{mirror_error} errors",
-            color="orange",
-        )
-
-    if outstanding > 0 and latest_mirrored_hour is not None:
-        lag_seconds = max(0.0, (current - latest_mirrored_hour).total_seconds())
-        lag_threshold = max(config.poll_interval_secs * 8, 21600)
-        if lag_seconds > lag_threshold:
-            return _badge_payload(
-                label="r2.pmxt.dev",
-                message="lagging",
-                color="orange",
-            )
-
-    if outstanding > 0:
-        return _badge_payload(
-            label="r2.pmxt.dev",
-            message="syncing",
-            color="yellow",
         )
 
     return _badge_payload(
         label="r2.pmxt.dev",
-        message="up",
+        message="online",
         color="brightgreen",
     )
 

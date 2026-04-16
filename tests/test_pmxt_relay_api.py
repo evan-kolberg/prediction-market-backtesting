@@ -334,7 +334,7 @@ def test_status_badge_uses_degraded_for_inactive_service(tmp_path: Path):
     assert payload["color"] == "orange"
 
 
-def test_upstream_badge_uses_errors_for_fresh_unresolved_failures(tmp_path: Path):
+def test_upstream_badge_stays_online_for_fresh_unresolved_mirror_gaps(tmp_path: Path):
     config = _make_config(tmp_path)
     now = datetime(2026, 4, 3, 20, 0, tzinfo=timezone.utc)
 
@@ -354,11 +354,11 @@ def test_upstream_badge_uses_errors_for_fresh_unresolved_failures(tmp_path: Path
     )
 
     assert payload["label"] == "r2.pmxt.dev"
-    assert payload["message"] == "errors"
-    assert payload["color"] == "red"
+    assert payload["message"] == "online"
+    assert payload["color"] == "brightgreen"
 
 
-def test_upstream_badge_uses_lagging_for_backlog_with_old_latest_mirror(tmp_path: Path):
+def test_upstream_badge_stays_online_for_backlog_with_old_latest_mirror(tmp_path: Path):
     config = _make_config(tmp_path)
     now = datetime(2026, 4, 3, 20, 0, tzinfo=timezone.utc)
 
@@ -375,8 +375,29 @@ def test_upstream_badge_uses_lagging_for_backlog_with_old_latest_mirror(tmp_path
     )
 
     assert payload["label"] == "r2.pmxt.dev"
-    assert payload["message"] == "lagging"
-    assert payload["color"] == "orange"
+    assert payload["message"] == "online"
+    assert payload["color"] == "brightgreen"
+
+
+def test_upstream_badge_uses_offline_for_stale_polling(tmp_path: Path):
+    config = _make_config(tmp_path)
+    now = datetime(2026, 4, 3, 20, 0, tzinfo=timezone.utc)
+
+    payload = _upstream_badge_payload(
+        stats={"last_event_at": (now - timedelta(hours=2)).isoformat(), "last_error_at": None},
+        queue={
+            "mirror_pending": 0,
+            "mirror_active": 0,
+            "mirror_error": 0,
+            "latest_mirrored_hour": (now - timedelta(hours=1)).isoformat(),
+        },
+        config=config,
+        now=now,
+    )
+
+    assert payload["label"] == "r2.pmxt.dev"
+    assert payload["message"] == "offline"
+    assert payload["color"] == "red"
 
 
 def test_latest_file_badge_reports_latest_mirrored_filename(tmp_path: Path):
@@ -551,7 +572,7 @@ def test_empty_hours_badge_shows_count(tmp_path: Path):
     asyncio.run(scenario())
 
 
-def test_upstream_badge_old_errors_show_count_not_degraded(tmp_path: Path):
+def test_upstream_badge_old_mirror_errors_still_report_online(tmp_path: Path):
     config = _make_config(tmp_path)
     now = datetime(2026, 4, 3, 20, 0, tzinfo=timezone.utc)
 
@@ -571,4 +592,5 @@ def test_upstream_badge_old_errors_show_count_not_degraded(tmp_path: Path):
     )
 
     assert payload["label"] == "r2.pmxt.dev"
-    assert payload["message"] == "3 errors"
+    assert payload["message"] == "online"
+    assert payload["color"] == "brightgreen"

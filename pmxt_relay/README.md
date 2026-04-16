@@ -133,8 +133,8 @@ The public badges separate relay health from `r2.pmxt.dev` availability:
 
 - `/v1/badge/status(.svg)` reports whether the relay itself is up, recent, and
   has active API/worker services.
-- `/v1/badge/upstream(.svg)` reports whether `r2.pmxt.dev` is healthy,
-  lagging, or erroring.
+- `/v1/badge/upstream(.svg)` reports whether recent `r2.pmxt.dev` polling is
+  online or offline.
 - `/v1/badge/missing-hours.svg` shows how many archive hours are not yet
   mirrored locally.
 - `/v1/badge/empty-hours.svg` shows how many mirrored parquet files have zero
