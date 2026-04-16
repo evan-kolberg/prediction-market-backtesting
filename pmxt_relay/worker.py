@@ -19,6 +19,7 @@ LOG = logging.getLogger(__name__)
 _MIRROR_404_QUARANTINE_AFTER = 3
 _MIRROR_RETRY_BACKOFF_CAP_SECS = 6 * 3600
 _MIRROR_QUARANTINE_RETRY_SECS = 3600
+_VERIFY_HTTP_TIMEOUT_CAP_SECS = 10
 
 
 class RelayWorker:
@@ -291,7 +292,8 @@ class RelayWorker:
     def _check_upstream_changed(self, row) -> bool:  # type: ignore[no-untyped-def]
         source_url = row["source_url"]
         head_request = Request(source_url, method="HEAD", headers={"User-Agent": "pmxt-relay/1.0"})
-        with urlopen(head_request, timeout=self._config.http_timeout_secs) as response:
+        timeout_secs = min(self._config.http_timeout_secs, _VERIFY_HTTP_TIMEOUT_CAP_SECS)
+        with urlopen(head_request, timeout=timeout_secs) as response:
             upstream_etag = response.headers.get("ETag")
             upstream_length_raw = response.headers.get("Content-Length")
             upstream_length = int(upstream_length_raw) if upstream_length_raw else None
