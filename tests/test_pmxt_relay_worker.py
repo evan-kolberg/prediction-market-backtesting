@@ -22,6 +22,7 @@ def _make_config(tmp_path: Path) -> RelayConfig:
         archive_max_pages=None,
         event_retention=1000,
         api_rate_limit_per_minute=2400,
+        verify_batch_size=50,
     )
 
 
@@ -162,3 +163,109 @@ def test_repeated_404s_are_quarantined(tmp_path: Path, monkeypatch) -> None:
         assert stats["mirror_quarantined"] == 1
         assert worker._index.list_hours_needing_mirror() == []
         assert events[0]["event_type"] == "mirror_quarantined"
+
+
+def test_verify_ready_hours_requeues_changed_upstream(tmp_path: Path, monkeypatch) -> None:
+    config = _make_config(tmp_path)
+    with RelayWorker(config, reset_inflight=False) as worker:
+        filename = "polymarket_orderbook_2026-03-21T12.parquet"
+        source_url = f"https://r2.pmxt.dev/{filename}"
+        worker._index.upsert_discovered_hour(filename, source_url, 1)
+        worker._index.mark_mirrored(
+            filename,
+            local_path=str(tmp_path / filename),
+            etag="abc",
+            content_length=11,
+            last_modified=None,
+        )
+
+        def fake_urlopen(request: Request, timeout):  # type: ignore[no-untyped-def]
+            assert timeout == config.http_timeout_secs
+            assert request.get_method() == "HEAD"
+            return _FakeResponse(b"", headers={"ETag": "xyz", "Content-Length": "11"})
+
+        monkeypatch.setattr("pmxt_relay.worker.urlopen", fake_urlopen)
+
+        assert worker._verify_ready_hours() == 1
+
+        row = worker._index._conn.execute(
+            "SELECT mirror_status, last_verified_at FROM archive_hours WHERE filename = ?",
+            (filename,),
+        ).fetchone()
+        assert row is not None
+        assert row["mirror_status"] == "pending"
+        assert row["last_verified_at"] is None
+
+
+def test_verify_ready_hours_skips_unchanged(tmp_path: Path, monkeypatch) -> None:
+    config = _make_config(tmp_path)
+    with RelayWorker(config, reset_inflight=False) as worker:
+        filename = "polymarket_orderbook_2026-03-21T12.parquet"
+        source_url = f"https://r2.pmxt.dev/{filename}"
+        worker._index.upsert_discovered_hour(filename, source_url, 1)
+        worker._index.mark_mirrored(
+            filename,
+            local_path=str(tmp_path / filename),
+            etag="abc",
+            content_length=11,
+            last_modified=None,
+        )
+
+        def fake_urlopen(request: Request, timeout):  # type: ignore[no-untyped-def]
+            assert timeout == config.http_timeout_secs
+            assert request.get_method() == "HEAD"
+            return _FakeResponse(b"", headers={"ETag": "abc", "Content-Length": "11"})
+
+        monkeypatch.setattr("pmxt_relay.worker.urlopen", fake_urlopen)
+
+        assert worker._verify_ready_hours() == 0
+
+        row = worker._index._conn.execute(
+            "SELECT mirror_status, last_verified_at FROM archive_hours WHERE filename = ?",
+            (filename,),
+        ).fetchone()
+        assert row is not None
+        assert row["mirror_status"] == "ready"
+        assert row["last_verified_at"] is not None
+
+
+def test_verify_ready_hours_tolerates_head_failure(tmp_path: Path, monkeypatch) -> None:
+    config = _make_config(tmp_path)
+    with RelayWorker(config, reset_inflight=False) as worker:
+        filename = "polymarket_orderbook_2026-03-21T12.parquet"
+        source_url = f"https://r2.pmxt.dev/{filename}"
+        worker._index.upsert_discovered_hour(filename, source_url, 1)
+        worker._index.mark_mirrored(
+            filename,
+            local_path=str(tmp_path / filename),
+            etag="abc",
+            content_length=11,
+            last_modified=None,
+        )
+
+        def fake_urlopen(request: Request, timeout):  # type: ignore[no-untyped-def]
+            assert timeout == config.http_timeout_secs
+            assert request.get_method() == "HEAD"
+            raise OSError("HEAD failed")
+
+        monkeypatch.setattr("pmxt_relay.worker.urlopen", fake_urlopen)
+
+        assert worker._verify_ready_hours() == 0
+
+        row = worker._index._conn.execute(
+            "SELECT mirror_status FROM archive_hours WHERE filename = ?",
+            (filename,),
+        ).fetchone()
+        assert row is not None
+        assert row["mirror_status"] == "ready"
+
+
+def test_run_once_includes_verification_step(tmp_path: Path, monkeypatch) -> None:
+    config = _make_config(tmp_path)
+    with RelayWorker(config, reset_inflight=False) as worker:
+        monkeypatch.setattr(worker, "_discover_archive_hours", lambda: 2)
+        monkeypatch.setattr(worker, "_adopt_local_raw_hours", lambda: 3)
+        monkeypatch.setattr(worker, "_mirror_pending_hours", lambda: 5)
+        monkeypatch.setattr(worker, "_verify_ready_hours", lambda: 7)
+
+        assert worker.run_once() == 17

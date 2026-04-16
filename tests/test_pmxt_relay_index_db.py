@@ -311,3 +311,160 @@ def test_initialize_tolerates_duplicate_column_race_during_schema_upgrade(tmp_pa
         }
         assert "last_error_at" in columns
         assert "next_retry_at" in columns
+
+
+def test_list_hours_needing_verification_returns_oldest_first(tmp_path: Path):
+    with RelayIndex(tmp_path / "relay.sqlite3") as index:
+        index.initialize()
+        filenames = [
+            "polymarket_orderbook_2026-03-21T12.parquet",
+            "polymarket_orderbook_2026-03-21T13.parquet",
+            "polymarket_orderbook_2026-03-21T14.parquet",
+        ]
+        for filename in filenames:
+            index.upsert_discovered_hour(filename, f"https://r2.pmxt.dev/{filename}", 1)
+            index.mark_mirrored(
+                filename,
+                local_path=f"/srv/pmxt-relay/raw/{filename}",
+                etag=None,
+                content_length=1,
+                last_modified=None,
+            )
+        with index._conn:
+            index._conn.execute(
+                "UPDATE archive_hours SET last_verified_at = ? WHERE filename = ?",
+                ("2026-03-21T12:30:00+00:00", filenames[1]),
+            )
+            index._conn.execute(
+                "UPDATE archive_hours SET last_verified_at = ? WHERE filename = ?",
+                ("2026-03-21T13:30:00+00:00", filenames[2]),
+            )
+
+        rows = index.list_hours_needing_verification(batch_size=3)
+        limited_rows = index.list_hours_needing_verification(batch_size=2)
+
+        assert [row["filename"] for row in rows] == filenames
+        assert [row["filename"] for row in limited_rows] == filenames[:2]
+
+
+def test_mark_verified_sets_timestamp(tmp_path: Path):
+    with RelayIndex(tmp_path / "relay.sqlite3") as index:
+        index.initialize()
+        filename = "polymarket_orderbook_2026-03-21T12.parquet"
+        index.upsert_discovered_hour(filename, f"https://r2.pmxt.dev/{filename}", 1)
+        index.mark_mirrored(
+            filename,
+            local_path=f"/srv/pmxt-relay/raw/{filename}",
+            etag=None,
+            content_length=1,
+            last_modified=None,
+        )
+
+        index.mark_verified(filename)
+
+        row = index._conn.execute(
+            "SELECT last_verified_at FROM archive_hours WHERE filename = ?",
+            (filename,),
+        ).fetchone()
+        assert row is not None
+        assert row["last_verified_at"] is not None
+
+
+def test_mark_needs_remirror_resets_to_pending(tmp_path: Path):
+    with RelayIndex(tmp_path / "relay.sqlite3") as index:
+        index.initialize()
+        filename = "polymarket_orderbook_2026-03-21T12.parquet"
+        index.upsert_discovered_hour(filename, f"https://r2.pmxt.dev/{filename}", 1)
+        index.mark_mirrored(
+            filename,
+            local_path=f"/srv/pmxt-relay/raw/{filename}",
+            etag="abc",
+            content_length=1,
+            last_modified=None,
+        )
+        index.mark_verified(filename)
+
+        index.mark_needs_remirror(filename)
+
+        row = index._conn.execute(
+            """
+            SELECT mirror_status, last_verified_at, last_error
+            FROM archive_hours
+            WHERE filename = ?
+            """,
+            (filename,),
+        ).fetchone()
+        assert row is not None
+        assert row["mirror_status"] == "pending"
+        assert row["last_verified_at"] is None
+        assert row["last_error"] == "upstream content changed"
+
+
+def test_count_missing_hours(tmp_path: Path):
+    with RelayIndex(tmp_path / "relay.sqlite3") as index:
+        index.initialize()
+        pending = "polymarket_orderbook_2026-03-21T12.parquet"
+        errored = "polymarket_orderbook_2026-03-21T13.parquet"
+        ready = "polymarket_orderbook_2026-03-21T14.parquet"
+        for filename in [pending, errored, ready]:
+            index.upsert_discovered_hour(filename, f"https://r2.pmxt.dev/{filename}", 1)
+        index.mark_mirror_error(errored, "upstream failure")
+        index.mark_mirrored(
+            ready,
+            local_path=f"/srv/pmxt-relay/raw/{ready}",
+            etag=None,
+            content_length=1,
+            last_modified=None,
+        )
+
+        assert index.count_missing_hours() == 2
+
+
+def test_count_empty_hours(tmp_path: Path):
+    with RelayIndex(tmp_path / "relay.sqlite3") as index:
+        index.initialize()
+        filenames = [
+            "polymarket_orderbook_2026-03-21T12.parquet",
+            "polymarket_orderbook_2026-03-21T13.parquet",
+            "polymarket_orderbook_2026-03-21T14.parquet",
+        ]
+        for filename in filenames:
+            index.upsert_discovered_hour(filename, f"https://r2.pmxt.dev/{filename}", 1)
+            index.mark_mirrored(
+                filename,
+                local_path=f"/srv/pmxt-relay/raw/{filename}",
+                etag=None,
+                content_length=1,
+                last_modified=None,
+            )
+        index.update_row_count(filenames[0], 0)
+        index.update_row_count(filenames[1], 100)
+
+        assert index.count_empty_hours() == 1
+
+
+def test_update_row_count(tmp_path: Path):
+    with RelayIndex(tmp_path / "relay.sqlite3") as index:
+        index.initialize()
+        filename = "polymarket_orderbook_2026-03-21T12.parquet"
+        index.upsert_discovered_hour(filename, f"https://r2.pmxt.dev/{filename}", 1)
+
+        index.update_row_count(filename, 42)
+
+        row = index._conn.execute(
+            "SELECT row_count FROM archive_hours WHERE filename = ?",
+            (filename,),
+        ).fetchone()
+        assert row is not None
+        assert row["row_count"] == 42
+
+
+def test_schema_migration_adds_verification_columns(tmp_path: Path):
+    with RelayIndex(tmp_path / "relay.sqlite3") as index:
+        index.initialize()
+
+        columns = {
+            row[1] for row in index._conn.execute("PRAGMA table_info(archive_hours)").fetchall()
+        }
+        assert "last_verified_at" in columns
+        assert "row_count" in columns

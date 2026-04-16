@@ -37,6 +37,7 @@ class RelayConfig:
     archive_max_pages: int | None
     event_retention: int
     api_rate_limit_per_minute: int
+    verify_batch_size: int = 50
     trusted_proxy_ips: tuple[str, ...] = ("127.0.0.1", "::1")
 
     @classmethod
@@ -64,6 +65,7 @@ class RelayConfig:
             api_rate_limit_per_minute=max(
                 0, _env_int("PMXT_RELAY_API_RATE_LIMIT_PER_MINUTE", 2400)
             ),
+            verify_batch_size=max(1, _env_int("PMXT_RELAY_VERIFY_BATCH_SIZE", 50)),
             trusted_proxy_ips=_env_csv("PMXT_RELAY_TRUSTED_PROXY_IPS", ("127.0.0.1", "::1")),
         )
 

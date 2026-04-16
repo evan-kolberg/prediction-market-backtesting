@@ -35,6 +35,7 @@ def _make_config(tmp_path: Path) -> RelayConfig:
         archive_max_pages=None,
         event_retention=1000,
         api_rate_limit_per_minute=2400,
+        verify_batch_size=50,
     )
 
 
@@ -478,3 +479,96 @@ def test_stats_and_queue_payloads_are_mirror_only(tmp_path: Path):
         assert queue_payload["latest_mirrored_filename"] == filename
 
     asyncio.run(scenario())
+
+
+def test_missing_hours_badge_shows_count(tmp_path: Path):
+    async def scenario() -> None:
+        config = _make_config(tmp_path)
+        config.ensure_directories()
+        app = create_app(config)
+        index = app[INDEX_APP_KEY]
+        pending = "polymarket_orderbook_2026-03-21T12.parquet"
+        ready = "polymarket_orderbook_2026-03-21T13.parquet"
+        index.upsert_discovered_hour(pending, f"https://raw.example.com/{pending}", 1)
+        index.upsert_discovered_hour(ready, f"https://raw.example.com/{ready}", 1)
+        index.mark_mirrored(
+            ready,
+            local_path=str(tmp_path / ready),
+            etag=None,
+            content_length=1,
+            last_modified=None,
+        )
+
+        server = TestServer(app)
+        client = TestClient(server)
+        await client.start_server()
+        try:
+            response = await client.get("/v1/badge/missing-hours.svg")
+            payload = await response.text()
+        finally:
+            await client.close()
+
+        assert response.status == 200
+        assert "Missing hours" in payload
+        assert "1/2" in payload
+
+    asyncio.run(scenario())
+
+
+def test_empty_hours_badge_shows_count(tmp_path: Path):
+    async def scenario() -> None:
+        config = _make_config(tmp_path)
+        config.ensure_directories()
+        app = create_app(config)
+        index = app[INDEX_APP_KEY]
+        empty = "polymarket_orderbook_2026-03-21T12.parquet"
+        nonempty = "polymarket_orderbook_2026-03-21T13.parquet"
+        for filename in [empty, nonempty]:
+            index.upsert_discovered_hour(filename, f"https://raw.example.com/{filename}", 1)
+            index.mark_mirrored(
+                filename,
+                local_path=str(tmp_path / filename),
+                etag=None,
+                content_length=1,
+                last_modified=None,
+            )
+        index.update_row_count(empty, 0)
+        index.update_row_count(nonempty, 100)
+
+        server = TestServer(app)
+        client = TestClient(server)
+        await client.start_server()
+        try:
+            response = await client.get("/v1/badge/empty-hours.svg")
+            payload = await response.text()
+        finally:
+            await client.close()
+
+        assert response.status == 200
+        assert "Empty hours" in payload
+        assert "1/2" in payload
+
+    asyncio.run(scenario())
+
+
+def test_upstream_badge_old_errors_show_count_not_degraded(tmp_path: Path):
+    config = _make_config(tmp_path)
+    now = datetime(2026, 4, 3, 20, 0, tzinfo=timezone.utc)
+
+    payload = _upstream_badge_payload(
+        stats={
+            "last_event_at": (now - timedelta(minutes=5)).isoformat(),
+            "last_error_at": (now - timedelta(hours=1)).isoformat(),
+        },
+        queue={
+            "mirror_pending": 0,
+            "mirror_active": 0,
+            "mirror_error": 3,
+            "latest_mirrored_hour": (now - timedelta(hours=1)).isoformat(),
+        },
+        config=config,
+        now=now,
+    )
+
+    assert payload["label"] == "r2.pmxt.dev"
+    assert payload["message"] == "3 errors"

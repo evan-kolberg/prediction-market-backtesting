@@ -6,6 +6,7 @@ import shutil
 import time
 from contextlib import suppress
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
@@ -85,18 +86,25 @@ class RelayWorker:
         discovered = self._discover_archive_hours()
         adopted = self._adopt_local_raw_hours()
         mirrored = self._mirror_pending_hours()
-        total = discovered + adopted + mirrored
+        reverified = self._verify_ready_hours()
+        total = discovered + adopted + mirrored + reverified
         self._record_event(
             level="INFO",
             event_type="cycle_complete",
             message="Relay cycle complete",
-            payload={"discovered": discovered, "adopted": adopted, "mirrored": mirrored},
+            payload={
+                "discovered": discovered,
+                "adopted": adopted,
+                "mirrored": mirrored,
+                "reverified": reverified,
+            },
         )
         LOG.info(
-            "Relay cycle complete: discovered=%s adopted=%s mirrored=%s",
+            "Relay cycle complete: discovered=%s adopted=%s mirrored=%s reverified=%s",
             discovered,
             adopted,
             mirrored,
+            reverified,
         )
         return total
 
@@ -173,6 +181,10 @@ class RelayWorker:
             content_length=byte_size,
             source_url=f"{self._config.raw_base_url}/{filename}",
         )
+        if changed:
+            row_count = self._read_parquet_row_count(raw_path)
+            if row_count is not None:
+                self._index.update_row_count(filename, row_count)
         return 1 if changed else 0
 
     def _emit_adopted_local_raw_event(self, adopted: int) -> None:
@@ -238,6 +250,86 @@ class RelayWorker:
             mirrored += 1
         return mirrored
 
+    def _verify_ready_hours(self) -> int:
+        batch = self._index.list_hours_needing_verification(
+            batch_size=self._config.verify_batch_size
+        )
+        requeued = 0
+        for row in batch:
+            try:
+                changed = self._check_upstream_changed(row)
+            except Exception as exc:
+                LOG.warning("Verification HEAD failed for %s: %s", row["filename"], exc)
+                self._index.mark_verified(row["filename"])
+                continue
+            if changed:
+                self._index.mark_needs_remirror(row["filename"])
+                self._record_event(
+                    level="WARNING",
+                    event_type="verify_changed",
+                    filename=row["filename"],
+                    message=f"Upstream content changed for {row['filename']}, re-queuing for mirror",
+                    payload={
+                        "old_etag": row["etag"],
+                        "old_content_length": row["content_length"],
+                    },
+                )
+                LOG.info("Re-queuing %s: upstream content changed", row["filename"])
+                requeued += 1
+            else:
+                self._index.mark_verified(row["filename"])
+                self._backfill_row_count(row)
+        if requeued > 0:
+            self._record_event(
+                level="INFO",
+                event_type="verify_batch",
+                message=f"Verification batch: {len(batch)} checked, {requeued} re-queued",
+                payload={"batch_size": len(batch), "requeued": requeued},
+            )
+        return requeued
+
+    def _check_upstream_changed(self, row) -> bool:  # type: ignore[no-untyped-def]
+        source_url = row["source_url"]
+        head_request = Request(source_url, method="HEAD", headers={"User-Agent": "pmxt-relay/1.0"})
+        with urlopen(head_request, timeout=self._config.http_timeout_secs) as response:
+            upstream_etag = response.headers.get("ETag")
+            upstream_length_raw = response.headers.get("Content-Length")
+            upstream_length = int(upstream_length_raw) if upstream_length_raw else None
+
+        stored_etag = row["etag"]
+        stored_length = row["content_length"]
+
+        if stored_etag and upstream_etag:
+            return stored_etag != upstream_etag
+
+        if stored_length is not None and upstream_length is not None:
+            return stored_length != upstream_length
+
+        return False
+
+    def _backfill_row_count(self, row) -> None:  # type: ignore[no-untyped-def]
+        if row["row_count"] is not None:
+            return
+        local_path = row["local_path"]
+        if local_path is None:
+            return
+        path = Path(local_path)
+        if not path.is_file():
+            return
+        row_count = self._read_parquet_row_count(path)
+        if row_count is not None:
+            self._index.update_row_count(row["filename"], row_count)
+
+    @staticmethod
+    def _read_parquet_row_count(path: Path) -> int | None:
+        try:
+            import pyarrow.parquet as pq
+
+            metadata = pq.read_metadata(path)
+            return metadata.num_rows
+        except Exception:
+            return None
+
     def _next_retry_at(self, *, error_count: int) -> datetime:
         base_delay = max(60, int(self._config.poll_interval_secs))
         retry_delay = min(
@@ -269,6 +361,9 @@ class RelayWorker:
                 content_length=raw_path.stat().st_size,
                 last_modified=None,
             )
+            row_count = self._read_parquet_row_count(raw_path)
+            if row_count is not None:
+                self._index.update_row_count(filename, row_count)
             self._record_event(
                 level="INFO",
                 event_type="mirror_reuse",
@@ -330,6 +425,9 @@ class RelayWorker:
             content_length=content_length,
             last_modified=last_modified,
         )
+        row_count = self._read_parquet_row_count(raw_path)
+        if row_count is not None:
+            self._index.update_row_count(filename, row_count)
         self._record_event(
             level="INFO",
             event_type="mirror_complete",

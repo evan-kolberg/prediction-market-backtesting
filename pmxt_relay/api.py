@@ -495,7 +495,7 @@ def _upstream_badge_payload(
 
         return _badge_payload(
             label="r2.pmxt.dev",
-            message="degraded",
+            message=f"{mirror_error} errors",
             color="orange",
         )
 
@@ -555,6 +555,42 @@ def _latest_file_badge_payload(*, queue: dict[str, int | str | None]) -> dict[st
         label="Latest file",
         message=filename_label or "none",
         color="blue" if filename_label is not None else "lightgrey",
+    )
+
+
+def _missing_hours_badge_payload(*, index: RelayIndex) -> dict[str, object]:
+    missing = index.count_missing_hours()
+    total = int(index.stats().get("archive_hours") or 0)
+    if total == 0:
+        color = "lightgrey"
+    elif missing == 0:
+        color = "brightgreen"
+    elif missing <= 5:
+        color = "yellow"
+    else:
+        color = "orange"
+    return _badge_payload(
+        label="Missing hours",
+        message=f"{missing}/{total}",
+        color=color,
+    )
+
+
+def _empty_hours_badge_payload(*, index: RelayIndex) -> dict[str, object]:
+    empty = index.count_empty_hours()
+    mirrored = int(index.stats().get("mirrored_hours") or 0)
+    if mirrored == 0:
+        color = "lightgrey"
+    elif empty == 0:
+        color = "brightgreen"
+    elif empty <= 3:
+        color = "yellow"
+    else:
+        color = "orange"
+    return _badge_payload(
+        label="Empty hours",
+        message=f"{empty}/{mirrored}",
+        color=color,
     )
 
 
@@ -924,6 +960,18 @@ async def badge_latest_file_svg(request: web.Request) -> web.Response:
     )
 
 
+async def badge_missing_hours_svg(request: web.Request) -> web.Response:
+    index = request.app[INDEX_APP_KEY]
+    payload = await asyncio.to_thread(_missing_hours_badge_payload, index=index)
+    return _badge_svg_response(payload)
+
+
+async def badge_empty_hours_svg(request: web.Request) -> web.Response:
+    index = request.app[INDEX_APP_KEY]
+    payload = await asyncio.to_thread(_empty_hours_badge_payload, index=index)
+    return _badge_svg_response(payload)
+
+
 async def serve_raw(request: web.Request) -> web.StreamResponse:
     config = request.app[CONFIG_APP_KEY]
     filename = request.match_info["filename"]
@@ -968,5 +1016,7 @@ def create_app(config: RelayConfig) -> web.Application:
     app.router.add_get("/v1/badge/api.svg", badge_api_svg)
     app.router.add_get("/v1/badge/worker.svg", badge_worker_svg)
     app.router.add_get("/v1/badge/mirroring.svg", badge_mirroring_svg)
+    app.router.add_get("/v1/badge/missing-hours.svg", badge_missing_hours_svg)
+    app.router.add_get("/v1/badge/empty-hours.svg", badge_empty_hours_svg)
     app.router.add_get("/v1/raw/{filename:.*}", serve_raw)
     return app
