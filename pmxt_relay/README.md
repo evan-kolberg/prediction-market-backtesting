@@ -97,6 +97,7 @@ Important env knobs from `pmxt_relay/systemd/pmxt-relay.env.example`:
 
 - `PMXT_RELAY_DATA_DIR` for relay-owned state under `/srv/pmxt-relay`
 - `PMXT_RELAY_ARCHIVE_LISTING_URL` for the upstream archive listing to poll
+  (PMXT Polymarket currently uses `https://archive.pmxt.dev/Polymarket`)
 - `PMXT_RELAY_RAW_BASE_URL` for the upstream raw object base URL
 - `PMXT_RELAY_TRUSTED_PROXY_IPS` if the API sits behind Caddy, nginx, or
   another reverse proxy and should trust forwarded client IPs from that proxy

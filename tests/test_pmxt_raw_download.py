@@ -117,7 +117,7 @@ def test_discover_archive_hours_reads_listing_pages(monkeypatch) -> None:
     )
 
     hours = raw_download.discover_archive_hours(
-        archive_listing_url="https://archive.pmxt.dev/data/Polymarket", timeout_secs=60
+        archive_listing_url="https://archive.pmxt.dev/Polymarket", timeout_secs=60
     )
 
     assert [hour.isoformat() for hour in hours] == [

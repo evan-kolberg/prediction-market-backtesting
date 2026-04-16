@@ -45,6 +45,8 @@ Deployment facts for the active box:
 
 - live checkout path: `/opt/prediction-market-backtesting`
 - env file: `/etc/pmxt-relay.env`
+- active PMXT archive listing:
+  `https://archive.pmxt.dev/Polymarket`
 - systemd units:
   `pmxt-relay-api.service` and `pmxt-relay-worker.service`
 - public URL:

@@ -24,7 +24,7 @@ def main() -> int:
         )
     )
     parser.add_argument("--destination", type=Path, required=True)
-    parser.add_argument("--archive-listing-url", default="https://archive.pmxt.dev/data/Polymarket")
+    parser.add_argument("--archive-listing-url", default="https://archive.pmxt.dev/Polymarket")
     parser.add_argument("--archive-base-url", default="https://r2.pmxt.dev")
     parser.add_argument("--relay-base-url", default="https://209-209-10-83.sslip.io")
     parser.add_argument(

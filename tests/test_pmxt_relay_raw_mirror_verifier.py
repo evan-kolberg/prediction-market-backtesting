@@ -36,7 +36,7 @@ def test_verify_local_raw_mirror_reports_missing_and_corrupt_files(tmp_path: Pat
     summary = verifier.verify_local_raw_mirror(
         vendor="pmxt",
         raw_root=raw_root,
-        archive_listing_url="https://archive.pmxt.dev/data/Polymarket",
+        archive_listing_url="https://archive.pmxt.dev/Polymarket",
         raw_base_url="https://r2.pmxt.dev",
         check_upstream=False,
         check_parquet=True,
@@ -67,7 +67,7 @@ def test_verify_local_raw_mirror_separates_in_progress_downloads(tmp_path: Path,
     summary = verifier.verify_local_raw_mirror(
         vendor="pmxt",
         raw_root=raw_root,
-        archive_listing_url="https://archive.pmxt.dev/data/Polymarket",
+        archive_listing_url="https://archive.pmxt.dev/Polymarket",
         raw_base_url="https://r2.pmxt.dev",
         check_upstream=False,
         check_parquet=True,

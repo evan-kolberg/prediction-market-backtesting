@@ -16,7 +16,7 @@ from pmxt_relay.archive import extract_archive_filenames, fetch_archive_page
 from pmxt_relay.storage import parse_archive_hour, raw_relative_path
 
 _USER_AGENT = "prediction-market-backtesting/1.0"
-_DEFAULT_ARCHIVE_LISTING_URL = "https://archive.pmxt.dev/data/Polymarket"
+_DEFAULT_ARCHIVE_LISTING_URL = "https://archive.pmxt.dev/Polymarket"
 _DEFAULT_ARCHIVE_BASE_URL = "https://r2.pmxt.dev"
 _DEFAULT_RELAY_BASE_URL = "https://209-209-10-83.sslip.io"
 _DOWNLOAD_CHUNK_SIZE = 8 * 1024 * 1024
