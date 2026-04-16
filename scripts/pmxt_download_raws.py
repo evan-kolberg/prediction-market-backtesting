@@ -19,7 +19,8 @@ def main() -> int:
         description=(
             "Download PMXT raw archive hours into a local mirror. With no time "
             "window, the script discovers all archive hours and downloads them "
-            "to the destination using archive first and relay as fallback."
+            "newest-first to the destination using archive first and relay as "
+            "fallback, then reports missing and zero-row local hours."
         )
     )
     parser.add_argument("--destination", type=Path, required=True)
