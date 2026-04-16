@@ -180,7 +180,7 @@ def test_verify_ready_hours_requeues_changed_upstream(tmp_path: Path, monkeypatc
         )
 
         def fake_urlopen(request: Request, timeout):  # type: ignore[no-untyped-def]
-            assert timeout == 10
+            assert timeout == 2
             assert request.get_method() == "HEAD"
             return _FakeResponse(b"", headers={"ETag": "xyz", "Content-Length": "11"})
 
@@ -212,7 +212,7 @@ def test_verify_ready_hours_skips_unchanged(tmp_path: Path, monkeypatch) -> None
         )
 
         def fake_urlopen(request: Request, timeout):  # type: ignore[no-untyped-def]
-            assert timeout == 10
+            assert timeout == 2
             assert request.get_method() == "HEAD"
             return _FakeResponse(b"", headers={"ETag": "abc", "Content-Length": "11"})
 
@@ -244,7 +244,7 @@ def test_verify_ready_hours_tolerates_head_failure(tmp_path: Path, monkeypatch) 
         )
 
         def fake_urlopen(request: Request, timeout):  # type: ignore[no-untyped-def]
-            assert timeout == 10
+            assert timeout == 2
             assert request.get_method() == "HEAD"
             raise OSError("HEAD failed")
 
