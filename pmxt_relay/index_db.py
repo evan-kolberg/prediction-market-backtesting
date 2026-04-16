@@ -53,6 +53,8 @@ class RelayIndex:
             "last_error_at",
             "next_retry_at",
             "error_count",
+            "last_verified_at",
+            "row_count",
         }
     )
 
@@ -155,10 +157,22 @@ class RelayIndex:
             self._ensure_archive_column("ALTER TABLE archive_hours ADD COLUMN last_error_at TEXT")
         if "next_retry_at" not in archive_columns:
             self._ensure_archive_column("ALTER TABLE archive_hours ADD COLUMN next_retry_at TEXT")
+        if "last_verified_at" not in archive_columns:
+            self._ensure_archive_column(
+                "ALTER TABLE archive_hours ADD COLUMN last_verified_at TEXT"
+            )
+        if "row_count" not in archive_columns:
+            self._ensure_archive_column("ALTER TABLE archive_hours ADD COLUMN row_count INTEGER")
         self._conn.execute(
             """
             CREATE INDEX IF NOT EXISTS idx_archive_hours_retry_status_hour
             ON archive_hours (mirror_status, next_retry_at, hour DESC)
+            """
+        )
+        self._conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_archive_hours_verification
+            ON archive_hours (mirror_status, last_verified_at ASC)
             """
         )
         self._conn.execute(
@@ -496,6 +510,82 @@ class RelayIndex:
             return (insert_cursor.rowcount + update_cursor.rowcount) > 0
 
         return self._run_with_lock_retry(operation)
+
+    def list_hours_needing_verification(self, *, batch_size: int = 50) -> list[sqlite3.Row]:
+        return self._fetchall(
+            """
+            SELECT *
+            FROM archive_hours
+            WHERE mirror_status = 'ready'
+            ORDER BY last_verified_at ASC NULLS FIRST, mirrored_at ASC
+            LIMIT ?
+            """,
+            (max(1, batch_size),),
+        )
+
+    def mark_verified(self, filename: str) -> None:
+        self._run_with_lock_retry(
+            lambda: self._write_single_update(
+                """
+                UPDATE archive_hours
+                SET last_verified_at = ?
+                WHERE filename = ?
+                """,
+                (_utc_now(), filename),
+            )
+        )
+
+    def mark_needs_remirror(self, filename: str) -> None:
+        self._run_with_lock_retry(
+            lambda: self._write_single_update(
+                """
+                UPDATE archive_hours
+                SET mirror_status = 'pending',
+                    last_verified_at = NULL,
+                    error_count = 0,
+                    last_error = 'upstream content changed',
+                    last_error_at = ?,
+                    next_retry_at = NULL,
+                    row_count = NULL
+                WHERE filename = ?
+                """,
+                (_utc_now(), filename),
+            )
+        )
+
+    def update_row_count(self, filename: str, row_count: int) -> None:
+        self._run_with_lock_retry(
+            lambda: self._write_single_update(
+                """
+                UPDATE archive_hours
+                SET row_count = ?
+                WHERE filename = ?
+                """,
+                (row_count, filename),
+            )
+        )
+
+    def count_missing_hours(self) -> int:
+        return int(
+            self._fetchscalar(
+                "SELECT COUNT(*) FROM archive_hours WHERE mirror_status != 'ready'",
+                default=0,
+            )
+        )
+
+    def count_empty_hours(self) -> int:
+        return int(
+            self._fetchscalar(
+                """
+                SELECT COUNT(*)
+                FROM archive_hours
+                WHERE mirror_status = 'ready'
+                  AND row_count IS NOT NULL
+                  AND row_count = 0
+                """,
+                default=0,
+            )
+        )
 
     def stats(self) -> dict[str, int | str | None]:
         row = self._fetchone(

@@ -456,21 +456,14 @@ def _upstream_badge_payload(
     config: RelayConfig,
     now: datetime | None = None,
 ) -> dict[str, object]:
+    del queue
     current = datetime.now(timezone.utc) if now is None else now.astimezone(timezone.utc)
     last_event_at = _parse_db_timestamp(stats.get("last_event_at"))  # type: ignore[arg-type]
-    last_error_at = _parse_db_timestamp(stats.get("last_error_at"))  # type: ignore[arg-type]
-    latest_mirrored_hour = _parse_db_timestamp(
-        queue.get("latest_mirrored_hour")  # type: ignore[arg-type]
-    )
-    mirror_pending = int(queue.get("mirror_pending") or 0)
-    mirror_active = int(queue.get("mirror_active") or 0)
-    mirror_error = int(queue.get("mirror_error") or 0)
-    outstanding = mirror_pending + mirror_active + mirror_error
 
     if last_event_at is None:
         return _badge_payload(
             label="r2.pmxt.dev",
-            message="starting",
+            message="checking",
             color="yellow",
         )
 
@@ -479,46 +472,13 @@ def _upstream_badge_payload(
     if age_seconds > stale_threshold:
         return _badge_payload(
             label="r2.pmxt.dev",
-            message="stale",
+            message="offline",
             color="red",
-        )
-
-    if mirror_error > 0:
-        if last_error_at is not None:
-            error_age_seconds = max(0.0, (current - last_error_at).total_seconds())
-            if error_age_seconds <= max(config.poll_interval_secs * 2, 900):
-                return _badge_payload(
-                    label="r2.pmxt.dev",
-                    message="errors",
-                    color="red",
-                )
-
-        return _badge_payload(
-            label="r2.pmxt.dev",
-            message="degraded",
-            color="orange",
-        )
-
-    if outstanding > 0 and latest_mirrored_hour is not None:
-        lag_seconds = max(0.0, (current - latest_mirrored_hour).total_seconds())
-        lag_threshold = max(config.poll_interval_secs * 8, 21600)
-        if lag_seconds > lag_threshold:
-            return _badge_payload(
-                label="r2.pmxt.dev",
-                message="lagging",
-                color="orange",
-            )
-
-    if outstanding > 0:
-        return _badge_payload(
-            label="r2.pmxt.dev",
-            message="syncing",
-            color="yellow",
         )
 
     return _badge_payload(
         label="r2.pmxt.dev",
-        message="up",
+        message="online",
         color="brightgreen",
     )
 
@@ -555,6 +515,42 @@ def _latest_file_badge_payload(*, queue: dict[str, int | str | None]) -> dict[st
         label="Latest file",
         message=filename_label or "none",
         color="blue" if filename_label is not None else "lightgrey",
+    )
+
+
+def _missing_hours_badge_payload(*, index: RelayIndex) -> dict[str, object]:
+    missing = index.count_missing_hours()
+    total = int(index.stats().get("archive_hours") or 0)
+    if total == 0:
+        color = "lightgrey"
+    elif missing == 0:
+        color = "brightgreen"
+    elif missing <= 5:
+        color = "yellow"
+    else:
+        color = "orange"
+    return _badge_payload(
+        label="Missing hours",
+        message=f"{missing}/{total}",
+        color=color,
+    )
+
+
+def _empty_hours_badge_payload(*, index: RelayIndex) -> dict[str, object]:
+    empty = index.count_empty_hours()
+    mirrored = int(index.stats().get("mirrored_hours") or 0)
+    if mirrored == 0:
+        color = "lightgrey"
+    elif empty == 0:
+        color = "brightgreen"
+    elif empty <= 3:
+        color = "yellow"
+    else:
+        color = "orange"
+    return _badge_payload(
+        label="Empty hours",
+        message=f"{empty}/{mirrored}",
+        color=color,
     )
 
 
@@ -924,6 +920,18 @@ async def badge_latest_file_svg(request: web.Request) -> web.Response:
     )
 
 
+async def badge_missing_hours_svg(request: web.Request) -> web.Response:
+    index = request.app[INDEX_APP_KEY]
+    payload = await asyncio.to_thread(_missing_hours_badge_payload, index=index)
+    return _badge_svg_response(payload)
+
+
+async def badge_empty_hours_svg(request: web.Request) -> web.Response:
+    index = request.app[INDEX_APP_KEY]
+    payload = await asyncio.to_thread(_empty_hours_badge_payload, index=index)
+    return _badge_svg_response(payload)
+
+
 async def serve_raw(request: web.Request) -> web.StreamResponse:
     config = request.app[CONFIG_APP_KEY]
     filename = request.match_info["filename"]
@@ -968,5 +976,7 @@ def create_app(config: RelayConfig) -> web.Application:
     app.router.add_get("/v1/badge/api.svg", badge_api_svg)
     app.router.add_get("/v1/badge/worker.svg", badge_worker_svg)
     app.router.add_get("/v1/badge/mirroring.svg", badge_mirroring_svg)
+    app.router.add_get("/v1/badge/missing-hours.svg", badge_missing_hours_svg)
+    app.router.add_get("/v1/badge/empty-hours.svg", badge_empty_hours_svg)
     app.router.add_get("/v1/raw/{filename:.*}", serve_raw)
     return app

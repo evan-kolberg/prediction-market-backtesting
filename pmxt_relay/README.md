@@ -51,6 +51,12 @@ relay now backs off failed mirrors and temporarily quarantines repeated 404s on
 a slower retry cadence so one stale archive reference does not dominate every
 worker cycle while the mirror still heals automatically when upstream recovers.
 
+Each cycle also re-validates a batch of already-mirrored files by HEAD-checking
+upstream for ETag or Content-Length changes. Files corrected upstream (e.g.
+initially broken uploads later replaced) are automatically re-queued for
+download. The batch size is configurable via `PMXT_RELAY_VERIFY_BATCH_SIZE`
+(default 50). Parquet row counts are tracked to detect empty/broken files.
+
 ## Fresh Box Setup
 
 On a fresh Ubuntu 24 box:
@@ -91,9 +97,12 @@ Important env knobs from `pmxt_relay/systemd/pmxt-relay.env.example`:
 
 - `PMXT_RELAY_DATA_DIR` for relay-owned state under `/srv/pmxt-relay`
 - `PMXT_RELAY_ARCHIVE_LISTING_URL` for the upstream archive listing to poll
+  (PMXT Polymarket currently uses `https://archive.pmxt.dev/Polymarket`)
 - `PMXT_RELAY_RAW_BASE_URL` for the upstream raw object base URL
 - `PMXT_RELAY_TRUSTED_PROXY_IPS` if the API sits behind Caddy, nginx, or
   another reverse proxy and should trust forwarded client IPs from that proxy
+- `PMXT_RELAY_VERIFY_BATCH_SIZE` (default 50) how many mirrored files to
+  re-validate per cycle
 
 After startup, verify the deployment with:
 
@@ -125,5 +134,9 @@ The public badges separate relay health from `r2.pmxt.dev` availability:
 
 - `/v1/badge/status(.svg)` reports whether the relay itself is up, recent, and
   has active API/worker services.
-- `/v1/badge/upstream(.svg)` reports whether `r2.pmxt.dev` is healthy,
-  lagging, or erroring.
+- `/v1/badge/upstream(.svg)` reports whether recent `r2.pmxt.dev` polling is
+  online or offline.
+- `/v1/badge/missing-hours.svg` shows how many archive hours are not yet
+  mirrored locally.
+- `/v1/badge/empty-hours.svg` shows how many mirrored parquet files have zero
+  rows (broken/empty uploads).

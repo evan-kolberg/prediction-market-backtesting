@@ -27,7 +27,7 @@ def _make_config(tmp_path: Path) -> RelayConfig:
         data_dir=tmp_path,
         bind_host="127.0.0.1",
         bind_port=8080,
-        archive_listing_url="https://archive.pmxt.dev/data/Polymarket",
+        archive_listing_url="https://archive.pmxt.dev/Polymarket",
         raw_base_url="https://r2.pmxt.dev",
         poll_interval_secs=900,
         http_timeout_secs=30,
@@ -35,6 +35,7 @@ def _make_config(tmp_path: Path) -> RelayConfig:
         archive_max_pages=None,
         event_retention=1000,
         api_rate_limit_per_minute=2400,
+        verify_batch_size=50,
     )
 
 
@@ -333,7 +334,7 @@ def test_status_badge_uses_degraded_for_inactive_service(tmp_path: Path):
     assert payload["color"] == "orange"
 
 
-def test_upstream_badge_uses_errors_for_fresh_unresolved_failures(tmp_path: Path):
+def test_upstream_badge_stays_online_for_fresh_unresolved_mirror_gaps(tmp_path: Path):
     config = _make_config(tmp_path)
     now = datetime(2026, 4, 3, 20, 0, tzinfo=timezone.utc)
 
@@ -353,11 +354,11 @@ def test_upstream_badge_uses_errors_for_fresh_unresolved_failures(tmp_path: Path
     )
 
     assert payload["label"] == "r2.pmxt.dev"
-    assert payload["message"] == "errors"
-    assert payload["color"] == "red"
+    assert payload["message"] == "online"
+    assert payload["color"] == "brightgreen"
 
 
-def test_upstream_badge_uses_lagging_for_backlog_with_old_latest_mirror(tmp_path: Path):
+def test_upstream_badge_stays_online_for_backlog_with_old_latest_mirror(tmp_path: Path):
     config = _make_config(tmp_path)
     now = datetime(2026, 4, 3, 20, 0, tzinfo=timezone.utc)
 
@@ -374,8 +375,29 @@ def test_upstream_badge_uses_lagging_for_backlog_with_old_latest_mirror(tmp_path
     )
 
     assert payload["label"] == "r2.pmxt.dev"
-    assert payload["message"] == "lagging"
-    assert payload["color"] == "orange"
+    assert payload["message"] == "online"
+    assert payload["color"] == "brightgreen"
+
+
+def test_upstream_badge_uses_offline_for_stale_polling(tmp_path: Path):
+    config = _make_config(tmp_path)
+    now = datetime(2026, 4, 3, 20, 0, tzinfo=timezone.utc)
+
+    payload = _upstream_badge_payload(
+        stats={"last_event_at": (now - timedelta(hours=2)).isoformat(), "last_error_at": None},
+        queue={
+            "mirror_pending": 0,
+            "mirror_active": 0,
+            "mirror_error": 0,
+            "latest_mirrored_hour": (now - timedelta(hours=1)).isoformat(),
+        },
+        config=config,
+        now=now,
+    )
+
+    assert payload["label"] == "r2.pmxt.dev"
+    assert payload["message"] == "offline"
+    assert payload["color"] == "red"
 
 
 def test_latest_file_badge_reports_latest_mirrored_filename(tmp_path: Path):
@@ -478,3 +500,97 @@ def test_stats_and_queue_payloads_are_mirror_only(tmp_path: Path):
         assert queue_payload["latest_mirrored_filename"] == filename
 
     asyncio.run(scenario())
+
+
+def test_missing_hours_badge_shows_count(tmp_path: Path):
+    async def scenario() -> None:
+        config = _make_config(tmp_path)
+        config.ensure_directories()
+        app = create_app(config)
+        index = app[INDEX_APP_KEY]
+        pending = "polymarket_orderbook_2026-03-21T12.parquet"
+        ready = "polymarket_orderbook_2026-03-21T13.parquet"
+        index.upsert_discovered_hour(pending, f"https://raw.example.com/{pending}", 1)
+        index.upsert_discovered_hour(ready, f"https://raw.example.com/{ready}", 1)
+        index.mark_mirrored(
+            ready,
+            local_path=str(tmp_path / ready),
+            etag=None,
+            content_length=1,
+            last_modified=None,
+        )
+
+        server = TestServer(app)
+        client = TestClient(server)
+        await client.start_server()
+        try:
+            response = await client.get("/v1/badge/missing-hours.svg")
+            payload = await response.text()
+        finally:
+            await client.close()
+
+        assert response.status == 200
+        assert "Missing hours" in payload
+        assert "1/2" in payload
+
+    asyncio.run(scenario())
+
+
+def test_empty_hours_badge_shows_count(tmp_path: Path):
+    async def scenario() -> None:
+        config = _make_config(tmp_path)
+        config.ensure_directories()
+        app = create_app(config)
+        index = app[INDEX_APP_KEY]
+        empty = "polymarket_orderbook_2026-03-21T12.parquet"
+        nonempty = "polymarket_orderbook_2026-03-21T13.parquet"
+        for filename in [empty, nonempty]:
+            index.upsert_discovered_hour(filename, f"https://raw.example.com/{filename}", 1)
+            index.mark_mirrored(
+                filename,
+                local_path=str(tmp_path / filename),
+                etag=None,
+                content_length=1,
+                last_modified=None,
+            )
+        index.update_row_count(empty, 0)
+        index.update_row_count(nonempty, 100)
+
+        server = TestServer(app)
+        client = TestClient(server)
+        await client.start_server()
+        try:
+            response = await client.get("/v1/badge/empty-hours.svg")
+            payload = await response.text()
+        finally:
+            await client.close()
+
+        assert response.status == 200
+        assert "Empty hours" in payload
+        assert "1/2" in payload
+
+    asyncio.run(scenario())
+
+
+def test_upstream_badge_old_mirror_errors_still_report_online(tmp_path: Path):
+    config = _make_config(tmp_path)
+    now = datetime(2026, 4, 3, 20, 0, tzinfo=timezone.utc)
+
+    payload = _upstream_badge_payload(
+        stats={
+            "last_event_at": (now - timedelta(minutes=5)).isoformat(),
+            "last_error_at": (now - timedelta(hours=1)).isoformat(),
+        },
+        queue={
+            "mirror_pending": 0,
+            "mirror_active": 0,
+            "mirror_error": 3,
+            "latest_mirrored_hour": (now - timedelta(hours=1)).isoformat(),
+        },
+        config=config,
+        now=now,
+    )
+
+    assert payload["label"] == "r2.pmxt.dev"
+    assert payload["message"] == "online"
+    assert payload["color"] == "brightgreen"

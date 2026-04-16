@@ -9,13 +9,14 @@ from pathlib import Path
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
+import pyarrow.parquet as pq
 from tqdm.auto import tqdm
 
 from pmxt_relay.archive import extract_archive_filenames, fetch_archive_page
 from pmxt_relay.storage import parse_archive_hour, raw_relative_path
 
 _USER_AGENT = "prediction-market-backtesting/1.0"
-_DEFAULT_ARCHIVE_LISTING_URL = "https://archive.pmxt.dev/data/Polymarket"
+_DEFAULT_ARCHIVE_LISTING_URL = "https://archive.pmxt.dev/Polymarket"
 _DEFAULT_ARCHIVE_BASE_URL = "https://r2.pmxt.dev"
 _DEFAULT_RELAY_BASE_URL = "https://209-209-10-83.sslip.io"
 _DOWNLOAD_CHUNK_SIZE = 8 * 1024 * 1024
@@ -31,6 +32,8 @@ class RawDownloadSummary:
     downloaded_hours: int
     skipped_existing_hours: int
     failed_hours: list[str]
+    missing_local_hours: list[str]
+    empty_local_hours: list[str]
     source_hits: dict[str, int]
     source_order: list[str]
     start_hour: str | None
@@ -89,7 +92,9 @@ def discover_archive_hours(
             stale_count = 0
         page += 1
 
-    return [discovered[name] for name in sorted(discovered, key=discovered.__getitem__)]
+    return [
+        discovered[name] for name in sorted(discovered, key=discovered.__getitem__, reverse=True)
+    ]
 
 
 def _filter_filenames_to_window(
@@ -104,6 +109,10 @@ def _filter_filenames_to_window(
             continue
         selected.append(filename)
     return selected
+
+
+def _sort_filenames_newest_first(filenames: list[str]) -> list[str]:
+    return sorted(filenames, key=parse_archive_hour, reverse=True)
 
 
 def _archive_url(base_url: str, filename: str) -> str:
@@ -172,7 +181,31 @@ def _source_priority_summary(
 def _window_label_from_filenames(filenames: list[str]) -> tuple[str | None, str | None]:
     if not filenames:
         return None, None
-    return _hour_label_for_filename(filenames[0]), _hour_label_for_filename(filenames[-1])
+    ordered = sorted(filenames, key=parse_archive_hour)
+    return _hour_label_for_filename(ordered[0]), _hour_label_for_filename(ordered[-1])
+
+
+def _read_parquet_row_count(path: Path) -> int | None:
+    try:
+        return pq.read_metadata(path).num_rows
+    except Exception:
+        return None
+
+
+def _validate_local_raw_hours(
+    *, destination: Path, filenames: list[str]
+) -> tuple[list[str], list[str]]:
+    missing: list[str] = []
+    empty: list[str] = []
+    for filename in filenames:
+        destination_path = destination / raw_relative_path(filename)
+        if not destination_path.exists():
+            missing.append(parse_archive_hour(filename).isoformat())
+            continue
+        row_count = _read_parquet_row_count(destination_path)
+        if row_count == 0:
+            empty.append(parse_archive_hour(filename).isoformat())
+    return missing, empty
 
 
 def _pid_is_active(pid: int) -> bool:
@@ -380,6 +413,7 @@ def download_raw_hours(
             for hour in discovered_hours
         ]
         filenames = _filter_filenames_to_window(filenames, start_hour=start_hour, end_hour=end_hour)
+    filenames = _sort_filenames_newest_first(filenames)
 
     if show_progress:
         print(
@@ -516,12 +550,18 @@ def download_raw_hours(
         if progress_bar is not None:
             progress_bar.close()
 
+    missing_local_hours, empty_local_hours = _validate_local_raw_hours(
+        destination=normalized_destination, filenames=filenames
+    )
+
     return RawDownloadSummary(
         destination=str(normalized_destination),
         requested_hours=len(filenames),
         downloaded_hours=downloaded_hours,
         skipped_existing_hours=skipped_existing_hours,
         failed_hours=failed_hours,
+        missing_local_hours=missing_local_hours,
+        empty_local_hours=empty_local_hours,
         source_hits=dict(source_hits),
         source_order=source_sequence,
         start_hour=start_hour.isoformat() if start_hour is not None else None,

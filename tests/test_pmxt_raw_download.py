@@ -82,6 +82,21 @@ def _raw_parquet_payload() -> bytes:
     return buffer.getvalue()
 
 
+def _empty_parquet_payload() -> bytes:
+    buffer = BytesIO()
+    pq.write_table(
+        pa.table(
+            {
+                "market_id": pa.array([], type=pa.string()),
+                "update_type": pa.array([], type=pa.string()),
+                "data": pa.array([], type=pa.string()),
+            }
+        ),
+        buffer,
+    )
+    return buffer.getvalue()
+
+
 def test_discover_archive_hours_reads_listing_pages(monkeypatch) -> None:
     pages = {
         1: (
@@ -102,13 +117,13 @@ def test_discover_archive_hours_reads_listing_pages(monkeypatch) -> None:
     )
 
     hours = raw_download.discover_archive_hours(
-        archive_listing_url="https://archive.pmxt.dev/data/Polymarket", timeout_secs=60
+        archive_listing_url="https://archive.pmxt.dev/Polymarket", timeout_secs=60
     )
 
     assert [hour.isoformat() for hour in hours] == [
-        "2026-03-21T10:00:00+00:00",
-        "2026-03-21T11:00:00+00:00",
         "2026-03-21T12:00:00+00:00",
+        "2026-03-21T11:00:00+00:00",
+        "2026-03-21T10:00:00+00:00",
     ]
 
 
@@ -150,9 +165,9 @@ def test_download_raw_hours_fetches_archive_then_relay_fallback(
         "relay:https://209-209-10-83.sslip.io": 1,
     }
     assert requested_urls == [
-        "https://r2.pmxt.dev/polymarket_orderbook_2026-03-21T09.parquet",
         "https://r2.pmxt.dev/polymarket_orderbook_2026-03-21T10.parquet",
         "https://209-209-10-83.sslip.io/v1/raw/2026/03/21/polymarket_orderbook_2026-03-21T10.parquet",
+        "https://r2.pmxt.dev/polymarket_orderbook_2026-03-21T09.parquet",
     ]
     assert (
         tmp_path / "raws" / "2026" / "03" / "21" / "polymarket_orderbook_2026-03-21T09.parquet"
@@ -284,3 +299,34 @@ def test_download_raw_hours_progress_output_uses_short_hour_labels(
     assert not any("+00:00" in line for line in bar.writes)
     assert "Downloading raw hours (0/2 done, 1 active)" in bar.descriptions
     assert bar.desc == "Downloading raw hours (2/2 done)"
+
+
+def test_download_raw_hours_reports_missing_and_empty_local_hours(
+    monkeypatch, tmp_path: Path
+) -> None:
+    empty_payload = _empty_parquet_payload()
+
+    monkeypatch.setattr(
+        raw_download,
+        "discover_archive_hours",
+        lambda **_: [
+            raw_download.parse_archive_hour("polymarket_orderbook_2026-03-21T09.parquet"),
+            raw_download.parse_archive_hour("polymarket_orderbook_2026-03-21T10.parquet"),
+        ],
+    )
+
+    def fake_urlopen(request, timeout=60):  # type: ignore[no-untyped-def]
+        del timeout
+        if request.full_url.endswith("2026-03-21T09.parquet"):
+            raise HTTPError(request.full_url, 404, "missing", hdrs=None, fp=None)
+        return _Response(empty_payload, headers={"Content-Length": str(len(empty_payload))})
+
+    monkeypatch.setattr(raw_download, "urlopen", fake_urlopen)
+
+    summary = raw_download.download_raw_hours(
+        destination=tmp_path / "raws", source_order=["archive"], show_progress=False
+    )
+
+    assert summary.failed_hours == ["2026-03-21T09:00:00+00:00"]
+    assert summary.missing_local_hours == ["2026-03-21T09:00:00+00:00"]
+    assert summary.empty_local_hours == ["2026-03-21T10:00:00+00:00"]

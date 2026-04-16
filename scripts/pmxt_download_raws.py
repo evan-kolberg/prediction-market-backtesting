@@ -19,11 +19,12 @@ def main() -> int:
         description=(
             "Download PMXT raw archive hours into a local mirror. With no time "
             "window, the script discovers all archive hours and downloads them "
-            "to the destination using archive first and relay as fallback."
+            "newest-first to the destination using archive first and relay as "
+            "fallback, then reports missing and zero-row local hours."
         )
     )
     parser.add_argument("--destination", type=Path, required=True)
-    parser.add_argument("--archive-listing-url", default="https://archive.pmxt.dev/data/Polymarket")
+    parser.add_argument("--archive-listing-url", default="https://archive.pmxt.dev/Polymarket")
     parser.add_argument("--archive-base-url", default="https://r2.pmxt.dev")
     parser.add_argument("--relay-base-url", default="https://209-209-10-83.sslip.io")
     parser.add_argument(

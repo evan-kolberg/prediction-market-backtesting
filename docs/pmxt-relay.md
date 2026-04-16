@@ -38,12 +38,15 @@ The current deployment and operations details live in:
 Operational note:
 
 - the public relay status badge reports relay health only
-- the public PMXT upstream badge reports unresolved mirror errors or lag
+- the public PMXT upstream badge reports source polling as online or offline;
+  missing archive hours and zero-row mirrored files have separate badges
 
 Deployment facts for the active box:
 
 - live checkout path: `/opt/prediction-market-backtesting`
 - env file: `/etc/pmxt-relay.env`
+- active PMXT archive listing:
+  `https://archive.pmxt.dev/Polymarket`
 - systemd units:
   `pmxt-relay-api.service` and `pmxt-relay-worker.service`
 - public URL:

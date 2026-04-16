@@ -25,6 +25,8 @@
 [![Disk](https://209-209-10-83.sslip.io/v1/badge/disk.svg)](https://209-209-10-83.sslip.io/v1/system)
 [![Mirror Service](https://209-209-10-83.sslip.io/v1/badge/worker.svg)](https://209-209-10-83.sslip.io/v1/system)
 [![Hours Mirrored](https://209-209-10-83.sslip.io/v1/badge/mirrored.svg)](https://209-209-10-83.sslip.io/v1/stats)
+[![Missing Hours](https://209-209-10-83.sslip.io/v1/badge/missing-hours.svg)](https://209-209-10-83.sslip.io/v1/stats)
+[![Empty Hours](https://209-209-10-83.sslip.io/v1/badge/empty-hours.svg)](https://209-209-10-83.sslip.io/v1/stats)
 [![Latest File](https://209-209-10-83.sslip.io/v1/badge/latest-file.svg)](https://209-209-10-83.sslip.io/v1/stats)
 
 **Thanks to [PMXT](https://github.com/pmxt-dev/pmxt) for providing this data for free!**

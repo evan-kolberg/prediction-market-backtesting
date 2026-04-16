@@ -103,15 +103,16 @@ To mirror raw archive hours locally for this repo's runners, use:
 make download-pmxt-raws DESTINATION=/path/to/pmxt_raws
 ```
 
-The downloader prints per-hour completion lines plus the active transfer while
-it walks archive hours. Example output:
+The downloader walks archive hours newest-first, then reports requested hours
+that are still missing locally and local parquet files with zero rows. It also
+prints per-hour completion lines plus the active transfer. Example output:
 
 ```text
 PMXT raw source: explicit priority (archive https://r2.pmxt.dev -> relay https://209-209-10-83.sslip.io)
 Downloading PMXT raw hours to /path/to/pmxt_raws (requested_hours=3, window_start=2026-02-27T11, window_end=2026-02-27T13)...
-  2026-02-27T11  12.431s   445.9 MiB  archive
+  2026-02-27T13  12.431s   445.9 MiB  archive
   2026-02-27T12   0.000s    existing  skip
-Downloading raw hours (2/3 done, 1 active):  67%|████████████████████████████████████████████████████████████▏                              | [00:41<00:20]active: relay 2026-02-27T13 392.0/445.9 MiB 14.8s
+Downloading raw hours (2/3 done, 1 active):  67%|████████████████████████████████████████████████████████████▏                              | [00:41<00:20]active: relay 2026-02-27T11 392.0/445.9 MiB 14.8s
 ```
 
 Those values vary with the archive listing and whatever hour is currently in
