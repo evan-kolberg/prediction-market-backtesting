@@ -34,6 +34,23 @@ def _utc_now() -> str:
     return _utc_now_at()
 
 
+def _parse_db_timestamp(value: str | None) -> datetime | None:
+    if value is None:
+        return None
+    normalized = value.strip()
+    if not normalized:
+        return None
+    if normalized.endswith("Z"):
+        normalized = normalized[:-1] + "+00:00"
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
+
+
 class RelayIndex:
     _REQUIRED_TABLES = frozenset({"archive_hours", "relay_events"})
     _REQUIRED_ARCHIVE_COLUMNS = frozenset(
@@ -565,13 +582,21 @@ class RelayIndex:
             )
         )
 
-    def count_missing_hours(self) -> int:
-        return int(
+    def count_missing_hours(self, *, now: datetime | None = None) -> int:
+        archive_hours = self._compute_elapsed_archive_hours(now=now)
+        mirrored_hours = int(
             self._fetchscalar(
-                "SELECT COUNT(*) FROM archive_hours WHERE mirror_status != 'ready'",
+                """
+                SELECT COUNT(*)
+                FROM archive_hours
+                WHERE mirror_status = 'ready'
+                  AND (row_count IS NULL OR row_count > 0)
+                """,
                 default=0,
             )
         )
+        empty_hours = self.count_empty_hours()
+        return max(0, archive_hours - mirrored_hours - empty_hours)
 
     def count_empty_hours(self) -> int:
         return int(
@@ -587,24 +612,41 @@ class RelayIndex:
             )
         )
 
-    def stats(self) -> dict[str, int | str | None]:
+    def _compute_elapsed_archive_hours(self, *, now: datetime | None = None) -> int:
+        min_hour_value = self._fetchscalar("SELECT MIN(hour) FROM archive_hours", default=None)
+        min_hour = _parse_db_timestamp(min_hour_value if isinstance(min_hour_value, str) else None)
+        if min_hour is None:
+            return 0
+        min_floor = min_hour.replace(minute=0, second=0, microsecond=0)
+        now_reference = _utc_now_datetime() if now is None else now.astimezone(UTC)
+        now_floor = now_reference.replace(minute=0, second=0, microsecond=0)
+        delta_hours = int((now_floor - min_floor).total_seconds() // 3600) + 1
+        return max(0, delta_hours)
+
+    def stats(self, *, now: datetime | None = None) -> dict[str, int | str | None]:
         row = self._fetchone(
             """
             SELECT
-                COUNT(*) AS archive_hours,
-                SUM(CASE WHEN mirror_status = 'ready' THEN 1 ELSE 0 END) AS mirrored_hours,
+                SUM(
+                    CASE
+                        WHEN mirror_status = 'ready' AND (row_count IS NULL OR row_count > 0)
+                        THEN 1
+                        ELSE 0
+                    END
+                ) AS mirrored_hours,
                 SUM(CASE WHEN mirror_status IN ('error', 'quarantined') THEN 1 ELSE 0 END) AS mirror_errors,
                 SUM(CASE WHEN mirror_status = 'quarantined' THEN 1 ELSE 0 END) AS mirror_quarantined
             FROM archive_hours
             """
         )
         stats_row = dict(row) if row is not None else {}
+        archive_hours = self._compute_elapsed_archive_hours(now=now)
         last_event_at = self._fetchscalar("SELECT MAX(created_at) FROM relay_events", default=None)
         last_error_at = self._fetchscalar(
             "SELECT MAX(created_at) FROM relay_events WHERE level = 'ERROR'", default=None
         )
         return {
-            "archive_hours": int(stats_row.get("archive_hours") or 0),
+            "archive_hours": archive_hours,
             "mirrored_hours": int(stats_row.get("mirrored_hours") or 0),
             "mirror_errors": int(stats_row.get("mirror_errors") or 0),
             "mirror_quarantined": int(stats_row.get("mirror_quarantined") or 0),

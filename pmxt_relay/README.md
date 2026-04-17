@@ -57,6 +57,30 @@ initially broken uploads later replaced) are automatically re-queued for
 download. The batch size is configurable via `PMXT_RELAY_VERIFY_BATCH_SIZE`
 (default 50). Parquet row counts are tracked to detect empty/broken files.
 
+## Self-Healing Coverage
+
+The three stat buckets are disjoint and sum to wall-clock hours since the
+first recorded hour: `mirrored + empty + missing == archive_hours`. Each
+bucket auto-heals when upstream catches up:
+
+- Hours upstream has not yet published (the wall-clock gap, counted as
+  missing): picked up by discovery on the next cycle when they appear on
+  page 1 of the archive listing.
+- Quarantined upstream 404s (counted as missing): retried hourly per
+  `_MIRROR_QUARANTINE_RETRY_SECS`; flip to ready when upstream serves 200.
+- Mirrored-but-empty parquets (`row_count == 0`, counted as empty): caught
+  by the HEAD re-verifier when upstream replaces the bytes (different ETag
+  or Content-Length), then re-mirrored and `row_count` recomputed.
+- Updated bytes for filenames already on disk: same HEAD re-verifier path;
+  filename does not need to change.
+
+The one blind spot: if upstream introduces *brand-new filenames* deep in
+older archive pages (not page 1) — e.g. backfilling a historical hour
+never previously listed — discovery may miss them with
+`PMXT_RELAY_ARCHIVE_STALE_PAGES=1` (default), since the loop stops at the
+first page that adds zero new filenames. Bump that env to 3-5 if upstream
+ever does deep historical backfills.
+
 ## Fresh Box Setup
 
 On a fresh Ubuntu 24 box:
@@ -136,7 +160,12 @@ The public badges separate relay health from `r2.pmxt.dev` availability:
   has active API/worker services.
 - `/v1/badge/upstream(.svg)` reports whether recent `r2.pmxt.dev` polling is
   online or offline.
-- `/v1/badge/missing-hours.svg` shows how many archive hours are not yet
-  mirrored locally.
+- `/v1/badge/missing-hours.svg` shows hours not currently represented on disk
+  by a non-empty mirror — includes quarantined upstream 404s, pending downloads,
+  in-flight mirrors, AND hours upstream has not yet published. Disjoint from
+  empty hours; together with mirrored + empty, sums to the wall-clock hours
+  since the first recorded hour.
 - `/v1/badge/empty-hours.svg` shows how many mirrored parquet files have zero
-  rows (broken/empty uploads).
+  rows (broken/empty uploads). Empty hours are excluded from the "mirrored"
+  count surfaced by `/v1/stats` and `/v1/badge/mirrored.svg`, but they are
+  still counted as `ready` and therefore are NOT counted as missing.
