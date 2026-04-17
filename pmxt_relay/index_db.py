@@ -582,13 +582,21 @@ class RelayIndex:
             )
         )
 
-    def count_missing_hours(self) -> int:
-        return int(
+    def count_missing_hours(self, *, now: datetime | None = None) -> int:
+        archive_hours = self._compute_elapsed_archive_hours(now=now)
+        mirrored_hours = int(
             self._fetchscalar(
-                "SELECT COUNT(*) FROM archive_hours WHERE mirror_status != 'ready'",
+                """
+                SELECT COUNT(*)
+                FROM archive_hours
+                WHERE mirror_status = 'ready'
+                  AND (row_count IS NULL OR row_count > 0)
+                """,
                 default=0,
             )
         )
+        empty_hours = self.count_empty_hours()
+        return max(0, archive_hours - mirrored_hours - empty_hours)
 
     def count_empty_hours(self) -> int:
         return int(

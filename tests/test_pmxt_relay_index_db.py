@@ -400,7 +400,7 @@ def test_mark_needs_remirror_resets_to_pending(tmp_path: Path):
         assert row["last_error"] == "upstream content changed"
 
 
-def test_count_missing_hours_only_counts_undownloadable_rows(tmp_path: Path):
+def test_count_missing_hours_includes_unpublished_gap(tmp_path: Path):
     with RelayIndex(tmp_path / "relay.sqlite3") as index:
         index.initialize()
         ready = "polymarket_orderbook_2026-03-21T12.parquet"
@@ -422,7 +422,27 @@ def test_count_missing_hours_only_counts_undownloadable_rows(tmp_path: Path):
             quarantined, error="HTTP 404", next_retry_at="2026-03-21T16:00:00+00:00"
         )
 
-        assert index.count_missing_hours() == 2
+        now = datetime(2026, 3, 21, 15, 10, tzinfo=timezone.utc)
+
+        assert index.count_missing_hours(now=now) == 2
+
+
+def test_count_missing_hours_wall_clock_gap_dominant(tmp_path: Path):
+    with RelayIndex(tmp_path / "relay.sqlite3") as index:
+        index.initialize()
+        ready = "polymarket_orderbook_2026-03-21T00.parquet"
+        index.upsert_discovered_hour(ready, f"https://r2.pmxt.dev/{ready}", 1)
+        index.mark_mirrored(
+            ready,
+            local_path=f"/srv/pmxt-relay/raw/{ready}",
+            etag=None,
+            content_length=1,
+            last_modified=None,
+        )
+
+        now = datetime(2026, 3, 21, 5, 0, tzinfo=timezone.utc)
+
+        assert index.count_missing_hours(now=now) == 5
 
 
 def test_stats_archive_hours_are_elapsed_wall_clock_hours(tmp_path: Path):
