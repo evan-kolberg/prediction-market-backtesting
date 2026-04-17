@@ -418,7 +418,9 @@ def test_count_missing_hours(tmp_path: Path):
                 )
         index.update_row_count(empty, 0)
 
-        assert index.count_missing_hours(now=datetime(2026, 3, 21, 15, 10, tzinfo=timezone.utc)) == 3
+        assert (
+            index.count_missing_hours(now=datetime(2026, 3, 21, 15, 10, tzinfo=timezone.utc)) == 3
+        )
 
 
 def test_stats_archive_hours_are_elapsed_wall_clock_hours(tmp_path: Path):
