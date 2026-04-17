@@ -400,27 +400,29 @@ def test_mark_needs_remirror_resets_to_pending(tmp_path: Path):
         assert row["last_error"] == "upstream content changed"
 
 
-def test_count_missing_hours(tmp_path: Path):
+def test_count_missing_hours_only_counts_undownloadable_rows(tmp_path: Path):
     with RelayIndex(tmp_path / "relay.sqlite3") as index:
         index.initialize()
         ready = "polymarket_orderbook_2026-03-21T12.parquet"
         empty = "polymarket_orderbook_2026-03-21T13.parquet"
-        pending = "polymarket_orderbook_2026-03-21T14.parquet"
-        for filename in [ready, empty, pending]:
+        quarantined = "polymarket_orderbook_2026-03-21T14.parquet"
+        pending = "polymarket_orderbook_2026-03-21T15.parquet"
+        for filename in [ready, empty, quarantined, pending]:
             index.upsert_discovered_hour(filename, f"https://r2.pmxt.dev/{filename}", 1)
-            if filename != pending:
-                index.mark_mirrored(
-                    filename,
-                    local_path=f"/srv/pmxt-relay/raw/{filename}",
-                    etag=None,
-                    content_length=1,
-                    last_modified=None,
-                )
+        for filename in [ready, empty]:
+            index.mark_mirrored(
+                filename,
+                local_path=f"/srv/pmxt-relay/raw/{filename}",
+                etag=None,
+                content_length=1,
+                last_modified=None,
+            )
         index.update_row_count(empty, 0)
-
-        assert (
-            index.count_missing_hours(now=datetime(2026, 3, 21, 15, 10, tzinfo=timezone.utc)) == 3
+        index.mark_mirror_quarantined(
+            quarantined, error="HTTP 404", next_retry_at="2026-03-21T16:00:00+00:00"
         )
+
+        assert index.count_missing_hours() == 2
 
 
 def test_stats_archive_hours_are_elapsed_wall_clock_hours(tmp_path: Path):
