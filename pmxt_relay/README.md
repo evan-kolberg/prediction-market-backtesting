@@ -53,9 +53,10 @@ worker cycle while the mirror still heals automatically when upstream recovers.
 
 Each cycle also re-validates a batch of already-mirrored files by HEAD-checking
 upstream for ETag or Content-Length changes. Files corrected upstream (e.g.
-initially broken uploads later replaced) are automatically re-queued for
-download. The batch size is configurable via `PMXT_RELAY_VERIFY_BATCH_SIZE`
-(default 50). Parquet row counts are tracked to detect empty/broken files.
+initially broken uploads later replaced with larger files) are automatically
+re-queued for download. The batch size is configurable via
+`PMXT_RELAY_VERIFY_BATCH_SIZE` (default 50). Parquet row counts and byte sizes
+are tracked to detect empty/broken files.
 
 ## Self-Healing Coverage
 
@@ -68,9 +69,10 @@ bucket auto-heals when upstream catches up:
   page 1 of the archive listing.
 - Quarantined upstream 404s (counted as missing): retried hourly per
   `_MIRROR_QUARANTINE_RETRY_SECS`; flip to ready when upstream serves 200.
-- Mirrored-but-empty parquets (`row_count == 0`, counted as empty): caught
-  by the HEAD re-verifier when upstream replaces the bytes (different ETag
-  or Content-Length), then re-mirrored and `row_count` recomputed.
+- Mirrored-but-empty parquets (`row_count == 0` or `Content-Length < 1 MiB`,
+  counted as empty): caught by the HEAD re-verifier when upstream replaces the
+  bytes (different ETag or Content-Length), then re-mirrored and `row_count`
+  recomputed.
 - Updated bytes for filenames already on disk: same HEAD re-verifier path;
   filename does not need to change.
 
@@ -120,8 +122,12 @@ and raw origin URL explicitly for the environment you run.
 Important env knobs from `pmxt_relay/systemd/pmxt-relay.env.example`:
 
 - `PMXT_RELAY_DATA_DIR` for relay-owned state under `/srv/pmxt-relay`
+- `PMXT_RELAY_ARCHIVE_SOURCES` for ordered archive source pairs in
+  `LISTING_URL|RAW_BASE_URL` form. PMXT Polymarket currently uses v2 first and
+  v1 second because upstream split the archive across both listings.
 - `PMXT_RELAY_ARCHIVE_LISTING_URL` for the upstream archive listing to poll
-  (PMXT Polymarket currently uses `https://archive.pmxt.dev/Polymarket`)
+  when `PMXT_RELAY_ARCHIVE_SOURCES` is unset
+  (PMXT Polymarket v2 uses `https://archive.pmxt.dev/Polymarket/v2`)
 - `PMXT_RELAY_RAW_BASE_URL` for the upstream raw object base URL
 - `PMXT_RELAY_TRUSTED_PROXY_IPS` if the API sits behind Caddy, nginx, or
   another reverse proxy and should trust forwarded client IPs from that proxy
@@ -154,11 +160,11 @@ Active mirror-focused endpoints:
 state. The active relay path is limited to mirroring, health, and raw file
 serving.
 
-The public badges separate relay health from `r2.pmxt.dev` availability:
+The public badges separate relay health from `r2v2.pmxt.dev` availability:
 
 - `/v1/badge/status(.svg)` reports whether the relay itself is up, recent, and
   has active API/worker services.
-- `/v1/badge/upstream(.svg)` reports whether recent `r2.pmxt.dev` polling is
+- `/v1/badge/upstream(.svg)` reports whether recent `r2v2.pmxt.dev` polling is
   online or offline.
 - `/v1/badge/missing-hours.svg` shows hours not currently represented on disk
   by a non-empty mirror — includes quarantined upstream 404s, pending downloads,
@@ -166,6 +172,7 @@ The public badges separate relay health from `r2.pmxt.dev` availability:
   empty hours; together with mirrored + empty, sums to the wall-clock hours
   since the first recorded hour.
 - `/v1/badge/empty-hours.svg` shows how many mirrored parquet files have zero
-  rows (broken/empty uploads). Empty hours are excluded from the "mirrored"
-  count surfaced by `/v1/stats` and `/v1/badge/mirrored.svg`, but they are
-  still counted as `ready` and therefore are NOT counted as missing.
+  rows or less than 1 MiB of data (broken/empty uploads). Empty hours are
+  excluded from the "mirrored" count surfaced by `/v1/stats` and
+  `/v1/badge/mirrored.svg`, but they are still counted as `ready` and therefore
+  are NOT counted as missing.

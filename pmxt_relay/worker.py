@@ -111,21 +111,30 @@ class RelayWorker:
 
     def _discover_archive_hours(self) -> int:
         discovered = 0
+        # Process lower-priority sources first so higher-priority sources later
+        # refresh source_url for filenames exposed by multiple archive versions.
+        for archive_source in reversed(self._config.resolved_archive_sources):
+            discovered += self._discover_archive_source(
+                archive_listing_url=archive_source.listing_url,
+                raw_base_url=archive_source.raw_base_url,
+            )
+        return discovered
+
+    def _discover_archive_source(self, *, archive_listing_url: str, raw_base_url: str) -> int:
+        discovered = 0
         page = 1
         stale_pages = 0
         while True:
             if self._config.archive_max_pages is not None and page > self._config.archive_max_pages:
                 break
-            html = fetch_archive_page(
-                self._config.archive_listing_url, page, self._config.http_timeout_secs
-            )
+            html = fetch_archive_page(archive_listing_url, page, self._config.http_timeout_secs)
             filenames = extract_archive_filenames(html)
             if not filenames:
                 break
 
             page_new = 0
             for filename in filenames:
-                source_url = f"{self._config.raw_base_url}/{filename}"
+                source_url = f"{raw_base_url}/{filename}"
                 if self._index.upsert_discovered_hour(filename, source_url, page):
                     page_new += 1
 
@@ -139,7 +148,13 @@ class RelayWorker:
                     level="INFO",
                     event_type="discover_page",
                     message=f"Discovered {page_new} new PMXT archive hours on page {page}",
-                    payload={"page": page, "new_hours": page_new, "total_entries": len(filenames)},
+                    payload={
+                        "listing_url": archive_listing_url,
+                        "raw_base_url": raw_base_url,
+                        "page": page,
+                        "new_hours": page_new,
+                        "total_entries": len(filenames),
+                    },
                 )
                 stale_pages = 0
             page += 1

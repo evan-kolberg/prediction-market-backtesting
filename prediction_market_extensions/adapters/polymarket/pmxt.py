@@ -81,7 +81,7 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
     `QuoteTick` records.
     """
 
-    _PMXT_BASE_URL = "https://r2.pmxt.dev"
+    _PMXT_BASE_URL = "https://r2v2.pmxt.dev"
     _PMXT_REMOTE_COLUMNS: ClassVar[list[str]] = ["market_id", "update_type", "data"]
     _PMXT_COLUMNS: ClassVar[list[str]] = ["update_type", "data"]
     _PMXT_CACHE_DIR_ENV = "PMXT_CACHE_DIR"

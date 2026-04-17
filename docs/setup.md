@@ -114,13 +114,20 @@ To mirror PMXT raw archive hours locally, run:
 make download-pmxt-raws DESTINATION=/path/to/pmxt_raws
 ```
 
-The download is long-running, walks archive hours newest-first, and prints
-per-hour completion lines plus the currently active transfer. The final JSON
-summary includes `missing_local_hours` for requested hours still absent on disk
-and `empty_local_hours` for local parquet files with zero rows. Example output:
+The download is long-running, walks every archive listing page newest-first,
+defaults to the PMXT v2 and v1 Polymarket listings, builds the full hourly range
+from the newest listed hour to the oldest listed hour, and prints per-hour
+completion lines plus the currently active transfer.
+The final JSON summary includes `archive_listed_hours` for the number of hours
+actually exposed by the upstream listing, `archive_missing_hours` for gaps in
+the upstream listing's covered time span, `missing_local_hours` for requested
+hours still absent on disk, and `empty_local_hours` for local parquet files with
+zero rows or less than 1 MiB of data. Existing local files are refreshed when
+they are empty or when an upstream source advertises a larger object. Example
+output:
 
 ```text
-PMXT raw source: explicit priority (archive https://r2.pmxt.dev -> relay https://209-209-10-83.sslip.io)
+PMXT raw source: explicit priority (archive https://r2v2.pmxt.dev -> relay https://209-209-10-83.sslip.io)
 Downloading PMXT raw hours to /path/to/pmxt_raws (requested_hours=3, window_start=2026-02-27T11, window_end=2026-02-27T13)...
   2026-02-27T13  12.431s   445.9 MiB  archive
   2026-02-27T12   0.000s    existing  skip
@@ -144,7 +151,7 @@ after the run.
 - PMXT filtered cache is enabled by default at
   `~/.cache/nautilus_trader/pmxt`
 - public PMXT runners pin `local:/Volumes/LaCie/pmxt_raws` first,
-  `archive:r2.pmxt.dev` second, and `relay:209-209-10-83.sslip.io` third
+  `archive:r2v2.pmxt.dev` second, and `relay:209-209-10-83.sslip.io` third
 - PMXT `DATA.sources` entries are explicit and prefix-driven: `local:`,
   `archive:`, `relay:`
 - normal Nautilus logs are still printed; the timing harness is additive

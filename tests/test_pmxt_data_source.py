@@ -148,12 +148,12 @@ def test_configured_pmxt_data_source_rejects_cache_explicit_source() -> None:
 @pytest.mark.parametrize(
     "source",
     [
-        "r2.pmxt.dev",
+        "r2v2.pmxt.dev",
         "/tmp/pmxt-raw",
         "local_raws:/tmp/pmxt-raw",
         "processed:/tmp/pmxt-processed",
         "raw:/tmp/pmxt-raw",
-        "raw-remote:https://r2.pmxt.dev",
+        "raw-remote:https://r2v2.pmxt.dev",
         "mirror:/tmp/pmxt-raw",
         "relay-raw:https://relay.vendor.test",
     ],
@@ -401,7 +401,7 @@ def test_runner_loader_uses_user_agent_for_remote_downloads(monkeypatch, tmp_pat
 
     destination = tmp_path / "download.parquet"
     total_bytes = loader._download_to_file_with_progress(
-        "https://r2.pmxt.dev/polymarket_orderbook_2026-02-22T11.parquet", destination
+        "https://r2v2.pmxt.dev/polymarket_orderbook_2026-02-22T11.parquet", destination
     )
 
     assert total_bytes == len(payload)
@@ -450,12 +450,12 @@ def test_runner_loader_uses_timeout_for_remote_payload_and_head(monkeypatch) -> 
 
     assert (
         loader._download_payload_with_progress(
-            "https://r2.pmxt.dev/polymarket_orderbook_2026-02-22T12.parquet"
+            "https://r2v2.pmxt.dev/polymarket_orderbook_2026-02-22T12.parquet"
         )
         == payload
     )
     assert loader._progress_total_bytes(
-        "https://r2.pmxt.dev/polymarket_orderbook_2026-02-22T12.parquet"
+        "https://r2v2.pmxt.dev/polymarket_orderbook_2026-02-22T12.parquet"
     ) == len(payload)
 
     assert len(requests) == 2

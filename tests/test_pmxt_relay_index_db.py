@@ -16,12 +16,12 @@ def test_relay_index_events_and_queue_summary_are_mirror_only(tmp_path: Path):
 
         index.upsert_discovered_hour(
             "polymarket_orderbook_2026-03-21T12.parquet",
-            "https://r2.pmxt.dev/polymarket_orderbook_2026-03-21T12.parquet",
+            "https://r2v2.pmxt.dev/polymarket_orderbook_2026-03-21T12.parquet",
             1,
         )
         index.upsert_discovered_hour(
             "polymarket_orderbook_2026-03-21T13.parquet",
-            "https://r2.pmxt.dev/polymarket_orderbook_2026-03-21T13.parquet",
+            "https://r2v2.pmxt.dev/polymarket_orderbook_2026-03-21T13.parquet",
             1,
         )
         index.mark_mirroring("polymarket_orderbook_2026-03-21T12.parquet")
@@ -85,13 +85,13 @@ def test_relay_index_events_and_queue_summary_are_mirror_only(tmp_path: Path):
         assert stats["last_error_at"] is not None
 
 
-def test_upsert_discovered_hour_is_idempotent(tmp_path: Path):
+def test_upsert_discovered_hour_refreshes_source_url_once(tmp_path: Path):
     with RelayIndex(tmp_path / "relay.sqlite3") as index:
         index.initialize()
 
         first_insert = index.upsert_discovered_hour(
             "polymarket_orderbook_2026-03-21T12.parquet",
-            "https://r2.pmxt.dev/polymarket_orderbook_2026-03-21T12.parquet",
+            "https://r2v2.pmxt.dev/polymarket_orderbook_2026-03-21T12.parquet",
             1,
         )
         second_insert = index.upsert_discovered_hour(
@@ -99,9 +99,15 @@ def test_upsert_discovered_hour_is_idempotent(tmp_path: Path):
             "https://mirror.example.com/polymarket_orderbook_2026-03-21T12.parquet",
             2,
         )
+        unchanged = index.upsert_discovered_hour(
+            "polymarket_orderbook_2026-03-21T12.parquet",
+            "https://mirror.example.com/polymarket_orderbook_2026-03-21T12.parquet",
+            2,
+        )
 
         assert first_insert is True
-        assert second_insert is False
+        assert second_insert is True
+        assert unchanged is False
         row = index._conn.execute(
             "SELECT archive_page, source_url FROM archive_hours WHERE filename = ?",
             ("polymarket_orderbook_2026-03-21T12.parquet",),
@@ -118,7 +124,7 @@ def test_initialize_resets_stale_mirror_rows(tmp_path: Path):
         index.initialize()
         filename = "polymarket_orderbook_2026-03-21T12.parquet"
         index.upsert_discovered_hour(
-            filename, "https://r2.pmxt.dev/polymarket_orderbook_2026-03-21T12.parquet", 1
+            filename, "https://r2v2.pmxt.dev/polymarket_orderbook_2026-03-21T12.parquet", 1
         )
         index.mark_mirroring(filename)
 
@@ -140,7 +146,7 @@ def test_register_local_raw_marks_hour_ready(tmp_path: Path):
             filename,
             local_path="/srv/pmxt-relay/raw/2026/03/21/" + filename,
             content_length=123,
-            source_url="https://r2.pmxt.dev/" + filename,
+            source_url="https://r2v2.pmxt.dev/" + filename,
         )
 
         assert changed is True
@@ -156,6 +162,42 @@ def test_register_local_raw_marks_hour_ready(tmp_path: Path):
         assert row["mirror_status"] == "ready"
         assert row["content_length"] == 123
         assert row["mirrored_at"] is not None
+
+
+def test_register_local_raw_does_not_overwrite_discovered_source_url(tmp_path: Path):
+    with RelayIndex(tmp_path / "relay.sqlite3") as index:
+        index.initialize()
+        filename = "polymarket_orderbook_2026-03-21T12.parquet"
+        source_url = f"https://r2.pmxt.dev/{filename}"
+        changed_source_url = f"https://r2v2.pmxt.dev/{filename}"
+        index.upsert_discovered_hour(filename, source_url, 1)
+
+        changed = index.register_local_raw(
+            filename,
+            local_path="/srv/pmxt-relay/raw/2026/03/21/" + filename,
+            content_length=123,
+            source_url=changed_source_url,
+        )
+        unchanged = index.register_local_raw(
+            filename,
+            local_path="/srv/pmxt-relay/raw/2026/03/21/" + filename,
+            content_length=123,
+            source_url=changed_source_url,
+        )
+
+        row = index._conn.execute(
+            """
+            SELECT source_url, local_path, mirror_status
+            FROM archive_hours
+            WHERE filename = ?
+            """,
+            (filename,),
+        ).fetchone()
+        assert changed is True
+        assert unchanged is False
+        assert row is not None
+        assert row["source_url"] == source_url
+        assert row["mirror_status"] == "ready"
 
 
 def test_relay_index_context_manager_closes_connection(tmp_path: Path):
@@ -176,12 +218,12 @@ def test_queue_summary_reports_latest_mirrored_filename(tmp_path: Path):
             "polymarket_orderbook_2026-03-21T13.parquet",
         ]
         for filename in filenames:
-            index.upsert_discovered_hour(filename, f"https://r2.pmxt.dev/{filename}", 1)
+            index.upsert_discovered_hour(filename, f"https://r2v2.pmxt.dev/{filename}", 1)
             index.mark_mirrored(
                 filename,
                 local_path=f"/srv/pmxt-relay/raw/{filename}",
                 etag=None,
-                content_length=1,
+                content_length=2 * 1024 * 1024,
                 last_modified=None,
             )
 
@@ -196,7 +238,7 @@ def test_error_rows_back_off_until_next_retry(tmp_path: Path):
         index.initialize()
         filename = "polymarket_orderbook_2026-03-21T12.parquet"
         retry_at = "2026-03-21T13:00:00+00:00"
-        index.upsert_discovered_hour(filename, f"https://r2.pmxt.dev/{filename}", 1)
+        index.upsert_discovered_hour(filename, f"https://r2v2.pmxt.dev/{filename}", 1)
         index.mark_mirror_retry(
             filename, error="transient upstream failure", next_retry_at=retry_at
         )
@@ -222,7 +264,7 @@ def test_quarantined_rows_count_as_errors_until_their_retry_window(tmp_path: Pat
         index.initialize()
         filename = "polymarket_orderbook_2026-03-21T12.parquet"
         retry_at = "2026-03-21T14:00:00+00:00"
-        index.upsert_discovered_hour(filename, f"https://r2.pmxt.dev/{filename}", 1)
+        index.upsert_discovered_hour(filename, f"https://r2v2.pmxt.dev/{filename}", 1)
         index.mark_mirror_quarantined(
             filename, error="HTTP Error 404: Not Found", next_retry_at=retry_at
         )
@@ -322,12 +364,12 @@ def test_list_hours_needing_verification_returns_oldest_first(tmp_path: Path):
             "polymarket_orderbook_2026-03-21T14.parquet",
         ]
         for filename in filenames:
-            index.upsert_discovered_hour(filename, f"https://r2.pmxt.dev/{filename}", 1)
+            index.upsert_discovered_hour(filename, f"https://r2v2.pmxt.dev/{filename}", 1)
             index.mark_mirrored(
                 filename,
                 local_path=f"/srv/pmxt-relay/raw/{filename}",
                 etag=None,
-                content_length=1,
+                content_length=2 * 1024 * 1024,
                 last_modified=None,
             )
         with index._conn:
@@ -351,7 +393,7 @@ def test_mark_verified_sets_timestamp(tmp_path: Path):
     with RelayIndex(tmp_path / "relay.sqlite3") as index:
         index.initialize()
         filename = "polymarket_orderbook_2026-03-21T12.parquet"
-        index.upsert_discovered_hour(filename, f"https://r2.pmxt.dev/{filename}", 1)
+        index.upsert_discovered_hour(filename, f"https://r2v2.pmxt.dev/{filename}", 1)
         index.mark_mirrored(
             filename,
             local_path=f"/srv/pmxt-relay/raw/{filename}",
@@ -374,7 +416,7 @@ def test_mark_needs_remirror_resets_to_pending(tmp_path: Path):
     with RelayIndex(tmp_path / "relay.sqlite3") as index:
         index.initialize()
         filename = "polymarket_orderbook_2026-03-21T12.parquet"
-        index.upsert_discovered_hour(filename, f"https://r2.pmxt.dev/{filename}", 1)
+        index.upsert_discovered_hour(filename, f"https://r2v2.pmxt.dev/{filename}", 1)
         index.mark_mirrored(
             filename,
             local_path=f"/srv/pmxt-relay/raw/{filename}",
@@ -408,13 +450,13 @@ def test_count_missing_hours_includes_unpublished_gap(tmp_path: Path):
         quarantined = "polymarket_orderbook_2026-03-21T14.parquet"
         pending = "polymarket_orderbook_2026-03-21T15.parquet"
         for filename in [ready, empty, quarantined, pending]:
-            index.upsert_discovered_hour(filename, f"https://r2.pmxt.dev/{filename}", 1)
+            index.upsert_discovered_hour(filename, f"https://r2v2.pmxt.dev/{filename}", 1)
         for filename in [ready, empty]:
             index.mark_mirrored(
                 filename,
                 local_path=f"/srv/pmxt-relay/raw/{filename}",
                 etag=None,
-                content_length=1,
+                content_length=2 * 1024 * 1024,
                 last_modified=None,
             )
         index.update_row_count(empty, 0)
@@ -431,7 +473,7 @@ def test_count_missing_hours_wall_clock_gap_dominant(tmp_path: Path):
     with RelayIndex(tmp_path / "relay.sqlite3") as index:
         index.initialize()
         ready = "polymarket_orderbook_2026-03-21T00.parquet"
-        index.upsert_discovered_hour(ready, f"https://r2.pmxt.dev/{ready}", 1)
+        index.upsert_discovered_hour(ready, f"https://r2v2.pmxt.dev/{ready}", 1)
         index.mark_mirrored(
             ready,
             local_path=f"/srv/pmxt-relay/raw/{ready}",
@@ -451,7 +493,7 @@ def test_stats_archive_hours_are_elapsed_wall_clock_hours(tmp_path: Path):
         earliest = "polymarket_orderbook_2026-03-21T12.parquet"
         later = "polymarket_orderbook_2026-03-21T13.parquet"
         for filename in [earliest, later]:
-            index.upsert_discovered_hour(filename, f"https://r2.pmxt.dev/{filename}", 1)
+            index.upsert_discovered_hour(filename, f"https://r2v2.pmxt.dev/{filename}", 1)
         index._conn.execute(
             "UPDATE archive_hours SET hour = ? WHERE filename = ?",
             ("2026-03-21T12:45:00Z", earliest),
@@ -470,12 +512,12 @@ def test_stats_mirrored_hours_exclude_known_empty_rows(tmp_path: Path):
         unknown = "polymarket_orderbook_2026-03-21T13.parquet"
         nonempty = "polymarket_orderbook_2026-03-21T14.parquet"
         for filename in [empty, unknown, nonempty]:
-            index.upsert_discovered_hour(filename, f"https://r2.pmxt.dev/{filename}", 1)
+            index.upsert_discovered_hour(filename, f"https://r2v2.pmxt.dev/{filename}", 1)
             index.mark_mirrored(
                 filename,
                 local_path=f"/srv/pmxt-relay/raw/{filename}",
                 etag=None,
-                content_length=1,
+                content_length=2 * 1024 * 1024,
                 last_modified=None,
             )
         index.update_row_count(empty, 0)
@@ -495,12 +537,12 @@ def test_count_empty_hours(tmp_path: Path):
             "polymarket_orderbook_2026-03-21T14.parquet",
         ]
         for filename in filenames:
-            index.upsert_discovered_hour(filename, f"https://r2.pmxt.dev/{filename}", 1)
+            index.upsert_discovered_hour(filename, f"https://r2v2.pmxt.dev/{filename}", 1)
             index.mark_mirrored(
                 filename,
                 local_path=f"/srv/pmxt-relay/raw/{filename}",
                 etag=None,
-                content_length=1,
+                content_length=2 * 1024 * 1024,
                 last_modified=None,
             )
         index.update_row_count(filenames[0], 0)
@@ -509,11 +551,31 @@ def test_count_empty_hours(tmp_path: Path):
         assert index.count_empty_hours() == 1
 
 
+def test_count_empty_hours_includes_sub_one_mib_raws(tmp_path: Path):
+    with RelayIndex(tmp_path / "relay.sqlite3") as index:
+        index.initialize()
+        filename = "polymarket_orderbook_2026-03-21T12.parquet"
+        index.upsert_discovered_hour(filename, f"https://r2v2.pmxt.dev/{filename}", 1)
+        index.mark_mirrored(
+            filename,
+            local_path=f"/srv/pmxt-relay/raw/{filename}",
+            etag=None,
+            content_length=512 * 1024,
+            last_modified=None,
+        )
+        index.update_row_count(filename, 100)
+
+        stats = index.stats(now=datetime(2026, 3, 21, 12, 30, tzinfo=timezone.utc))
+
+        assert index.count_empty_hours() == 1
+        assert stats["mirrored_hours"] == 0
+
+
 def test_update_row_count(tmp_path: Path):
     with RelayIndex(tmp_path / "relay.sqlite3") as index:
         index.initialize()
         filename = "polymarket_orderbook_2026-03-21T12.parquet"
-        index.upsert_discovered_hour(filename, f"https://r2.pmxt.dev/{filename}", 1)
+        index.upsert_discovered_hour(filename, f"https://r2v2.pmxt.dev/{filename}", 1)
 
         index.update_row_count(filename, 42)
 

@@ -29,7 +29,7 @@ DATA = MarketDataConfig(
     vendor=PMXT,
     sources=(
         "local:/data/pmxt/raw",
-        "archive:r2.pmxt.dev",
+        "archive:r2v2.pmxt.dev",
         "relay:mirror.example.com",
     ),
 )
@@ -71,7 +71,7 @@ The public PMXT runner layer reads one market/token/hour from these places:
 The current "bring your own data" story is therefore:
 
 - set `DATA.sources` in your runner to
-  `("local:/path/to/raw-hours", "archive:r2.pmxt.dev", "relay:relay.example.com")`
+  `("local:/path/to/raw-hours", "archive:r2v2.pmxt.dev", "relay:relay.example.com")`
 - or point `PMXT_LOCAL_ARCHIVE_DIR` / `PMXT_RAW_ROOT` at a directory of raw
   PMXT hour files you already mirrored locally
 - or run your own raw mirror and point `PMXT_RELAY_BASE_URL` at it
@@ -103,12 +103,17 @@ To mirror raw archive hours locally for this repo's runners, use:
 make download-pmxt-raws DESTINATION=/path/to/pmxt_raws
 ```
 
-The downloader walks archive hours newest-first, then reports requested hours
-that are still missing locally and local parquet files with zero rows. It also
-prints per-hour completion lines plus the active transfer. Example output:
+The downloader walks every archive listing page newest-first, defaults to the
+PMXT v2 and v1 Polymarket listings, builds the full hourly range from the newest
+listed hour to the oldest listed hour, then reports the upstream listed-hour
+count, gaps in that covered span, requested hours still missing locally, and
+local parquet files with zero rows or less than 1 MiB of data. Existing local
+files are refreshed when they are empty or when an upstream source advertises a
+larger object. It also prints per-hour completion lines plus the active
+transfer. Example output:
 
 ```text
-PMXT raw source: explicit priority (archive https://r2.pmxt.dev -> relay https://209-209-10-83.sslip.io)
+PMXT raw source: explicit priority (archive https://r2v2.pmxt.dev -> relay https://209-209-10-83.sslip.io)
 Downloading PMXT raw hours to /path/to/pmxt_raws (requested_hours=3, window_start=2026-02-27T11, window_end=2026-02-27T13)...
   2026-02-27T13  12.431s   445.9 MiB  archive
   2026-02-27T12   0.000s    existing  skip
