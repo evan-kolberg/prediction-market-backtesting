@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.error import HTTPError
 from urllib.request import Request
@@ -77,7 +78,7 @@ def test_mirror_hour_falls_back_to_get_when_head_is_rejected(tmp_path: Path, mon
         assert raw_path.read_bytes() == b"raw-payload"
         assert requested_methods == ["HEAD", "GET"]
 
-        stats = worker._index.stats()
+        stats = worker._index.stats(now=datetime(2026, 3, 21, 12, 30, tzinfo=timezone.utc))
         assert stats["archive_hours"] == 1
         assert stats["mirrored_hours"] == 1
 

@@ -65,7 +65,7 @@ def test_relay_index_events_and_queue_summary_are_mirror_only(tmp_path: Path):
         index.prune_events()
 
         events = index.recent_events(limit=10)
-        stats = index.stats()
+        stats = index.stats(now=datetime(2026, 3, 21, 13, 30, tzinfo=timezone.utc))
 
         assert [event["event_type"] for event in events] == ["third", "second"]
         assert len(events) == 2
@@ -403,21 +403,63 @@ def test_mark_needs_remirror_resets_to_pending(tmp_path: Path):
 def test_count_missing_hours(tmp_path: Path):
     with RelayIndex(tmp_path / "relay.sqlite3") as index:
         index.initialize()
-        pending = "polymarket_orderbook_2026-03-21T12.parquet"
-        errored = "polymarket_orderbook_2026-03-21T13.parquet"
-        ready = "polymarket_orderbook_2026-03-21T14.parquet"
-        for filename in [pending, errored, ready]:
+        ready = "polymarket_orderbook_2026-03-21T12.parquet"
+        empty = "polymarket_orderbook_2026-03-21T13.parquet"
+        pending = "polymarket_orderbook_2026-03-21T14.parquet"
+        for filename in [ready, empty, pending]:
             index.upsert_discovered_hour(filename, f"https://r2.pmxt.dev/{filename}", 1)
-        index.mark_mirror_error(errored, "upstream failure")
-        index.mark_mirrored(
-            ready,
-            local_path=f"/srv/pmxt-relay/raw/{ready}",
-            etag=None,
-            content_length=1,
-            last_modified=None,
-        )
+            if filename != pending:
+                index.mark_mirrored(
+                    filename,
+                    local_path=f"/srv/pmxt-relay/raw/{filename}",
+                    etag=None,
+                    content_length=1,
+                    last_modified=None,
+                )
+        index.update_row_count(empty, 0)
 
-        assert index.count_missing_hours() == 2
+        assert index.count_missing_hours(now=datetime(2026, 3, 21, 15, 10, tzinfo=timezone.utc)) == 3
+
+
+def test_stats_archive_hours_are_elapsed_wall_clock_hours(tmp_path: Path):
+    with RelayIndex(tmp_path / "relay.sqlite3") as index:
+        index.initialize()
+        earliest = "polymarket_orderbook_2026-03-21T12.parquet"
+        later = "polymarket_orderbook_2026-03-21T13.parquet"
+        for filename in [earliest, later]:
+            index.upsert_discovered_hour(filename, f"https://r2.pmxt.dev/{filename}", 1)
+        index._conn.execute(
+            "UPDATE archive_hours SET hour = ? WHERE filename = ?",
+            ("2026-03-21T12:45:00Z", earliest),
+        )
+        index._conn.commit()
+
+        stats = index.stats(now=datetime(2026, 3, 21, 15, 30, tzinfo=timezone.utc))
+
+        assert stats["archive_hours"] == 4
+
+
+def test_stats_mirrored_hours_exclude_known_empty_rows(tmp_path: Path):
+    with RelayIndex(tmp_path / "relay.sqlite3") as index:
+        index.initialize()
+        empty = "polymarket_orderbook_2026-03-21T12.parquet"
+        unknown = "polymarket_orderbook_2026-03-21T13.parquet"
+        nonempty = "polymarket_orderbook_2026-03-21T14.parquet"
+        for filename in [empty, unknown, nonempty]:
+            index.upsert_discovered_hour(filename, f"https://r2.pmxt.dev/{filename}", 1)
+            index.mark_mirrored(
+                filename,
+                local_path=f"/srv/pmxt-relay/raw/{filename}",
+                etag=None,
+                content_length=1,
+                last_modified=None,
+            )
+        index.update_row_count(empty, 0)
+        index.update_row_count(nonempty, 100)
+
+        stats = index.stats(now=datetime(2026, 3, 21, 14, 30, tzinfo=timezone.utc))
+
+        assert stats["mirrored_hours"] == 2
 
 
 def test_count_empty_hours(tmp_path: Path):

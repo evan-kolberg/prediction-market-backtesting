@@ -136,7 +136,10 @@ The public badges separate relay health from `r2.pmxt.dev` availability:
   has active API/worker services.
 - `/v1/badge/upstream(.svg)` reports whether recent `r2.pmxt.dev` polling is
   online or offline.
-- `/v1/badge/missing-hours.svg` shows how many archive hours are not yet
-  mirrored locally.
+- `/v1/badge/missing-hours.svg` shows how many wall-clock hours since the
+  earliest discovered hour are not yet mirrored locally with non-empty content
+  (i.e. expected hours minus usable mirrored hours, including hours upstream
+  has not yet published).
 - `/v1/badge/empty-hours.svg` shows how many mirrored parquet files have zero
-  rows (broken/empty uploads).
+  rows (broken/empty uploads). Empty hours are excluded from the "mirrored"
+  count surfaced by `/v1/stats` and `/v1/badge/mirrored.svg`.
