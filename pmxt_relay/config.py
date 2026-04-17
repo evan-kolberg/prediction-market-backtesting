@@ -25,6 +25,30 @@ def _env_csv(name: str, default: tuple[str, ...] = ()) -> tuple[str, ...]:
 
 
 @dataclass(frozen=True)
+class ArchiveSource:
+    listing_url: str
+    raw_base_url: str
+
+
+def _env_archive_sources(name: str) -> tuple[ArchiveSource, ...]:
+    value = os.getenv(name)
+    if value is None or not value.strip():
+        return ()
+    sources: list[ArchiveSource] = []
+    for part in value.split(","):
+        stripped = part.strip()
+        if not stripped:
+            continue
+        if "|" not in stripped:
+            raise ValueError(f"{name} entries must use LISTING_URL|RAW_BASE_URL syntax.")
+        listing_url, raw_base_url = (item.strip().rstrip("/") for item in stripped.split("|", 1))
+        if not listing_url or not raw_base_url:
+            raise ValueError(f"{name} entries must include both listing and raw base URLs.")
+        sources.append(ArchiveSource(listing_url=listing_url, raw_base_url=raw_base_url))
+    return tuple(sources)
+
+
+@dataclass(frozen=True)
 class RelayConfig:
     data_dir: Path
     bind_host: str
@@ -39,14 +63,19 @@ class RelayConfig:
     api_rate_limit_per_minute: int
     verify_batch_size: int = 50
     trusted_proxy_ips: tuple[str, ...] = ("127.0.0.1", "::1")
+    archive_sources: tuple[ArchiveSource, ...] = ()
 
     @classmethod
     def from_env(cls) -> RelayConfig:
         default_data_dir = Path.cwd() / ".pmxt-relay"
         data_dir = Path(os.getenv("PMXT_RELAY_DATA_DIR", str(default_data_dir))).expanduser()
         archive_max_pages = _env_int("PMXT_RELAY_ARCHIVE_MAX_PAGES", 0)
+        archive_sources = _env_archive_sources("PMXT_RELAY_ARCHIVE_SOURCES")
         archive_listing_url = (os.getenv("PMXT_RELAY_ARCHIVE_LISTING_URL") or "").strip()
         raw_base_url = (os.getenv("PMXT_RELAY_RAW_BASE_URL") or "").strip()
+        if archive_sources:
+            archive_listing_url = archive_sources[0].listing_url
+            raw_base_url = archive_sources[0].raw_base_url
         if not archive_listing_url:
             raise ValueError("PMXT_RELAY_ARCHIVE_LISTING_URL is required.")
         if not raw_base_url:
@@ -67,6 +96,16 @@ class RelayConfig:
             ),
             verify_batch_size=max(1, _env_int("PMXT_RELAY_VERIFY_BATCH_SIZE", 50)),
             trusted_proxy_ips=_env_csv("PMXT_RELAY_TRUSTED_PROXY_IPS", ("127.0.0.1", "::1")),
+            archive_sources=archive_sources,
+        )
+
+    @property
+    def resolved_archive_sources(self) -> tuple[ArchiveSource, ...]:
+        return self.archive_sources or (
+            ArchiveSource(
+                listing_url=self.archive_listing_url.rstrip("/"),
+                raw_base_url=self.raw_base_url.rstrip("/"),
+            ),
         )
 
     @property

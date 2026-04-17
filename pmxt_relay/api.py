@@ -11,6 +11,7 @@ import time
 from collections import defaultdict, deque
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import urlparse
 from xml.sax.saxutils import escape
 
 from aiohttp import web
@@ -459,10 +460,11 @@ def _upstream_badge_payload(
     del queue
     current = datetime.now(timezone.utc) if now is None else now.astimezone(timezone.utc)
     last_event_at = _parse_db_timestamp(stats.get("last_event_at"))  # type: ignore[arg-type]
+    upstream_label = urlparse(config.raw_base_url).netloc or config.raw_base_url
 
     if last_event_at is None:
         return _badge_payload(
-            label="r2.pmxt.dev",
+            label=upstream_label,
             message="checking",
             color="yellow",
         )
@@ -471,13 +473,13 @@ def _upstream_badge_payload(
     stale_threshold = max(config.poll_interval_secs * 4, 3600)
     if age_seconds > stale_threshold:
         return _badge_payload(
-            label="r2.pmxt.dev",
+            label=upstream_label,
             message="offline",
             color="red",
         )
 
     return _badge_payload(
-        label="r2.pmxt.dev",
+        label=upstream_label,
         message="online",
         color="brightgreen",
     )

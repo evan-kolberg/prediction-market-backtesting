@@ -49,7 +49,7 @@ def test_transfer_label_identifies_relay_raw_urls() -> None:
 
 
 def test_transfer_label_identifies_r2_raw_urls() -> None:
-    label = _transfer_label("https://r2.pmxt.dev/polymarket_orderbook_2026-02-22T11.parquet")
+    label = _transfer_label("https://r2v2.pmxt.dev/polymarket_orderbook_2026-02-22T11.parquet")
 
     assert label == "r2 raw 2026-02-22T11"
 
@@ -129,7 +129,7 @@ def test_active_transfer_progress_dedupes_by_hour() -> None:
     active_hours, active_progress = _active_transfer_progress(
         {
             "one": {
-                "url": "https://r2.pmxt.dev/polymarket_orderbook_2026-02-22T15.parquet",
+                "url": "https://r2v2.pmxt.dev/polymarket_orderbook_2026-02-22T15.parquet",
                 "hour_key": "2026-02-22T15:00:00+00:00",
                 "mode": "download",
                 "downloaded_bytes": 50,

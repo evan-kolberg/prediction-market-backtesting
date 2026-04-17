@@ -19,6 +19,7 @@ _LOCKED_ERROR_SNIPPETS = (
 )
 _DUPLICATE_COLUMN_ERROR_SNIPPET = "duplicate column name"
 _LEGACY_ACTIVE_STATUS = "processing"
+_MIN_NONEMPTY_RAW_BYTES = 1024 * 1024
 
 
 def _utc_now_datetime() -> datetime:
@@ -327,15 +328,19 @@ class RelayIndex:
                     """,
                     (filename, hour, source_url, archive_page, _utc_now()),
                 )
-                self._conn.execute(
+                update_cursor = self._conn.execute(
                     """
                     UPDATE archive_hours
                     SET archive_page = ?, source_url = ?
                     WHERE filename = ?
+                      AND (
+                        archive_page != ?
+                        OR source_url != ?
+                      )
                     """,
-                    (archive_page, source_url, filename),
+                    (archive_page, source_url, filename, archive_page, source_url),
                 )
-            return cursor.rowcount > 0
+            return (cursor.rowcount + update_cursor.rowcount) > 0
 
         return self._run_with_lock_retry(operation)
 
@@ -495,7 +500,6 @@ class RelayIndex:
                     """
                     UPDATE archive_hours
                     SET
-                        source_url = ?,
                         local_path = ?,
                         content_length = COALESCE(content_length, ?),
                         mirror_status = 'ready',
@@ -510,18 +514,15 @@ class RelayIndex:
                         OR local_path != ?
                         OR mirror_status != 'ready'
                         OR (content_length IS NULL AND ? IS NOT NULL)
-                        OR source_url != ?
                       )
                     """,
                     (
-                        source_url,
                         local_path,
                         content_length,
                         mirrored_at,
                         filename,
                         local_path,
                         content_length,
-                        source_url,
                     ),
                 )
             return (insert_cursor.rowcount + update_cursor.rowcount) > 0
@@ -591,7 +592,9 @@ class RelayIndex:
                 FROM archive_hours
                 WHERE mirror_status = 'ready'
                   AND (row_count IS NULL OR row_count > 0)
+                  AND (content_length IS NULL OR content_length >= ?)
                 """,
+                (_MIN_NONEMPTY_RAW_BYTES,),
                 default=0,
             )
         )
@@ -605,9 +608,12 @@ class RelayIndex:
                 SELECT COUNT(*)
                 FROM archive_hours
                 WHERE mirror_status = 'ready'
-                  AND row_count IS NOT NULL
-                  AND row_count = 0
+                  AND (
+                    (row_count IS NOT NULL AND row_count = 0)
+                    OR (content_length IS NOT NULL AND content_length < ?)
+                  )
                 """,
+                (_MIN_NONEMPTY_RAW_BYTES,),
                 default=0,
             )
         )
@@ -630,6 +636,7 @@ class RelayIndex:
                 SUM(
                     CASE
                         WHEN mirror_status = 'ready' AND (row_count IS NULL OR row_count > 0)
+                          AND (content_length IS NULL OR content_length >= ?)
                         THEN 1
                         ELSE 0
                     END
@@ -637,7 +644,8 @@ class RelayIndex:
                 SUM(CASE WHEN mirror_status IN ('error', 'quarantined') THEN 1 ELSE 0 END) AS mirror_errors,
                 SUM(CASE WHEN mirror_status = 'quarantined' THEN 1 ELSE 0 END) AS mirror_quarantined
             FROM archive_hours
-            """
+            """,
+            (_MIN_NONEMPTY_RAW_BYTES,),
         )
         stats_row = dict(row) if row is not None else {}
         archive_hours = self._compute_elapsed_archive_hours(now=now)

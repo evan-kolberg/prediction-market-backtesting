@@ -43,7 +43,7 @@ DATA = MarketDataConfig(
     vendor=PMXT,
     sources=(
         "local:/Volumes/LaCie/pmxt_raws",
-        "archive:r2.pmxt.dev",
+        "archive:r2v2.pmxt.dev",
         "relay:209-209-10-83.sslip.io",
     ),
 )

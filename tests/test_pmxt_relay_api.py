@@ -27,8 +27,8 @@ def _make_config(tmp_path: Path) -> RelayConfig:
         data_dir=tmp_path,
         bind_host="127.0.0.1",
         bind_port=8080,
-        archive_listing_url="https://archive.pmxt.dev/Polymarket",
-        raw_base_url="https://r2.pmxt.dev",
+        archive_listing_url="https://archive.pmxt.dev/Polymarket/v2",
+        raw_base_url="https://r2v2.pmxt.dev",
         poll_interval_secs=900,
         http_timeout_secs=30,
         archive_stale_pages=3,
@@ -353,7 +353,7 @@ def test_upstream_badge_stays_online_for_fresh_unresolved_mirror_gaps(tmp_path: 
         now=now,
     )
 
-    assert payload["label"] == "r2.pmxt.dev"
+    assert payload["label"] == "r2v2.pmxt.dev"
     assert payload["message"] == "online"
     assert payload["color"] == "brightgreen"
 
@@ -374,7 +374,7 @@ def test_upstream_badge_stays_online_for_backlog_with_old_latest_mirror(tmp_path
         now=now,
     )
 
-    assert payload["label"] == "r2.pmxt.dev"
+    assert payload["label"] == "r2v2.pmxt.dev"
     assert payload["message"] == "online"
     assert payload["color"] == "brightgreen"
 
@@ -395,7 +395,7 @@ def test_upstream_badge_uses_offline_for_stale_polling(tmp_path: Path):
         now=now,
     )
 
-    assert payload["label"] == "r2.pmxt.dev"
+    assert payload["label"] == "r2v2.pmxt.dev"
     assert payload["message"] == "offline"
     assert payload["color"] == "red"
 
@@ -552,7 +552,7 @@ def test_empty_hours_badge_shows_count(tmp_path: Path):
                 filename,
                 local_path=str(tmp_path / filename),
                 etag=None,
-                content_length=1,
+                content_length=2 * 1024 * 1024,
                 last_modified=None,
             )
         index.update_row_count(empty, 0)
@@ -593,6 +593,6 @@ def test_upstream_badge_old_mirror_errors_still_report_online(tmp_path: Path):
         now=now,
     )
 
-    assert payload["label"] == "r2.pmxt.dev"
+    assert payload["label"] == "r2v2.pmxt.dev"
     assert payload["message"] == "online"
     assert payload["color"] == "brightgreen"

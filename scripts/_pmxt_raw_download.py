@@ -16,26 +16,41 @@ from pmxt_relay.archive import extract_archive_filenames, fetch_archive_page
 from pmxt_relay.storage import parse_archive_hour, raw_relative_path
 
 _USER_AGENT = "prediction-market-backtesting/1.0"
-_DEFAULT_ARCHIVE_LISTING_URL = "https://archive.pmxt.dev/Polymarket"
-_DEFAULT_ARCHIVE_BASE_URL = "https://r2.pmxt.dev"
+_DEFAULT_ARCHIVE_LISTING_URL = "https://archive.pmxt.dev/Polymarket/v2"
+_DEFAULT_ARCHIVE_BASE_URL = "https://r2v2.pmxt.dev"
+_DEFAULT_V1_ARCHIVE_LISTING_URL = "https://archive.pmxt.dev/Polymarket/v1"
+_DEFAULT_V1_ARCHIVE_BASE_URL = "https://r2.pmxt.dev"
 _DEFAULT_RELAY_BASE_URL = "https://209-209-10-83.sslip.io"
 _DOWNLOAD_CHUNK_SIZE = 8 * 1024 * 1024
 _STATUS_REFRESH_SECS = 0.2
+_MIN_NONEMPTY_RAW_BYTES = 1024 * 1024
 _RAW_FILENAME_PREFIX = "polymarket_orderbook_"
 _RAW_FILENAME_SUFFIX = ".parquet"
+
+
+@dataclass(frozen=True)
+class ArchiveSource:
+    listing_url: str
+    base_url: str
 
 
 @dataclass(frozen=True)
 class RawDownloadSummary:
     destination: str
     requested_hours: int
+    archive_listed_hours: int
     downloaded_hours: int
     skipped_existing_hours: int
+    refreshed_existing_hours: int
+    archive_missing_hours: list[str]
     failed_hours: list[str]
     missing_local_hours: list[str]
     empty_local_hours: list[str]
+    zero_row_local_hours: list[str]
+    small_local_hours: list[str]
     source_hits: dict[str, int]
     source_order: list[str]
+    archive_sources: list[str]
     start_hour: str | None
     end_hour: str | None
 
@@ -61,13 +76,13 @@ def _parse_hour_bound(value: str | None) -> datetime | None:
     return parsed.replace(minute=0, second=0, microsecond=0)
 
 
-def discover_archive_hours(
+def discover_archive_filenames(
     *,
     archive_listing_url: str = _DEFAULT_ARCHIVE_LISTING_URL,
     timeout_secs: int = 60,
     stale_pages: int = 1,
     max_pages: int | None = None,
-) -> list[datetime]:
+) -> list[str]:
     if stale_pages < 1:
         raise ValueError("stale_pages must be >= 1")
 
@@ -92,8 +107,24 @@ def discover_archive_hours(
             stale_count = 0
         page += 1
 
+    return sorted(discovered, key=discovered.__getitem__, reverse=True)
+
+
+def discover_archive_hours(
+    *,
+    archive_listing_url: str = _DEFAULT_ARCHIVE_LISTING_URL,
+    timeout_secs: int = 60,
+    stale_pages: int = 1,
+    max_pages: int | None = None,
+) -> list[datetime]:
     return [
-        discovered[name] for name in sorted(discovered, key=discovered.__getitem__, reverse=True)
+        parse_archive_hour(filename)
+        for filename in discover_archive_filenames(
+            archive_listing_url=archive_listing_url,
+            timeout_secs=timeout_secs,
+            stale_pages=stale_pages,
+            max_pages=max_pages,
+        )
     ]
 
 
@@ -115,6 +146,19 @@ def _sort_filenames_newest_first(filenames: list[str]) -> list[str]:
     return sorted(filenames, key=parse_archive_hour, reverse=True)
 
 
+def _filename_for_hour(hour: datetime) -> str:
+    return f"polymarket_orderbook_{hour.strftime('%Y-%m-%dT%H')}.parquet"
+
+
+def _hour_range_filenames(*, start_hour: datetime, end_hour: datetime) -> list[str]:
+    filenames: list[str] = []
+    current = start_hour
+    while current <= end_hour:
+        filenames.append(_filename_for_hour(current))
+        current += timedelta(hours=1)
+    return filenames
+
+
 def _archive_url(base_url: str, filename: str) -> str:
     return f"{base_url.rstrip('/')}/{filename}"
 
@@ -122,6 +166,88 @@ def _archive_url(base_url: str, filename: str) -> str:
 def _relay_url(base_url: str, filename: str) -> str:
     relative = raw_relative_path(filename).as_posix()
     return f"{base_url.rstrip('/')}/v1/raw/{relative}"
+
+
+def _source_url(
+    *, source: str, filename: str, archive_base_url: str, relay_base_url: str
+) -> tuple[str, str]:
+    if source == "archive":
+        return _archive_url(archive_base_url, filename), f"archive:{archive_base_url.rstrip('/')}"
+    return _relay_url(relay_base_url, filename), f"relay:{relay_base_url.rstrip('/')}"
+
+
+def _archive_sources_from_args(
+    *,
+    archive_sources: list[tuple[str, str]] | None,
+    archive_listing_url: str,
+    archive_base_url: str,
+) -> list[ArchiveSource]:
+    if archive_sources is None:
+        return [ArchiveSource(archive_listing_url.rstrip("/"), archive_base_url.rstrip("/"))]
+    normalized: list[ArchiveSource] = []
+    seen: set[tuple[str, str]] = set()
+    for listing_url, base_url in archive_sources:
+        source = ArchiveSource(listing_url.rstrip("/"), base_url.rstrip("/"))
+        key = (source.listing_url, source.base_url)
+        if key in seen:
+            continue
+        normalized.append(source)
+        seen.add(key)
+    if not normalized:
+        raise ValueError("At least one PMXT archive source must be configured.")
+    return normalized
+
+
+def _archive_candidate_urls(
+    *,
+    filename: str,
+    archive_sources: list[ArchiveSource],
+    discovered_archive_base_urls: dict[str, str],
+) -> list[tuple[str, str]]:
+    discovered_base_url = discovered_archive_base_urls.get(filename)
+    if discovered_base_url is not None:
+        return [
+            (
+                _archive_url(discovered_base_url, filename),
+                f"archive:{discovered_base_url.rstrip('/')}",
+            )
+        ]
+    return [
+        (_archive_url(source.base_url, filename), f"archive:{source.base_url.rstrip('/')}")
+        for source in archive_sources
+    ]
+
+
+def _candidate_urls(
+    *,
+    source: str,
+    filename: str,
+    archive_sources: list[ArchiveSource],
+    discovered_archive_base_urls: dict[str, str],
+    relay_base_url: str,
+) -> list[tuple[str, str]]:
+    if source == "archive":
+        return _archive_candidate_urls(
+            filename=filename,
+            archive_sources=archive_sources,
+            discovered_archive_base_urls=discovered_archive_base_urls,
+        )
+    return [(_relay_url(relay_base_url, filename), f"relay:{relay_base_url.rstrip('/')}")]
+
+
+def _remote_content_length(*, url: str, timeout_secs: int) -> int | None:
+    request = Request(url, method="HEAD", headers={"User-Agent": _USER_AGENT})
+    try:
+        with urlopen(request, timeout=timeout_secs) as response:
+            value = response.headers.get("Content-Length")
+    except Exception:
+        return None
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except ValueError:
+        return None
 
 
 def _hour_label_for_filename(filename: str) -> str:
@@ -166,13 +292,22 @@ def _hour_result_text(*, hour_label: str, elapsed_secs: float, detail: str, sour
     return f"  {hour_label:>13s}  {elapsed_secs:6.3f}s  {detail:>10s}  {source}"
 
 
+def _format_download_error(exc: Exception) -> str:
+    if isinstance(exc, HTTPError):
+        message = f"HTTP {exc.code}"
+    else:
+        message = str(exc) or exc.__class__.__name__
+    return message.replace("\n", " ")[:180]
+
+
 def _source_priority_summary(
-    *, source_sequence: list[str], archive_base_url: str, relay_base_url: str
+    *, source_sequence: list[str], archive_sources: list[ArchiveSource], relay_base_url: str
 ) -> str:
     parts: list[str] = []
     for source in source_sequence:
         if source == "archive":
-            parts.append(f"archive {archive_base_url.rstrip('/')}")
+            archive_labels = ", ".join(source.base_url.rstrip("/") for source in archive_sources)
+            parts.append(f"archive {archive_labels}")
         else:
             parts.append(f"relay {relay_base_url.rstrip('/')}")
     return "PMXT raw source: explicit priority (" + " -> ".join(parts) + ")"
@@ -192,20 +327,62 @@ def _read_parquet_row_count(path: Path) -> int | None:
         return None
 
 
+def _local_raw_is_empty(path: Path) -> bool:
+    try:
+        file_size = path.stat().st_size
+    except OSError:
+        return True
+    if file_size < _MIN_NONEMPTY_RAW_BYTES:
+        return True
+    return _read_parquet_row_count(path) == 0
+
+
+def _existing_refresh_reason(
+    *,
+    path: Path,
+    source_urls: list[str],
+    timeout_secs: int,
+) -> str | None:
+    try:
+        local_size = path.stat().st_size
+    except OSError:
+        return "unreadable"
+
+    if _local_raw_is_empty(path):
+        return "empty"
+
+    for url in source_urls:
+        remote_size = _remote_content_length(url=url, timeout_secs=timeout_secs)
+        if remote_size is not None and remote_size > local_size:
+            return f"remote-larger:{_format_mib(remote_size)}"
+    return None
+
+
 def _validate_local_raw_hours(
     *, destination: Path, filenames: list[str]
-) -> tuple[list[str], list[str]]:
+) -> tuple[list[str], list[str], list[str], list[str]]:
     missing: list[str] = []
     empty: list[str] = []
+    zero_row: list[str] = []
+    small: list[str] = []
     for filename in filenames:
+        hour_label = parse_archive_hour(filename).isoformat()
         destination_path = destination / raw_relative_path(filename)
         if not destination_path.exists():
-            missing.append(parse_archive_hour(filename).isoformat())
+            missing.append(hour_label)
             continue
+        try:
+            file_size = destination_path.stat().st_size
+        except OSError:
+            file_size = 0
         row_count = _read_parquet_row_count(destination_path)
         if row_count == 0:
-            empty.append(parse_archive_hour(filename).isoformat())
-    return missing, empty
+            zero_row.append(hour_label)
+        if file_size < _MIN_NONEMPTY_RAW_BYTES:
+            small.append(hour_label)
+        if row_count == 0 or file_size < _MIN_NONEMPTY_RAW_BYTES:
+            empty.append(hour_label)
+    return missing, empty, zero_row, small
 
 
 def _pid_is_active(pid: int) -> bool:
@@ -369,6 +546,7 @@ def download_raw_hours(
     destination: Path,
     archive_listing_url: str = _DEFAULT_ARCHIVE_LISTING_URL,
     archive_base_url: str = _DEFAULT_ARCHIVE_BASE_URL,
+    archive_sources: list[tuple[str, str]] | None = None,
     relay_base_url: str = _DEFAULT_RELAY_BASE_URL,
     source_order: list[str] | None = None,
     start_time: str | None = None,
@@ -381,6 +559,11 @@ def download_raw_hours(
 ) -> RawDownloadSummary:
     normalized_destination = destination.expanduser().resolve()
     normalized_destination.mkdir(parents=True, exist_ok=True)
+    resolved_archive_sources = _archive_sources_from_args(
+        archive_sources=archive_sources,
+        archive_listing_url=archive_listing_url,
+        archive_base_url=archive_base_url,
+    )
 
     selected_sources = source_order or ["archive", "relay"]
     source_sequence: list[str] = []
@@ -395,31 +578,66 @@ def download_raw_hours(
 
     start_hour = _parse_hour_bound(start_time)
     end_hour = _parse_hour_bound(end_time)
+    archive_missing_hours: list[str] = []
+    archive_listed_hours = 0
+    discovered_archive_base_urls: dict[str, str] = {}
     if start_hour is not None and end_hour is not None:
-        filenames = []
-        current = start_hour
-        while current <= end_hour:
-            filenames.append(f"polymarket_orderbook_{current.strftime('%Y-%m-%dT%H')}.parquet")
-            current += timedelta(hours=1)
+        filenames = _hour_range_filenames(start_hour=start_hour, end_hour=end_hour)
     else:
-        discovered_hours = discover_archive_hours(
-            archive_listing_url=archive_listing_url,
-            timeout_secs=timeout_secs,
-            stale_pages=discovery_stale_pages,
-            max_pages=discovery_max_pages,
+        discovered_filenames: list[str] = []
+        discovered_seen: set[str] = set()
+        for archive_source in reversed(resolved_archive_sources):
+            source_filenames = discover_archive_filenames(
+                archive_listing_url=archive_source.listing_url,
+                timeout_secs=timeout_secs,
+                stale_pages=discovery_stale_pages,
+                max_pages=discovery_max_pages,
+            )
+            for filename in source_filenames:
+                discovered_archive_base_urls[filename] = archive_source.base_url
+                if filename in discovered_seen:
+                    continue
+                discovered_filenames.append(filename)
+                discovered_seen.add(filename)
+        discovered_filenames = _sort_filenames_newest_first(discovered_filenames)
+        discovered_filenames = _filter_filenames_to_window(
+            discovered_filenames, start_hour=start_hour, end_hour=end_hour
         )
-        filenames = [
-            f"polymarket_orderbook_{hour.strftime('%Y-%m-%dT%H')}.parquet"
-            for hour in discovered_hours
-        ]
-        filenames = _filter_filenames_to_window(filenames, start_hour=start_hour, end_hour=end_hour)
+        archive_listed_hours = len(discovered_filenames)
+        if discovered_filenames:
+            discovered_hours = [parse_archive_hour(filename) for filename in discovered_filenames]
+            expected_start_hour = start_hour if start_hour is not None else min(discovered_hours)
+            expected_end_hour = end_hour if end_hour is not None else max(discovered_hours)
+            filenames = _hour_range_filenames(
+                start_hour=expected_start_hour, end_hour=expected_end_hour
+            )
+            discovered_set = set(discovered_filenames)
+            archive_missing_hours = [
+                parse_archive_hour(filename).isoformat()
+                for filename in _sort_filenames_newest_first(filenames)
+                if filename not in discovered_set
+            ]
+        else:
+            filenames = []
     filenames = _sort_filenames_newest_first(filenames)
+    if not filenames:
+        if start_hour is not None and end_hour is not None and start_hour > end_hour:
+            raise ValueError(
+                f"PMXT raw download window is empty: start_time {start_time!r} is after "
+                f"end_time {end_time!r}."
+            )
+        raise RuntimeError(
+            "No PMXT raw archive hours were discovered or selected. "
+            "Checked listings "
+            f"{[source.listing_url for source in resolved_archive_sources]!r}. "
+            "Pass --start-time/--end-time for an explicit window or check the archive listing URL."
+        )
 
     if show_progress:
         print(
             _source_priority_summary(
                 source_sequence=source_sequence,
-                archive_base_url=archive_base_url,
+                archive_sources=resolved_archive_sources,
                 relay_base_url=relay_base_url,
             )
         )
@@ -450,6 +668,7 @@ def download_raw_hours(
     failed_hours: list[str] = []
     downloaded_hours = 0
     skipped_existing_hours = 0
+    refreshed_existing_hours = 0
     completed_hours = 0
 
     try:
@@ -458,60 +677,94 @@ def download_raw_hours(
             _cleanup_stale_tmp_downloads(destination_path)
             hour_label = _hour_label_for_filename(filename)
             if destination_path.exists() and not overwrite:
-                skipped_existing_hours += 1
+                source_urls = [
+                    url
+                    for candidate_source in source_sequence
+                    for url, _source_label in _candidate_urls(
+                        source=candidate_source,
+                        filename=filename,
+                        archive_sources=resolved_archive_sources,
+                        discovered_archive_base_urls=discovered_archive_base_urls,
+                        relay_base_url=relay_base_url,
+                    )
+                ]
+                refresh_reason = _existing_refresh_reason(
+                    path=destination_path,
+                    source_urls=source_urls,
+                    timeout_secs=timeout_secs,
+                )
+                if refresh_reason is None:
+                    skipped_existing_hours += 1
+                    _write_progress_line(
+                        progress_bar,
+                        _hour_result_text(
+                            hour_label=hour_label,
+                            elapsed_secs=0.0,
+                            detail="existing",
+                            source="skip",
+                        ),
+                    )
+                    if progress_bar is not None:
+                        progress_bar.update(1)
+                    completed_hours += 1
+                    _set_status(
+                        progress_bar,
+                        total_hours=len(filenames),
+                        completed_hours=completed_hours,
+                        active_hours=0,
+                        status="",
+                        force=True,
+                    )
+                    continue
+                refreshed_existing_hours += 1
                 _write_progress_line(
                     progress_bar,
                     _hour_result_text(
-                        hour_label=hour_label, elapsed_secs=0.0, detail="existing", source="skip"
+                        hour_label=hour_label,
+                        elapsed_secs=0.0,
+                        detail="refresh",
+                        source=refresh_reason,
                     ),
                 )
-                if progress_bar is not None:
-                    progress_bar.update(1)
-                completed_hours += 1
-                _set_status(
-                    progress_bar,
-                    total_hours=len(filenames),
-                    completed_hours=completed_hours,
-                    active_hours=0,
-                    status="",
-                    force=True,
-                )
-                continue
 
             last_error: Exception | None = None
             hour_started_at = time.perf_counter()
             completed_source: str | None = None
             downloaded_size_bytes: int | None = None
             for source in source_sequence:
-                if source == "archive":
-                    url = _archive_url(archive_base_url, filename)
-                    source_label = f"archive:{archive_base_url.rstrip('/')}"
-                else:
-                    url = _relay_url(relay_base_url, filename)
-                    source_label = f"relay:{relay_base_url.rstrip('/')}"
-                try:
-                    downloaded_size_bytes = _download_one(
-                        url=url,
-                        destination=destination_path,
-                        timeout_secs=timeout_secs,
-                        progress_bar=progress_bar,
-                        total_hours=len(filenames),
-                        completed_hours=completed_hours,
-                        source=source,
-                        hour_label=hour_label,
-                    )
-                    source_hits[source_label] += 1
-                    downloaded_hours += 1
-                    completed_source = source
-                    last_error = None
-                    break
-                except HTTPError as exc:
-                    last_error = exc
-                    if exc.code != 404:
+                source_candidates = _candidate_urls(
+                    source=source,
+                    filename=filename,
+                    archive_sources=resolved_archive_sources,
+                    discovered_archive_base_urls=discovered_archive_base_urls,
+                    relay_base_url=relay_base_url,
+                )
+                for url, source_label in source_candidates:
+                    try:
+                        downloaded_size_bytes = _download_one(
+                            url=url,
+                            destination=destination_path,
+                            timeout_secs=timeout_secs,
+                            progress_bar=progress_bar,
+                            total_hours=len(filenames),
+                            completed_hours=completed_hours,
+                            source=source,
+                            hour_label=hour_label,
+                        )
+                        source_hits[source_label] += 1
+                        downloaded_hours += 1
+                        completed_source = source
+                        last_error = None
+                        break
+                    except HTTPError as exc:
+                        last_error = exc
+                        if exc.code != 404:
+                            continue
+                    except Exception as exc:
+                        last_error = exc
                         continue
-                except Exception as exc:
-                    last_error = exc
-                    continue
+                if last_error is None:
+                    break
 
             elapsed_secs = time.perf_counter() - hour_started_at
             if last_error is not None:
@@ -522,7 +775,10 @@ def download_raw_hours(
                         hour_label=hour_label,
                         elapsed_secs=elapsed_secs,
                         detail="failed",
-                        source=" -> ".join(source_sequence),
+                        source=(
+                            f"{' -> '.join(source_sequence)}; "
+                            f"last_error={_format_download_error(last_error)}"
+                        ),
                     ),
                 )
             elif downloaded_size_bytes is not None and completed_source is not None:
@@ -550,20 +806,29 @@ def download_raw_hours(
         if progress_bar is not None:
             progress_bar.close()
 
-    missing_local_hours, empty_local_hours = _validate_local_raw_hours(
-        destination=normalized_destination, filenames=filenames
-    )
+    (
+        missing_local_hours,
+        empty_local_hours,
+        zero_row_local_hours,
+        small_local_hours,
+    ) = _validate_local_raw_hours(destination=normalized_destination, filenames=filenames)
 
     return RawDownloadSummary(
         destination=str(normalized_destination),
         requested_hours=len(filenames),
+        archive_listed_hours=archive_listed_hours,
         downloaded_hours=downloaded_hours,
         skipped_existing_hours=skipped_existing_hours,
+        refreshed_existing_hours=refreshed_existing_hours,
+        archive_missing_hours=archive_missing_hours,
         failed_hours=failed_hours,
         missing_local_hours=missing_local_hours,
         empty_local_hours=empty_local_hours,
+        zero_row_local_hours=zero_row_local_hours,
+        small_local_hours=small_local_hours,
         source_hits=dict(source_hits),
         source_order=source_sequence,
+        archive_sources=[source.base_url for source in resolved_archive_sources],
         start_hour=start_hour.isoformat() if start_hour is not None else None,
         end_hour=end_hour.isoformat() if end_hour is not None else None,
     )

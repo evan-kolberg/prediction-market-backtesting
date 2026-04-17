@@ -5,7 +5,7 @@ from pathlib import Path
 from urllib.error import HTTPError
 from urllib.request import Request
 
-from pmxt_relay.config import RelayConfig
+from pmxt_relay.config import ArchiveSource, RelayConfig
 from pmxt_relay.storage import raw_relative_path
 from pmxt_relay.worker import RelayWorker
 
@@ -15,8 +15,8 @@ def _make_config(tmp_path: Path) -> RelayConfig:
         data_dir=tmp_path,
         bind_host="127.0.0.1",
         bind_port=8080,
-        archive_listing_url="https://archive.pmxt.dev/Polymarket",
-        raw_base_url="https://r2.pmxt.dev",
+        archive_listing_url="https://archive.pmxt.dev/Polymarket/v2",
+        raw_base_url="https://r2v2.pmxt.dev",
         poll_interval_secs=900,
         http_timeout_secs=30,
         archive_stale_pages=3,
@@ -47,11 +47,69 @@ class _FakeResponse:
         return chunk
 
 
+def test_discover_archive_hours_uses_multiple_archive_sources(tmp_path: Path, monkeypatch) -> None:
+    config = RelayConfig(
+        data_dir=tmp_path,
+        bind_host="127.0.0.1",
+        bind_port=8080,
+        archive_listing_url="https://archive.pmxt.dev/Polymarket/v2",
+        raw_base_url="https://r2v2.pmxt.dev",
+        poll_interval_secs=900,
+        http_timeout_secs=30,
+        archive_stale_pages=1,
+        archive_max_pages=None,
+        event_retention=1000,
+        api_rate_limit_per_minute=2400,
+        verify_batch_size=50,
+        archive_sources=(
+            ArchiveSource(
+                listing_url="https://archive.pmxt.dev/Polymarket/v2",
+                raw_base_url="https://r2v2.pmxt.dev",
+            ),
+            ArchiveSource(
+                listing_url="https://archive.pmxt.dev/Polymarket/v1",
+                raw_base_url="https://r2.pmxt.dev",
+            ),
+        ),
+    )
+    pages = {
+        ("https://archive.pmxt.dev/Polymarket/v2", 1): (
+            '<a href="https://r2v2.pmxt.dev/polymarket_orderbook_2026-03-21T12.parquet">12</a>'
+        ),
+        ("https://archive.pmxt.dev/Polymarket/v2", 2): "",
+        ("https://archive.pmxt.dev/Polymarket/v1", 1): (
+            '<a href="https://r2.pmxt.dev/polymarket_orderbook_2026-03-21T11.parquet">11</a>'
+            '<a href="https://r2.pmxt.dev/polymarket_orderbook_2026-03-21T12.parquet">12</a>'
+        ),
+        ("https://archive.pmxt.dev/Polymarket/v1", 2): "",
+    }
+
+    monkeypatch.setattr(
+        "pmxt_relay.worker.fetch_archive_page",
+        lambda archive_listing_url, page, timeout_secs: pages[(archive_listing_url, page)],  # type: ignore[no-untyped-def]
+    )
+
+    with RelayWorker(config, reset_inflight=False) as worker:
+        discovered = worker._discover_archive_hours()
+        rows = {
+            row["filename"]: row
+            for row in worker._index._fetchall("SELECT * FROM archive_hours ORDER BY filename")
+        }
+
+    assert discovered == 3
+    assert rows["polymarket_orderbook_2026-03-21T11.parquet"]["source_url"] == (
+        "https://r2.pmxt.dev/polymarket_orderbook_2026-03-21T11.parquet"
+    )
+    assert rows["polymarket_orderbook_2026-03-21T12.parquet"]["source_url"] == (
+        "https://r2v2.pmxt.dev/polymarket_orderbook_2026-03-21T12.parquet"
+    )
+
+
 def test_mirror_hour_falls_back_to_get_when_head_is_rejected(tmp_path: Path, monkeypatch) -> None:
     config = _make_config(tmp_path)
     with RelayWorker(config, reset_inflight=False) as worker:
         filename = "polymarket_orderbook_2026-03-21T12.parquet"
-        source_url = f"https://r2.pmxt.dev/{filename}"
+        source_url = f"https://r2v2.pmxt.dev/{filename}"
         worker._index.upsert_discovered_hour(filename, source_url, 1)
         row = worker._index.list_hours_needing_mirror()[0]
         requested_methods: list[str] = []
@@ -97,7 +155,7 @@ def test_adopt_local_raw_marks_hours_as_mirrored(tmp_path: Path) -> None:
     config = _make_config(tmp_path)
     raw_path = config.raw_root / "2026" / "03" / "21" / "polymarket_orderbook_2026-03-21T12.parquet"
     raw_path.parent.mkdir(parents=True, exist_ok=True)
-    raw_path.write_bytes(b"raw-payload")
+    raw_path.write_bytes(b"x" * (2 * 1024 * 1024))
 
     with RelayWorker(config, reset_inflight=False) as worker:
         adopted = worker._adopt_local_raw_hours()
@@ -105,6 +163,29 @@ def test_adopt_local_raw_marks_hours_as_mirrored(tmp_path: Path) -> None:
         assert adopted == 1
         stats = worker._index.stats()
         assert stats["mirrored_hours"] == 1
+
+
+def test_adopt_local_raw_preserves_archive_source_url(tmp_path: Path) -> None:
+    config = _make_config(tmp_path)
+    filename = "polymarket_orderbook_2026-03-21T12.parquet"
+    raw_path = config.raw_root / "2026" / "03" / "21" / filename
+    raw_path.parent.mkdir(parents=True, exist_ok=True)
+    raw_path.write_bytes(b"x" * (2 * 1024 * 1024))
+
+    with RelayWorker(config, reset_inflight=False) as worker:
+        source_url = f"https://r2.pmxt.dev/{filename}"
+        worker._index.upsert_discovered_hour(filename, source_url, 1)
+
+        adopted = worker._adopt_local_raw_hours()
+
+        row = worker._index._conn.execute(
+            "SELECT source_url, mirror_status FROM archive_hours WHERE filename = ?",
+            (filename,),
+        ).fetchone()
+        assert adopted == 1
+        assert row is not None
+        assert row["source_url"] == source_url
+        assert row["mirror_status"] == "ready"
 
 
 def test_run_once_scans_full_local_tree_only_on_first_cycle(tmp_path: Path, monkeypatch) -> None:
@@ -136,7 +217,7 @@ def test_repeated_404s_are_quarantined(tmp_path: Path, monkeypatch) -> None:
     config = _make_config(tmp_path)
     with RelayWorker(config, reset_inflight=False) as worker:
         filename = "polymarket_orderbook_2026-03-21T12.parquet"
-        source_url = f"https://r2.pmxt.dev/{filename}"
+        source_url = f"https://r2v2.pmxt.dev/{filename}"
         worker._index.upsert_discovered_hour(filename, source_url, 1)
         worker._index.mark_mirror_retry(
             filename, error="HTTP Error 404: Not Found", next_retry_at="1970-01-01T00:00:00+00:00"
@@ -170,7 +251,7 @@ def test_verify_ready_hours_requeues_changed_upstream(tmp_path: Path, monkeypatc
     config = _make_config(tmp_path)
     with RelayWorker(config, reset_inflight=False) as worker:
         filename = "polymarket_orderbook_2026-03-21T12.parquet"
-        source_url = f"https://r2.pmxt.dev/{filename}"
+        source_url = f"https://r2v2.pmxt.dev/{filename}"
         worker._index.upsert_discovered_hour(filename, source_url, 1)
         worker._index.mark_mirrored(
             filename,
@@ -202,7 +283,7 @@ def test_verify_ready_hours_skips_unchanged(tmp_path: Path, monkeypatch) -> None
     config = _make_config(tmp_path)
     with RelayWorker(config, reset_inflight=False) as worker:
         filename = "polymarket_orderbook_2026-03-21T12.parquet"
-        source_url = f"https://r2.pmxt.dev/{filename}"
+        source_url = f"https://r2v2.pmxt.dev/{filename}"
         worker._index.upsert_discovered_hour(filename, source_url, 1)
         worker._index.mark_mirrored(
             filename,
@@ -234,7 +315,7 @@ def test_verify_ready_hours_tolerates_head_failure(tmp_path: Path, monkeypatch) 
     config = _make_config(tmp_path)
     with RelayWorker(config, reset_inflight=False) as worker:
         filename = "polymarket_orderbook_2026-03-21T12.parquet"
-        source_url = f"https://r2.pmxt.dev/{filename}"
+        source_url = f"https://r2v2.pmxt.dev/{filename}"
         worker._index.upsert_discovered_hour(filename, source_url, 1)
         worker._index.mark_mirrored(
             filename,
