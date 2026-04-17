@@ -57,6 +57,30 @@ initially broken uploads later replaced) are automatically re-queued for
 download. The batch size is configurable via `PMXT_RELAY_VERIFY_BATCH_SIZE`
 (default 50). Parquet row counts are tracked to detect empty/broken files.
 
+## Self-Healing Coverage
+
+The three stat buckets are disjoint and sum to wall-clock hours since the
+first recorded hour: `mirrored + empty + missing == archive_hours`. Each
+bucket auto-heals when upstream catches up:
+
+- Hours upstream has not yet published (the wall-clock gap, counted as
+  missing): picked up by discovery on the next cycle when they appear on
+  page 1 of the archive listing.
+- Quarantined upstream 404s (counted as missing): retried hourly per
+  `_MIRROR_QUARANTINE_RETRY_SECS`; flip to ready when upstream serves 200.
+- Mirrored-but-empty parquets (`row_count == 0`, counted as empty): caught
+  by the HEAD re-verifier when upstream replaces the bytes (different ETag
+  or Content-Length), then re-mirrored and `row_count` recomputed.
+- Updated bytes for filenames already on disk: same HEAD re-verifier path;
+  filename does not need to change.
+
+The one blind spot: if upstream introduces *brand-new filenames* deep in
+older archive pages (not page 1) — e.g. backfilling a historical hour
+never previously listed — discovery may miss them with
+`PMXT_RELAY_ARCHIVE_STALE_PAGES=1` (default), since the loop stops at the
+first page that adds zero new filenames. Bump that env to 3-5 if upstream
+ever does deep historical backfills.
+
 ## Fresh Box Setup
 
 On a fresh Ubuntu 24 box:
