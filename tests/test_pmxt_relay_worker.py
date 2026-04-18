@@ -96,13 +96,69 @@ def test_discover_archive_hours_uses_multiple_archive_sources(tmp_path: Path, mo
             for row in worker._index._fetchall("SELECT * FROM archive_hours ORDER BY filename")
         }
 
-    assert discovered == 3
+    assert discovered == 2
     assert rows["polymarket_orderbook_2026-03-21T11.parquet"]["source_url"] == (
         "https://r2.pmxt.dev/polymarket_orderbook_2026-03-21T11.parquet"
     )
     assert rows["polymarket_orderbook_2026-03-21T12.parquet"]["source_url"] == (
         "https://r2v2.pmxt.dev/polymarket_orderbook_2026-03-21T12.parquet"
     )
+    assert rows["polymarket_orderbook_2026-03-21T12.parquet"]["source_priority"] == 0
+
+
+def test_discover_archive_hours_does_not_downgrade_v2_overlap(tmp_path: Path, monkeypatch) -> None:
+    config = RelayConfig(
+        data_dir=tmp_path,
+        bind_host="127.0.0.1",
+        bind_port=8080,
+        archive_listing_url="https://archive.pmxt.dev/Polymarket/v2",
+        raw_base_url="https://r2v2.pmxt.dev",
+        poll_interval_secs=900,
+        http_timeout_secs=30,
+        archive_stale_pages=1,
+        archive_max_pages=None,
+        event_retention=1000,
+        api_rate_limit_per_minute=2400,
+        verify_batch_size=50,
+        archive_sources=(
+            ArchiveSource(
+                listing_url="https://archive.pmxt.dev/Polymarket/v2",
+                raw_base_url="https://r2v2.pmxt.dev",
+            ),
+            ArchiveSource(
+                listing_url="https://archive.pmxt.dev/Polymarket/v1",
+                raw_base_url="https://r2.pmxt.dev",
+            ),
+        ),
+    )
+    filename = "polymarket_orderbook_2026-03-21T12.parquet"
+    pages = {
+        ("https://archive.pmxt.dev/Polymarket/v2", 1): (
+            f'<a href="https://r2v2.pmxt.dev/{filename}">12</a>'
+        ),
+        ("https://archive.pmxt.dev/Polymarket/v2", 2): "",
+        ("https://archive.pmxt.dev/Polymarket/v1", 1): (
+            f'<a href="https://r2.pmxt.dev/{filename}">12</a>'
+        ),
+        ("https://archive.pmxt.dev/Polymarket/v1", 2): "",
+    }
+
+    monkeypatch.setattr(
+        "pmxt_relay.worker.fetch_archive_page",
+        lambda archive_listing_url, page, timeout_secs: pages[(archive_listing_url, page)],  # type: ignore[no-untyped-def]
+    )
+
+    with RelayWorker(config, reset_inflight=False) as worker:
+        assert worker._discover_archive_hours() == 1
+        assert worker._discover_archive_hours() == 0
+        row = worker._index._conn.execute(
+            "SELECT source_url, source_priority FROM archive_hours WHERE filename = ?",
+            (filename,),
+        ).fetchone()
+
+    assert row is not None
+    assert row["source_url"] == f"https://r2v2.pmxt.dev/{filename}"
+    assert row["source_priority"] == 0
 
 
 def test_mirror_hour_falls_back_to_get_when_head_is_rejected(tmp_path: Path, monkeypatch) -> None:
@@ -280,7 +336,7 @@ def test_run_once_scans_full_local_tree_only_on_first_cycle(tmp_path: Path, monk
         assert calls == {"full": 1, "pending": 1}
 
 
-def test_repeated_404s_are_quarantined(tmp_path: Path, monkeypatch) -> None:
+def test_404s_are_classified_as_missing(tmp_path: Path, monkeypatch) -> None:
     config = _make_config(tmp_path)
     with RelayWorker(config, reset_inflight=False) as worker:
         filename = "polymarket_orderbook_2026-03-21T12.parquet"
@@ -305,13 +361,16 @@ def test_repeated_404s_are_quarantined(tmp_path: Path, monkeypatch) -> None:
         stats = worker._index.stats()
         events = worker._index.recent_events(limit=1)
 
-        assert queue["mirror_quarantined"] == 1
-        assert queue["mirror_error"] == 1
+        assert queue["mirror_missing"] == 1
+        assert queue["mirror_quarantined"] == 0
+        assert queue["mirror_error"] == 0
         assert queue["mirror_retry_waiting"] == 1
         assert queue["next_retry_at"] is not None
-        assert stats["mirror_quarantined"] == 1
+        assert stats["mirror_missing"] == 1
+        assert stats["mirror_errors"] == 0
+        assert stats["mirror_quarantined"] == 0
         assert worker._index.list_hours_needing_mirror() == []
-        assert events[0]["event_type"] == "mirror_quarantined"
+        assert events[0]["event_type"] == "mirror_missing"
 
 
 def test_verify_ready_hours_requeues_changed_upstream(tmp_path: Path, monkeypatch) -> None:
@@ -409,7 +468,7 @@ def test_verify_ready_hours_tolerates_head_failure(tmp_path: Path, monkeypatch) 
         assert row["mirror_status"] == "ready"
 
 
-def test_verify_ready_empty_hour_404_moves_to_error(tmp_path: Path, monkeypatch) -> None:
+def test_verify_ready_empty_hour_404_moves_to_missing(tmp_path: Path, monkeypatch) -> None:
     config = _make_config(tmp_path)
     with RelayWorker(config, reset_inflight=False) as worker:
         filename = "polymarket_orderbook_2026-03-21T12.parquet"
@@ -438,10 +497,11 @@ def test_verify_ready_empty_hour_404_moves_to_error(tmp_path: Path, monkeypatch)
             (filename,),
         ).fetchone()
         assert row is not None
-        assert row["mirror_status"] == "error"
+        assert row["mirror_status"] == "missing"
         assert row["last_error"] == "HTTP Error 404: Not Found"
         assert worker._index.count_empty_hours() == 0
-        assert worker._index.count_error_hours() == 1
+        assert worker._index.count_missing_hours() == 1
+        assert worker._index.count_error_hours() == 0
 
 
 def test_run_once_includes_verification_step(tmp_path: Path, monkeypatch) -> None:

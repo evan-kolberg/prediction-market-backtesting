@@ -303,7 +303,7 @@ def test_download_raw_hours_progress_output_uses_short_hour_labels(
     assert bar.desc == "Downloading raw hours (2/2 done)"
 
 
-def test_download_raw_hours_reports_missing_and_empty_local_hours(
+def test_download_raw_hours_reports_404_as_archive_missing_and_accepts_empty_parquet(
     monkeypatch, tmp_path: Path
 ) -> None:
     empty_payload = _empty_parquet_payload()
@@ -329,9 +329,12 @@ def test_download_raw_hours_reports_missing_and_empty_local_hours(
         destination=tmp_path / "raws", source_order=["archive"], show_progress=False
     )
 
-    assert summary.failed_hours == ["2026-03-21T09:00:00+00:00"]
-    assert summary.missing_local_hours == ["2026-03-21T09:00:00+00:00"]
-    assert summary.empty_local_hours == ["2026-03-21T10:00:00+00:00"]
+    assert summary.archive_missing_hours == ["2026-03-21T09:00:00+00:00"]
+    assert summary.failed_hours == []
+    assert summary.missing_local_hours == []
+    assert summary.empty_local_hours == []
+    assert summary.zero_row_local_hours == []
+    assert summary.small_local_hours == []
 
 
 def test_download_raw_hours_progress_output_includes_failure_error(
@@ -365,9 +368,7 @@ def test_download_raw_hours_progress_output_includes_failure_error(
     assert any("failed" in line and "last_error=HTTP 503" in line for line in bars[0].writes)
 
 
-def test_download_raw_hours_requests_full_hour_range_and_reports_archive_gaps(
-    monkeypatch, tmp_path: Path
-) -> None:
+def test_download_raw_hours_ignores_unlisted_archive_gaps(monkeypatch, tmp_path: Path) -> None:
     payload = _raw_parquet_payload()
     requested_urls: list[str] = []
 
@@ -391,12 +392,14 @@ def test_download_raw_hours_requests_full_hour_range_and_reports_archive_gaps(
         destination=tmp_path / "raws", source_order=["archive"], show_progress=False
     )
 
-    assert summary.requested_hours == 3
+    assert summary.requested_hours == 2
     assert summary.archive_listed_hours == 2
-    assert summary.archive_missing_hours == ["2026-03-21T10:00:00+00:00"]
+    assert summary.downloaded_hours == 2
+    assert summary.failed_hours == []
+    assert summary.missing_local_hours == []
+    assert summary.archive_missing_hours == []
     assert requested_urls == [
         "https://r2v2.pmxt.dev/polymarket_orderbook_2026-03-21T11.parquet",
-        "https://r2v2.pmxt.dev/polymarket_orderbook_2026-03-21T10.parquet",
         "https://r2v2.pmxt.dev/polymarket_orderbook_2026-03-21T09.parquet",
     ]
 
@@ -409,6 +412,7 @@ def test_download_raw_hours_combines_v1_and_v2_archive_sources(monkeypatch, tmp_
             "polymarket_orderbook_2026-03-21T10.parquet",
         ],
         "https://archive.pmxt.dev/Polymarket/v1": [
+            "polymarket_orderbook_2026-03-21T10.parquet",
             "polymarket_orderbook_2026-03-21T09.parquet",
         ],
     }

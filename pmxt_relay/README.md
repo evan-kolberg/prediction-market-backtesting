@@ -62,16 +62,13 @@ are tracked to detect empty/broken files.
 
 Coverage metrics separate upstream availability from local mirror state:
 
-- Missing hours are wall-clock hours since the first recorded hour that do not
-  appear in upstream archive listings at all. They are picked up by discovery on
-  the next cycle after upstream publishes them.
-- Mirrored-but-empty parquets (`row_count == 0` or `Content-Length < 1 MiB`,
-  counted as empty): caught by the HEAD re-verifier when upstream replaces the
-  bytes (different ETag or Content-Length), then re-mirrored and `row_count`
-  recomputed. If upstream later returns 404 for a known-empty file, the verifier
-  moves it to the error bucket instead.
+- Missing hours are listed raw objects whose upstream URL currently returns
+  404. Gaps in archive listings are not counted as relay failures.
+- Zero-row or tiny parquets are treated as mirrored hours because they can be
+  valid no-trade periods. If upstream later returns 404 for a mirrored file, the
+  verifier moves it to the missing bucket.
 - Error hours are listed archive rows that are not currently represented by a
-  non-empty mirror or known-empty file. This includes pending, active, error, and
+  mirror or known-missing 404. This includes pending, active, error, and
   quarantined mirror rows; detailed states are reported by `/v1/queue`.
 - The coverage gap is expected to reconcile as:
   `archive_hours - mirrored_hours == missing + empty + error`.
@@ -168,11 +165,10 @@ The public badges separate relay health from `r2v2.pmxt.dev` availability:
   has active API/worker services.
 - `/v1/badge/upstream(.svg)` reports whether recent `r2v2.pmxt.dev` polling is
   online or offline.
-- `/v1/badge/missing-hours.svg` shows wall-clock hours since the first recorded
-  hour that do not appear in upstream archive listings.
-- `/v1/badge/empty-hours.svg` shows how many mirrored parquet files have zero
-  rows or less than 1 MiB of data (broken/empty uploads). Empty hours are
-  excluded from the "mirrored" count surfaced by `/v1/stats` and
-  `/v1/badge/mirrored.svg`, but they are still counted as `ready`.
+- `/v1/badge/missing-hours.svg` shows listed raw objects whose upstream URL
+  currently returns 404.
+- `/v1/badge/empty-hours.svg` is retained for compatibility, but zero-row or
+  tiny parquets are treated as mirrored hours because they can be valid no-trade
+  periods.
 - `/v1/badge/error-hours.svg` shows listed archive rows that are not currently
-  represented by a non-empty mirror or known-empty file.
+  represented by a mirror or known-missing 404.
