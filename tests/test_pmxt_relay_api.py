@@ -483,6 +483,7 @@ def test_stats_and_queue_payloads_are_mirror_only(tmp_path: Path):
             "last_error_at",
             "last_event_at",
             "mirror_errors",
+            "mirror_missing",
             "mirror_quarantined",
             "mirrored_hours",
         ]
@@ -491,6 +492,7 @@ def test_stats_and_queue_payloads_are_mirror_only(tmp_path: Path):
             "latest_mirrored_hour",
             "mirror_active",
             "mirror_error",
+            "mirror_missing",
             "mirror_pending",
             "mirror_quarantined",
             "mirror_retry_due",
@@ -533,7 +535,7 @@ def test_missing_hours_badge_shows_count(tmp_path: Path):
 
         assert response.status == 200
         assert "Missing hours" in payload
-        assert "1/3" in payload
+        assert "0/3" in payload
 
     asyncio.run(scenario())
 
@@ -569,7 +571,7 @@ def test_empty_hours_badge_shows_count(tmp_path: Path):
 
         assert response.status == 200
         assert "Empty hours" in payload
-        assert "1/1" in payload
+        assert "0/2" in payload
 
     asyncio.run(scenario())
 

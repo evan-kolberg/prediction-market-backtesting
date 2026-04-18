@@ -37,6 +37,7 @@ def test_relay_index_events_and_queue_summary_are_mirror_only(tmp_path: Path):
             "latest_mirrored_hour",
             "mirror_active",
             "mirror_error",
+            "mirror_missing",
             "mirror_pending",
             "mirror_quarantined",
             "mirror_retry_due",
@@ -78,6 +79,7 @@ def test_relay_index_events_and_queue_summary_are_mirror_only(tmp_path: Path):
             "last_error_at",
             "last_event_at",
             "mirror_errors",
+            "mirror_missing",
             "mirror_quarantined",
             "mirrored_hours",
         ]
@@ -117,6 +119,98 @@ def test_upsert_discovered_hour_refreshes_source_url_once(tmp_path: Path):
         assert row["source_url"] == (
             "https://mirror.example.com/polymarket_orderbook_2026-03-21T12.parquet"
         )
+
+
+def test_upsert_discovered_hour_preserves_higher_priority_source(tmp_path: Path):
+    with RelayIndex(tmp_path / "relay.sqlite3") as index:
+        index.initialize()
+        filename = "polymarket_orderbook_2026-03-21T12.parquet"
+        v2_url = f"https://r2v2.pmxt.dev/{filename}"
+        v1_url = f"https://r2.pmxt.dev/{filename}"
+
+        first_insert = index.upsert_discovered_hour(filename, v2_url, 1, source_priority=0)
+        downgraded = index.upsert_discovered_hour(filename, v1_url, 1, source_priority=1)
+
+        row = index._conn.execute(
+            """
+            SELECT source_url, source_priority
+            FROM archive_hours
+            WHERE filename = ?
+            """,
+            (filename,),
+        ).fetchone()
+
+        assert first_insert is True
+        assert downgraded is False
+        assert row is not None
+        assert row["source_url"] == v2_url
+        assert row["source_priority"] == 0
+
+
+def test_upsert_discovered_hour_requeues_ready_when_priority_source_changes(tmp_path: Path):
+    with RelayIndex(tmp_path / "relay.sqlite3") as index:
+        index.initialize()
+        filename = "polymarket_orderbook_2026-03-21T12.parquet"
+        v1_url = f"https://r2.pmxt.dev/{filename}"
+        v2_url = f"https://r2v2.pmxt.dev/{filename}"
+        index.upsert_discovered_hour(filename, v1_url, 1, source_priority=1)
+        index.mark_mirrored(
+            filename,
+            local_path=f"/srv/pmxt-relay/raw/{filename}",
+            etag="abc",
+            content_length=2 * 1024 * 1024,
+            last_modified=None,
+        )
+        index.update_row_count(filename, 10)
+
+        changed = index.upsert_discovered_hour(filename, v2_url, 1, source_priority=0)
+
+        row = index._conn.execute(
+            """
+            SELECT source_url, source_priority, mirror_status, last_error, row_count
+            FROM archive_hours
+            WHERE filename = ?
+            """,
+            (filename,),
+        ).fetchone()
+        assert changed is True
+        assert row is not None
+        assert row["source_url"] == v2_url
+        assert row["source_priority"] == 0
+        assert row["mirror_status"] == "pending"
+        assert row["last_error"] == "upstream content changed"
+        assert row["row_count"] is None
+
+
+def test_remove_source_rows_absent_from_listing_prunes_only_scanned_source_window(
+    tmp_path: Path,
+):
+    with RelayIndex(tmp_path / "relay.sqlite3") as index:
+        index.initialize()
+        keep = "polymarket_orderbook_2026-03-21T12.parquet"
+        stale = "polymarket_orderbook_2026-03-21T13.parquet"
+        outside_window = "polymarket_orderbook_2026-03-21T14.parquet"
+        lower_priority = "polymarket_orderbook_2026-03-21T13.parquet"
+        index.upsert_discovered_hour(keep, f"https://r2v2.pmxt.dev/{keep}", 1)
+        index.upsert_discovered_hour(stale, f"https://r2v2.pmxt.dev/{stale}", 1)
+        index.upsert_discovered_hour(outside_window, f"https://r2v2.pmxt.dev/{outside_window}", 1)
+        index.upsert_discovered_hour(
+            lower_priority, f"https://r2.pmxt.dev/{lower_priority}", 1, source_priority=1
+        )
+
+        removed = index.remove_source_rows_absent_from_listing(
+            raw_base_url="https://r2v2.pmxt.dev",
+            filenames=[keep, outside_window],
+        )
+
+        rows = {
+            row["filename"]: row["source_url"]
+            for row in index._conn.execute("SELECT filename, source_url FROM archive_hours")
+        }
+        assert removed == 1
+        assert keep in rows
+        assert outside_window in rows
+        assert stale not in rows
 
 
 def test_initialize_resets_stale_mirror_rows(tmp_path: Path):
@@ -478,7 +572,7 @@ def test_register_local_raw_does_not_adopt_content_changed_remirror(tmp_path: Pa
         assert row["last_error"] == "upstream content changed"
 
 
-def test_count_missing_hours_counts_unlisted_upstream_gaps(tmp_path: Path):
+def test_count_missing_hours_ignores_unlisted_upstream_gaps(tmp_path: Path):
     with RelayIndex(tmp_path / "relay.sqlite3") as index:
         index.initialize()
         ready = "polymarket_orderbook_2026-03-21T12.parquet"
@@ -501,10 +595,10 @@ def test_count_missing_hours_counts_unlisted_upstream_gaps(tmp_path: Path):
 
         now = datetime(2026, 3, 21, 15, 10, tzinfo=timezone.utc)
 
-        assert index.count_missing_hours(now=now) == 1
+        assert index.count_missing_hours(now=now) == 0
 
 
-def test_count_missing_hours_wall_clock_gap_dominant(tmp_path: Path):
+def test_count_missing_hours_ignores_hours_after_latest_listing(tmp_path: Path):
     with RelayIndex(tmp_path / "relay.sqlite3") as index:
         index.initialize()
         ready = "polymarket_orderbook_2026-03-21T00.parquet"
@@ -519,7 +613,7 @@ def test_count_missing_hours_wall_clock_gap_dominant(tmp_path: Path):
 
         now = datetime(2026, 3, 21, 5, 0, tzinfo=timezone.utc)
 
-        assert index.count_missing_hours(now=now) == 5
+        assert index.count_missing_hours(now=now) == 0
 
 
 def test_coverage_gap_buckets_reconcile(tmp_path: Path):
@@ -555,12 +649,12 @@ def test_coverage_gap_buckets_reconcile(tmp_path: Path):
         error_hours = index.count_error_hours(now=now)
 
         assert archive_hours - mirrored == missing + empty_hours + error_hours
-        assert missing == 1
-        assert empty_hours == 1
+        assert missing == 0
+        assert empty_hours == 0
         assert error_hours == 3
 
 
-def test_stats_archive_hours_are_elapsed_wall_clock_hours(tmp_path: Path):
+def test_stats_archive_hours_are_discovered_coverage_hours(tmp_path: Path):
     with RelayIndex(tmp_path / "relay.sqlite3") as index:
         index.initialize()
         earliest = "polymarket_orderbook_2026-03-21T12.parquet"
@@ -575,10 +669,10 @@ def test_stats_archive_hours_are_elapsed_wall_clock_hours(tmp_path: Path):
 
         stats = index.stats(now=datetime(2026, 3, 21, 15, 30, tzinfo=timezone.utc))
 
-        assert stats["archive_hours"] == 4
+        assert stats["archive_hours"] == 2
 
 
-def test_stats_mirrored_hours_exclude_known_empty_rows(tmp_path: Path):
+def test_stats_mirrored_hours_include_zero_row_files(tmp_path: Path):
     with RelayIndex(tmp_path / "relay.sqlite3") as index:
         index.initialize()
         empty = "polymarket_orderbook_2026-03-21T12.parquet"
@@ -598,10 +692,10 @@ def test_stats_mirrored_hours_exclude_known_empty_rows(tmp_path: Path):
 
         stats = index.stats(now=datetime(2026, 3, 21, 14, 30, tzinfo=timezone.utc))
 
-        assert stats["mirrored_hours"] == 2
+        assert stats["mirrored_hours"] == 3
 
 
-def test_count_empty_hours(tmp_path: Path):
+def test_count_empty_hours_treats_zero_row_files_as_valid(tmp_path: Path):
     with RelayIndex(tmp_path / "relay.sqlite3") as index:
         index.initialize()
         filenames = [
@@ -621,10 +715,10 @@ def test_count_empty_hours(tmp_path: Path):
         index.update_row_count(filenames[0], 0)
         index.update_row_count(filenames[1], 100)
 
-        assert index.count_empty_hours() == 1
+        assert index.count_empty_hours() == 0
 
 
-def test_count_empty_hours_includes_sub_one_mib_raws(tmp_path: Path):
+def test_count_empty_hours_treats_sub_one_mib_raws_as_valid(tmp_path: Path):
     with RelayIndex(tmp_path / "relay.sqlite3") as index:
         index.initialize()
         filename = "polymarket_orderbook_2026-03-21T12.parquet"
@@ -640,8 +734,8 @@ def test_count_empty_hours_includes_sub_one_mib_raws(tmp_path: Path):
 
         stats = index.stats(now=datetime(2026, 3, 21, 12, 30, tzinfo=timezone.utc))
 
-        assert index.count_empty_hours() == 1
-        assert stats["mirrored_hours"] == 0
+        assert index.count_empty_hours() == 0
+        assert stats["mirrored_hours"] == 1
 
 
 def test_update_row_count(tmp_path: Path):

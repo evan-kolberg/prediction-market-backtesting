@@ -60,6 +60,7 @@ class RelayIndex:
             "filename",
             "hour",
             "source_url",
+            "source_priority",
             "archive_page",
             "discovered_at",
             "local_path",
@@ -137,6 +138,7 @@ class RelayIndex:
                 filename TEXT PRIMARY KEY,
                 hour TEXT NOT NULL,
                 source_url TEXT NOT NULL,
+                source_priority INTEGER NOT NULL DEFAULT 1000000,
                 archive_page INTEGER NOT NULL,
                 discovered_at TEXT NOT NULL,
                 local_path TEXT,
@@ -182,6 +184,11 @@ class RelayIndex:
             )
         if "row_count" not in archive_columns:
             self._ensure_archive_column("ALTER TABLE archive_hours ADD COLUMN row_count INTEGER")
+        if "source_priority" not in archive_columns:
+            self._ensure_archive_column(
+                "ALTER TABLE archive_hours "
+                "ADD COLUMN source_priority INTEGER NOT NULL DEFAULT 1000000"
+            )
         self._conn.execute(
             """
             CREATE INDEX IF NOT EXISTS idx_archive_hours_retry_status_hour
@@ -312,8 +319,11 @@ class RelayIndex:
 
         return self._run_with_lock_retry(operation)
 
-    def upsert_discovered_hour(self, filename: str, source_url: str, archive_page: int) -> bool:
+    def upsert_discovered_hour(
+        self, filename: str, source_url: str, archive_page: int, *, source_priority: int = 0
+    ) -> bool:
         hour = parse_archive_hour(filename).isoformat()
+        normalized_source_priority = max(0, source_priority)
 
         def operation() -> bool:
             with self._conn:
@@ -323,23 +333,97 @@ class RelayIndex:
                         filename,
                         hour,
                         source_url,
+                        source_priority,
                         archive_page,
                         discovered_at
-                    ) VALUES (?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?)
                     """,
-                    (filename, hour, source_url, archive_page, _utc_now()),
+                    (
+                        filename,
+                        hour,
+                        source_url,
+                        normalized_source_priority,
+                        archive_page,
+                        _utc_now(),
+                    ),
                 )
                 update_cursor = self._conn.execute(
                     """
                     UPDATE archive_hours
-                    SET archive_page = ?, source_url = ?
+                    SET archive_page = ?,
+                        source_url = ?,
+                        source_priority = ?,
+                        mirror_status = CASE
+                            WHEN source_url != ?
+                              AND mirror_status IN ('ready', 'error', 'quarantined')
+                            THEN 'pending'
+                            ELSE mirror_status
+                        END,
+                        last_error = CASE
+                            WHEN source_url != ?
+                              AND mirror_status IN ('ready', 'error', 'quarantined')
+                            THEN ?
+                            ELSE last_error
+                        END,
+                        last_error_at = CASE
+                            WHEN source_url != ?
+                              AND mirror_status IN ('ready', 'error', 'quarantined')
+                            THEN ?
+                            ELSE last_error_at
+                        END,
+                        next_retry_at = CASE
+                            WHEN source_url != ?
+                              AND mirror_status IN ('ready', 'error', 'quarantined')
+                            THEN NULL
+                            ELSE next_retry_at
+                        END,
+                        error_count = CASE
+                            WHEN source_url != ?
+                              AND mirror_status IN ('ready', 'error', 'quarantined')
+                            THEN 0
+                            ELSE error_count
+                        END,
+                        last_verified_at = CASE
+                            WHEN source_url != ? THEN NULL
+                            ELSE last_verified_at
+                        END,
+                        row_count = CASE
+                            WHEN source_url != ?
+                              AND mirror_status = 'ready'
+                            THEN NULL
+                            ELSE row_count
+                        END
                     WHERE filename = ?
                       AND (
-                        archive_page != ?
-                        OR source_url != ?
+                        source_priority > ?
+                        OR (
+                            source_priority = ?
+                            AND (
+                                archive_page != ?
+                                OR source_url != ?
+                            )
+                        )
                       )
                     """,
-                    (archive_page, source_url, filename, archive_page, source_url),
+                    (
+                        archive_page,
+                        source_url,
+                        normalized_source_priority,
+                        source_url,
+                        source_url,
+                        REMIRROR_CONTENT_CHANGED_REASON,
+                        source_url,
+                        _utc_now(),
+                        source_url,
+                        source_url,
+                        source_url,
+                        source_url,
+                        filename,
+                        normalized_source_priority,
+                        normalized_source_priority,
+                        archive_page,
+                        source_url,
+                    ),
                 )
             return (cursor.rowcount + update_cursor.rowcount) > 0
 
@@ -353,7 +437,7 @@ class RelayIndex:
             FROM archive_hours
             WHERE mirror_status = 'pending'
                OR (
-                    mirror_status IN ('error', 'quarantined')
+                    mirror_status IN ('error', 'quarantined', 'missing')
                     AND (next_retry_at IS NULL OR next_retry_at <= ?)
                )
             ORDER BY
@@ -364,6 +448,48 @@ class RelayIndex:
             """,
             (retry_cutoff,),
         )
+
+    def remove_source_rows_absent_from_listing(
+        self,
+        *,
+        raw_base_url: str,
+        filenames: list[str],
+    ) -> int:
+        if not filenames:
+            return 0
+        hours = [parse_archive_hour(filename) for filename in filenames]
+        min_hour = min(hours).isoformat()
+        max_hour = max(hours).isoformat()
+        source_prefix = f"{raw_base_url.rstrip('/')}/%"
+
+        def operation() -> int:
+            with self._conn:
+                self._conn.execute(
+                    "CREATE TEMP TABLE IF NOT EXISTS current_archive_listing "
+                    "(filename TEXT PRIMARY KEY)"
+                )
+                self._conn.execute("DELETE FROM current_archive_listing")
+                self._conn.executemany(
+                    "INSERT OR IGNORE INTO current_archive_listing (filename) VALUES (?)",
+                    ((filename,) for filename in filenames),
+                )
+                cursor = self._conn.execute(
+                    """
+                    DELETE FROM archive_hours
+                    WHERE source_url LIKE ?
+                      AND hour BETWEEN ? AND ?
+                      AND NOT EXISTS (
+                        SELECT 1
+                        FROM current_archive_listing current
+                        WHERE current.filename = archive_hours.filename
+                      )
+                    """,
+                    (source_prefix, min_hour, max_hour),
+                )
+                self._conn.execute("DELETE FROM current_archive_listing")
+            return cursor.rowcount
+
+        return self._run_with_lock_retry(operation)
 
     def mark_mirroring(self, filename: str) -> None:
         self._run_with_lock_retry(
@@ -427,6 +553,22 @@ class RelayIndex:
             )
         )
 
+    def mark_mirror_missing(self, filename: str, *, error: str, next_retry_at: str) -> None:
+        self._run_with_lock_retry(
+            lambda: self._write_single_update(
+                """
+                UPDATE archive_hours
+                SET mirror_status = 'missing',
+                    last_error = ?,
+                    last_error_at = ?,
+                    next_retry_at = ?,
+                    error_count = error_count + 1
+                WHERE filename = ?
+                """,
+                (error, _utc_now(), next_retry_at, filename),
+            )
+        )
+
     def mark_mirrored(
         self,
         filename: str,
@@ -477,6 +619,7 @@ class RelayIndex:
                         filename,
                         hour,
                         source_url,
+                        source_priority,
                         archive_page,
                         discovered_at,
                         local_path,
@@ -484,7 +627,7 @@ class RelayIndex:
                         mirror_status,
                         mirrored_at,
                         error_count
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, 'ready', ?, 0)
+                    ) VALUES (?, ?, ?, 1000000, ?, ?, ?, ?, 'ready', ?, 0)
                     """,
                     (
                         filename,
@@ -591,40 +734,23 @@ class RelayIndex:
         )
 
     def count_missing_hours(self, *, now: datetime | None = None) -> int:
-        archive_hours = self._compute_elapsed_archive_hours(now=now)
-        if archive_hours == 0:
-            return 0
         now_reference = _utc_now_datetime() if now is None else now.astimezone(UTC)
         now_floor = now_reference.replace(minute=0, second=0, microsecond=0)
-        discovered_hours = int(
-            self._fetchscalar(
-                """
-                SELECT COUNT(DISTINCT hour)
-                FROM archive_hours
-                WHERE hour <= ?
-                """,
-                (now_floor.isoformat(),),
-                default=0,
-            )
-        )
-        return max(0, archive_hours - discovered_hours)
-
-    def count_empty_hours(self) -> int:
         return int(
             self._fetchscalar(
                 """
                 SELECT COUNT(*)
                 FROM archive_hours
-                WHERE mirror_status = 'ready'
-                  AND (
-                    (row_count IS NOT NULL AND row_count = 0)
-                    OR (content_length IS NOT NULL AND content_length < ?)
-                  )
+                WHERE mirror_status = 'missing'
+                  AND hour <= ?
                 """,
-                (_MIN_NONEMPTY_RAW_BYTES,),
+                (now_floor.isoformat(),),
                 default=0,
             )
         )
+
+    def count_empty_hours(self) -> int:
+        return 0
 
     def count_error_hours(self, *, now: datetime | None = None) -> int:
         now_reference = _utc_now_datetime() if now is None else now.astimezone(UTC)
@@ -635,44 +761,45 @@ class RelayIndex:
                 COUNT(DISTINCT hour) AS discovered_hours,
                 SUM(
                     CASE
-                        WHEN mirror_status = 'ready' AND (row_count IS NULL OR row_count > 0)
-                          AND (content_length IS NULL OR content_length >= ?)
-                        THEN 1
+                        WHEN mirror_status = 'ready' THEN 1
                         ELSE 0
                     END
                 ) AS mirrored_hours,
-                SUM(
-                    CASE
-                        WHEN mirror_status = 'ready'
-                          AND (
-                            (row_count IS NOT NULL AND row_count = 0)
-                            OR (content_length IS NOT NULL AND content_length < ?)
-                          )
-                        THEN 1
-                        ELSE 0
-                    END
-                ) AS empty_hours
+                0 AS empty_hours,
+                SUM(CASE WHEN mirror_status = 'missing' THEN 1 ELSE 0 END) AS missing_hours
             FROM archive_hours
             WHERE hour <= ?
             """,
-            (_MIN_NONEMPTY_RAW_BYTES, _MIN_NONEMPTY_RAW_BYTES, now_floor.isoformat()),
+            (now_floor.isoformat(),),
         )
         if row is None:
             return 0
         discovered_hours = int(row["discovered_hours"] or 0)
         mirrored_hours = int(row["mirrored_hours"] or 0)
         empty_hours = int(row["empty_hours"] or 0)
-        return max(0, discovered_hours - mirrored_hours - empty_hours)
+        missing_hours = int(row["missing_hours"] or 0)
+        return max(0, discovered_hours - mirrored_hours - empty_hours - missing_hours)
 
     def _compute_elapsed_archive_hours(self, *, now: datetime | None = None) -> int:
-        min_hour_value = self._fetchscalar("SELECT MIN(hour) FROM archive_hours", default=None)
-        min_hour = _parse_db_timestamp(min_hour_value if isinstance(min_hour_value, str) else None)
-        if min_hour is None:
-            return 0
-        min_floor = min_hour.replace(minute=0, second=0, microsecond=0)
         now_reference = _utc_now_datetime() if now is None else now.astimezone(UTC)
         now_floor = now_reference.replace(minute=0, second=0, microsecond=0)
-        delta_hours = int((now_floor - min_floor).total_seconds() // 3600) + 1
+        row = self._fetchone(
+            """
+            SELECT MIN(hour) AS min_hour, MAX(hour) AS max_hour
+            FROM archive_hours
+            WHERE hour <= ?
+            """,
+            (now_floor.isoformat(),),
+        )
+        if row is None:
+            return 0
+        min_hour = _parse_db_timestamp(row["min_hour"])
+        max_hour = _parse_db_timestamp(row["max_hour"])
+        if min_hour is None or max_hour is None:
+            return 0
+        min_floor = min_hour.replace(minute=0, second=0, microsecond=0)
+        max_floor = max_hour.replace(minute=0, second=0, microsecond=0)
+        delta_hours = int((max_floor - min_floor).total_seconds() // 3600) + 1
         return max(0, delta_hours)
 
     def stats(self, *, now: datetime | None = None) -> dict[str, int | str | None]:
@@ -681,17 +808,15 @@ class RelayIndex:
             SELECT
                 SUM(
                     CASE
-                        WHEN mirror_status = 'ready' AND (row_count IS NULL OR row_count > 0)
-                          AND (content_length IS NULL OR content_length >= ?)
-                        THEN 1
+                        WHEN mirror_status = 'ready' THEN 1
                         ELSE 0
                     END
                 ) AS mirrored_hours,
                 SUM(CASE WHEN mirror_status IN ('error', 'quarantined') THEN 1 ELSE 0 END) AS mirror_errors,
-                SUM(CASE WHEN mirror_status = 'quarantined' THEN 1 ELSE 0 END) AS mirror_quarantined
+                SUM(CASE WHEN mirror_status = 'quarantined' THEN 1 ELSE 0 END) AS mirror_quarantined,
+                SUM(CASE WHEN mirror_status = 'missing' THEN 1 ELSE 0 END) AS mirror_missing
             FROM archive_hours
             """,
-            (_MIN_NONEMPTY_RAW_BYTES,),
         )
         stats_row = dict(row) if row is not None else {}
         archive_hours = self._compute_elapsed_archive_hours(now=now)
@@ -704,6 +829,7 @@ class RelayIndex:
             "mirrored_hours": int(stats_row.get("mirrored_hours") or 0),
             "mirror_errors": int(stats_row.get("mirror_errors") or 0),
             "mirror_quarantined": int(stats_row.get("mirror_quarantined") or 0),
+            "mirror_missing": int(stats_row.get("mirror_missing") or 0),
             "last_event_at": last_event_at,
             "last_error_at": last_error_at,
         }
@@ -716,10 +842,11 @@ class RelayIndex:
                 SUM(CASE WHEN mirror_status = 'pending' THEN 1 ELSE 0 END) AS mirror_pending,
                 SUM(CASE WHEN mirror_status IN ('active', ?) THEN 1 ELSE 0 END) AS mirror_active,
                 SUM(CASE WHEN mirror_status IN ('error', 'quarantined') THEN 1 ELSE 0 END) AS mirror_error,
-                SUM(CASE WHEN mirror_status IN ('error', 'quarantined') AND (next_retry_at IS NULL OR next_retry_at <= ?) THEN 1 ELSE 0 END) AS mirror_retry_due,
-                SUM(CASE WHEN mirror_status IN ('error', 'quarantined') AND next_retry_at > ? THEN 1 ELSE 0 END) AS mirror_retry_waiting,
+                SUM(CASE WHEN mirror_status = 'missing' THEN 1 ELSE 0 END) AS mirror_missing,
+                SUM(CASE WHEN mirror_status IN ('error', 'quarantined', 'missing') AND (next_retry_at IS NULL OR next_retry_at <= ?) THEN 1 ELSE 0 END) AS mirror_retry_due,
+                SUM(CASE WHEN mirror_status IN ('error', 'quarantined', 'missing') AND next_retry_at > ? THEN 1 ELSE 0 END) AS mirror_retry_waiting,
                 SUM(CASE WHEN mirror_status = 'quarantined' THEN 1 ELSE 0 END) AS mirror_quarantined,
-                MIN(CASE WHEN mirror_status IN ('error', 'quarantined') THEN next_retry_at END) AS next_retry_at,
+                MIN(CASE WHEN mirror_status IN ('error', 'quarantined', 'missing') THEN next_retry_at END) AS next_retry_at,
                 MAX(CASE WHEN mirror_status = 'ready' THEN hour END) AS latest_mirrored_hour,
                 (
                     SELECT filename
@@ -737,6 +864,7 @@ class RelayIndex:
             "mirror_pending": int(queue_row.get("mirror_pending") or 0),
             "mirror_active": int(queue_row.get("mirror_active") or 0),
             "mirror_error": int(queue_row.get("mirror_error") or 0),
+            "mirror_missing": int(queue_row.get("mirror_missing") or 0),
             "mirror_retry_due": int(queue_row.get("mirror_retry_due") or 0),
             "mirror_retry_waiting": int(queue_row.get("mirror_retry_waiting") or 0),
             "mirror_quarantined": int(queue_row.get("mirror_quarantined") or 0),

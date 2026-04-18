@@ -112,17 +112,20 @@ class RelayWorker:
 
     def _discover_archive_hours(self) -> int:
         discovered = 0
-        # Process lower-priority sources first so higher-priority sources later
-        # refresh source_url for filenames exposed by multiple archive versions.
-        for archive_source in reversed(self._config.resolved_archive_sources):
+        for source_priority, archive_source in enumerate(self._config.resolved_archive_sources):
             discovered += self._discover_archive_source(
                 archive_listing_url=archive_source.listing_url,
                 raw_base_url=archive_source.raw_base_url,
+                source_priority=source_priority,
             )
         return discovered
 
-    def _discover_archive_source(self, *, archive_listing_url: str, raw_base_url: str) -> int:
+    def _discover_archive_source(
+        self, *, archive_listing_url: str, raw_base_url: str, source_priority: int
+    ) -> int:
         discovered = 0
+        source_seen: list[str] = []
+        source_seen_set: set[str] = set()
         page = 1
         stale_pages = 0
         while True:
@@ -135,8 +138,13 @@ class RelayWorker:
 
             page_new = 0
             for filename in filenames:
+                if filename not in source_seen_set:
+                    source_seen.append(filename)
+                    source_seen_set.add(filename)
                 source_url = f"{raw_base_url}/{filename}"
-                if self._index.upsert_discovered_hour(filename, source_url, page):
+                if self._index.upsert_discovered_hour(
+                    filename, source_url, page, source_priority=source_priority
+                ):
                     page_new += 1
 
             discovered += page_new
@@ -160,6 +168,26 @@ class RelayWorker:
                 stale_pages = 0
             page += 1
 
+        removed = self._index.remove_source_rows_absent_from_listing(
+            raw_base_url=raw_base_url,
+            filenames=source_seen,
+        )
+        if removed > 0:
+            self._record_event(
+                level="WARNING",
+                event_type="archive_unlisted",
+                message=f"Removed {removed} stale PMXT archive rows absent from current listing",
+                payload={
+                    "listing_url": archive_listing_url,
+                    "raw_base_url": raw_base_url,
+                    "removed_hours": removed,
+                },
+            )
+            LOG.warning(
+                "Removed %s stale PMXT archive rows absent from current %s listing",
+                removed,
+                raw_base_url,
+            )
         return discovered
 
     def _adopt_local_raw_hours(self) -> int:
@@ -224,6 +252,29 @@ class RelayWorker:
                 self._mirror_hour(row)
             except Exception as exc:
                 next_error_count = int(row["error_count"] or 0) + 1
+                if self._is_missing_raw(exc):
+                    next_retry_at = self._missing_retry_at()
+                    self._index.mark_mirror_missing(
+                        row["filename"], error=str(exc), next_retry_at=next_retry_at.isoformat()
+                    )
+                    self._record_event(
+                        level="WARNING",
+                        event_type="mirror_missing",
+                        filename=row["filename"],
+                        message=f"Raw archive object missing for {row['filename']}",
+                        payload={
+                            "error": str(exc),
+                            "error_count": next_error_count,
+                            "next_retry_at": next_retry_at.isoformat(),
+                        },
+                    )
+                    LOG.warning(
+                        "Raw archive object missing for %s until %s: %s",
+                        row["filename"],
+                        next_retry_at.isoformat(),
+                        exc,
+                    )
+                    continue
                 if self._should_quarantine_error(exc, error_count=next_error_count):
                     next_retry_at = self._quarantine_retry_at()
                     self._index.mark_mirror_quarantined(
@@ -278,19 +329,19 @@ class RelayWorker:
             try:
                 changed = self._check_upstream_changed(row)
             except Exception as exc:
-                if self._should_reclassify_ready_empty_as_error(row, exc):
+                if self._should_reclassify_ready_empty_as_missing(row, exc):
                     next_error_count = int(row["error_count"] or 0) + 1
-                    next_retry_at = self._next_retry_at(error_count=next_error_count)
-                    self._index.mark_mirror_retry(
+                    next_retry_at = self._missing_retry_at()
+                    self._index.mark_mirror_missing(
                         row["filename"], error=str(exc), next_retry_at=next_retry_at.isoformat()
                     )
                     self._record_event(
                         level="WARNING",
-                        event_type="verify_empty_unavailable",
+                        event_type="verify_empty_missing",
                         filename=row["filename"],
                         message=(
                             f"Upstream empty raw hour unavailable for {row['filename']}; "
-                            "moving to error"
+                            "moving to missing"
                         ),
                         payload={
                             "error": str(exc),
@@ -299,7 +350,7 @@ class RelayWorker:
                         },
                     )
                     LOG.warning(
-                        "Moving empty raw hour %s to error after verification failure: %s",
+                        "Moving empty raw hour %s to missing after verification failure: %s",
                         row["filename"],
                         exc,
                     )
@@ -335,7 +386,7 @@ class RelayWorker:
         return requeued
 
     @staticmethod
-    def _should_reclassify_ready_empty_as_error(row, exc: Exception) -> bool:  # type: ignore[no-untyped-def]
+    def _should_reclassify_ready_empty_as_missing(row, exc: Exception) -> bool:  # type: ignore[no-untyped-def]
         if not isinstance(exc, HTTPError) or exc.code != 404:
             return False
         row_count = row["row_count"]
@@ -396,6 +447,13 @@ class RelayWorker:
 
     def _quarantine_retry_at(self) -> datetime:
         return datetime.now(UTC) + timedelta(seconds=_MIRROR_QUARANTINE_RETRY_SECS)
+
+    def _missing_retry_at(self) -> datetime:
+        return datetime.now(UTC) + timedelta(seconds=_MIRROR_QUARANTINE_RETRY_SECS)
+
+    @staticmethod
+    def _is_missing_raw(exc: Exception) -> bool:
+        return isinstance(exc, HTTPError) and exc.code == 404
 
     def _should_quarantine_error(self, exc: Exception, *, error_count: int) -> bool:
         return (

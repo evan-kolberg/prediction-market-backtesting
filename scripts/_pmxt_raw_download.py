@@ -329,12 +329,10 @@ def _read_parquet_row_count(path: Path) -> int | None:
 
 def _local_raw_is_empty(path: Path) -> bool:
     try:
-        file_size = path.stat().st_size
+        path.stat()
     except OSError:
         return True
-    if file_size < _MIN_NONEMPTY_RAW_BYTES:
-        return True
-    return _read_parquet_row_count(path) == 0
+    return False
 
 
 def _existing_refresh_reason(
@@ -362,27 +360,12 @@ def _validate_local_raw_hours(
     *, destination: Path, filenames: list[str]
 ) -> tuple[list[str], list[str], list[str], list[str]]:
     missing: list[str] = []
-    empty: list[str] = []
-    zero_row: list[str] = []
-    small: list[str] = []
     for filename in filenames:
         hour_label = parse_archive_hour(filename).isoformat()
         destination_path = destination / raw_relative_path(filename)
         if not destination_path.exists():
             missing.append(hour_label)
-            continue
-        try:
-            file_size = destination_path.stat().st_size
-        except OSError:
-            file_size = 0
-        row_count = _read_parquet_row_count(destination_path)
-        if row_count == 0:
-            zero_row.append(hour_label)
-        if file_size < _MIN_NONEMPTY_RAW_BYTES:
-            small.append(hour_label)
-        if row_count == 0 or file_size < _MIN_NONEMPTY_RAW_BYTES:
-            empty.append(hour_label)
-    return missing, empty, zero_row, small
+    return missing, [], [], []
 
 
 def _pid_is_active(pid: int) -> bool:
@@ -586,7 +569,7 @@ def download_raw_hours(
     else:
         discovered_filenames: list[str] = []
         discovered_seen: set[str] = set()
-        for archive_source in reversed(resolved_archive_sources):
+        for archive_source in resolved_archive_sources:
             source_filenames = discover_archive_filenames(
                 archive_listing_url=archive_source.listing_url,
                 timeout_secs=timeout_secs,
@@ -594,9 +577,9 @@ def download_raw_hours(
                 max_pages=discovery_max_pages,
             )
             for filename in source_filenames:
-                discovered_archive_base_urls[filename] = archive_source.base_url
                 if filename in discovered_seen:
                     continue
+                discovered_archive_base_urls[filename] = archive_source.base_url
                 discovered_filenames.append(filename)
                 discovered_seen.add(filename)
         discovered_filenames = _sort_filenames_newest_first(discovered_filenames)
@@ -605,21 +588,15 @@ def download_raw_hours(
         )
         archive_listed_hours = len(discovered_filenames)
         if discovered_filenames:
-            discovered_hours = [parse_archive_hour(filename) for filename in discovered_filenames]
-            expected_start_hour = start_hour if start_hour is not None else min(discovered_hours)
-            expected_end_hour = end_hour if end_hour is not None else max(discovered_hours)
-            filenames = _hour_range_filenames(
-                start_hour=expected_start_hour, end_hour=expected_end_hour
-            )
-            discovered_set = set(discovered_filenames)
-            archive_missing_hours = [
-                parse_archive_hour(filename).isoformat()
-                for filename in _sort_filenames_newest_first(filenames)
-                if filename not in discovered_set
-            ]
+            filenames = list(discovered_filenames)
+            download_filenames = list(discovered_filenames)
         else:
             filenames = []
+            download_filenames = []
+    if start_hour is not None and end_hour is not None:
+        download_filenames = list(filenames)
     filenames = _sort_filenames_newest_first(filenames)
+    download_filenames = _sort_filenames_newest_first(download_filenames)
     if not filenames:
         if start_hour is not None and end_hour is not None and start_hour > end_hour:
             raise ValueError(
@@ -653,9 +630,9 @@ def download_raw_hours(
 
     progress_bar = (
         tqdm(
-            total=len(filenames),
+            total=len(download_filenames),
             desc=_progress_bar_description(
-                total_hours=len(filenames), completed_hours=0, active_hours=0
+                total_hours=len(download_filenames), completed_hours=0, active_hours=0
             ),
             unit="hr",
             leave=False,
@@ -666,13 +643,14 @@ def download_raw_hours(
     )
     source_hits: Counter[str] = Counter()
     failed_hours: list[str] = []
+    archive_object_missing_hours: list[str] = []
     downloaded_hours = 0
     skipped_existing_hours = 0
     refreshed_existing_hours = 0
     completed_hours = 0
 
     try:
-        for filename in filenames:
+        for filename in download_filenames:
             destination_path = normalized_destination / raw_relative_path(filename)
             _cleanup_stale_tmp_downloads(destination_path)
             hour_label = _hour_label_for_filename(filename)
@@ -709,7 +687,7 @@ def download_raw_hours(
                     completed_hours += 1
                     _set_status(
                         progress_bar,
-                        total_hours=len(filenames),
+                        total_hours=len(download_filenames),
                         completed_hours=completed_hours,
                         active_hours=0,
                         status="",
@@ -746,7 +724,7 @@ def download_raw_hours(
                             destination=destination_path,
                             timeout_secs=timeout_secs,
                             progress_bar=progress_bar,
-                            total_hours=len(filenames),
+                            total_hours=len(download_filenames),
                             completed_hours=completed_hours,
                             source=source,
                             hour_label=hour_label,
@@ -768,13 +746,20 @@ def download_raw_hours(
 
             elapsed_secs = time.perf_counter() - hour_started_at
             if last_error is not None:
-                failed_hours.append(parse_archive_hour(filename).isoformat())
+                hour_iso = parse_archive_hour(filename).isoformat()
+                missing_object = isinstance(last_error, HTTPError) and last_error.code == 404
+                if missing_object:
+                    archive_object_missing_hours.append(hour_iso)
+                    detail = "missing"
+                else:
+                    failed_hours.append(hour_iso)
+                    detail = "failed"
                 _write_progress_line(
                     progress_bar,
                     _hour_result_text(
                         hour_label=hour_label,
                         elapsed_secs=elapsed_secs,
-                        detail="failed",
+                        detail=detail,
                         source=(
                             f"{' -> '.join(source_sequence)}; "
                             f"last_error={_format_download_error(last_error)}"
@@ -796,7 +781,7 @@ def download_raw_hours(
             completed_hours += 1
             _set_status(
                 progress_bar,
-                total_hours=len(filenames),
+                total_hours=len(download_filenames),
                 completed_hours=completed_hours,
                 active_hours=0,
                 status="",
@@ -806,12 +791,20 @@ def download_raw_hours(
         if progress_bar is not None:
             progress_bar.close()
 
+    archive_object_missing_set = set(archive_object_missing_hours)
+    validation_filenames = [
+        filename
+        for filename in download_filenames
+        if parse_archive_hour(filename).isoformat() not in archive_object_missing_set
+    ]
     (
         missing_local_hours,
         empty_local_hours,
         zero_row_local_hours,
         small_local_hours,
-    ) = _validate_local_raw_hours(destination=normalized_destination, filenames=filenames)
+    ) = _validate_local_raw_hours(
+        destination=normalized_destination, filenames=validation_filenames
+    )
 
     return RawDownloadSummary(
         destination=str(normalized_destination),
@@ -820,7 +813,7 @@ def download_raw_hours(
         downloaded_hours=downloaded_hours,
         skipped_existing_hours=skipped_existing_hours,
         refreshed_existing_hours=refreshed_existing_hours,
-        archive_missing_hours=archive_missing_hours,
+        archive_missing_hours=archive_missing_hours + archive_object_missing_hours,
         failed_hours=failed_hours,
         missing_local_hours=missing_local_hours,
         empty_local_hours=empty_local_hours,
