@@ -36,6 +36,7 @@ def _make_config(tmp_path: Path) -> RelayConfig:
         event_retention=1000,
         api_rate_limit_per_minute=2400,
         verify_batch_size=50,
+        raw_base_urls=("https://r2v2.pmxt.dev", "https://r2.pmxt.dev"),
     )
 
 
@@ -358,6 +359,23 @@ def test_upstream_badge_stays_online_for_fresh_unresolved_mirror_gaps(tmp_path: 
     assert payload["color"] == "brightgreen"
 
 
+def test_upstream_r2_badge_uses_separate_r2_label(tmp_path: Path):
+    config = _make_config(tmp_path)
+    now = datetime(2026, 4, 3, 20, 0, tzinfo=timezone.utc)
+
+    payload = _upstream_badge_payload(
+        stats={"last_event_at": (now - timedelta(minutes=1)).isoformat()},
+        queue={},
+        config=config,
+        raw_base_url="https://r2.pmxt.dev",
+        now=now,
+    )
+
+    assert payload["label"] == "r2.pmxt.dev"
+    assert payload["message"] == "online"
+    assert payload["color"] == "brightgreen"
+
+
 def test_upstream_badge_stays_online_for_backlog_with_old_latest_mirror(tmp_path: Path):
     config = _make_config(tmp_path)
     now = datetime(2026, 4, 3, 20, 0, tzinfo=timezone.utc)
@@ -459,11 +477,22 @@ def test_stats_and_queue_payloads_are_mirror_only(tmp_path: Path):
         )
         index.mark_mirrored(
             filename,
-            local_path=str(tmp_path / "hour.parquet"),
+            local_path=str(
+                config.raw_root
+                / "2026"
+                / "03"
+                / "21"
+                / "polymarket_orderbook_2026-03-21T12.parquet"
+            ),
             etag=None,
             content_length=1,
             last_modified=None,
         )
+        raw_path = (
+            config.raw_root / "2026" / "03" / "21" / "polymarket_orderbook_2026-03-21T12.parquet"
+        )
+        raw_path.parent.mkdir(parents=True, exist_ok=True)
+        raw_path.write_bytes(b"raw-payload")
 
         server = TestServer(app)
         client = TestClient(server)
@@ -480,6 +509,8 @@ def test_stats_and_queue_payloads_are_mirror_only(tmp_path: Path):
         assert queue_response.status == 200
         assert sorted(stats_payload.keys()) == [
             "archive_hours",
+            "archive_start_hour",
+            "dump_files_on_disk",
             "last_error_at",
             "last_event_at",
             "mirror_errors",
@@ -487,6 +518,8 @@ def test_stats_and_queue_payloads_are_mirror_only(tmp_path: Path):
             "mirror_quarantined",
             "mirrored_hours",
         ]
+        assert stats_payload["dump_files_on_disk"] == 1
+        assert stats_payload["mirrored_hours"] == 1
         assert sorted(queue_payload.keys()) == [
             "latest_mirrored_filename",
             "latest_mirrored_hour",
@@ -500,6 +533,38 @@ def test_stats_and_queue_payloads_are_mirror_only(tmp_path: Path):
             "next_retry_at",
         ]
         assert queue_payload["latest_mirrored_filename"] == filename
+
+    asyncio.run(scenario())
+
+
+def test_simple_coverage_badges_use_disk_files_and_elapsed_hours(tmp_path: Path):
+    async def scenario() -> None:
+        config = _make_config(tmp_path)
+        config.ensure_directories()
+        raw_path = (
+            config.raw_root / "2026" / "03" / "21" / "polymarket_orderbook_2026-03-21T12.parquet"
+        )
+        raw_path.parent.mkdir(parents=True, exist_ok=True)
+        raw_path.write_bytes(b"raw-payload")
+
+        app = create_app(config)
+        server = TestServer(app)
+        client = TestClient(server)
+        await client.start_server()
+        try:
+            dump_response = await client.get("/v1/badge/hour-files.svg")
+            hours_response = await client.get("/v1/badge/hours-since-first.svg")
+            dump_payload = await dump_response.text()
+            hours_payload = await hours_response.text()
+        finally:
+            await client.close()
+
+        assert dump_response.status == 200
+        assert hours_response.status == 200
+        assert "Hour files" in dump_payload
+        assert "1 files" in dump_payload
+        assert "Hours since first" in hours_payload
+        assert "#007ec6" in hours_payload
 
     asyncio.run(scenario())
 

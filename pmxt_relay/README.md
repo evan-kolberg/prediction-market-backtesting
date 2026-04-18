@@ -46,6 +46,13 @@ On startup the worker adopts any already mirrored local raw hours into the
 state DB. During steady-state polling it only checks for incremental additions
 instead of rescanning the full raw tree every cycle.
 
+Archive discovery does not trust listing pages. Each worker cycle walks the
+expected hourly filenames from the current UTC hour back through
+`2026-02-21T16:00:00+00:00`, probes `r2v2.pmxt.dev` and `r2.pmxt.dev` by direct
+raw URL, and queues the largest object when both origins have the same hour.
+If neither origin has the hour, stale unmirrored queue rows for that filename
+are removed.
+
 Repeated upstream 404s are no longer retried every poll forever. The active
 relay now backs off failed mirrors and temporarily quarantines repeated 404s on
 a slower retry cadence so one stale archive reference does not dominate every
@@ -60,27 +67,20 @@ are tracked to detect empty/broken files.
 
 ## Self-Healing Coverage
 
-Coverage metrics separate upstream availability from local mirror state:
+Coverage metrics stay deliberately simple:
 
-- Missing hours are listed raw objects whose upstream URL currently returns
-  404. Gaps in archive listings are not counted as relay failures.
-- Zero-row or tiny parquets are treated as mirrored hours because they can be
-  valid no-trade periods. If upstream later returns 404 for a mirrored file, the
-  verifier moves it to the missing bucket.
-- Error hours are listed archive rows that are not currently represented by a
-  mirror or known-missing 404. This includes pending, active, error, and
-  quarantined mirror rows; detailed states are reported by `/v1/queue`.
-- The coverage gap is expected to reconcile as:
-  `archive_hours - mirrored_hours == missing + empty + error`.
-- Updated bytes for filenames already on disk: same HEAD re-verifier path;
-  filename does not need to change.
+- `dump_files_on_disk` / `mirrored_hours` counts valid hour files,
+  `polymarket_orderbook_*.parquet` dump files physically present under
+  `raw/`.
+- `archive_hours` counts hours since the first expected archive hour,
+  elapsed UTC hours from
+  `PMXT_RELAY_ARCHIVE_START_HOUR` through the current UTC hour.
 
-The one blind spot: if upstream introduces *brand-new filenames* deep in
-older archive pages (not page 1) — e.g. backfilling a historical hour
-never previously listed — discovery may miss them with
-`PMXT_RELAY_ARCHIVE_STALE_PAGES=1` (default), since the loop stops at the
-first page that adds zero new filenames. Bump that env to 3-5 if upstream
-ever does deep historical backfills.
+The mirror queue still tracks pending, active, retrying, and quarantined work
+in SQLite, but those states do not define the public coverage denominator. The
+overlap rule is also intentionally simple: when both raw origins expose the same
+hour, keep the URL with the larger reported `Content-Length`; if sizes tie or
+are unknown, prefer the earlier configured origin.
 
 ## Fresh Box Setup
 
@@ -114,20 +114,18 @@ If you front the relay with Caddy, nginx, or another reverse proxy, serve
 `/v1/raw/*` directly from `/srv/pmxt-relay/raw` when possible instead of
 proxying large parquet downloads through Python.
 
-Edit `/etc/pmxt-relay.env` before starting the services. The active relay does
-not bake in archive or raw-origin URLs; set your mirror's upstream listing URL
-and raw origin URL explicitly for the environment you run.
+Edit `/etc/pmxt-relay.env` before starting the services. The active public
+relay defaults to direct raw URL probing against `r2v2.pmxt.dev` and
+`r2.pmxt.dev`.
 
 Important env knobs from `pmxt_relay/systemd/pmxt-relay.env.example`:
 
 - `PMXT_RELAY_DATA_DIR` for relay-owned state under `/srv/pmxt-relay`
-- `PMXT_RELAY_ARCHIVE_SOURCES` for ordered archive source pairs in
-  `LISTING_URL|RAW_BASE_URL` form. PMXT Polymarket currently uses v2 first and
-  v1 second because upstream split the archive across both listings.
-- `PMXT_RELAY_ARCHIVE_LISTING_URL` for the upstream archive listing to poll
-  when `PMXT_RELAY_ARCHIVE_SOURCES` is unset
-  (PMXT Polymarket v2 uses `https://archive.pmxt.dev/Polymarket/v2`)
-- `PMXT_RELAY_RAW_BASE_URL` for the upstream raw object base URL
+- `PMXT_RELAY_RAW_BASE_URLS` for ordered raw origins to probe by filename
+  pattern. The default public order is `https://r2v2.pmxt.dev`,
+  `https://r2.pmxt.dev`.
+- `PMXT_RELAY_ARCHIVE_START_HOUR` for the first expected archive hour. The
+  public PMXT mirror uses `2026-02-21T16:00:00+00:00`.
 - `PMXT_RELAY_TRUSTED_PROXY_IPS` if the API sits behind Caddy, nginx, or
   another reverse proxy and should trust forwarded client IPs from that proxy
 - `PMXT_RELAY_VERIFY_BATCH_SIZE` (default 50) how many mirrored files to
@@ -159,16 +157,16 @@ Active mirror-focused endpoints:
 state. The active relay path is limited to mirroring, health, and raw file
 serving.
 
-The public badges separate relay health from `r2v2.pmxt.dev` availability:
+The public badges separate relay health from raw-origin availability:
 
 - `/v1/badge/status(.svg)` reports whether the relay itself is up, recent, and
   has active API/worker services.
 - `/v1/badge/upstream(.svg)` reports whether recent `r2v2.pmxt.dev` polling is
   online or offline.
-- `/v1/badge/missing-hours.svg` shows listed raw objects whose upstream URL
-  currently returns 404.
-- `/v1/badge/empty-hours.svg` is retained for compatibility, but zero-row or
-  tiny parquets are treated as mirrored hours because they can be valid no-trade
-  periods.
-- `/v1/badge/error-hours.svg` shows listed archive rows that are not currently
-  represented by a mirror or known-missing 404.
+- `/v1/badge/upstream-r2(.svg)` reports the same polling health for
+  `r2.pmxt.dev`.
+- `/v1/badge/hour-files(.svg)` reports actual hour files on disk.
+- `/v1/badge/hours-since-first(.svg)` reports elapsed hours since
+  `2026-02-21T16:00:00+00:00`.
+- `/v1/badge/mirrored(.svg)` remains as a compatibility ratio using the same
+  disk-file count and elapsed-hour denominator.

@@ -17,6 +17,7 @@ from xml.sax.saxutils import escape
 from aiohttp import web
 
 from pmxt_relay.config import RelayConfig
+from pmxt_relay.coverage import count_raw_dump_files, elapsed_archive_hours
 from pmxt_relay.index_db import RelayIndex
 
 _RAW_FILENAME_RE = re.compile(
@@ -379,6 +380,17 @@ def _badge_payload(*, label: str, message: str, color: str) -> dict[str, object]
     }
 
 
+def _raw_source_label(raw_base_url: str) -> str:
+    return urlparse(raw_base_url).netloc or raw_base_url or "PMXT archive"
+
+
+def _raw_source_for_badge(config: RelayConfig, index: int = 0) -> str:
+    raw_base_urls = config.resolved_raw_base_urls
+    if raw_base_urls:
+        return raw_base_urls[min(index, len(raw_base_urls) - 1)]
+    return config.raw_base_url
+
+
 def _progress_color(*, numerator: int, denominator: int) -> str:
     if denominator <= 0:
         return "lightgrey"
@@ -455,12 +467,13 @@ def _upstream_badge_payload(
     stats: dict[str, int | str | None],
     queue: dict[str, int | str | None],
     config: RelayConfig,
+    raw_base_url: str | None = None,
     now: datetime | None = None,
 ) -> dict[str, object]:
     del queue
     current = datetime.now(timezone.utc) if now is None else now.astimezone(timezone.utc)
     last_event_at = _parse_db_timestamp(stats.get("last_event_at"))  # type: ignore[arg-type]
-    upstream_label = urlparse(config.raw_base_url).netloc or config.raw_base_url
+    upstream_label = _raw_source_label(raw_base_url or _raw_source_for_badge(config))
 
     if last_event_at is None:
         return _badge_payload(
@@ -506,6 +519,18 @@ def _mirrored_badge_payload(*, stats: dict[str, int | str | None]) -> dict[str, 
     return _ratio_badge_payload(
         label="Hours mirrored", numerator=mirrored_hours, denominator=archive_hours
     )
+
+
+def _dump_files_badge_payload(*, stats: dict[str, int | str | None]) -> dict[str, object]:
+    dump_files = int(stats.get("dump_files_on_disk") or stats.get("mirrored_hours") or 0)
+    color = "brightgreen" if dump_files > 0 else "lightgrey"
+    return _badge_payload(label="Hour files", message=f"{dump_files} files", color=color)
+
+
+def _archive_hours_badge_payload(*, stats: dict[str, int | str | None]) -> dict[str, object]:
+    archive_hours = int(stats.get("archive_hours") or 0)
+    color = "blue" if archive_hours > 0 else "lightgrey"
+    return _badge_payload(label="Hours since first", message=f"{archive_hours} hrs", color=color)
 
 
 def _latest_file_badge_payload(*, queue: dict[str, int | str | None]) -> dict[str, object]:
@@ -735,6 +760,27 @@ async def _index_stats_async(index: object) -> dict[str, object]:
     return await asyncio.to_thread(index.stats)
 
 
+def _coverage_stats(config: RelayConfig) -> dict[str, object]:
+    dump_files_on_disk = count_raw_dump_files(config.raw_root)
+    archive_hours = elapsed_archive_hours(start_hour=config.archive_start_hour)
+    return {
+        "archive_start_hour": config.archive_start_hour.isoformat(),
+        "archive_hours": archive_hours,
+        "dump_files_on_disk": dump_files_on_disk,
+        "mirrored_hours": dump_files_on_disk,
+    }
+
+
+async def _relay_stats_async(config: RelayConfig, index: RelayIndex) -> dict[str, object]:
+    index_payload, coverage_payload = await asyncio.gather(
+        _index_stats_async(index),
+        asyncio.to_thread(_coverage_stats, config),
+    )
+    payload = dict(index_payload)
+    payload.update(coverage_payload)
+    return payload
+
+
 async def _index_queue_summary_async(index: object) -> dict[str, object]:
     return await asyncio.to_thread(index.queue_summary)
 
@@ -744,8 +790,9 @@ async def _index_recent_events_async(index: object, limit: int):
 
 
 async def stats(request: web.Request) -> web.Response:
+    config = request.app[CONFIG_APP_KEY]
     index = request.app[INDEX_APP_KEY]
-    return web.json_response(await _index_stats_async(index))
+    return web.json_response(await _relay_stats_async(config, index))
 
 
 async def queue(request: web.Request) -> web.Response:
@@ -800,7 +847,7 @@ async def badge_status(request: web.Request) -> web.Response:
     config = request.app[CONFIG_APP_KEY]
     index = request.app[INDEX_APP_KEY]
     stats_payload, system_payload = await asyncio.gather(
-        _index_stats_async(index), asyncio.to_thread(_system_metrics_snapshot, config)
+        _relay_stats_async(config, index), asyncio.to_thread(_system_metrics_snapshot, config)
     )
     return web.json_response(
         _status_badge_payload(
@@ -812,8 +859,25 @@ async def badge_status(request: web.Request) -> web.Response:
 
 
 async def badge_mirrored(request: web.Request) -> web.Response:
+    config = request.app[CONFIG_APP_KEY]
     index = request.app[INDEX_APP_KEY]
-    return web.json_response(_mirrored_badge_payload(stats=await _index_stats_async(index)))
+    return web.json_response(_mirrored_badge_payload(stats=await _relay_stats_async(config, index)))
+
+
+async def badge_dump_files(request: web.Request) -> web.Response:
+    config = request.app[CONFIG_APP_KEY]
+    index = request.app[INDEX_APP_KEY]
+    return web.json_response(
+        _dump_files_badge_payload(stats=await _relay_stats_async(config, index))
+    )
+
+
+async def badge_archive_hours(request: web.Request) -> web.Response:
+    config = request.app[CONFIG_APP_KEY]
+    index = request.app[INDEX_APP_KEY]
+    return web.json_response(
+        _archive_hours_badge_payload(stats=await _relay_stats_async(config, index))
+    )
 
 
 async def badge_cpu_svg(request: web.Request) -> web.Response:
@@ -887,7 +951,7 @@ async def badge_status_svg(request: web.Request) -> web.Response:
     config = request.app[CONFIG_APP_KEY]
     index = request.app[INDEX_APP_KEY]
     stats_payload, system_payload = await asyncio.gather(
-        _index_stats_async(index), asyncio.to_thread(_system_metrics_snapshot, config)
+        _relay_stats_async(config, index), asyncio.to_thread(_system_metrics_snapshot, config)
     )
     return _badge_svg_response(
         _status_badge_payload(
@@ -902,7 +966,7 @@ async def badge_upstream(request: web.Request) -> web.Response:
     config = request.app[CONFIG_APP_KEY]
     index = request.app[INDEX_APP_KEY]
     stats_payload, queue_payload = await asyncio.gather(
-        _index_stats_async(index), _index_queue_summary_async(index)
+        _relay_stats_async(config, index), _index_queue_summary_async(index)
     )
     return web.json_response(
         _upstream_badge_payload(
@@ -913,11 +977,27 @@ async def badge_upstream(request: web.Request) -> web.Response:
     )
 
 
+async def badge_upstream_r2(request: web.Request) -> web.Response:
+    config = request.app[CONFIG_APP_KEY]
+    index = request.app[INDEX_APP_KEY]
+    stats_payload, queue_payload = await asyncio.gather(
+        _relay_stats_async(config, index), _index_queue_summary_async(index)
+    )
+    return web.json_response(
+        _upstream_badge_payload(
+            stats=stats_payload,
+            queue=queue_payload,
+            config=config,
+            raw_base_url="https://r2.pmxt.dev",
+        )
+    )
+
+
 async def badge_upstream_svg(request: web.Request) -> web.Response:
     config = request.app[CONFIG_APP_KEY]
     index = request.app[INDEX_APP_KEY]
     stats_payload, queue_payload = await asyncio.gather(
-        _index_stats_async(index), _index_queue_summary_async(index)
+        _relay_stats_async(config, index), _index_queue_summary_async(index)
     )
     return _badge_svg_response(
         _upstream_badge_payload(
@@ -928,9 +1008,44 @@ async def badge_upstream_svg(request: web.Request) -> web.Response:
     )
 
 
-async def badge_mirrored_svg(request: web.Request) -> web.Response:
+async def badge_upstream_r2_svg(request: web.Request) -> web.Response:
+    config = request.app[CONFIG_APP_KEY]
     index = request.app[INDEX_APP_KEY]
-    return _badge_svg_response(_mirrored_badge_payload(stats=await _index_stats_async(index)))
+    stats_payload, queue_payload = await asyncio.gather(
+        _relay_stats_async(config, index), _index_queue_summary_async(index)
+    )
+    return _badge_svg_response(
+        _upstream_badge_payload(
+            stats=stats_payload,
+            queue=queue_payload,
+            config=config,
+            raw_base_url="https://r2.pmxt.dev",
+        )
+    )
+
+
+async def badge_mirrored_svg(request: web.Request) -> web.Response:
+    config = request.app[CONFIG_APP_KEY]
+    index = request.app[INDEX_APP_KEY]
+    return _badge_svg_response(
+        _mirrored_badge_payload(stats=await _relay_stats_async(config, index))
+    )
+
+
+async def badge_dump_files_svg(request: web.Request) -> web.Response:
+    config = request.app[CONFIG_APP_KEY]
+    index = request.app[INDEX_APP_KEY]
+    return _badge_svg_response(
+        _dump_files_badge_payload(stats=await _relay_stats_async(config, index))
+    )
+
+
+async def badge_archive_hours_svg(request: web.Request) -> web.Response:
+    config = request.app[CONFIG_APP_KEY]
+    index = request.app[INDEX_APP_KEY]
+    return _badge_svg_response(
+        _archive_hours_badge_payload(stats=await _relay_stats_async(config, index))
+    )
 
 
 async def badge_latest_file_svg(request: web.Request) -> web.Response:
@@ -989,10 +1104,20 @@ def create_app(config: RelayConfig) -> web.Application:
     app.router.add_get("/v1/system", system_metrics)
     app.router.add_get("/v1/badge/status", badge_status)
     app.router.add_get("/v1/badge/upstream", badge_upstream)
+    app.router.add_get("/v1/badge/upstream-r2", badge_upstream_r2)
     app.router.add_get("/v1/badge/mirrored", badge_mirrored)
+    app.router.add_get("/v1/badge/hour-files", badge_dump_files)
+    app.router.add_get("/v1/badge/hours-since-first", badge_archive_hours)
+    app.router.add_get("/v1/badge/dump-files", badge_dump_files)
+    app.router.add_get("/v1/badge/archive-hours", badge_archive_hours)
     app.router.add_get("/v1/badge/status.svg", badge_status_svg)
     app.router.add_get("/v1/badge/upstream.svg", badge_upstream_svg)
+    app.router.add_get("/v1/badge/upstream-r2.svg", badge_upstream_r2_svg)
     app.router.add_get("/v1/badge/mirrored.svg", badge_mirrored_svg)
+    app.router.add_get("/v1/badge/hour-files.svg", badge_dump_files_svg)
+    app.router.add_get("/v1/badge/hours-since-first.svg", badge_archive_hours_svg)
+    app.router.add_get("/v1/badge/dump-files.svg", badge_dump_files_svg)
+    app.router.add_get("/v1/badge/archive-hours.svg", badge_archive_hours_svg)
     app.router.add_get("/v1/badge/latest-file.svg", badge_latest_file_svg)
     app.router.add_get("/v1/badge/cpu.svg", badge_cpu_svg)
     app.router.add_get("/v1/badge/load.svg", badge_load_svg)

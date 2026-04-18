@@ -17,7 +17,7 @@ The active `pmxt_relay/` service is mirror-only.
 
 What it does today:
 
-- discovers PMXT archive hours
+- discovers PMXT archive hours by direct raw URL pattern probes
 - adopts already mirrored local raw hours on startup
 - mirrors raw parquet files onto disk
 - exposes raw files under `/v1/raw/*`
@@ -38,17 +38,19 @@ The current deployment and operations details live in:
 Operational note:
 
 - the public relay status badge reports relay health only
-- the public PMXT upstream badge reports source polling as online or offline;
-  missing archive hours, zero-row mirrored files, and listed-but-uncovered
-  mirror rows have separate badges
+- the public PMXT upstream badges report `r2v2.pmxt.dev` and `r2.pmxt.dev`
+  source polling as online or offline;
+- the coverage badges are only actual hour files on disk and elapsed archive
+  hours since `2026-02-21T16:00:00+00:00`
 
 Deployment facts for the active box:
 
 - live checkout path: `/opt/prediction-market-backtesting`
 - env file: `/etc/pmxt-relay.env`
-- active PMXT archive sources:
-  `https://archive.pmxt.dev/Polymarket/v2|https://r2v2.pmxt.dev`,
-  then `https://archive.pmxt.dev/Polymarket/v1|https://r2.pmxt.dev`
+- active PMXT raw origins:
+  `https://r2v2.pmxt.dev`, then `https://r2.pmxt.dev`
+- overlap rule:
+  keep the raw URL with the larger reported `Content-Length`
 - systemd units:
   `pmxt-relay-api.service` and `pmxt-relay-worker.service`
 - public URL:

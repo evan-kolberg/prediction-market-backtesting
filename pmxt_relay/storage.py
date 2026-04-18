@@ -7,6 +7,11 @@ from pathlib import Path
 ARCHIVE_FILENAME_RE = re.compile(r"^polymarket_orderbook_(\d{4}-\d{2}-\d{2}T\d{2})\.parquet$")
 
 
+def archive_filename_for_hour(hour: datetime) -> str:
+    normalized = hour.astimezone(UTC).replace(minute=0, second=0, microsecond=0)
+    return f"polymarket_orderbook_{normalized:%Y-%m-%dT%H}.parquet"
+
+
 def parse_archive_hour(filename: str) -> datetime:
     match = ARCHIVE_FILENAME_RE.match(filename)
     if match is None:
