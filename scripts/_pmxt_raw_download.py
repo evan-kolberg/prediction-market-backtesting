@@ -706,6 +706,7 @@ def download_raw_hours(
             destination_path = normalized_destination / raw_relative_path(filename)
             _cleanup_stale_tmp_downloads(destination_path)
             hour_label = _hour_label_for_filename(filename)
+            hour_started_at = time.perf_counter()
             if destination_path.exists() and not overwrite:
                 source_urls = [
                     url
@@ -730,7 +731,7 @@ def download_raw_hours(
                         progress_bar,
                         _hour_result_text(
                             hour_label=hour_label,
-                            elapsed_secs=0.0,
+                            elapsed_secs=time.perf_counter() - hour_started_at,
                             detail="existing",
                             source="skip",
                         ),
@@ -752,14 +753,13 @@ def download_raw_hours(
                     progress_bar,
                     _hour_result_text(
                         hour_label=hour_label,
-                        elapsed_secs=0.0,
+                        elapsed_secs=time.perf_counter() - hour_started_at,
                         detail="refresh",
                         source=refresh_reason,
                     ),
                 )
 
             last_error: Exception | None = None
-            hour_started_at = time.perf_counter()
             completed_source: str | None = None
             downloaded_size_bytes: int | None = None
             for source in source_sequence:
