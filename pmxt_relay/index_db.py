@@ -20,6 +20,7 @@ _LOCKED_ERROR_SNIPPETS = (
 _DUPLICATE_COLUMN_ERROR_SNIPPET = "duplicate column name"
 _LEGACY_ACTIVE_STATUS = "processing"
 _MIN_NONEMPTY_RAW_BYTES = 1024 * 1024
+REMIRROR_CONTENT_CHANGED_REASON = "upstream content changed"
 
 
 def _utc_now_datetime() -> datetime:
@@ -515,6 +516,11 @@ class RelayIndex:
                         OR mirror_status != 'ready'
                         OR (content_length IS NULL AND ? IS NOT NULL)
                       )
+                      AND (
+                        mirror_status != 'pending'
+                        OR last_error IS NULL
+                        OR last_error != ?
+                      )
                     """,
                     (
                         local_path,
@@ -523,6 +529,7 @@ class RelayIndex:
                         filename,
                         local_path,
                         content_length,
+                        REMIRROR_CONTENT_CHANGED_REASON,
                     ),
                 )
             return (insert_cursor.rowcount + update_cursor.rowcount) > 0
@@ -561,13 +568,13 @@ class RelayIndex:
                 SET mirror_status = 'pending',
                     last_verified_at = NULL,
                     error_count = 0,
-                    last_error = 'upstream content changed',
+                    last_error = ?,
                     last_error_at = ?,
                     next_retry_at = NULL,
                     row_count = NULL
                 WHERE filename = ?
                 """,
-                (_utc_now(), filename),
+                (REMIRROR_CONTENT_CHANGED_REASON, _utc_now(), filename),
             )
         )
 
@@ -585,21 +592,22 @@ class RelayIndex:
 
     def count_missing_hours(self, *, now: datetime | None = None) -> int:
         archive_hours = self._compute_elapsed_archive_hours(now=now)
-        mirrored_hours = int(
+        if archive_hours == 0:
+            return 0
+        now_reference = _utc_now_datetime() if now is None else now.astimezone(UTC)
+        now_floor = now_reference.replace(minute=0, second=0, microsecond=0)
+        discovered_hours = int(
             self._fetchscalar(
                 """
-                SELECT COUNT(*)
+                SELECT COUNT(DISTINCT hour)
                 FROM archive_hours
-                WHERE mirror_status = 'ready'
-                  AND (row_count IS NULL OR row_count > 0)
-                  AND (content_length IS NULL OR content_length >= ?)
+                WHERE hour <= ?
                 """,
-                (_MIN_NONEMPTY_RAW_BYTES,),
+                (now_floor.isoformat(),),
                 default=0,
             )
         )
-        empty_hours = self.count_empty_hours()
-        return max(0, archive_hours - mirrored_hours - empty_hours)
+        return max(0, archive_hours - discovered_hours)
 
     def count_empty_hours(self) -> int:
         return int(

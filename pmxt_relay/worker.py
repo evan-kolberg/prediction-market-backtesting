@@ -12,7 +12,7 @@ from urllib.request import Request, urlopen
 
 from pmxt_relay.archive import extract_archive_filenames, fetch_archive_page
 from pmxt_relay.config import RelayConfig
-from pmxt_relay.index_db import RelayIndex
+from pmxt_relay.index_db import REMIRROR_CONTENT_CHANGED_REASON, RelayIndex
 from pmxt_relay.storage import raw_relative_path
 
 LOG = logging.getLogger(__name__)
@@ -370,7 +370,8 @@ class RelayWorker:
         raw_path = self._config.raw_root / raw_relative_path(filename)
         raw_path.parent.mkdir(parents=True, exist_ok=True)
         self._index.mark_mirroring(filename)
-        if raw_path.exists() and raw_path.stat().st_size > 0:
+        should_reuse_existing = row["last_error"] != REMIRROR_CONTENT_CHANGED_REASON
+        if should_reuse_existing and raw_path.exists() and raw_path.stat().st_size > 0:
             self._index.mark_mirrored(
                 filename,
                 local_path=str(raw_path),

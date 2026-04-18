@@ -442,14 +442,49 @@ def test_mark_needs_remirror_resets_to_pending(tmp_path: Path):
         assert row["last_error"] == "upstream content changed"
 
 
-def test_count_missing_hours_includes_unpublished_gap(tmp_path: Path):
+def test_register_local_raw_does_not_adopt_content_changed_remirror(tmp_path: Path):
+    with RelayIndex(tmp_path / "relay.sqlite3") as index:
+        index.initialize()
+        filename = "polymarket_orderbook_2026-03-21T12.parquet"
+        local_path = f"/srv/pmxt-relay/raw/{filename}"
+        index.upsert_discovered_hour(filename, f"https://r2v2.pmxt.dev/{filename}", 1)
+        index.mark_mirrored(
+            filename,
+            local_path=local_path,
+            etag="abc",
+            content_length=1,
+            last_modified=None,
+        )
+        index.mark_needs_remirror(filename)
+
+        changed = index.register_local_raw(
+            filename,
+            local_path=local_path,
+            content_length=1,
+            source_url=f"https://r2v2.pmxt.dev/{filename}",
+        )
+
+        row = index._conn.execute(
+            """
+            SELECT mirror_status, last_error
+            FROM archive_hours
+            WHERE filename = ?
+            """,
+            (filename,),
+        ).fetchone()
+        assert changed is False
+        assert row is not None
+        assert row["mirror_status"] == "pending"
+        assert row["last_error"] == "upstream content changed"
+
+
+def test_count_missing_hours_counts_unlisted_upstream_gaps(tmp_path: Path):
     with RelayIndex(tmp_path / "relay.sqlite3") as index:
         index.initialize()
         ready = "polymarket_orderbook_2026-03-21T12.parquet"
         empty = "polymarket_orderbook_2026-03-21T13.parquet"
-        quarantined = "polymarket_orderbook_2026-03-21T14.parquet"
-        pending = "polymarket_orderbook_2026-03-21T15.parquet"
-        for filename in [ready, empty, quarantined, pending]:
+        quarantined = "polymarket_orderbook_2026-03-21T15.parquet"
+        for filename in [ready, empty, quarantined]:
             index.upsert_discovered_hour(filename, f"https://r2v2.pmxt.dev/{filename}", 1)
         for filename in [ready, empty]:
             index.mark_mirrored(
@@ -466,7 +501,7 @@ def test_count_missing_hours_includes_unpublished_gap(tmp_path: Path):
 
         now = datetime(2026, 3, 21, 15, 10, tzinfo=timezone.utc)
 
-        assert index.count_missing_hours(now=now) == 2
+        assert index.count_missing_hours(now=now) == 1
 
 
 def test_count_missing_hours_wall_clock_gap_dominant(tmp_path: Path):
