@@ -303,7 +303,7 @@ def test_download_raw_hours_progress_output_uses_short_hour_labels(
     assert bar.desc == "Downloading raw hours (2/2 done)"
 
 
-def test_download_raw_hours_reports_404_as_archive_missing_and_accepts_empty_parquet(
+def test_download_raw_hours_reports_404_as_archive_missing_and_empty_parquet_separately(
     monkeypatch, tmp_path: Path
 ) -> None:
     empty_payload = _empty_parquet_payload()
@@ -332,9 +332,9 @@ def test_download_raw_hours_reports_404_as_archive_missing_and_accepts_empty_par
     assert summary.archive_missing_hours == ["2026-03-21T09:00:00+00:00"]
     assert summary.failed_hours == []
     assert summary.missing_local_hours == []
-    assert summary.empty_local_hours == []
-    assert summary.zero_row_local_hours == []
-    assert summary.small_local_hours == []
+    assert summary.empty_local_hours == ["2026-03-21T10:00:00+00:00"]
+    assert summary.zero_row_local_hours == ["2026-03-21T10:00:00+00:00"]
+    assert summary.small_local_hours == ["2026-03-21T10:00:00+00:00"]
 
 
 def test_download_raw_hours_progress_output_includes_failure_error(

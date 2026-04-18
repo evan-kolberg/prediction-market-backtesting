@@ -96,7 +96,7 @@ def main() -> int:
         discovery_max_pages=args.discovery_max_pages,
     )
     print(json.dumps(summary.as_dict(), indent=2, sort_keys=True))
-    incomplete = summary.failed_hours or summary.missing_local_hours
+    incomplete = summary.failed_hours or summary.missing_local_hours or summary.empty_local_hours
     return 1 if incomplete else 0
 
 

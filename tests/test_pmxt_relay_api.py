@@ -420,14 +420,14 @@ def test_latest_file_badge_reports_latest_mirrored_filename(tmp_path: Path):
             "polymarket_orderbook_2026-03-21T12.parquet",
             local_path=str(tmp_path / "a.parquet"),
             etag=None,
-            content_length=1,
+            content_length=2 * 1024 * 1024,
             last_modified=None,
         )
         index.mark_mirrored(
             "polymarket_orderbook_2026-03-21T13.parquet",
             local_path=str(tmp_path / "b.parquet"),
             etag=None,
-            content_length=1,
+            content_length=2 * 1024 * 1024,
             last_modified=None,
         )
 
@@ -461,7 +461,7 @@ def test_stats_and_queue_payloads_are_mirror_only(tmp_path: Path):
             filename,
             local_path=str(tmp_path / "hour.parquet"),
             etag=None,
-            content_length=1,
+            content_length=2 * 1024 * 1024,
             last_modified=None,
         )
 
@@ -571,7 +571,7 @@ def test_empty_hours_badge_shows_count(tmp_path: Path):
 
         assert response.status == 200
         assert "Empty hours" in payload
-        assert "0/2" in payload
+        assert "1/1" in payload
 
     asyncio.run(scenario())
 

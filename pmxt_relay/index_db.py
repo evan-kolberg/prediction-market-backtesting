@@ -750,7 +750,21 @@ class RelayIndex:
         )
 
     def count_empty_hours(self) -> int:
-        return 0
+        return int(
+            self._fetchscalar(
+                """
+                SELECT COUNT(*)
+                FROM archive_hours
+                WHERE mirror_status = 'ready'
+                  AND (
+                    (row_count IS NOT NULL AND row_count = 0)
+                    OR (content_length IS NOT NULL AND content_length < ?)
+                  )
+                """,
+                (_MIN_NONEMPTY_RAW_BYTES,),
+                default=0,
+            )
+        )
 
     def count_error_hours(self, *, now: datetime | None = None) -> int:
         now_reference = _utc_now_datetime() if now is None else now.astimezone(UTC)
@@ -761,16 +775,29 @@ class RelayIndex:
                 COUNT(DISTINCT hour) AS discovered_hours,
                 SUM(
                     CASE
-                        WHEN mirror_status = 'ready' THEN 1
+                        WHEN mirror_status = 'ready'
+                          AND (row_count IS NULL OR row_count > 0)
+                          AND (content_length IS NULL OR content_length >= ?)
+                        THEN 1
                         ELSE 0
                     END
                 ) AS mirrored_hours,
-                0 AS empty_hours,
+                SUM(
+                    CASE
+                        WHEN mirror_status = 'ready'
+                          AND (
+                            (row_count IS NOT NULL AND row_count = 0)
+                            OR (content_length IS NOT NULL AND content_length < ?)
+                          )
+                        THEN 1
+                        ELSE 0
+                    END
+                ) AS empty_hours,
                 SUM(CASE WHEN mirror_status = 'missing' THEN 1 ELSE 0 END) AS missing_hours
             FROM archive_hours
             WHERE hour <= ?
             """,
-            (now_floor.isoformat(),),
+            (_MIN_NONEMPTY_RAW_BYTES, _MIN_NONEMPTY_RAW_BYTES, now_floor.isoformat()),
         )
         if row is None:
             return 0
@@ -808,7 +835,10 @@ class RelayIndex:
             SELECT
                 SUM(
                     CASE
-                        WHEN mirror_status = 'ready' THEN 1
+                        WHEN mirror_status = 'ready'
+                          AND (row_count IS NULL OR row_count > 0)
+                          AND (content_length IS NULL OR content_length >= ?)
+                        THEN 1
                         ELSE 0
                     END
                 ) AS mirrored_hours,
@@ -817,6 +847,7 @@ class RelayIndex:
                 SUM(CASE WHEN mirror_status = 'missing' THEN 1 ELSE 0 END) AS mirror_missing
             FROM archive_hours
             """,
+            (_MIN_NONEMPTY_RAW_BYTES,),
         )
         stats_row = dict(row) if row is not None else {}
         archive_hours = self._compute_elapsed_archive_hours(now=now)
@@ -847,17 +878,35 @@ class RelayIndex:
                 SUM(CASE WHEN mirror_status IN ('error', 'quarantined', 'missing') AND next_retry_at > ? THEN 1 ELSE 0 END) AS mirror_retry_waiting,
                 SUM(CASE WHEN mirror_status = 'quarantined' THEN 1 ELSE 0 END) AS mirror_quarantined,
                 MIN(CASE WHEN mirror_status IN ('error', 'quarantined', 'missing') THEN next_retry_at END) AS next_retry_at,
-                MAX(CASE WHEN mirror_status = 'ready' THEN hour END) AS latest_mirrored_hour,
+                MAX(
+                    CASE
+                        WHEN mirror_status = 'ready'
+                          AND (row_count IS NULL OR row_count > 0)
+                          AND (content_length IS NULL OR content_length >= ?)
+                        THEN hour
+                    END
+                ) AS latest_mirrored_hour,
                 (
                     SELECT filename
                     FROM archive_hours latest_ready
                     WHERE latest_ready.mirror_status = 'ready'
+                      AND (latest_ready.row_count IS NULL OR latest_ready.row_count > 0)
+                      AND (
+                        latest_ready.content_length IS NULL
+                        OR latest_ready.content_length >= ?
+                      )
                     ORDER BY latest_ready.hour DESC, latest_ready.mirrored_at DESC, latest_ready.filename DESC
                     LIMIT 1
                 ) AS latest_mirrored_filename
             FROM archive_hours
             """,
-            (_LEGACY_ACTIVE_STATUS, retry_cutoff, retry_cutoff),
+            (
+                _LEGACY_ACTIVE_STATUS,
+                retry_cutoff,
+                retry_cutoff,
+                _MIN_NONEMPTY_RAW_BYTES,
+                _MIN_NONEMPTY_RAW_BYTES,
+            ),
         )
         queue_row = dict(row) if row is not None else {}
         return {

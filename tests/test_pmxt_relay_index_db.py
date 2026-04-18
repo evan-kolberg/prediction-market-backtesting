@@ -650,7 +650,7 @@ def test_coverage_gap_buckets_reconcile(tmp_path: Path):
 
         assert archive_hours - mirrored == missing + empty_hours + error_hours
         assert missing == 0
-        assert empty_hours == 0
+        assert empty_hours == 1
         assert error_hours == 3
 
 
@@ -672,7 +672,7 @@ def test_stats_archive_hours_are_discovered_coverage_hours(tmp_path: Path):
         assert stats["archive_hours"] == 2
 
 
-def test_stats_mirrored_hours_include_zero_row_files(tmp_path: Path):
+def test_stats_mirrored_hours_exclude_zero_row_files(tmp_path: Path):
     with RelayIndex(tmp_path / "relay.sqlite3") as index:
         index.initialize()
         empty = "polymarket_orderbook_2026-03-21T12.parquet"
@@ -692,10 +692,10 @@ def test_stats_mirrored_hours_include_zero_row_files(tmp_path: Path):
 
         stats = index.stats(now=datetime(2026, 3, 21, 14, 30, tzinfo=timezone.utc))
 
-        assert stats["mirrored_hours"] == 3
+        assert stats["mirrored_hours"] == 2
 
 
-def test_count_empty_hours_treats_zero_row_files_as_valid(tmp_path: Path):
+def test_count_empty_hours_counts_zero_row_files(tmp_path: Path):
     with RelayIndex(tmp_path / "relay.sqlite3") as index:
         index.initialize()
         filenames = [
@@ -715,10 +715,10 @@ def test_count_empty_hours_treats_zero_row_files_as_valid(tmp_path: Path):
         index.update_row_count(filenames[0], 0)
         index.update_row_count(filenames[1], 100)
 
-        assert index.count_empty_hours() == 0
+        assert index.count_empty_hours() == 1
 
 
-def test_count_empty_hours_treats_sub_one_mib_raws_as_valid(tmp_path: Path):
+def test_count_empty_hours_counts_sub_one_mib_raws(tmp_path: Path):
     with RelayIndex(tmp_path / "relay.sqlite3") as index:
         index.initialize()
         filename = "polymarket_orderbook_2026-03-21T12.parquet"
@@ -734,8 +734,8 @@ def test_count_empty_hours_treats_sub_one_mib_raws_as_valid(tmp_path: Path):
 
         stats = index.stats(now=datetime(2026, 3, 21, 12, 30, tzinfo=timezone.utc))
 
-        assert index.count_empty_hours() == 0
-        assert stats["mirrored_hours"] == 1
+        assert index.count_empty_hours() == 1
+        assert stats["mirrored_hours"] == 0
 
 
 def test_update_row_count(tmp_path: Path):

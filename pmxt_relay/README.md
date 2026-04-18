@@ -64,9 +64,8 @@ Coverage metrics separate upstream availability from local mirror state:
 
 - Missing hours are listed raw objects whose upstream URL currently returns
   404. Gaps in archive listings are not counted as relay failures.
-- Zero-row or tiny parquets are treated as mirrored hours because they can be
-  valid no-trade periods. If upstream later returns 404 for a mirrored file, the
-  verifier moves it to the missing bucket.
+- Zero-row or tiny parquets are counted as empty hours. They are not successful
+  mirrored coverage, and they are not source-404 missing hours.
 - Error hours are listed archive rows that are not currently represented by a
   mirror or known-missing 404. This includes pending, active, error, and
   quarantined mirror rows; detailed states are reported by `/v1/queue`.
@@ -167,8 +166,7 @@ The public badges separate relay health from `r2v2.pmxt.dev` availability:
   online or offline.
 - `/v1/badge/missing-hours.svg` shows listed raw objects whose upstream URL
   currently returns 404.
-- `/v1/badge/empty-hours.svg` is retained for compatibility, but zero-row or
-  tiny parquets are treated as mirrored hours because they can be valid no-trade
-  periods.
+- `/v1/badge/empty-hours.svg` shows zero-row or tiny parquet files. These are
+  excluded from mirrored coverage.
 - `/v1/badge/error-hours.svg` shows listed archive rows that are not currently
   represented by a mirror or known-missing 404.

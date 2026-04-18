@@ -329,10 +329,12 @@ def _read_parquet_row_count(path: Path) -> int | None:
 
 def _local_raw_is_empty(path: Path) -> bool:
     try:
-        path.stat()
+        file_size = path.stat().st_size
     except OSError:
         return True
-    return False
+    if file_size < _MIN_NONEMPTY_RAW_BYTES:
+        return True
+    return _read_parquet_row_count(path) == 0
 
 
 def _existing_refresh_reason(
@@ -360,12 +362,29 @@ def _validate_local_raw_hours(
     *, destination: Path, filenames: list[str]
 ) -> tuple[list[str], list[str], list[str], list[str]]:
     missing: list[str] = []
+    empty: list[str] = []
+    zero_row: list[str] = []
+    small: list[str] = []
     for filename in filenames:
         hour_label = parse_archive_hour(filename).isoformat()
         destination_path = destination / raw_relative_path(filename)
         if not destination_path.exists():
             missing.append(hour_label)
-    return missing, [], [], []
+            continue
+        try:
+            file_size = destination_path.stat().st_size
+        except OSError:
+            missing.append(hour_label)
+            continue
+        if file_size < _MIN_NONEMPTY_RAW_BYTES:
+            empty.append(hour_label)
+            small.append(hour_label)
+        row_count = _read_parquet_row_count(destination_path)
+        if row_count == 0:
+            if hour_label not in empty:
+                empty.append(hour_label)
+            zero_row.append(hour_label)
+    return missing, empty, zero_row, small
 
 
 def _pid_is_active(pid: int) -> bool:
