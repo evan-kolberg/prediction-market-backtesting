@@ -151,7 +151,8 @@ after the run.
 - PMXT filtered cache is enabled by default at
   `~/.cache/nautilus_trader/pmxt`
 - public PMXT runners pin `local:/Volumes/LaCie/pmxt_raws` first,
-  `archive:r2v2.pmxt.dev` second, and `relay:209-209-10-83.sslip.io` third
+  `archive:r2v2.pmxt.dev` + `archive:r2.pmxt.dev` next (v2 tried first, v1 is
+  the historical fallback), and `relay:209-209-10-83.sslip.io` last
 - PMXT `DATA.sources` entries are explicit and prefix-driven: `local:`,
   `archive:`, `relay:`
 - normal Nautilus logs are still printed; the timing harness is additive

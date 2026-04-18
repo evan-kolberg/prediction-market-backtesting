@@ -332,6 +332,290 @@ def test_runner_loader_honors_explicit_source_priority(monkeypatch) -> None:
     assert calls == ["raw-remote", "raw-local"]
 
 
+def test_runner_loader_honors_per_entry_explicit_source_order(monkeypatch) -> None:
+    loader = _make_loader()
+    loader._pmxt_ordered_source_entries = (
+        ("raw-remote", "https://first.archive.test"),
+        ("raw-local", "/tmp/local-a"),
+        ("raw-remote", "https://second.archive.test"),
+        ("relay-raw", "https://relay.test"),
+        ("raw-local", "/tmp/local-b"),
+    )
+    calls: list[tuple[str, str]] = []
+
+    monkeypatch.setattr(loader, "_load_cached_market_batches", lambda hour: None)
+
+    def _record(kind: str):
+        def _inner(self, hour, *, batch_size):
+            target: object
+            if kind == "raw-remote":
+                target = self._pmxt_remote_base_url
+            elif kind == "raw-local":
+                target = str(self._pmxt_raw_root)
+            else:
+                target = self._pmxt_relay_base_url
+            calls.append((kind, target))
+            return None
+
+        return _inner
+
+    monkeypatch.setattr(
+        RunnerPolymarketPMXTDataLoader,
+        "_load_remote_market_batches",
+        _record("raw-remote"),
+    )
+    monkeypatch.setattr(
+        RunnerPolymarketPMXTDataLoader,
+        "_load_local_archive_market_batches",
+        _record("raw-local"),
+    )
+    monkeypatch.setattr(
+        RunnerPolymarketPMXTDataLoader,
+        "_load_relay_raw_market_batches",
+        _record("relay-raw"),
+    )
+
+    assert (
+        loader._load_market_batches(pd.Timestamp("2026-03-21T12:00:00Z"), batch_size=1_000) is None
+    )
+    assert calls == [
+        ("raw-remote", "https://first.archive.test"),
+        ("raw-local", "/tmp/local-a"),
+        ("raw-remote", "https://second.archive.test"),
+        ("relay-raw", "https://relay.test"),
+        ("raw-local", "/tmp/local-b"),
+    ]
+
+
+def test_runner_loader_ordered_entries_stops_at_first_hit(monkeypatch) -> None:
+    loader = _make_loader()
+    loader._pmxt_ordered_source_entries = (
+        ("raw-local", "/tmp/first-local"),
+        ("raw-remote", "https://archive.test"),
+        ("relay-raw", "https://relay.test"),
+        ("raw-local", "/tmp/second-local"),
+    )
+    calls: list[tuple[str, str]] = []
+
+    monkeypatch.setattr(loader, "_load_cached_market_batches", lambda hour: None)
+
+    def _record_and_return(kind: str, value):
+        def _inner(self, hour, *, batch_size):
+            target = (
+                self._pmxt_remote_base_url
+                if kind == "raw-remote"
+                else str(self._pmxt_raw_root)
+                if kind == "raw-local"
+                else self._pmxt_relay_base_url
+            )
+            calls.append((kind, target))
+            return value
+
+        return _inner
+
+    monkeypatch.setattr(
+        RunnerPolymarketPMXTDataLoader,
+        "_load_remote_market_batches",
+        _record_and_return("raw-remote", None),
+    )
+    monkeypatch.setattr(
+        RunnerPolymarketPMXTDataLoader,
+        "_load_local_archive_market_batches",
+        _record_and_return("raw-local", []),
+    )
+    monkeypatch.setattr(
+        RunnerPolymarketPMXTDataLoader,
+        "_load_relay_raw_market_batches",
+        _record_and_return("relay-raw", None),
+    )
+
+    batches = loader._load_market_batches(pd.Timestamp("2026-03-21T12:00:00Z"), batch_size=1_000)
+    assert batches == []
+    assert calls == [("raw-local", "/tmp/first-local")]
+
+
+def test_runner_loader_ordered_entries_restores_state_after_iteration(monkeypatch) -> None:
+    loader = _make_loader()
+    original_raw_root = Path("/tmp/original-root")
+    original_remote = "https://original.archive"
+    original_relay = "https://original.relay"
+    loader._pmxt_raw_root = original_raw_root
+    loader._pmxt_remote_base_url = original_remote
+    loader._pmxt_remote_base_urls = (original_remote,)
+    loader._pmxt_relay_base_url = original_relay
+
+    loader._pmxt_ordered_source_entries = (
+        ("raw-remote", "https://scoped.archive"),
+        ("raw-local", "/tmp/scoped-local"),
+        ("relay-raw", "https://scoped.relay"),
+    )
+
+    monkeypatch.setattr(loader, "_load_cached_market_batches", lambda hour: None)
+    monkeypatch.setattr(
+        RunnerPolymarketPMXTDataLoader,
+        "_load_remote_market_batches",
+        lambda self, hour, *, batch_size: None,
+    )
+    monkeypatch.setattr(
+        RunnerPolymarketPMXTDataLoader,
+        "_load_local_archive_market_batches",
+        lambda self, hour, *, batch_size: None,
+    )
+    monkeypatch.setattr(
+        RunnerPolymarketPMXTDataLoader,
+        "_load_relay_raw_market_batches",
+        lambda self, hour, *, batch_size: None,
+    )
+
+    loader._load_market_batches(pd.Timestamp("2026-03-21T12:00:00Z"), batch_size=1_000)
+
+    assert loader._pmxt_raw_root == original_raw_root
+    assert loader._pmxt_remote_base_url == original_remote
+    assert loader._pmxt_remote_base_urls == (original_remote,)
+    assert loader._pmxt_relay_base_url == original_relay
+
+
+def test_runner_loader_ordered_entries_duplicate_target_is_retried(monkeypatch) -> None:
+    loader = _make_loader()
+    loader._pmxt_ordered_source_entries = (
+        ("raw-local", "/tmp/local-a"),
+        ("raw-remote", "https://archive.test"),
+        ("raw-local", "/tmp/local-a"),
+    )
+    call_order: list[tuple[str, str]] = []
+
+    monkeypatch.setattr(loader, "_load_cached_market_batches", lambda hour: None)
+
+    def _record(kind: str, ret):
+        def _inner(self, hour, *, batch_size):
+            target = (
+                self._pmxt_remote_base_url if kind == "raw-remote" else str(self._pmxt_raw_root)
+            )
+            call_order.append((kind, target))
+            return ret
+
+        return _inner
+
+    monkeypatch.setattr(
+        RunnerPolymarketPMXTDataLoader,
+        "_load_remote_market_batches",
+        _record("raw-remote", None),
+    )
+    monkeypatch.setattr(
+        RunnerPolymarketPMXTDataLoader,
+        "_load_local_archive_market_batches",
+        _record("raw-local", None),
+    )
+
+    result = loader._load_market_batches(pd.Timestamp("2026-03-21T12:00:00Z"), batch_size=1_000)
+    assert result is None
+    assert call_order == [
+        ("raw-local", "/tmp/local-a"),
+        ("raw-remote", "https://archive.test"),
+        ("raw-local", "/tmp/local-a"),
+    ]
+
+
+def test_runner_loader_ordered_entries_honors_disable_remote_archive(monkeypatch) -> None:
+    loader = _make_loader(disable_remote_archive=True)
+    loader._pmxt_ordered_source_entries = (
+        ("raw-remote", "https://archive.test"),
+        ("raw-local", "/tmp/local-a"),
+    )
+    calls: list[str] = []
+
+    monkeypatch.setattr(loader, "_load_cached_market_batches", lambda hour: None)
+    monkeypatch.setattr(
+        RunnerPolymarketPMXTDataLoader,
+        "_load_local_archive_market_batches",
+        lambda self, hour, *, batch_size: calls.append("raw-local") or [],
+    )
+
+    batches = loader._load_market_batches(pd.Timestamp("2026-03-21T12:00:00Z"), batch_size=1_000)
+    assert batches == []
+    assert calls == ["raw-local"]
+
+
+def test_runner_loader_ordered_entries_single_kind_works(monkeypatch) -> None:
+    for kind, attr_name, target in (
+        ("raw-remote", "_pmxt_remote_base_url", "https://only.archive"),
+        ("raw-local", "_pmxt_raw_root", "/tmp/only-local"),
+        ("relay-raw", "_pmxt_relay_base_url", "https://only.relay"),
+    ):
+        loader = _make_loader()
+        loader._pmxt_ordered_source_entries = ((kind, target),)
+        monkeypatch.setattr(loader, "_load_cached_market_batches", lambda hour: None)
+        method_name = {
+            "raw-remote": "_load_remote_market_batches",
+            "raw-local": "_load_local_archive_market_batches",
+            "relay-raw": "_load_relay_raw_market_batches",
+        }[kind]
+        seen: list[str] = []
+
+        def _inner(self, hour, *, batch_size, _attr=attr_name, _seen=seen):
+            value = getattr(self, _attr)
+            _seen.append(str(value))
+            return []
+
+        monkeypatch.setattr(RunnerPolymarketPMXTDataLoader, method_name, _inner)
+        batches = loader._load_market_batches(
+            pd.Timestamp("2026-03-21T12:00:00Z"), batch_size=1_000
+        )
+        assert batches == [], f"kind={kind!r} failed"
+        expected_value = str(Path(target).expanduser()) if kind == "raw-local" else target
+        assert seen == [expected_value], f"kind={kind!r} got {seen!r}"
+
+
+def test_configured_pmxt_data_source_preserves_full_per_entry_order(tmp_path) -> None:
+    mirror_a = tmp_path / "mirror-a"
+    mirror_b = tmp_path / "mirror-b"
+    mirror_a.mkdir()
+    mirror_b.mkdir()
+
+    sources = [
+        "archive:archive-1.vendor.test",
+        f"local:{mirror_a}",
+        "archive:archive-2.vendor.test",
+        "relay:relay.vendor.test",
+        f"local:{mirror_b}",
+        "archive:archive-1.vendor.test",
+    ]
+    with configured_pmxt_data_source(sources=sources) as selection:
+        assert selection.mode == "auto"
+        assert selection.summary == (
+            "PMXT source: explicit priority ("
+            "cache -> archive https://archive-1.vendor.test "
+            f"-> local {mirror_a} "
+            "-> archive https://archive-2.vendor.test "
+            "-> relay https://relay.vendor.test "
+            f"-> local {mirror_b} "
+            "-> archive https://archive-1.vendor.test"
+            ")"
+        )
+
+    from prediction_market_extensions.backtesting.data_sources.pmxt import (
+        resolve_pmxt_loader_config,
+    )
+
+    _, cfg = resolve_pmxt_loader_config(sources=sources)
+    assert cfg.ordered_source_entries == (
+        ("raw-remote", "https://archive-1.vendor.test"),
+        ("raw-local", str(mirror_a)),
+        ("raw-remote", "https://archive-2.vendor.test"),
+        ("relay-raw", "https://relay.vendor.test"),
+        ("raw-local", str(mirror_b)),
+        ("raw-remote", "https://archive-1.vendor.test"),
+    )
+    # Archive URLs tuple is dedup-preserved (for the env-update path); full
+    # evaluation order with duplicates lives on ordered_source_entries.
+    assert cfg.remote_base_urls == (
+        "https://archive-1.vendor.test",
+        "https://archive-2.vendor.test",
+    )
+    assert cfg.raw_root == Path(str(mirror_a))
+    assert cfg.relay_base_url == "https://relay.vendor.test"
+
+
 def test_runner_loader_uses_instance_archive_url_in_threaded_prefetch(monkeypatch) -> None:
     hours = [pd.Timestamp("2026-03-21T11:00:00Z"), pd.Timestamp("2026-03-21T12:00:00Z")]
     seen_urls: list[str] = []
