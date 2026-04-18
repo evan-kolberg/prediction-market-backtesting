@@ -9,6 +9,7 @@ from aiohttp import web
 
 from pmxt_relay.api import create_app
 from pmxt_relay.config import RelayConfig
+from pmxt_relay.coverage import count_raw_dump_files, elapsed_archive_hours
 from pmxt_relay.index_db import RelayIndex
 from pmxt_relay.raw_mirror_verifier import verify_local_raw_mirror
 from pmxt_relay.worker import RelayWorker
@@ -88,7 +89,17 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "stats":
         with RelayIndex(config.db_path) as index:
             index.initialize(apply_maintenance=False)
-            print(json.dumps(index.stats(), indent=2, sort_keys=True))
+            payload = dict(index.stats())
+            dump_files_on_disk = count_raw_dump_files(config.raw_root)
+            payload.update(
+                {
+                    "archive_start_hour": config.archive_start_hour.isoformat(),
+                    "archive_hours": elapsed_archive_hours(start_hour=config.archive_start_hour),
+                    "dump_files_on_disk": dump_files_on_disk,
+                    "mirrored_hours": dump_files_on_disk,
+                }
+            )
+            print(json.dumps(payload, indent=2, sort_keys=True))
         return 0
 
     if args.command == "verify-raw-mirror":

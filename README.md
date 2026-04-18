@@ -18,17 +18,16 @@
 ![GitHub open issues](https://img.shields.io/github/issues/evan-kolberg/prediction-market-backtesting)
 
 [![Relay Status](https://209-209-10-83.sslip.io/v1/badge/status.svg)](https://209-209-10-83.sslip.io/v1/stats)
-[![r2.pmxt.dev](https://209-209-10-83.sslip.io/v1/badge/upstream.svg)](https://209-209-10-83.sslip.io/v1/queue)
+[![r2v2.pmxt.dev](https://209-209-10-83.sslip.io/v1/badge/upstream.svg)](https://209-209-10-83.sslip.io/v1/queue)
+[![r2.pmxt.dev](https://209-209-10-83.sslip.io/v1/badge/upstream-r2.svg)](https://209-209-10-83.sslip.io/v1/queue)
 [![CPU Load](https://209-209-10-83.sslip.io/v1/badge/cpu.svg)](https://209-209-10-83.sslip.io/v1/system)
 [![I/O Wait](https://209-209-10-83.sslip.io/v1/badge/iowait.svg)](https://209-209-10-83.sslip.io/v1/system)
 [![RAM](https://209-209-10-83.sslip.io/v1/badge/mem.svg)](https://209-209-10-83.sslip.io/v1/system)
 [![Disk](https://209-209-10-83.sslip.io/v1/badge/disk.svg)](https://209-209-10-83.sslip.io/v1/system)
 [![Mirror Service](https://209-209-10-83.sslip.io/v1/badge/worker.svg)](https://209-209-10-83.sslip.io/v1/system)
-[![Hours Mirrored](https://209-209-10-83.sslip.io/v1/badge/mirrored.svg)](https://209-209-10-83.sslip.io/v1/stats)
-[![Missing Hours](https://209-209-10-83.sslip.io/v1/badge/missing-hours.svg)](https://209-209-10-83.sslip.io/v1/stats)
-[![Empty Hours](https://209-209-10-83.sslip.io/v1/badge/empty-hours.svg)](https://209-209-10-83.sslip.io/v1/stats)
-[![Error Hours](https://209-209-10-83.sslip.io/v1/badge/error-hours.svg)](https://209-209-10-83.sslip.io/v1/queue)
-[![Latest File](https://209-209-10-83.sslip.io/v1/badge/latest-file.svg)](https://209-209-10-83.sslip.io/v1/stats)
+[![Hour Files](https://209-209-10-83.sslip.io/v1/badge/hour-files.svg)](https://209-209-10-83.sslip.io/v1/stats)
+[![Hours Since First](https://209-209-10-83.sslip.io/v1/badge/hours-since-first.svg)](https://209-209-10-83.sslip.io/v1/stats)
+[![Latest Hour](https://209-209-10-83.sslip.io/v1/badge/latest-hour.svg)](https://209-209-10-83.sslip.io/v1/stats)
 
 **Thanks to [PMXT](https://github.com/pmxt-dev/pmxt) for providing this data for free!**
 

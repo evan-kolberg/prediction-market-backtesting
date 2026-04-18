@@ -97,6 +97,10 @@ def _empty_parquet_payload() -> bytes:
     return buffer.getvalue()
 
 
+def _window_kwargs(start: str = "2026-03-21T09", end: str = "2026-03-21T10") -> dict[str, str]:
+    return {"start_time": start, "end_time": end}
+
+
 def test_discover_archive_hours_reads_listing_pages(monkeypatch) -> None:
     pages = {
         1: (
@@ -133,18 +137,10 @@ def test_download_raw_hours_fetches_archive_then_relay_fallback(
     payload = _raw_parquet_payload()
     requested_urls: list[str] = []
 
-    monkeypatch.setattr(
-        raw_download,
-        "discover_archive_filenames",
-        lambda **_: [
-            "polymarket_orderbook_2026-03-21T09.parquet",
-            "polymarket_orderbook_2026-03-21T10.parquet",
-        ],
-    )
-
     def fake_urlopen(request, timeout=60):  # type: ignore[no-untyped-def]
         del timeout
-        requested_urls.append(request.full_url)
+        if request.get_method() != "HEAD":
+            requested_urls.append(request.full_url)
         if (
             request.full_url.endswith("2026-03-21T10.parquet")
             and "/v1/raw/" not in request.full_url
@@ -154,7 +150,9 @@ def test_download_raw_hours_fetches_archive_then_relay_fallback(
 
     monkeypatch.setattr(raw_download, "urlopen", fake_urlopen)
 
-    summary = raw_download.download_raw_hours(destination=tmp_path / "raws", show_progress=False)
+    summary = raw_download.download_raw_hours(
+        destination=tmp_path / "raws", show_progress=False, **_window_kwargs()
+    )
 
     assert summary.requested_hours == 2
     assert summary.downloaded_hours == 2
@@ -166,6 +164,7 @@ def test_download_raw_hours_fetches_archive_then_relay_fallback(
     }
     assert requested_urls == [
         "https://r2v2.pmxt.dev/polymarket_orderbook_2026-03-21T10.parquet",
+        "https://r2.pmxt.dev/polymarket_orderbook_2026-03-21T10.parquet",
         "https://209-209-10-83.sslip.io/v1/raw/2026/03/21/polymarket_orderbook_2026-03-21T10.parquet",
         "https://r2v2.pmxt.dev/polymarket_orderbook_2026-03-21T09.parquet",
     ]
@@ -185,20 +184,14 @@ def test_download_raw_hours_skips_existing_files(monkeypatch, tmp_path: Path) ->
 
     monkeypatch.setattr(
         raw_download,
-        "discover_archive_filenames",
-        lambda **_: [
-            "polymarket_orderbook_2026-03-21T09.parquet",
-            "polymarket_orderbook_2026-03-21T10.parquet",
-        ],
-    )
-    monkeypatch.setattr(
-        raw_download,
         "urlopen",
         lambda request, timeout=60: _Response(payload),  # type: ignore[arg-type]
     )
     monkeypatch.setattr(raw_download, "_existing_refresh_reason", lambda **_: None)
 
-    summary = raw_download.download_raw_hours(destination=destination, show_progress=False)
+    summary = raw_download.download_raw_hours(
+        destination=destination, show_progress=False, **_window_kwargs()
+    )
 
     assert summary.downloaded_hours == 1
     assert summary.skipped_existing_hours == 1
@@ -221,12 +214,6 @@ def test_download_raw_hours_removes_stale_temp_files_before_skipping(
     pid_tmp_path = existing_path.with_name(f"{existing_path.name}.tmp.999999")
     pid_tmp_path.write_bytes(b"stale-pid-tmp")
 
-    monkeypatch.setattr(
-        raw_download,
-        "discover_archive_filenames",
-        lambda **_: ["polymarket_orderbook_2026-03-21T09.parquet"],
-    )
-
     def fake_pid_is_active(pid: int) -> bool:
         del pid
         return False
@@ -239,7 +226,11 @@ def test_download_raw_hours_removes_stale_temp_files_before_skipping(
     monkeypatch.setattr(raw_download, "_existing_refresh_reason", lambda **_: None)
     monkeypatch.setattr(raw_download, "urlopen", unexpected_urlopen)
 
-    summary = raw_download.download_raw_hours(destination=destination, show_progress=False)
+    summary = raw_download.download_raw_hours(
+        destination=destination,
+        show_progress=False,
+        **_window_kwargs("2026-03-21T09", "2026-03-21T09"),
+    )
 
     assert summary.downloaded_hours == 0
     assert summary.skipped_existing_hours == 1
@@ -253,15 +244,6 @@ def test_download_raw_hours_progress_output_uses_short_hour_labels(
 ) -> None:
     payload = _raw_parquet_payload()
     bars: list[_FakeTqdm] = []
-
-    monkeypatch.setattr(
-        raw_download,
-        "discover_archive_filenames",
-        lambda **_: [
-            "polymarket_orderbook_2026-03-21T09.parquet",
-            "polymarket_orderbook_2026-03-21T10.parquet",
-        ],
-    )
 
     def fake_tqdm(*args, **kwargs):  # type: ignore[no-untyped-def]
         bar = _FakeTqdm(*args, **kwargs)
@@ -280,7 +262,9 @@ def test_download_raw_hours_progress_output_uses_short_hour_labels(
     monkeypatch.setattr(raw_download, "tqdm", fake_tqdm)
     monkeypatch.setattr(raw_download, "urlopen", fake_urlopen)
 
-    summary = raw_download.download_raw_hours(destination=tmp_path / "raws", show_progress=True)
+    summary = raw_download.download_raw_hours(
+        destination=tmp_path / "raws", show_progress=True, **_window_kwargs()
+    )
 
     assert summary.downloaded_hours == 2
     assert len(bars) == 1
@@ -289,7 +273,7 @@ def test_download_raw_hours_progress_output_uses_short_hour_labels(
     captured = capsys.readouterr()
 
     assert (
-        "PMXT raw source: explicit priority (archive https://r2v2.pmxt.dev -> relay https://209-209-10-83.sslip.io)"
+        "PMXT raw source: direct hour probes (archive best-of https://r2v2.pmxt.dev, https://r2.pmxt.dev -> relay https://209-209-10-83.sslip.io)"
     ) in captured.out
     assert "window_start=2026-03-21T09" in captured.out
     assert "window_end=2026-03-21T10" in captured.out
@@ -308,15 +292,6 @@ def test_download_raw_hours_reports_404_as_archive_missing_and_accepts_empty_par
 ) -> None:
     empty_payload = _empty_parquet_payload()
 
-    monkeypatch.setattr(
-        raw_download,
-        "discover_archive_filenames",
-        lambda **_: [
-            "polymarket_orderbook_2026-03-21T09.parquet",
-            "polymarket_orderbook_2026-03-21T10.parquet",
-        ],
-    )
-
     def fake_urlopen(request, timeout=60):  # type: ignore[no-untyped-def]
         del timeout
         if request.full_url.endswith("2026-03-21T09.parquet"):
@@ -326,7 +301,10 @@ def test_download_raw_hours_reports_404_as_archive_missing_and_accepts_empty_par
     monkeypatch.setattr(raw_download, "urlopen", fake_urlopen)
 
     summary = raw_download.download_raw_hours(
-        destination=tmp_path / "raws", source_order=["archive"], show_progress=False
+        destination=tmp_path / "raws",
+        source_order=["archive"],
+        show_progress=False,
+        **_window_kwargs(),
     )
 
     assert summary.archive_missing_hours == ["2026-03-21T09:00:00+00:00"]
@@ -344,11 +322,6 @@ def test_download_raw_hours_progress_output_includes_failure_error(
 
     monkeypatch.setattr(
         raw_download,
-        "discover_archive_filenames",
-        lambda **_: ["polymarket_orderbook_2026-03-21T09.parquet"],
-    )
-    monkeypatch.setattr(
-        raw_download,
         "tqdm",
         lambda *args, **kwargs: bars.append(_FakeTqdm(*args, **kwargs)) or bars[-1],
     )  # type: ignore[func-returns-value]
@@ -360,7 +333,10 @@ def test_download_raw_hours_progress_output_includes_failure_error(
     monkeypatch.setattr(raw_download, "urlopen", fake_urlopen)
 
     summary = raw_download.download_raw_hours(
-        destination=tmp_path / "raws", source_order=["archive"], show_progress=True
+        destination=tmp_path / "raws",
+        source_order=["archive"],
+        show_progress=True,
+        **_window_kwargs("2026-03-21T09", "2026-03-21T09"),
     )
 
     assert summary.failed_hours == ["2026-03-21T09:00:00+00:00"]
@@ -368,64 +344,49 @@ def test_download_raw_hours_progress_output_includes_failure_error(
     assert any("failed" in line and "last_error=HTTP 503" in line for line in bars[0].writes)
 
 
-def test_download_raw_hours_ignores_unlisted_archive_gaps(monkeypatch, tmp_path: Path) -> None:
+def test_download_raw_hours_uses_direct_hour_window(monkeypatch, tmp_path: Path) -> None:
     payload = _raw_parquet_payload()
     requested_urls: list[str] = []
 
-    monkeypatch.setattr(
-        raw_download,
-        "discover_archive_filenames",
-        lambda **_: [
-            "polymarket_orderbook_2026-03-21T09.parquet",
-            "polymarket_orderbook_2026-03-21T11.parquet",
-        ],
-    )
-
     def fake_urlopen(request, timeout=60):  # type: ignore[no-untyped-def]
         del timeout
-        requested_urls.append(request.full_url)
+        if request.get_method() != "HEAD":
+            requested_urls.append(request.full_url)
         return _Response(payload, headers={"Content-Length": str(len(payload))})
 
     monkeypatch.setattr(raw_download, "urlopen", fake_urlopen)
 
     summary = raw_download.download_raw_hours(
-        destination=tmp_path / "raws", source_order=["archive"], show_progress=False
+        destination=tmp_path / "raws",
+        source_order=["archive"],
+        show_progress=False,
+        **_window_kwargs("2026-03-21T09", "2026-03-21T11"),
     )
 
-    assert summary.requested_hours == 2
-    assert summary.archive_listed_hours == 2
-    assert summary.downloaded_hours == 2
+    assert summary.requested_hours == 3
+    assert summary.archive_listed_hours == 3
+    assert summary.downloaded_hours == 3
     assert summary.failed_hours == []
     assert summary.missing_local_hours == []
     assert summary.archive_missing_hours == []
     assert requested_urls == [
         "https://r2v2.pmxt.dev/polymarket_orderbook_2026-03-21T11.parquet",
+        "https://r2v2.pmxt.dev/polymarket_orderbook_2026-03-21T10.parquet",
         "https://r2v2.pmxt.dev/polymarket_orderbook_2026-03-21T09.parquet",
     ]
 
 
-def test_download_raw_hours_combines_v1_and_v2_archive_sources(monkeypatch, tmp_path: Path) -> None:
-    payload = _raw_parquet_payload()
-    pages = {
-        "https://archive.pmxt.dev/Polymarket/v2": [
-            "polymarket_orderbook_2026-03-21T11.parquet",
-            "polymarket_orderbook_2026-03-21T10.parquet",
-        ],
-        "https://archive.pmxt.dev/Polymarket/v1": [
-            "polymarket_orderbook_2026-03-21T10.parquet",
-            "polymarket_orderbook_2026-03-21T09.parquet",
-        ],
-    }
+def test_download_raw_hours_keeps_larger_overlap_source(monkeypatch, tmp_path: Path) -> None:
+    small_payload = b"s" * 10
+    large_payload = b"l" * 20
     requested_urls: list[str] = []
-
-    monkeypatch.setattr(
-        raw_download,
-        "discover_archive_filenames",
-        lambda archive_listing_url, **_: pages[archive_listing_url],  # type: ignore[no-untyped-def]
-    )
 
     def fake_urlopen(request, timeout=60):  # type: ignore[no-untyped-def]
         del timeout
+        is_r2 = request.full_url.startswith("https://r2.pmxt.dev/")
+        payload = large_payload if is_r2 else small_payload
+        if request.get_method() == "HEAD":
+            return _Response(b"", headers={"Content-Length": str(len(payload))})
         requested_urls.append(request.full_url)
         return _Response(payload, headers={"Content-Length": str(len(payload))})
 
@@ -439,16 +400,19 @@ def test_download_raw_hours_combines_v1_and_v2_archive_sources(monkeypatch, tmp_
         ],
         source_order=["archive"],
         show_progress=False,
+        **_window_kwargs("2026-03-21T10", "2026-03-21T10"),
     )
 
-    assert summary.archive_listed_hours == 3
-    assert summary.requested_hours == 3
+    assert summary.archive_listed_hours == 1
+    assert summary.requested_hours == 1
     assert summary.archive_sources == ["https://r2v2.pmxt.dev", "https://r2.pmxt.dev"]
     assert requested_urls == [
-        "https://r2v2.pmxt.dev/polymarket_orderbook_2026-03-21T11.parquet",
-        "https://r2v2.pmxt.dev/polymarket_orderbook_2026-03-21T10.parquet",
-        "https://r2.pmxt.dev/polymarket_orderbook_2026-03-21T09.parquet",
+        "https://r2.pmxt.dev/polymarket_orderbook_2026-03-21T10.parquet",
     ]
+    downloaded = (
+        tmp_path / "raws" / "2026" / "03" / "21" / "polymarket_orderbook_2026-03-21T10.parquet"
+    )
+    assert downloaded.read_bytes() == large_payload
 
 
 def test_download_raw_hours_refreshes_existing_when_upstream_is_larger(
@@ -462,11 +426,6 @@ def test_download_raw_hours_refreshes_existing_when_upstream_is_larger(
     existing_path.parent.mkdir(parents=True, exist_ok=True)
     existing_path.write_bytes(b"old")
 
-    monkeypatch.setattr(
-        raw_download,
-        "discover_archive_filenames",
-        lambda **_: ["polymarket_orderbook_2026-03-21T09.parquet"],
-    )
     monkeypatch.setattr(raw_download, "_local_raw_is_empty", lambda path: False)
 
     def fake_urlopen(request, timeout=60):  # type: ignore[no-untyped-def]
@@ -478,7 +437,10 @@ def test_download_raw_hours_refreshes_existing_when_upstream_is_larger(
     monkeypatch.setattr(raw_download, "urlopen", fake_urlopen)
 
     summary = raw_download.download_raw_hours(
-        destination=destination, source_order=["archive"], show_progress=False
+        destination=destination,
+        source_order=["archive"],
+        show_progress=False,
+        **_window_kwargs("2026-03-21T09", "2026-03-21T09"),
     )
 
     assert summary.downloaded_hours == 1

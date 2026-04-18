@@ -114,20 +114,19 @@ To mirror PMXT raw archive hours locally, run:
 make download-pmxt-raws DESTINATION=/path/to/pmxt_raws
 ```
 
-The download is long-running, walks every archive listing page newest-first,
-defaults to the PMXT v2 and v1 Polymarket listings, builds the full hourly range
-from the newest listed hour to the oldest listed hour, and prints per-hour
-completion lines plus the currently active transfer.
-The final JSON summary includes `archive_listed_hours` for the number of hours
-actually exposed by the upstream listing, `archive_missing_hours` for gaps in
-the upstream listing's covered time span, `missing_local_hours` for requested
-hours still absent on disk, and `empty_local_hours` for local parquet files with
-zero rows or less than 1 MiB of data. Existing local files are refreshed when
-they are empty or when an upstream source advertises a larger object. Example
-output:
+The download is long-running, walks direct hourly filenames from
+`2026-02-21T16:00:00Z` through the current floored UTC hour newest-first, probes
+`r2v2.pmxt.dev` and `r2.pmxt.dev`, and keeps the larger archive object when both
+exist for the same hour. It prints per-hour completion lines plus the currently
+active transfer.
+The final JSON summary includes `archive_listed_hours` for the number of direct
+hours attempted, `archive_missing_hours` for hours missing from all configured
+sources, and `missing_local_hours` for requested hours still absent on disk.
+Existing local files are refreshed when they are empty or when an upstream
+source advertises a larger object. Example output:
 
 ```text
-PMXT raw source: explicit priority (archive https://r2v2.pmxt.dev -> relay https://209-209-10-83.sslip.io)
+PMXT raw source: direct hour probes (archive best-of https://r2v2.pmxt.dev, https://r2.pmxt.dev -> relay https://209-209-10-83.sslip.io)
 Downloading PMXT raw hours to /path/to/pmxt_raws (requested_hours=3, window_start=2026-02-27T11, window_end=2026-02-27T13)...
   2026-02-27T13  12.431s   445.9 MiB  archive
   2026-02-27T12   0.000s    existing  skip

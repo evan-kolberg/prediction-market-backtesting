@@ -320,7 +320,13 @@ class RelayIndex:
         return self._run_with_lock_retry(operation)
 
     def upsert_discovered_hour(
-        self, filename: str, source_url: str, archive_page: int, *, source_priority: int = 0
+        self,
+        filename: str,
+        source_url: str,
+        archive_page: int,
+        *,
+        source_priority: int = 0,
+        allow_lower_priority_source: bool = False,
     ) -> bool:
         hour = parse_archive_hour(filename).isoformat()
         normalized_source_priority = max(0, source_priority)
@@ -397,6 +403,10 @@ class RelayIndex:
                       AND (
                         source_priority > ?
                         OR (
+                            ?
+                            AND source_url != ?
+                        )
+                        OR (
                             source_priority = ?
                             AND (
                                 archive_page != ?
@@ -420,6 +430,8 @@ class RelayIndex:
                         source_url,
                         filename,
                         normalized_source_priority,
+                        allow_lower_priority_source,
+                        source_url,
                         normalized_source_priority,
                         archive_page,
                         source_url,
@@ -487,6 +499,37 @@ class RelayIndex:
                     (source_prefix, min_hour, max_hour),
                 )
                 self._conn.execute("DELETE FROM current_archive_listing")
+            return cursor.rowcount
+
+        return self._run_with_lock_retry(operation)
+
+    def remove_unmirrored_rows_for_filenames(self, filenames: list[str]) -> int:
+        if not filenames:
+            return 0
+
+        def operation() -> int:
+            with self._conn:
+                self._conn.execute(
+                    "CREATE TEMP TABLE IF NOT EXISTS absent_archive_scrape "
+                    "(filename TEXT PRIMARY KEY)"
+                )
+                self._conn.execute("DELETE FROM absent_archive_scrape")
+                self._conn.executemany(
+                    "INSERT OR IGNORE INTO absent_archive_scrape (filename) VALUES (?)",
+                    ((filename,) for filename in filenames),
+                )
+                cursor = self._conn.execute(
+                    """
+                    DELETE FROM archive_hours
+                    WHERE mirror_status != 'ready'
+                      AND EXISTS (
+                        SELECT 1
+                        FROM absent_archive_scrape absent
+                        WHERE absent.filename = archive_hours.filename
+                      )
+                    """
+                )
+                self._conn.execute("DELETE FROM absent_archive_scrape")
             return cursor.rowcount
 
         return self._run_with_lock_retry(operation)

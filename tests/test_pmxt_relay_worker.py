@@ -71,26 +71,27 @@ def test_discover_archive_hours_uses_multiple_archive_sources(tmp_path: Path, mo
                 raw_base_url="https://r2.pmxt.dev",
             ),
         ),
+        archive_start_hour=datetime(2026, 3, 21, 11, tzinfo=timezone.utc),
     )
-    pages = {
-        ("https://archive.pmxt.dev/Polymarket/v2", 1): (
-            '<a href="https://r2v2.pmxt.dev/polymarket_orderbook_2026-03-21T12.parquet">12</a>'
-        ),
-        ("https://archive.pmxt.dev/Polymarket/v2", 2): "",
-        ("https://archive.pmxt.dev/Polymarket/v1", 1): (
-            '<a href="https://r2.pmxt.dev/polymarket_orderbook_2026-03-21T11.parquet">11</a>'
-            '<a href="https://r2.pmxt.dev/polymarket_orderbook_2026-03-21T12.parquet">12</a>'
-        ),
-        ("https://archive.pmxt.dev/Polymarket/v1", 2): "",
+    existing_urls = {
+        "https://r2v2.pmxt.dev/polymarket_orderbook_2026-03-21T12.parquet",
+        "https://r2.pmxt.dev/polymarket_orderbook_2026-03-21T11.parquet",
+        "https://r2.pmxt.dev/polymarket_orderbook_2026-03-21T12.parquet",
     }
 
     monkeypatch.setattr(
-        "pmxt_relay.worker.fetch_archive_page",
-        lambda archive_listing_url, page, timeout_secs: pages[(archive_listing_url, page)],  # type: ignore[no-untyped-def]
+        RelayWorker,
+        "_raw_url_probe",
+        lambda self, source_url: (
+            source_url in existing_urls,
+            10 if source_url in existing_urls else None,
+        ),  # type: ignore[no-untyped-def]
     )
 
     with RelayWorker(config, reset_inflight=False) as worker:
-        discovered = worker._discover_archive_hours()
+        discovered = worker._discover_archive_hours(
+            now=datetime(2026, 3, 21, 12, 30, tzinfo=timezone.utc)
+        )
         rows = {
             row["filename"]: row
             for row in worker._index._fetchall("SELECT * FROM archive_hours ORDER BY filename")
@@ -130,27 +131,28 @@ def test_discover_archive_hours_does_not_downgrade_v2_overlap(tmp_path: Path, mo
                 raw_base_url="https://r2.pmxt.dev",
             ),
         ),
+        archive_start_hour=datetime(2026, 3, 21, 12, tzinfo=timezone.utc),
     )
     filename = "polymarket_orderbook_2026-03-21T12.parquet"
-    pages = {
-        ("https://archive.pmxt.dev/Polymarket/v2", 1): (
-            f'<a href="https://r2v2.pmxt.dev/{filename}">12</a>'
-        ),
-        ("https://archive.pmxt.dev/Polymarket/v2", 2): "",
-        ("https://archive.pmxt.dev/Polymarket/v1", 1): (
-            f'<a href="https://r2.pmxt.dev/{filename}">12</a>'
-        ),
-        ("https://archive.pmxt.dev/Polymarket/v1", 2): "",
+    existing_urls = {
+        f"https://r2v2.pmxt.dev/{filename}",
+        f"https://r2.pmxt.dev/{filename}",
     }
 
-    monkeypatch.setattr(
-        "pmxt_relay.worker.fetch_archive_page",
-        lambda archive_listing_url, page, timeout_secs: pages[(archive_listing_url, page)],  # type: ignore[no-untyped-def]
-    )
+    def fake_raw_url_probe(self, source_url):  # type: ignore[no-untyped-def]
+        return source_url in existing_urls, 10 if source_url in existing_urls else None
+
+    monkeypatch.setattr(RelayWorker, "_raw_url_probe", fake_raw_url_probe)
 
     with RelayWorker(config, reset_inflight=False) as worker:
-        assert worker._discover_archive_hours() == 1
-        assert worker._discover_archive_hours() == 0
+        assert (
+            worker._discover_archive_hours(now=datetime(2026, 3, 21, 12, 30, tzinfo=timezone.utc))
+            == 1
+        )
+        assert (
+            worker._discover_archive_hours(now=datetime(2026, 3, 21, 12, 30, tzinfo=timezone.utc))
+            == 0
+        )
         row = worker._index._conn.execute(
             "SELECT source_url, source_priority FROM archive_hours WHERE filename = ?",
             (filename,),
@@ -159,6 +161,55 @@ def test_discover_archive_hours_does_not_downgrade_v2_overlap(tmp_path: Path, mo
     assert row is not None
     assert row["source_url"] == f"https://r2v2.pmxt.dev/{filename}"
     assert row["source_priority"] == 0
+
+
+def test_discover_archive_hours_keeps_larger_overlap_file(tmp_path: Path, monkeypatch) -> None:
+    config = RelayConfig(
+        data_dir=tmp_path,
+        bind_host="127.0.0.1",
+        bind_port=8080,
+        archive_listing_url="https://archive.pmxt.dev/Polymarket/v2",
+        raw_base_url="https://r2v2.pmxt.dev",
+        poll_interval_secs=900,
+        http_timeout_secs=30,
+        archive_stale_pages=1,
+        archive_max_pages=None,
+        event_retention=1000,
+        api_rate_limit_per_minute=2400,
+        verify_batch_size=50,
+        raw_base_urls=("https://r2v2.pmxt.dev", "https://r2.pmxt.dev"),
+        archive_start_hour=datetime(2026, 3, 21, 12, tzinfo=timezone.utc),
+    )
+    filename = "polymarket_orderbook_2026-03-21T12.parquet"
+    sizes = {
+        f"https://r2v2.pmxt.dev/{filename}": 4 * 1024 * 1024,
+        f"https://r2.pmxt.dev/{filename}": 9 * 1024 * 1024,
+    }
+
+    def fake_raw_url_probe(self, source_url):  # type: ignore[no-untyped-def]
+        return source_url in sizes, sizes.get(source_url)
+
+    monkeypatch.setattr(RelayWorker, "_raw_url_probe", fake_raw_url_probe)
+
+    with RelayWorker(config, reset_inflight=False) as worker:
+        worker._index.upsert_discovered_hour(
+            filename,
+            f"https://r2v2.pmxt.dev/{filename}",
+            0,
+            source_priority=0,
+        )
+        assert (
+            worker._discover_archive_hours(now=datetime(2026, 3, 21, 12, 30, tzinfo=timezone.utc))
+            == 1
+        )
+        row = worker._index._conn.execute(
+            "SELECT source_url, source_priority FROM archive_hours WHERE filename = ?",
+            (filename,),
+        ).fetchone()
+
+    assert row is not None
+    assert row["source_url"] == f"https://r2.pmxt.dev/{filename}"
+    assert row["source_priority"] == 1
 
 
 def test_mirror_hour_falls_back_to_get_when_head_is_rejected(tmp_path: Path, monkeypatch) -> None:
