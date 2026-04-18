@@ -5,15 +5,16 @@ import os
 import shutil
 import time
 from contextlib import suppress
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
-from pmxt_relay.archive import extract_archive_filenames, fetch_archive_page
 from pmxt_relay.config import RelayConfig
+from pmxt_relay.coverage import iter_archive_hours_desc
 from pmxt_relay.index_db import REMIRROR_CONTENT_CHANGED_REASON, RelayIndex
-from pmxt_relay.storage import raw_relative_path
+from pmxt_relay.storage import archive_filename_for_hour, raw_relative_path
 
 LOG = logging.getLogger(__name__)
 _MIRROR_404_QUARANTINE_AFTER = 3
@@ -21,6 +22,13 @@ _MIRROR_RETRY_BACKOFF_CAP_SECS = 6 * 3600
 _MIRROR_QUARANTINE_RETRY_SECS = 3600
 _VERIFY_HTTP_TIMEOUT_CAP_SECS = 2
 _MIN_NONEMPTY_RAW_BYTES = 1024 * 1024
+
+
+@dataclass(frozen=True)
+class _RawUrlCandidate:
+    source_url: str
+    source_priority: int
+    content_length: int | None
 
 
 class RelayWorker:
@@ -110,85 +118,138 @@ class RelayWorker:
         )
         return total
 
-    def _discover_archive_hours(self) -> int:
+    def _discover_archive_hours(self, *, now: datetime | None = None) -> int:
         discovered = 0
-        for source_priority, archive_source in enumerate(self._config.resolved_archive_sources):
-            discovered += self._discover_archive_source(
-                archive_listing_url=archive_source.listing_url,
-                raw_base_url=archive_source.raw_base_url,
-                source_priority=source_priority,
-            )
-        return discovered
-
-    def _discover_archive_source(
-        self, *, archive_listing_url: str, raw_base_url: str, source_priority: int
-    ) -> int:
-        discovered = 0
-        source_seen: list[str] = []
-        source_seen_set: set[str] = set()
-        page = 1
-        stale_pages = 0
-        while True:
-            if self._config.archive_max_pages is not None and page > self._config.archive_max_pages:
-                break
-            html = fetch_archive_page(archive_listing_url, page, self._config.http_timeout_secs)
-            filenames = extract_archive_filenames(html)
-            if not filenames:
-                break
-
-            page_new = 0
-            for filename in filenames:
-                if filename not in source_seen_set:
-                    source_seen.append(filename)
-                    source_seen_set.add(filename)
-                source_url = f"{raw_base_url}/{filename}"
-                if self._index.upsert_discovered_hour(
-                    filename, source_url, page, source_priority=source_priority
-                ):
-                    page_new += 1
-
-            discovered += page_new
-            if page_new == 0:
-                stale_pages += 1
-                if stale_pages >= self._config.archive_stale_pages:
-                    break
-            else:
-                self._record_event(
-                    level="INFO",
-                    event_type="discover_page",
-                    message=f"Discovered {page_new} new PMXT archive hours on page {page}",
-                    payload={
-                        "listing_url": archive_listing_url,
-                        "raw_base_url": raw_base_url,
-                        "page": page,
-                        "new_hours": page_new,
-                        "total_entries": len(filenames),
-                    },
+        probed = 0
+        available = 0
+        absent_filenames: list[str] = []
+        source_errors = 0
+        source_error_samples: list[dict[str, str]] = []
+        raw_base_urls = self._config.resolved_raw_base_urls
+        for hour in iter_archive_hours_desc(
+            start_hour=self._config.archive_start_hour,
+            now=now,
+        ):
+            probed += 1
+            filename = archive_filename_for_hour(hour)
+            best_candidate: _RawUrlCandidate | None = None
+            probe_error = False
+            for source_priority, raw_base_url in enumerate(raw_base_urls):
+                candidate_url = f"{raw_base_url}/{filename}"
+                try:
+                    exists, content_length = self._raw_url_probe(candidate_url)
+                except Exception as exc:
+                    source_errors += 1
+                    probe_error = True
+                    if len(source_error_samples) < 10:
+                        source_error_samples.append(
+                            {
+                                "filename": filename,
+                                "source_url": candidate_url,
+                                "error": str(exc),
+                            }
+                        )
+                        LOG.warning("Failed to probe %s: %s", candidate_url, exc)
+                    continue
+                if not exists:
+                    continue
+                candidate = _RawUrlCandidate(
+                    source_url=candidate_url,
+                    source_priority=source_priority,
+                    content_length=content_length,
                 )
-                stale_pages = 0
-            page += 1
+                if self._is_better_raw_candidate(candidate, best_candidate):
+                    best_candidate = candidate
+            if best_candidate is None:
+                if not probe_error:
+                    absent_filenames.append(filename)
+                continue
+            available += 1
+            if self._index.upsert_discovered_hour(
+                filename,
+                best_candidate.source_url,
+                0,
+                source_priority=best_candidate.source_priority,
+                allow_lower_priority_source=True,
+            ):
+                discovered += 1
 
-        removed = self._index.remove_source_rows_absent_from_listing(
-            raw_base_url=raw_base_url,
-            filenames=source_seen,
+        removed = self._index.remove_unmirrored_rows_for_filenames(absent_filenames)
+        self._record_event(
+            level="WARNING" if source_errors else "INFO",
+            event_type="discover_scrape",
+            message="Scraped PMXT raw archive URL patterns",
+            payload={
+                "start_hour": self._config.archive_start_hour.isoformat(),
+                "probed_hours": probed,
+                "available_hours": available,
+                "new_or_changed_hours": discovered,
+                "absent_hours": len(absent_filenames),
+                "removed_stale_unmirrored_rows": removed,
+                "source_errors": source_errors,
+                "source_error_samples": source_error_samples,
+                "raw_base_urls": list(raw_base_urls),
+            },
         )
         if removed > 0:
-            self._record_event(
-                level="WARNING",
-                event_type="archive_unlisted",
-                message=f"Removed {removed} stale PMXT archive rows absent from current listing",
-                payload={
-                    "listing_url": archive_listing_url,
-                    "raw_base_url": raw_base_url,
-                    "removed_hours": removed,
-                },
-            )
-            LOG.warning(
-                "Removed %s stale PMXT archive rows absent from current %s listing",
-                removed,
-                raw_base_url,
-            )
+            LOG.warning("Removed %s stale unmirrored PMXT archive rows after URL scrape", removed)
         return discovered
+
+    @staticmethod
+    def _is_better_raw_candidate(
+        candidate: _RawUrlCandidate, best_candidate: _RawUrlCandidate | None
+    ) -> bool:
+        if best_candidate is None:
+            return True
+        if candidate.content_length is not None and best_candidate.content_length is not None:
+            if candidate.content_length != best_candidate.content_length:
+                return candidate.content_length > best_candidate.content_length
+        if candidate.content_length is not None and best_candidate.content_length is None:
+            return True
+        if candidate.content_length is None and best_candidate.content_length is not None:
+            return False
+        return candidate.source_priority < best_candidate.source_priority
+
+    @staticmethod
+    def _content_length_from_headers(headers) -> int | None:  # type: ignore[no-untyped-def]
+        content_range = headers.get("Content-Range")
+        if content_range and "/" in content_range:
+            total = content_range.rsplit("/", 1)[1].strip()
+            if total and total != "*":
+                try:
+                    return int(total)
+                except ValueError:
+                    pass
+        length_value = headers.get("Content-Length")
+        if not length_value:
+            return None
+        try:
+            return int(length_value)
+        except ValueError:
+            return None
+
+    def _raw_url_probe(self, source_url: str) -> tuple[bool, int | None]:
+        head_request = Request(source_url, method="HEAD", headers={"User-Agent": "pmxt-relay/1.0"})
+        try:
+            with urlopen(head_request, timeout=self._config.http_timeout_secs) as response:
+                return True, self._content_length_from_headers(response.headers)
+        except HTTPError as exc:
+            if exc.code == 404:
+                return False, None
+            if exc.code not in {403, 405}:
+                raise
+
+        range_request = Request(
+            source_url,
+            headers={"User-Agent": "pmxt-relay/1.0", "Range": "bytes=0-0"},
+        )
+        try:
+            with urlopen(range_request, timeout=self._config.http_timeout_secs) as response:
+                return True, self._content_length_from_headers(response.headers)
+        except HTTPError as exc:
+            if exc.code == 404:
+                return False, None
+            raise
 
     def _adopt_local_raw_hours(self) -> int:
         if not self._initial_local_raw_adoption_complete:
@@ -226,7 +287,7 @@ class RelayWorker:
             filename,
             local_path=str(raw_path),
             content_length=byte_size,
-            source_url=f"{self._config.raw_base_url}/{filename}",
+            source_url=f"{self._config.resolved_raw_base_urls[0]}/{filename}",
         )
         if changed:
             row_count = self._read_parquet_row_count(raw_path)

@@ -104,24 +104,24 @@ To mirror raw archive hours locally for this repo's runners, use:
 make download-pmxt-raws DESTINATION=/path/to/pmxt_raws
 ```
 
-The downloader walks every archive listing page newest-first, defaults to the
-PMXT v2 and v1 Polymarket listings, builds the full hourly range from the newest
-listed hour to the oldest listed hour, then reports the upstream listed-hour
-count, gaps in that covered span, requested hours still missing locally, and
-local parquet files with zero rows or less than 1 MiB of data. Existing local
-files are refreshed when they are empty or when an upstream source advertises a
-larger object. It also prints per-hour completion lines plus the active
-transfer. Example output:
+The downloader walks direct hourly filenames from `2026-02-21T16:00:00Z`
+through the current floored UTC hour newest-first, probes `r2v2.pmxt.dev` and
+`r2.pmxt.dev`, and keeps the larger archive object when both exist for the same
+hour. It reports the direct-hour count, hours missing from all configured
+sources, and requested hours still missing locally. Existing local files are
+refreshed when they are empty or when an upstream source advertises a larger
+object. It also prints per-hour completion lines plus the active transfer.
+Example output:
 
 ```text
-PMXT raw source: explicit priority (archive https://r2v2.pmxt.dev -> relay https://209-209-10-83.sslip.io)
+PMXT raw source: direct hour probes (archive best-of https://r2v2.pmxt.dev, https://r2.pmxt.dev -> relay https://209-209-10-83.sslip.io)
 Downloading PMXT raw hours to /path/to/pmxt_raws (requested_hours=3, window_start=2026-02-27T11, window_end=2026-02-27T13)...
   2026-02-27T13  12.431s   445.9 MiB  archive
   2026-02-27T12   0.000s    existing  skip
 Downloading raw hours (2/3 done, 1 active):  67%|████████████████████████████████████████████████████████████▏                              | [00:41<00:20]active: relay 2026-02-27T11 392.0/445.9 MiB 14.8s
 ```
 
-Those values vary with the archive listing and whatever hour is currently in
+Those values vary with the direct-hour window and whatever hour is currently in
 flight.
 
 ### Supported Local File Layout

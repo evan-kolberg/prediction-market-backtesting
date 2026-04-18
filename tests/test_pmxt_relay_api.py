@@ -36,6 +36,7 @@ def _make_config(tmp_path: Path) -> RelayConfig:
         event_retention=1000,
         api_rate_limit_per_minute=2400,
         verify_batch_size=50,
+        raw_base_urls=("https://r2v2.pmxt.dev", "https://r2.pmxt.dev"),
     )
 
 
@@ -171,12 +172,20 @@ def test_active_api_has_no_processing_badge_routes(tmp_path: Path):
             processing_response = await client.get("/v1/badge/processing.svg")
             file_response = await client.get("/v1/badge/file.svg")
             rows_response = await client.get("/v1/badge/rows.svg")
+            mirrored_response = await client.get("/v1/badge/mirrored.svg")
+            missing_response = await client.get("/v1/badge/missing-hours.svg")
+            empty_response = await client.get("/v1/badge/empty-hours.svg")
+            error_response = await client.get("/v1/badge/error-hours.svg")
         finally:
             await client.close()
 
         assert processing_response.status == 404
         assert file_response.status == 404
         assert rows_response.status == 404
+        assert mirrored_response.status == 404
+        assert missing_response.status == 404
+        assert empty_response.status == 404
+        assert error_response.status == 404
 
     asyncio.run(scenario())
 
@@ -358,6 +367,23 @@ def test_upstream_badge_stays_online_for_fresh_unresolved_mirror_gaps(tmp_path: 
     assert payload["color"] == "brightgreen"
 
 
+def test_upstream_r2_badge_uses_separate_r2_label(tmp_path: Path):
+    config = _make_config(tmp_path)
+    now = datetime(2026, 4, 3, 20, 0, tzinfo=timezone.utc)
+
+    payload = _upstream_badge_payload(
+        stats={"last_event_at": (now - timedelta(minutes=1)).isoformat()},
+        queue={},
+        config=config,
+        raw_base_url="https://r2.pmxt.dev",
+        now=now,
+    )
+
+    assert payload["label"] == "r2.pmxt.dev"
+    assert payload["message"] == "online"
+    assert payload["color"] == "brightgreen"
+
+
 def test_upstream_badge_stays_online_for_backlog_with_old_latest_mirror(tmp_path: Path):
     config = _make_config(tmp_path)
     now = datetime(2026, 4, 3, 20, 0, tzinfo=timezone.utc)
@@ -400,7 +426,7 @@ def test_upstream_badge_uses_offline_for_stale_polling(tmp_path: Path):
     assert payload["color"] == "red"
 
 
-def test_latest_file_badge_reports_latest_mirrored_filename(tmp_path: Path):
+def test_latest_hour_badge_reports_latest_mirrored_hour(tmp_path: Path):
     async def scenario() -> None:
         config = _make_config(tmp_path)
         config.ensure_directories()
@@ -435,14 +461,18 @@ def test_latest_file_badge_reports_latest_mirrored_filename(tmp_path: Path):
         client = TestClient(server)
         await client.start_server()
         try:
-            response = await client.get("/v1/badge/latest-file.svg")
+            response = await client.get("/v1/badge/latest-hour.svg")
             payload = await response.text()
+            alias_response = await client.get("/v1/badge/latest-file.svg")
+            alias_payload = await alias_response.text()
         finally:
             await client.close()
 
         assert response.status == 200
-        assert "Latest file" in payload
-        assert "polymarket_orderbook_2026-03-21T13.parquet" in payload
+        assert alias_response.status == 200
+        assert "Latest hour" in payload
+        assert "2026-03-21T13" in payload
+        assert "Latest hour" in alias_payload
 
     asyncio.run(scenario())
 
@@ -459,11 +489,22 @@ def test_stats_and_queue_payloads_are_mirror_only(tmp_path: Path):
         )
         index.mark_mirrored(
             filename,
-            local_path=str(tmp_path / "hour.parquet"),
+            local_path=str(
+                config.raw_root
+                / "2026"
+                / "03"
+                / "21"
+                / "polymarket_orderbook_2026-03-21T12.parquet"
+            ),
             etag=None,
             content_length=1,
             last_modified=None,
         )
+        raw_path = (
+            config.raw_root / "2026" / "03" / "21" / "polymarket_orderbook_2026-03-21T12.parquet"
+        )
+        raw_path.parent.mkdir(parents=True, exist_ok=True)
+        raw_path.write_bytes(b"raw-payload")
 
         server = TestServer(app)
         client = TestClient(server)
@@ -480,6 +521,8 @@ def test_stats_and_queue_payloads_are_mirror_only(tmp_path: Path):
         assert queue_response.status == 200
         assert sorted(stats_payload.keys()) == [
             "archive_hours",
+            "archive_start_hour",
+            "dump_files_on_disk",
             "last_error_at",
             "last_event_at",
             "mirror_errors",
@@ -487,6 +530,8 @@ def test_stats_and_queue_payloads_are_mirror_only(tmp_path: Path):
             "mirror_quarantined",
             "mirrored_hours",
         ]
+        assert stats_payload["dump_files_on_disk"] == 1
+        assert stats_payload["mirrored_hours"] == 1
         assert sorted(queue_payload.keys()) == [
             "latest_mirrored_filename",
             "latest_mirrored_hour",
@@ -504,108 +549,34 @@ def test_stats_and_queue_payloads_are_mirror_only(tmp_path: Path):
     asyncio.run(scenario())
 
 
-def test_missing_hours_badge_shows_count(tmp_path: Path):
+def test_simple_coverage_badges_use_disk_files_and_elapsed_hours(tmp_path: Path):
     async def scenario() -> None:
         config = _make_config(tmp_path)
         config.ensure_directories()
-        app = create_app(config)
-        index = app[INDEX_APP_KEY]
-        current_hour = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
-        two_hours_ago = current_hour - timedelta(hours=2)
-        earlier = f"polymarket_orderbook_{two_hours_ago:%Y-%m-%dT%H}.parquet"
-        ready = f"polymarket_orderbook_{current_hour:%Y-%m-%dT%H}.parquet"
-        index.upsert_discovered_hour(earlier, f"https://raw.example.com/{earlier}", 1)
-        index.upsert_discovered_hour(ready, f"https://raw.example.com/{ready}", 1)
-        index.mark_mirrored(
-            ready,
-            local_path=str(tmp_path / ready),
-            etag=None,
-            content_length=1,
-            last_modified=None,
+        raw_path = (
+            config.raw_root / "2026" / "03" / "21" / "polymarket_orderbook_2026-03-21T12.parquet"
         )
+        raw_path.parent.mkdir(parents=True, exist_ok=True)
+        raw_path.write_bytes(b"raw-payload")
 
-        server = TestServer(app)
-        client = TestClient(server)
-        await client.start_server()
-        try:
-            response = await client.get("/v1/badge/missing-hours.svg")
-            payload = await response.text()
-        finally:
-            await client.close()
-
-        assert response.status == 200
-        assert "Missing hours" in payload
-        assert "0/3" in payload
-
-    asyncio.run(scenario())
-
-
-def test_empty_hours_badge_shows_count(tmp_path: Path):
-    async def scenario() -> None:
-        config = _make_config(tmp_path)
-        config.ensure_directories()
         app = create_app(config)
-        index = app[INDEX_APP_KEY]
-        empty = "polymarket_orderbook_2026-03-21T12.parquet"
-        nonempty = "polymarket_orderbook_2026-03-21T13.parquet"
-        for filename in [empty, nonempty]:
-            index.upsert_discovered_hour(filename, f"https://raw.example.com/{filename}", 1)
-            index.mark_mirrored(
-                filename,
-                local_path=str(tmp_path / filename),
-                etag=None,
-                content_length=2 * 1024 * 1024,
-                last_modified=None,
-            )
-        index.update_row_count(empty, 0)
-        index.update_row_count(nonempty, 100)
-
         server = TestServer(app)
         client = TestClient(server)
         await client.start_server()
         try:
-            response = await client.get("/v1/badge/empty-hours.svg")
-            payload = await response.text()
+            dump_response = await client.get("/v1/badge/hour-files.svg")
+            hours_response = await client.get("/v1/badge/hours-since-first.svg")
+            dump_payload = await dump_response.text()
+            hours_payload = await hours_response.text()
         finally:
             await client.close()
 
-        assert response.status == 200
-        assert "Empty hours" in payload
-        assert "0/2" in payload
-
-    asyncio.run(scenario())
-
-
-def test_error_hours_badge_shows_listed_uncovered_count(tmp_path: Path):
-    async def scenario() -> None:
-        config = _make_config(tmp_path)
-        config.ensure_directories()
-        app = create_app(config)
-        index = app[INDEX_APP_KEY]
-        current_hour = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
-        previous_hour = current_hour - timedelta(hours=1)
-        pending = f"polymarket_orderbook_{previous_hour:%Y-%m-%dT%H}.parquet"
-        errored = f"polymarket_orderbook_{current_hour:%Y-%m-%dT%H}.parquet"
-        index.upsert_discovered_hour(pending, f"https://raw.example.com/{pending}", 1)
-        index.upsert_discovered_hour(errored, f"https://raw.example.com/{errored}", 1)
-        index.mark_mirror_retry(
-            errored,
-            error="HTTP 500",
-            next_retry_at=(current_hour + timedelta(hours=1)).isoformat(),
-        )
-
-        server = TestServer(app)
-        client = TestClient(server)
-        await client.start_server()
-        try:
-            response = await client.get("/v1/badge/error-hours.svg")
-            payload = await response.text()
-        finally:
-            await client.close()
-
-        assert response.status == 200
-        assert "Error hours" in payload
-        assert "2/2" in payload
+        assert dump_response.status == 200
+        assert hours_response.status == 200
+        assert "Hour files" in dump_payload
+        assert "1 files" in dump_payload
+        assert "Hours since first" in hours_payload
+        assert "#007ec6" in hours_payload
 
     asyncio.run(scenario())
 

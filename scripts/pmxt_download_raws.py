@@ -30,10 +30,11 @@ def _parse_archive_source(value: str) -> tuple[str, str]:
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
-            "Download PMXT v2 raw archive hours into a local mirror. With no time "
-            "window, the script discovers all archive hours and downloads them "
-            "newest-first to the destination using archive first and relay as "
-            "fallback, then reports missing and zero-row local hours."
+            "Download PMXT raw archive hours into a local mirror. With no time "
+            "window, the script walks direct hourly filenames from the first PMXT "
+            "Polymarket raw hour through the current UTC hour, probes r2v2 and r2, "
+            "keeps the larger archive object when both exist, and uses relay as "
+            "fallback."
         )
     )
     parser.add_argument("--destination", type=Path, required=True)
@@ -46,7 +47,8 @@ def main() -> int:
         default=[],
         help=(
             "Archive source pair in LISTING_URL|RAW_BASE_URL form. May be repeated. "
-            "Defaults to PMXT Polymarket v2 first, then v1."
+            "The listing URL is retained for compatibility; direct downloads use "
+            "the raw base URL. Defaults to r2v2.pmxt.dev and r2.pmxt.dev."
         ),
     )
     parser.add_argument("--relay-base-url", default="https://209-209-10-83.sslip.io")
@@ -62,8 +64,18 @@ def main() -> int:
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument("--no-progress", action="store_true")
     parser.add_argument("--timeout-secs", type=int, default=60)
-    parser.add_argument("--discovery-stale-pages", type=int, default=1)
-    parser.add_argument("--discovery-max-pages", type=int, default=None)
+    parser.add_argument(
+        "--discovery-stale-pages",
+        type=int,
+        default=1,
+        help="Deprecated compatibility flag; direct-hour downloads do not read listings.",
+    )
+    parser.add_argument(
+        "--discovery-max-pages",
+        type=int,
+        default=None,
+        help="Deprecated compatibility flag; direct-hour downloads do not read listings.",
+    )
     args = parser.parse_args()
 
     archive_sources = args.archive_source or None
