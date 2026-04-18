@@ -505,7 +505,7 @@ def test_stats_and_queue_payloads_are_mirror_only(tmp_path: Path):
             config.raw_root / "2026" / "03" / "21" / "polymarket_orderbook_2026-03-21T12.parquet"
         )
         raw_path.parent.mkdir(parents=True, exist_ok=True)
-        raw_path.write_bytes(b"x" * (2 * 1024 * 1024))
+        raw_path.write_bytes(b"raw-payload")
 
         server = TestServer(app)
         client = TestClient(server)
@@ -558,7 +558,7 @@ def test_simple_coverage_badges_use_disk_files_and_elapsed_hours(tmp_path: Path)
             config.raw_root / "2026" / "03" / "21" / "polymarket_orderbook_2026-03-21T12.parquet"
         )
         raw_path.parent.mkdir(parents=True, exist_ok=True)
-        raw_path.write_bytes(b"x" * (2 * 1024 * 1024))
+        raw_path.write_bytes(b"raw-payload")
 
         app = create_app(config)
         server = TestServer(app)

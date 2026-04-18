@@ -12,7 +12,7 @@ from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 from pmxt_relay.config import RelayConfig
-from pmxt_relay.coverage import MIN_NONEMPTY_RAW_BYTES, iter_archive_hours_desc
+from pmxt_relay.coverage import iter_archive_hours_desc
 from pmxt_relay.index_db import REMIRROR_CONTENT_CHANGED_REASON, RelayIndex
 from pmxt_relay.storage import archive_filename_for_hour, raw_relative_path
 
@@ -21,7 +21,14 @@ _MIRROR_404_QUARANTINE_AFTER = 3
 _MIRROR_RETRY_BACKOFF_CAP_SECS = 6 * 3600
 _MIRROR_QUARANTINE_RETRY_SECS = 3600
 _VERIFY_HTTP_TIMEOUT_CAP_SECS = 2
-_MIN_NONEMPTY_RAW_BYTES = MIN_NONEMPTY_RAW_BYTES
+_MIN_NONEMPTY_RAW_BYTES = 1024 * 1024
+
+
+@dataclass(frozen=True)
+class _RawUrlCandidate:
+    source_url: str
+    source_priority: int
+    content_length: int | None
 
 
 @dataclass(frozen=True)

@@ -6,7 +6,6 @@ from pathlib import Path
 from pmxt_relay.storage import ARCHIVE_FILENAME_RE
 
 PMXT_ARCHIVE_START_HOUR = datetime(2026, 2, 21, 16, tzinfo=UTC)
-MIN_NONEMPTY_RAW_BYTES = 1024 * 1024
 
 
 def floor_utc_hour(value: datetime) -> datetime:
@@ -38,11 +37,6 @@ def count_raw_dump_files(raw_root: Path) -> int:
         return 0
     count = 0
     for path in raw_root.rglob("polymarket_orderbook_*.parquet"):
-        if not path.is_file() or not ARCHIVE_FILENAME_RE.fullmatch(path.name):
-            continue
-        try:
-            if path.stat().st_size >= MIN_NONEMPTY_RAW_BYTES:
-                count += 1
-        except OSError:
-            continue
+        if path.is_file() and ARCHIVE_FILENAME_RE.fullmatch(path.name):
+            count += 1
     return count

@@ -40,9 +40,8 @@ Operational note:
 - the public relay status badge reports relay health only
 - the public PMXT upstream badges report `r2v2.pmxt.dev` and `r2.pmxt.dev`
   source polling as online or offline;
-- the coverage badges are only actual hour files on disk (files below the
-  nonempty byte threshold are excluded from the disk-file count) and elapsed
-  archive hours since `2026-02-21T16:00:00+00:00`
+- the coverage badges are only actual hour files on disk and elapsed archive
+  hours since `2026-02-21T16:00:00+00:00`
 - the latest-hour badge shows the full mirrored filename
   (`polymarket_orderbook_YYYY-MM-DDTHH`), not just the hour
 - reuse of an existing local raw file only happens when upstream `HEAD`
