@@ -30,6 +30,7 @@ DATA = MarketDataConfig(
     sources=(
         "local:/data/pmxt/raw",
         "archive:r2v2.pmxt.dev",
+        "archive:r2.pmxt.dev",
         "relay:mirror.example.com",
     ),
 )
@@ -56,7 +57,7 @@ still work for custom integrations:
 
 - `PMXT_LOCAL_ARCHIVE_DIR`
 - `PMXT_RAW_ROOT`
-- `PMXT_REMOTE_BASE_URL`
+- `PMXT_REMOTE_BASE_URL` (comma-separate multiple archives, e.g. `https://r2v2.pmxt.dev,https://r2.pmxt.dev`)
 - `PMXT_RELAY_BASE_URL`
 - `PMXT_CACHE_DIR`
 - `PMXT_DISABLE_CACHE`
@@ -71,7 +72,7 @@ The public PMXT runner layer reads one market/token/hour from these places:
 The current "bring your own data" story is therefore:
 
 - set `DATA.sources` in your runner to
-  `("local:/path/to/raw-hours", "archive:r2v2.pmxt.dev", "relay:relay.example.com")`
+  `("local:/path/to/raw-hours", "archive:r2v2.pmxt.dev", "archive:r2.pmxt.dev", "relay:relay.example.com")`
 - or point `PMXT_LOCAL_ARCHIVE_DIR` / `PMXT_RAW_ROOT` at a directory of raw
   PMXT hour files you already mirrored locally
 - or run your own raw mirror and point `PMXT_RELAY_BASE_URL` at it
