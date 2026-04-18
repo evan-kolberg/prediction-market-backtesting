@@ -556,6 +556,24 @@ def _empty_hours_badge_payload(*, index: RelayIndex) -> dict[str, object]:
     )
 
 
+def _error_hours_badge_payload(*, index: RelayIndex) -> dict[str, object]:
+    errors = index.count_error_hours()
+    total = int(index.stats().get("archive_hours") or 0)
+    if total == 0:
+        color = "lightgrey"
+    elif errors == 0:
+        color = "brightgreen"
+    elif errors <= 5:
+        color = "yellow"
+    else:
+        color = "red"
+    return _badge_payload(
+        label="Error hours",
+        message=f"{errors}/{total}",
+        color=color,
+    )
+
+
 class RequestRateLimiter:
     def __init__(self, requests_per_minute: int) -> None:
         self._requests_per_minute = requests_per_minute
@@ -934,6 +952,12 @@ async def badge_empty_hours_svg(request: web.Request) -> web.Response:
     return _badge_svg_response(payload)
 
 
+async def badge_error_hours_svg(request: web.Request) -> web.Response:
+    index = request.app[INDEX_APP_KEY]
+    payload = await asyncio.to_thread(_error_hours_badge_payload, index=index)
+    return _badge_svg_response(payload)
+
+
 async def serve_raw(request: web.Request) -> web.StreamResponse:
     config = request.app[CONFIG_APP_KEY]
     filename = request.match_info["filename"]
@@ -980,5 +1004,6 @@ def create_app(config: RelayConfig) -> web.Application:
     app.router.add_get("/v1/badge/mirroring.svg", badge_mirroring_svg)
     app.router.add_get("/v1/badge/missing-hours.svg", badge_missing_hours_svg)
     app.router.add_get("/v1/badge/empty-hours.svg", badge_empty_hours_svg)
+    app.router.add_get("/v1/badge/error-hours.svg", badge_error_hours_svg)
     app.router.add_get("/v1/raw/{filename:.*}", serve_raw)
     return app

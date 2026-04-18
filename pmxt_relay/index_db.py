@@ -626,6 +626,44 @@ class RelayIndex:
             )
         )
 
+    def count_error_hours(self, *, now: datetime | None = None) -> int:
+        now_reference = _utc_now_datetime() if now is None else now.astimezone(UTC)
+        now_floor = now_reference.replace(minute=0, second=0, microsecond=0)
+        row = self._fetchone(
+            """
+            SELECT
+                COUNT(DISTINCT hour) AS discovered_hours,
+                SUM(
+                    CASE
+                        WHEN mirror_status = 'ready' AND (row_count IS NULL OR row_count > 0)
+                          AND (content_length IS NULL OR content_length >= ?)
+                        THEN 1
+                        ELSE 0
+                    END
+                ) AS mirrored_hours,
+                SUM(
+                    CASE
+                        WHEN mirror_status = 'ready'
+                          AND (
+                            (row_count IS NOT NULL AND row_count = 0)
+                            OR (content_length IS NOT NULL AND content_length < ?)
+                          )
+                        THEN 1
+                        ELSE 0
+                    END
+                ) AS empty_hours
+            FROM archive_hours
+            WHERE hour <= ?
+            """,
+            (_MIN_NONEMPTY_RAW_BYTES, _MIN_NONEMPTY_RAW_BYTES, now_floor.isoformat()),
+        )
+        if row is None:
+            return 0
+        discovered_hours = int(row["discovered_hours"] or 0)
+        mirrored_hours = int(row["mirrored_hours"] or 0)
+        empty_hours = int(row["empty_hours"] or 0)
+        return max(0, discovered_hours - mirrored_hours - empty_hours)
+
     def _compute_elapsed_archive_hours(self, *, now: datetime | None = None) -> int:
         min_hour_value = self._fetchscalar("SELECT MIN(hour) FROM archive_hours", default=None)
         min_hour = _parse_db_timestamp(min_hour_value if isinstance(min_hour_value, str) else None)

@@ -574,6 +574,40 @@ def test_empty_hours_badge_shows_count(tmp_path: Path):
     asyncio.run(scenario())
 
 
+def test_error_hours_badge_shows_listed_uncovered_count(tmp_path: Path):
+    async def scenario() -> None:
+        config = _make_config(tmp_path)
+        config.ensure_directories()
+        app = create_app(config)
+        index = app[INDEX_APP_KEY]
+        current_hour = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
+        previous_hour = current_hour - timedelta(hours=1)
+        pending = f"polymarket_orderbook_{previous_hour:%Y-%m-%dT%H}.parquet"
+        errored = f"polymarket_orderbook_{current_hour:%Y-%m-%dT%H}.parquet"
+        index.upsert_discovered_hour(pending, f"https://raw.example.com/{pending}", 1)
+        index.upsert_discovered_hour(errored, f"https://raw.example.com/{errored}", 1)
+        index.mark_mirror_retry(
+            errored,
+            error="HTTP 500",
+            next_retry_at=(current_hour + timedelta(hours=1)).isoformat(),
+        )
+
+        server = TestServer(app)
+        client = TestClient(server)
+        await client.start_server()
+        try:
+            response = await client.get("/v1/badge/error-hours.svg")
+            payload = await response.text()
+        finally:
+            await client.close()
+
+        assert response.status == 200
+        assert "Error hours" in payload
+        assert "2/2" in payload
+
+    asyncio.run(scenario())
+
+
 def test_upstream_badge_old_mirror_errors_still_report_online(tmp_path: Path):
     config = _make_config(tmp_path)
     now = datetime(2026, 4, 3, 20, 0, tzinfo=timezone.utc)

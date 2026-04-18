@@ -219,6 +219,19 @@ def test_adopt_local_raw_marks_hours_as_mirrored(tmp_path: Path) -> None:
         assert stats["mirrored_hours"] == 1
 
 
+def test_adopt_local_raw_skips_tiny_raw_files(tmp_path: Path) -> None:
+    config = _make_config(tmp_path)
+    raw_path = config.raw_root / "2026" / "03" / "21" / "polymarket_orderbook_2026-03-21T12.parquet"
+    raw_path.parent.mkdir(parents=True, exist_ok=True)
+    raw_path.write_bytes(b"x" * 214)
+
+    with RelayWorker(config, reset_inflight=False) as worker:
+        adopted = worker._adopt_local_raw_hours()
+
+        assert adopted == 0
+        assert worker._index.stats()["mirrored_hours"] == 0
+
+
 def test_adopt_local_raw_preserves_archive_source_url(tmp_path: Path) -> None:
     config = _make_config(tmp_path)
     filename = "polymarket_orderbook_2026-03-21T12.parquet"
@@ -394,6 +407,41 @@ def test_verify_ready_hours_tolerates_head_failure(tmp_path: Path, monkeypatch) 
         ).fetchone()
         assert row is not None
         assert row["mirror_status"] == "ready"
+
+
+def test_verify_ready_empty_hour_404_moves_to_error(tmp_path: Path, monkeypatch) -> None:
+    config = _make_config(tmp_path)
+    with RelayWorker(config, reset_inflight=False) as worker:
+        filename = "polymarket_orderbook_2026-03-21T12.parquet"
+        source_url = f"https://r2v2.pmxt.dev/{filename}"
+        worker._index.upsert_discovered_hour(filename, source_url, 1)
+        worker._index.mark_mirrored(
+            filename,
+            local_path=str(tmp_path / filename),
+            etag="abc",
+            content_length=214,
+            last_modified=None,
+        )
+        worker._index.update_row_count(filename, 0)
+
+        def fake_urlopen(request: Request, timeout):  # type: ignore[no-untyped-def]
+            assert timeout == 2
+            assert request.get_method() == "HEAD"
+            raise HTTPError(request.full_url, 404, "Not Found", hdrs=None, fp=None)
+
+        monkeypatch.setattr("pmxt_relay.worker.urlopen", fake_urlopen)
+
+        assert worker._verify_ready_hours() == 1
+
+        row = worker._index._conn.execute(
+            "SELECT mirror_status, last_error FROM archive_hours WHERE filename = ?",
+            (filename,),
+        ).fetchone()
+        assert row is not None
+        assert row["mirror_status"] == "error"
+        assert row["last_error"] == "HTTP Error 404: Not Found"
+        assert worker._index.count_empty_hours() == 0
+        assert worker._index.count_error_hours() == 1
 
 
 def test_run_once_includes_verification_step(tmp_path: Path, monkeypatch) -> None:

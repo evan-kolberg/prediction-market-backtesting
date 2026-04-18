@@ -20,6 +20,7 @@ _MIRROR_404_QUARANTINE_AFTER = 3
 _MIRROR_RETRY_BACKOFF_CAP_SECS = 6 * 3600
 _MIRROR_QUARANTINE_RETRY_SECS = 3600
 _VERIFY_HTTP_TIMEOUT_CAP_SECS = 2
+_MIN_NONEMPTY_RAW_BYTES = 1024 * 1024
 
 
 class RelayWorker:
@@ -191,6 +192,8 @@ class RelayWorker:
             byte_size = raw_path.stat().st_size
         except FileNotFoundError:
             return 0
+        if byte_size < _MIN_NONEMPTY_RAW_BYTES:
+            return 0
         changed = self._index.register_local_raw(
             filename,
             local_path=str(raw_path),
@@ -275,6 +278,33 @@ class RelayWorker:
             try:
                 changed = self._check_upstream_changed(row)
             except Exception as exc:
+                if self._should_reclassify_ready_empty_as_error(row, exc):
+                    next_error_count = int(row["error_count"] or 0) + 1
+                    next_retry_at = self._next_retry_at(error_count=next_error_count)
+                    self._index.mark_mirror_retry(
+                        row["filename"], error=str(exc), next_retry_at=next_retry_at.isoformat()
+                    )
+                    self._record_event(
+                        level="WARNING",
+                        event_type="verify_empty_unavailable",
+                        filename=row["filename"],
+                        message=(
+                            f"Upstream empty raw hour unavailable for {row['filename']}; "
+                            "moving to error"
+                        ),
+                        payload={
+                            "error": str(exc),
+                            "error_count": next_error_count,
+                            "next_retry_at": next_retry_at.isoformat(),
+                        },
+                    )
+                    LOG.warning(
+                        "Moving empty raw hour %s to error after verification failure: %s",
+                        row["filename"],
+                        exc,
+                    )
+                    requeued += 1
+                    continue
                 LOG.warning("Verification HEAD failed for %s: %s", row["filename"], exc)
                 self._index.mark_verified(row["filename"])
                 continue
@@ -303,6 +333,16 @@ class RelayWorker:
                 payload={"batch_size": len(batch), "requeued": requeued},
             )
         return requeued
+
+    @staticmethod
+    def _should_reclassify_ready_empty_as_error(row, exc: Exception) -> bool:  # type: ignore[no-untyped-def]
+        if not isinstance(exc, HTTPError) or exc.code != 404:
+            return False
+        row_count = row["row_count"]
+        content_length = row["content_length"]
+        return (row_count is not None and row_count == 0) or (
+            content_length is not None and content_length < _MIN_NONEMPTY_RAW_BYTES
+        )
 
     def _check_upstream_changed(self, row) -> bool:  # type: ignore[no-untyped-def]
         source_url = row["source_url"]

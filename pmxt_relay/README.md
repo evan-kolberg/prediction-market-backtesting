@@ -65,12 +65,16 @@ Coverage metrics separate upstream availability from local mirror state:
 - Missing hours are wall-clock hours since the first recorded hour that do not
   appear in upstream archive listings at all. They are picked up by discovery on
   the next cycle after upstream publishes them.
-- Pending, active, error, and quarantined mirror rows are not counted as missing
-  upstream hours. They are local mirror backlog and are reported by `/v1/queue`.
 - Mirrored-but-empty parquets (`row_count == 0` or `Content-Length < 1 MiB`,
   counted as empty): caught by the HEAD re-verifier when upstream replaces the
   bytes (different ETag or Content-Length), then re-mirrored and `row_count`
-  recomputed.
+  recomputed. If upstream later returns 404 for a known-empty file, the verifier
+  moves it to the error bucket instead.
+- Error hours are listed archive rows that are not currently represented by a
+  non-empty mirror or known-empty file. This includes pending, active, error, and
+  quarantined mirror rows; detailed states are reported by `/v1/queue`.
+- The coverage gap is expected to reconcile as:
+  `archive_hours - mirrored_hours == missing + empty + error`.
 - Updated bytes for filenames already on disk: same HEAD re-verifier path;
   filename does not need to change.
 
@@ -170,3 +174,5 @@ The public badges separate relay health from `r2v2.pmxt.dev` availability:
   rows or less than 1 MiB of data (broken/empty uploads). Empty hours are
   excluded from the "mirrored" count surfaced by `/v1/stats` and
   `/v1/badge/mirrored.svg`, but they are still counted as `ready`.
+- `/v1/badge/error-hours.svg` shows listed archive rows that are not currently
+  represented by a non-empty mirror or known-empty file.

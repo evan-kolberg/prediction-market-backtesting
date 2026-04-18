@@ -522,6 +522,44 @@ def test_count_missing_hours_wall_clock_gap_dominant(tmp_path: Path):
         assert index.count_missing_hours(now=now) == 5
 
 
+def test_coverage_gap_buckets_reconcile(tmp_path: Path):
+    with RelayIndex(tmp_path / "relay.sqlite3") as index:
+        index.initialize()
+        ready = "polymarket_orderbook_2026-03-21T12.parquet"
+        empty = "polymarket_orderbook_2026-03-21T13.parquet"
+        pending = "polymarket_orderbook_2026-03-21T14.parquet"
+        active = "polymarket_orderbook_2026-03-21T15.parquet"
+        errored = "polymarket_orderbook_2026-03-21T16.parquet"
+        for filename in [ready, empty, pending, active, errored]:
+            index.upsert_discovered_hour(filename, f"https://r2v2.pmxt.dev/{filename}", 1)
+        for filename in [ready, empty]:
+            index.mark_mirrored(
+                filename,
+                local_path=f"/srv/pmxt-relay/raw/{filename}",
+                etag=None,
+                content_length=2 * 1024 * 1024,
+                last_modified=None,
+            )
+        index.update_row_count(empty, 0)
+        index.mark_mirroring(active)
+        index.mark_mirror_retry(
+            errored, error="HTTP 500", next_retry_at="2026-03-21T17:00:00+00:00"
+        )
+
+        now = datetime(2026, 3, 21, 17, 10, tzinfo=timezone.utc)
+        stats = index.stats(now=now)
+        mirrored = int(stats["mirrored_hours"])
+        archive_hours = int(stats["archive_hours"])
+        missing = index.count_missing_hours(now=now)
+        empty_hours = index.count_empty_hours()
+        error_hours = index.count_error_hours(now=now)
+
+        assert archive_hours - mirrored == missing + empty_hours + error_hours
+        assert missing == 1
+        assert empty_hours == 1
+        assert error_hours == 3
+
+
 def test_stats_archive_hours_are_elapsed_wall_clock_hours(tmp_path: Path):
     with RelayIndex(tmp_path / "relay.sqlite3") as index:
         index.initialize()
