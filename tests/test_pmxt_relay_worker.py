@@ -248,6 +248,67 @@ def test_mirror_hour_falls_back_to_get_when_head_is_rejected(tmp_path: Path, mon
         assert stats["mirrored_hours"] == 1
 
 
+def test_mirror_reuse_redownloads_when_local_size_mismatches_upstream(
+    tmp_path: Path, monkeypatch
+) -> None:
+    config = _make_config(tmp_path)
+    with RelayWorker(config, reset_inflight=False) as worker:
+        filename = "polymarket_orderbook_2026-03-21T12.parquet"
+        source_url = f"https://r2v2.pmxt.dev/{filename}"
+        raw_path = config.raw_root / raw_relative_path(filename)
+        raw_path.parent.mkdir(parents=True, exist_ok=True)
+        raw_path.write_bytes(b"x" * (2 * 1024 * 1024))
+        worker._index.upsert_discovered_hour(filename, source_url, 1)
+        row = worker._index.list_hours_needing_mirror()[0]
+        upstream_size = 4 * 1024 * 1024
+
+        def fake_urlopen(request: Request, timeout):  # type: ignore[no-untyped-def]
+            if request.get_method() == "HEAD":
+                return _FakeResponse(b"", headers={"Content-Length": str(upstream_size)})
+            return _FakeResponse(
+                b"y" * upstream_size, headers={"Content-Length": str(upstream_size)}
+            )
+
+        monkeypatch.setattr("pmxt_relay.worker.urlopen", fake_urlopen)
+
+        worker._mirror_hour(row)
+
+        assert raw_path.stat().st_size == upstream_size
+        updated = worker._index._conn.execute(
+            "SELECT mirror_status, content_length FROM archive_hours WHERE filename = ?",
+            (filename,),
+        ).fetchone()
+        assert updated["mirror_status"] == "ready"
+        assert updated["content_length"] == upstream_size
+
+
+def test_mirror_reuse_keeps_local_when_size_matches_upstream(tmp_path: Path, monkeypatch) -> None:
+    config = _make_config(tmp_path)
+    with RelayWorker(config, reset_inflight=False) as worker:
+        filename = "polymarket_orderbook_2026-03-21T12.parquet"
+        source_url = f"https://r2v2.pmxt.dev/{filename}"
+        raw_path = config.raw_root / raw_relative_path(filename)
+        raw_path.parent.mkdir(parents=True, exist_ok=True)
+        local_size = 2 * 1024 * 1024
+        raw_path.write_bytes(b"x" * local_size)
+        worker._index.upsert_discovered_hour(filename, source_url, 1)
+        row = worker._index.list_hours_needing_mirror()[0]
+
+        methods: list[str] = []
+
+        def fake_urlopen(request: Request, timeout):  # type: ignore[no-untyped-def]
+            methods.append(request.get_method())
+            assert request.get_method() == "HEAD"
+            return _FakeResponse(b"", headers={"Content-Length": str(local_size)})
+
+        monkeypatch.setattr("pmxt_relay.worker.urlopen", fake_urlopen)
+
+        worker._mirror_hour(row)
+
+        assert methods == ["HEAD"]
+        assert raw_path.stat().st_size == local_size
+
+
 def test_content_changed_remirror_replaces_existing_raw(tmp_path: Path, monkeypatch) -> None:
     config = _make_config(tmp_path)
     with RelayWorker(config, reset_inflight=False) as worker:
@@ -337,6 +398,27 @@ def test_adopt_local_raw_skips_tiny_raw_files(tmp_path: Path) -> None:
 
         assert adopted == 0
         assert worker._index.stats()["mirrored_hours"] == 0
+        assert not raw_path.exists()
+
+
+def test_adopt_local_raw_keeps_tiny_file_when_ready_in_db(tmp_path: Path) -> None:
+    config = _make_config(tmp_path)
+    filename = "polymarket_orderbook_2026-03-21T12.parquet"
+    raw_path = config.raw_root / "2026" / "03" / "21" / filename
+    raw_path.parent.mkdir(parents=True, exist_ok=True)
+    raw_path.write_bytes(b"x" * 214)
+
+    with RelayWorker(config, reset_inflight=False) as worker:
+        worker._index.register_local_raw(
+            filename,
+            local_path=str(raw_path),
+            content_length=214,
+            source_url=f"https://r2v2.pmxt.dev/{filename}",
+        )
+
+        worker._adopt_local_raw_hours()
+
+        assert raw_path.exists()
 
 
 def test_adopt_local_raw_preserves_archive_source_url(tmp_path: Path) -> None:

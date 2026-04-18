@@ -65,6 +65,17 @@ re-queued for download. The batch size is configurable via
 `PMXT_RELAY_VERIFY_BATCH_SIZE` (default 50). Parquet row counts and byte sizes
 are tracked to detect empty/broken files.
 
+When the worker starts, it purges any undersized orphan `.parquet` files on
+disk (below the nonempty byte threshold) that are not tracked as `ready` in
+the index DB. This removes placeholder 3-4 KB files left behind by upstream
+transient uploads and prevents the reuse path from treating them as valid
+mirrors.
+
+Before reusing an existing raw file for a `pending` mirror row, the worker
+HEAD-probes upstream and only reuses when the local byte size matches the
+upstream `Content-Length`. If upstream reports a different size, the file is
+re-downloaded to keep the mirror in parity with the authoritative archive.
+
 ## Self-Healing Coverage
 
 Coverage metrics stay deliberately simple:
@@ -168,4 +179,5 @@ The public badges separate relay health from raw-origin availability:
 - `/v1/badge/hour-files(.svg)` reports actual hour files on disk.
 - `/v1/badge/hours-since-first(.svg)` reports elapsed hours since
   `2026-02-21T16:00:00+00:00`.
-- `/v1/badge/latest-hour.svg` reports the latest mirrored hour on disk.
+- `/v1/badge/latest-hour.svg` reports the latest mirrored filename on disk
+  (for example `polymarket_orderbook_2026-04-18T04`).

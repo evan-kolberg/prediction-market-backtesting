@@ -471,7 +471,8 @@ def test_latest_hour_badge_reports_latest_mirrored_hour(tmp_path: Path):
         assert response.status == 200
         assert alias_response.status == 200
         assert "Latest hour" in payload
-        assert "2026-03-21T13" in payload
+        assert "polymarket_orderbook_2026-03-21T13" in payload
+        assert ".parquet" not in payload
         assert "Latest hour" in alias_payload
 
     asyncio.run(scenario())

@@ -31,6 +31,13 @@ class _RawUrlCandidate:
     content_length: int | None
 
 
+@dataclass(frozen=True)
+class _RawUrlCandidate:
+    source_url: str
+    source_priority: int
+    content_length: int | None
+
+
 class RelayWorker:
     def __init__(
         self,
@@ -260,10 +267,45 @@ class RelayWorker:
 
     def _adopt_all_local_raw_hours(self) -> int:
         adopted = 0
+        removed_broken = 0
         for raw_path in sorted(self._config.raw_root.rglob("polymarket_orderbook_*.parquet")):
-            adopted += self._register_local_raw_file(raw_path)
+            registered = self._register_local_raw_file(raw_path)
+            adopted += registered
+            if registered == 0 and self._remove_broken_orphan_raw(raw_path):
+                removed_broken += 1
         self._emit_adopted_local_raw_event(adopted)
+        if removed_broken > 0:
+            self._record_event(
+                level="WARNING",
+                event_type="purge_broken_raw",
+                message=(
+                    f"Removed {removed_broken} undersized orphan raw files "
+                    f"(< {_MIN_NONEMPTY_RAW_BYTES} bytes) from disk"
+                ),
+                payload={"removed": removed_broken},
+            )
+            LOG.warning("Removed %s undersized orphan raw files from disk", removed_broken)
         return adopted
+
+    def _remove_broken_orphan_raw(self, raw_path: Path) -> bool:
+        try:
+            if not raw_path.is_file():
+                return False
+            if raw_path.stat().st_size >= _MIN_NONEMPTY_RAW_BYTES:
+                return False
+        except OSError:
+            return False
+        row = self._index._fetchone(
+            "SELECT mirror_status FROM archive_hours WHERE filename = ?",
+            (raw_path.name,),
+        )
+        if row is not None and row["mirror_status"] == "ready":
+            return False
+        try:
+            raw_path.unlink()
+        except OSError:
+            return False
+        return True
 
     def _adopt_pending_local_raw_hours(self) -> int:
         adopted = 0
@@ -523,14 +565,34 @@ class RelayWorker:
             and error_count >= _MIRROR_404_QUARANTINE_AFTER
         )
 
+    def _local_matches_upstream_size(self, local_path: Path, source_url: str) -> bool:
+        try:
+            local_size = local_path.stat().st_size
+        except OSError:
+            return False
+        head_request = Request(source_url, method="HEAD", headers={"User-Agent": "pmxt-relay/1.0"})
+        try:
+            with urlopen(head_request, timeout=self._config.http_timeout_secs) as response:
+                upstream_size = RelayWorker._content_length_from_headers(response.headers)
+        except Exception:
+            return False
+        if upstream_size is None:
+            return False
+        return local_size == upstream_size
+
     def _mirror_hour(self, row) -> None:  # type: ignore[no-untyped-def]
         filename = row["filename"]
         source_url = row["source_url"]
         raw_path = self._config.raw_root / raw_relative_path(filename)
         raw_path.parent.mkdir(parents=True, exist_ok=True)
         self._index.mark_mirroring(filename)
-        should_reuse_existing = row["last_error"] != REMIRROR_CONTENT_CHANGED_REASON
-        if should_reuse_existing and raw_path.exists() and raw_path.stat().st_size > 0:
+        should_reuse_existing = (
+            row["last_error"] != REMIRROR_CONTENT_CHANGED_REASON
+            and raw_path.exists()
+            and raw_path.stat().st_size >= _MIN_NONEMPTY_RAW_BYTES
+            and self._local_matches_upstream_size(raw_path, source_url)
+        )
+        if should_reuse_existing:
             self._index.mark_mirrored(
                 filename,
                 local_path=str(raw_path),

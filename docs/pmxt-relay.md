@@ -42,6 +42,14 @@ Operational note:
   source polling as online or offline;
 - the coverage badges are only actual hour files on disk and elapsed archive
   hours since `2026-02-21T16:00:00+00:00`
+- the latest-hour badge shows the full mirrored filename
+  (`polymarket_orderbook_YYYY-MM-DDTHH`), not just the hour
+- reuse of an existing local raw file only happens when upstream `HEAD`
+  reports a matching `Content-Length`; otherwise the worker re-downloads and
+  the existing placeholder is overwritten
+- on startup the worker purges undersized orphan raw files that aren't
+  tracked as ready in the index DB, so broken placeholder downloads from
+  prior runs cannot silently count toward coverage
 
 Deployment facts for the active box:
 
