@@ -19,6 +19,14 @@ No repo-level open issues are tracked here right now.
 
 ## Recently Fixed
 
+- [x] PMXT relay latest-hour badge now prints the mirrored filename
+  (`polymarket_orderbook_YYYY-MM-DDTHH`) instead of only the naked hour, the
+  mirror worker validates the local file size against upstream before reusing
+  an existing raw file (so stale placeholder downloads can no longer survive
+  as `ready`), `count_raw_dump_files` excludes undersized parquet files from
+  the public coverage denominator, and startup adoption purges orphan raw
+  files under the nonempty byte threshold that aren't tracked as ready in the
+  index DB
 - [x] multi-market runners now default to `EMIT_HTML=False` and the artifact
   pipeline downsamples price points to 5 000 before building dense equity
   curves, cutting wall time from ~320s to ~26s on an 8-market basket

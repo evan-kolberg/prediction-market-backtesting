@@ -498,15 +498,17 @@ def _archive_hours_badge_payload(*, stats: dict[str, int | str | None]) -> dict[
 
 
 def _latest_hour_badge_payload(*, queue: dict[str, int | str | None]) -> dict[str, object]:
+    latest_filename = queue.get("latest_mirrored_filename")
+    if isinstance(latest_filename, str) and latest_filename:
+        message = latest_filename.removesuffix(".parquet")
+        return _badge_payload(label="Latest hour", message=message, color="blue")
+
     latest_hour = queue.get("latest_mirrored_hour")
-    hour_label = latest_hour if isinstance(latest_hour, str) and latest_hour else None
-    if hour_label is not None:
-        hour_label = hour_label.replace(":00:00+00:00", "").replace("+00:00", "")
-    return _badge_payload(
-        label="Latest hour",
-        message=hour_label or "none",
-        color="blue" if hour_label is not None else "lightgrey",
-    )
+    if isinstance(latest_hour, str) and latest_hour:
+        hour_label = latest_hour.replace(":00:00+00:00", "").replace("+00:00", "")
+        return _badge_payload(label="Latest hour", message=hour_label, color="blue")
+
+    return _badge_payload(label="Latest hour", message="none", color="lightgrey")
 
 
 class RequestRateLimiter:
