@@ -39,7 +39,8 @@ Operational note:
 
 - the public relay status badge reports relay health only
 - the public PMXT upstream badge reports source polling as online or offline;
-  missing archive hours and zero-row mirrored files have separate badges
+  missing archive hours, zero-row mirrored files, and listed-but-uncovered
+  mirror rows have separate badges
 
 Deployment facts for the active box:
 
