@@ -265,7 +265,9 @@ def test_mirror_reuse_redownloads_when_local_size_mismatches_upstream(
         def fake_urlopen(request: Request, timeout):  # type: ignore[no-untyped-def]
             if request.get_method() == "HEAD":
                 return _FakeResponse(b"", headers={"Content-Length": str(upstream_size)})
-            return _FakeResponse(b"y" * upstream_size, headers={"Content-Length": str(upstream_size)})
+            return _FakeResponse(
+                b"y" * upstream_size, headers={"Content-Length": str(upstream_size)}
+            )
 
         monkeypatch.setattr("pmxt_relay.worker.urlopen", fake_urlopen)
 
@@ -280,9 +282,7 @@ def test_mirror_reuse_redownloads_when_local_size_mismatches_upstream(
         assert updated["content_length"] == upstream_size
 
 
-def test_mirror_reuse_keeps_local_when_size_matches_upstream(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_mirror_reuse_keeps_local_when_size_matches_upstream(tmp_path: Path, monkeypatch) -> None:
     config = _make_config(tmp_path)
     with RelayWorker(config, reset_inflight=False) as worker:
         filename = "polymarket_orderbook_2026-03-21T12.parquet"
