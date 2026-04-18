@@ -141,6 +141,60 @@ def test_mirror_hour_falls_back_to_get_when_head_is_rejected(tmp_path: Path, mon
         assert stats["mirrored_hours"] == 1
 
 
+def test_content_changed_remirror_replaces_existing_raw(tmp_path: Path, monkeypatch) -> None:
+    config = _make_config(tmp_path)
+    with RelayWorker(config, reset_inflight=False) as worker:
+        filename = "polymarket_orderbook_2026-03-21T12.parquet"
+        source_url = f"https://r2v2.pmxt.dev/{filename}"
+        raw_path = config.raw_root / raw_relative_path(filename)
+        raw_path.parent.mkdir(parents=True, exist_ok=True)
+        raw_path.write_bytes(b"old-raw-payload")
+        worker._index.upsert_discovered_hour(filename, source_url, 1)
+        worker._index.mark_mirrored(
+            filename,
+            local_path=str(raw_path),
+            etag='"old"',
+            content_length=len(b"old-raw-payload"),
+            last_modified=None,
+        )
+        worker._index.mark_needs_remirror(filename)
+        row = worker._index.list_hours_needing_mirror()[0]
+        requested_methods: list[str] = []
+
+        def fake_urlopen(request: Request, timeout):  # type: ignore[no-untyped-def]
+            requested_methods.append(request.get_method())
+            if request.get_method() == "HEAD":
+                return _FakeResponse(
+                    b"",
+                    headers={
+                        "ETag": '"new"',
+                        "Last-Modified": "Sun, 21 Mar 2026 13:59:59 GMT",
+                        "Content-Length": str(len(b"new-raw-payload")),
+                    },
+                )
+            return _FakeResponse(b"new-raw-payload")
+
+        monkeypatch.setattr("pmxt_relay.worker.urlopen", fake_urlopen)
+
+        worker._mirror_hour(row)
+
+        assert raw_path.read_bytes() == b"new-raw-payload"
+        assert requested_methods == ["HEAD", "GET"]
+        updated = worker._index._conn.execute(
+            """
+            SELECT mirror_status, etag, content_length, last_error
+            FROM archive_hours
+            WHERE filename = ?
+            """,
+            (filename,),
+        ).fetchone()
+        assert updated is not None
+        assert updated["mirror_status"] == "ready"
+        assert updated["etag"] == '"new"'
+        assert updated["content_length"] == len(b"new-raw-payload")
+        assert updated["last_error"] is None
+
+
 def test_run_once_only_discovers_adopts_and_mirrors(tmp_path: Path, monkeypatch) -> None:
     config = _make_config(tmp_path)
     with RelayWorker(config, reset_inflight=False) as worker:

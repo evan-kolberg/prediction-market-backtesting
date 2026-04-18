@@ -509,10 +509,10 @@ def test_missing_hours_badge_shows_count(tmp_path: Path):
         app = create_app(config)
         index = app[INDEX_APP_KEY]
         current_hour = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
-        previous_hour = current_hour - timedelta(hours=1)
-        pending = f"polymarket_orderbook_{previous_hour:%Y-%m-%dT%H}.parquet"
+        two_hours_ago = current_hour - timedelta(hours=2)
+        earlier = f"polymarket_orderbook_{two_hours_ago:%Y-%m-%dT%H}.parquet"
         ready = f"polymarket_orderbook_{current_hour:%Y-%m-%dT%H}.parquet"
-        index.upsert_discovered_hour(pending, f"https://raw.example.com/{pending}", 1)
+        index.upsert_discovered_hour(earlier, f"https://raw.example.com/{earlier}", 1)
         index.upsert_discovered_hour(ready, f"https://raw.example.com/{ready}", 1)
         index.mark_mirrored(
             ready,
@@ -533,7 +533,7 @@ def test_missing_hours_badge_shows_count(tmp_path: Path):
 
         assert response.status == 200
         assert "Missing hours" in payload
-        assert "1/2" in payload
+        assert "1/3" in payload
 
     asyncio.run(scenario())
 
