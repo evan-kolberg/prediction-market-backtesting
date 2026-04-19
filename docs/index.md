@@ -9,16 +9,14 @@ This repository is documented around two active operating assumptions:
   `REPLAYS`, `STRATEGY_CONFIGS`, optional `EXECUTION` / `REPORT`, and a
   top-level `EXPERIMENT` manifest
 
-PMXT is the first fully documented vendor path. Mirror and relay operations are
-filed alongside the PMXT docs instead of being treated as a separate product
-surface.
+PMXT is the first fully documented vendor path. Its v3 workflow is local raw
+files plus remote archives instead of a separate service surface.
 
 - [Setup](setup.md)
 - [Backtests And Runners](backtests.md)
 - [Research](research.md)
 - [Execution Modeling](execution-modeling.md)
 - [Data Vendors, Local Mirrors, And Raw PMXT](pmxt-byod.md)
-- [Mirror And Relay Ops](pmxt-relay.md)
 - [Vendor Fetch Sources And Timing](pmxt-fetch-sources.md)
 - [Plotting](plotting.md)
 - [Testing](testing.md)

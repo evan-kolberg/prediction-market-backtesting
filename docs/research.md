@@ -24,10 +24,9 @@ Each trial runs in an isolated subprocess so a crashing strategy cannot poison t
 Run the notebook optimizer's market slugs and timestamps once through a regular
 runner before launching a long notebook sweep. The normal runner prints PMXT
 source and downloader progress while it fills the local filtered cache, making
-the `cache` / local raw / `archive:r2v2.pmxt.dev` / `archive:r2.pmxt.dev` /
-`relay:209-209-10-83.sslip.io` path visible. The notebook optimizer mostly
-surfaces trial-level output, so a cold archive or relay fill can look quiet for
-a long time.
+the `cache` / local raw / `archive:r2v2.pmxt.dev` / `archive:r2.pmxt.dev` path
+visible. The notebook optimizer mostly surfaces trial-level output, so a cold
+archive fill can look quiet for a long time.
 
 The warmup strategy does not need to match the notebook strategy; cache warming
 is about PMXT quote-tick market, token, and hour coverage. The slugs below are

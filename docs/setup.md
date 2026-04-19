@@ -106,7 +106,7 @@ Repo-layer source syntax is explicit on purpose:
 
 - Kalshi native trade-tick runners use `rest:...`
 - Polymarket native trade-tick runners use `gamma:...`, `trades:...`, and `clob:...`
-- PMXT quote-tick runners use `local:...`, `archive:...`, and `relay:...`
+- PMXT quote-tick runners use `local:...` and `archive:...`
 
 To mirror PMXT raw archive hours locally, run:
 
@@ -126,11 +126,11 @@ Existing local files are refreshed when they are empty or when an upstream
 source advertises a larger object. Example output:
 
 ```text
-PMXT raw source: direct hour probes (archive best-of https://r2v2.pmxt.dev, https://r2.pmxt.dev -> relay https://209-209-10-83.sslip.io)
+PMXT raw source: direct hour probes (archive best-of https://r2v2.pmxt.dev, https://r2.pmxt.dev)
 Downloading PMXT raw hours to /path/to/pmxt_raws (requested_hours=3, window_start=2026-02-27T11, window_end=2026-02-27T13)...
   2026-02-27T13  12.431s   445.9 MiB  archive
   2026-02-27T12   0.000s    existing  skip
-Downloading raw hours (2/3 done, 1 active):  67%|████████████████████████████████████████████████████████████▏                              | [00:41<00:20]active: relay 2026-02-27T11 392.0/445.9 MiB 14.8s
+Downloading raw hours (2/3 done, 1 active):  67%|████████████████████████████████████████████████████████████▏                              | [00:41<00:20]active: archive 2026-02-27T11 392.0/445.9 MiB 14.8s
 ```
 
 The counts, hour labels, source label, and byte totals vary with the current
@@ -151,9 +151,9 @@ after the run.
   `~/.cache/nautilus_trader/pmxt`
 - public PMXT runners pin `local:/Volumes/LaCie/pmxt_raws` first,
   `archive:r2v2.pmxt.dev` + `archive:r2.pmxt.dev` next (v2 tried first, v1 is
-  the historical fallback), and `relay:209-209-10-83.sslip.io` last
+  the historical fallback)
 - PMXT `DATA.sources` entries are explicit and prefix-driven: `local:`,
-  `archive:`, `relay:`
+  `archive:`
 - normal Nautilus logs are still printed; the timing harness is additive
 
 ## Extension Architecture

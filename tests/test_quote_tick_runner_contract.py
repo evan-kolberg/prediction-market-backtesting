@@ -10,7 +10,6 @@ EXPECTED_PMXT_SOURCES = (
     "local:/Volumes/LaCie/pmxt_raws",
     "archive:r2v2.pmxt.dev",
     "archive:r2.pmxt.dev",
-    "relay:209-209-10-83.sslip.io",
 )
 EXPECTED_PMXT_LATENCY = {
     "base_latency_ms": 75.0,

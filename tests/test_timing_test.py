@@ -32,22 +32,6 @@ def test_transfer_label_identifies_cache_paths() -> None:
     assert label == "cache 2026-02-22T11"
 
 
-def test_transfer_label_identifies_filtered_relay_urls() -> None:
-    label = _transfer_label(
-        "https://209-209-10-83.sslip.io/v1/filtered/cond/token/polymarket_orderbook_2026-02-22T11.parquet"
-    )
-
-    assert label == "relay filtered 2026-02-22T11"
-
-
-def test_transfer_label_identifies_relay_raw_urls() -> None:
-    label = _transfer_label(
-        "https://209-209-10-83.sslip.io/v1/raw/2026/02/22/polymarket_orderbook_2026-02-22T11.parquet"
-    )
-
-    assert label == "relay raw 2026-02-22T11"
-
-
 def test_transfer_label_identifies_r2_raw_urls() -> None:
     label = _transfer_label("https://r2v2.pmxt.dev/polymarket_orderbook_2026-02-22T11.parquet")
 
@@ -137,7 +121,7 @@ def test_active_transfer_progress_dedupes_by_hour() -> None:
                 "scanned_batches": 0,
             },
             "two": {
-                "url": "https://209-209-10-83.sslip.io/v1/raw/2026/02/22/polymarket_orderbook_2026-02-22T15.parquet",
+                "url": "/Volumes/LaCie/pmxt_raws/2026/02/22/polymarket_orderbook_2026-02-22T15.parquet",
                 "hour_key": "2026-02-22T15:00:00+00:00",
                 "mode": "scan",
                 "downloaded_bytes": 0,
@@ -148,7 +132,7 @@ def test_active_transfer_progress_dedupes_by_hour() -> None:
     )
 
     assert active_hours == 1
-    assert active_progress == pytest.approx(0.96)
+    assert active_progress == pytest.approx(2 / 3)
 
 
 def test_install_timing_patches_runner_loader_override() -> None:
@@ -162,8 +146,6 @@ def test_install_timing_patches_runner_loader_override() -> None:
 
     method_names = (
         "_load_cached_market_batches",
-        "_load_relay_market_batches",
-        "_load_relay_raw_market_batches",
         "_load_local_archive_market_batches",
         "_load_remote_market_batches",
         "_load_market_batches",

@@ -8,11 +8,7 @@ The repository direction is raw-first:
 
 - mirror raw PMXT archive hours onto local disk when you want local-first replay
 - point runners at those raws directly
-- treat shared servers as raw mirrors only
-
-Mirror deployment and archived self-hosted relay guidance live on the separate
-[Mirror And Relay Ops](pmxt-relay.md) page so the vendor docs can stay focused
-on source order, raw layout, and loader expectations.
+- use the public PMXT archive URLs when local raw files are missing
 
 ### Runner Source Modes
 
@@ -31,7 +27,6 @@ DATA = MarketDataConfig(
         "local:/data/pmxt/raw",
         "archive:r2v2.pmxt.dev",
         "archive:r2.pmxt.dev",
-        "relay:mirror.example.com",
     ),
 )
 ```
@@ -41,14 +36,12 @@ With PMXT, the active public contract is:
 1. local filtered cache
 2. each explicit raw source in the order you list it
 
-`DATA.sources` is intentionally strict here: use only `local:`,
-`archive:`, and `relay:`. Unprefixed hosts, paths, and legacy alias prefixes
-are rejected.
+`DATA.sources` is intentionally strict here: use only `local:` and `archive:`.
+Unprefixed hosts, paths, and legacy alias prefixes are rejected.
 
 The vendored Nautilus PMXT loader still exposes lower-level env switches for
-custom integrations. In this repository's current mirror-first setup, the
-supported shared-server path is raw parquet serving, not relay-hosted filtered
-parquet.
+custom integrations. In this repository's v3 setup, the supported remote path
+is direct raw archive parquet.
 
 ### Lower-Level Loader Env Vars
 
@@ -58,7 +51,6 @@ still work for custom integrations:
 - `PMXT_LOCAL_ARCHIVE_DIR`
 - `PMXT_RAW_ROOT`
 - `PMXT_REMOTE_BASE_URL` (comma-separate multiple archives, e.g. `https://r2v2.pmxt.dev,https://r2.pmxt.dev`)
-- `PMXT_RELAY_BASE_URL`
 - `PMXT_CACHE_DIR`
 - `PMXT_DISABLE_CACHE`
 
@@ -72,28 +64,18 @@ The public PMXT runner layer reads one market/token/hour from these places:
 The current "bring your own data" story is therefore:
 
 - set `DATA.sources` in your runner to
-  `("local:/path/to/raw-hours", "archive:r2v2.pmxt.dev", "archive:r2.pmxt.dev", "relay:relay.example.com")`
+  `("local:/path/to/raw-hours", "archive:r2v2.pmxt.dev", "archive:r2.pmxt.dev")`
 - or point `PMXT_LOCAL_ARCHIVE_DIR` / `PMXT_RAW_ROOT` at a directory of raw
   PMXT hour files you already mirrored locally
-- or run your own raw mirror and point `PMXT_RELAY_BASE_URL` at it
 
 When the runner falls back to a remote raw source, it downloads that hour to a
 temporary local parquet file, filters it locally, and deletes the temp
 artifact afterward. Persistent raw disk growth only happens when you
 intentionally configure a local raw mirror.
 
-The important distinction is:
-
-- local raw mirrors and remote raw mirrors are the first-class paths
-- the public runner layer only uses raw mirror relay endpoints
-- the shared relay path for this repo is raw-only
-
-If you want local-only PMXT replays, set both:
-
-```bash
-PMXT_RELAY_BASE_URL=0
-PMXT_LOCAL_ARCHIVE_DIR=/path/to/pmxt-hours
-```
+If you want local-only PMXT replays, set `PMXT_LOCAL_ARCHIVE_DIR` or
+`PMXT_RAW_ROOT` to your raw-hour directory and leave remote archive sources out
+of `DATA.sources`.
 
 The loader still does not expose a first-class runner flag for arbitrary vendor
 raw dumps or automatic normalization from other vendors.
@@ -114,11 +96,11 @@ object. It also prints per-hour completion lines plus the active transfer.
 Example output:
 
 ```text
-PMXT raw source: direct hour probes (archive best-of https://r2v2.pmxt.dev, https://r2.pmxt.dev -> relay https://209-209-10-83.sslip.io)
+PMXT raw source: direct hour probes (archive best-of https://r2v2.pmxt.dev, https://r2.pmxt.dev)
 Downloading PMXT raw hours to /path/to/pmxt_raws (requested_hours=3, window_start=2026-02-27T11, window_end=2026-02-27T13)...
   2026-02-27T13  12.431s   445.9 MiB  archive
   2026-02-27T12   0.000s    existing  skip
-Downloading raw hours (2/3 done, 1 active):  67%|████████████████████████████████████████████████████████████▏                              | [00:41<00:20]active: relay 2026-02-27T11 392.0/445.9 MiB 14.8s
+Downloading raw hours (2/3 done, 1 active):  67%|████████████████████████████████████████████████████████████▏                              | [00:41<00:20]active: archive 2026-02-27T11 392.0/445.9 MiB 14.8s
 ```
 
 Those values vary with the direct-hour window and whatever hour is currently in
@@ -226,27 +208,36 @@ For `price_change`, the loader decodes `data` with these fields:
 The loader filters to `token_id` by regex-matching inside the `data` JSON, so
 that field must be present and string-encoded exactly as expected.
 
-## Relay Mode
+## Telonex
 
-The public runner layer does not assume a repo-wide default relay host. If you
-want a relay fallback, set it explicitly in `DATA.sources` or with the loader
-env var below.
+Telonex is a separate Polymarket quote-tick vendor path. It does not use PMXT
+hourly raw files or the PMXT filtered cache.
 
-Override it with:
+Telonex source syntax is also explicit:
 
-```bash
-PMXT_RELAY_BASE_URL=https://your-relay-host
+- `local:/path/to/telonex` reads already-downloaded Telonex Parquet files from
+  disk
+- `api:` uses the default `https://api.telonex.io` download endpoint
+- `api:https://host.example` points the adapter at a custom compatible base URL
+
+The API path reads the key from `TELONEX_API_KEY`. Do not put API keys in
+`DATA.sources`, notebooks, docs, or committed files. Telonex free trials count
+each daily Parquet download, so warm local files first when you are experimenting
+and use `api:` only for intentional downloads.
+
+Recommended local layout:
+
+```text
+/path/to/telonex/
+  polymarket/
+    quotes/
+      market-slug/
+        Yes/
+          2026-01-20.parquet
 ```
 
-Disable relay usage entirely with:
-
-```bash
-PMXT_RELAY_BASE_URL=0
-```
-
-Mirror-only deployments are the preferred server shape now. In that mode the
-server keeps mirroring raw hours and may serve `/v1/raw/...`, but `/v1/filtered`
-and filtered-hour listing endpoints are disabled or expected to miss.
+The loader also accepts `outcome_id=0`, `0`, and a few flat filename fallbacks
+for test fixtures and ad hoc downloads.
 
 ## What Is Not Plug-And-Play Yet
 

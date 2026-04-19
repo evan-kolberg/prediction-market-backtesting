@@ -131,9 +131,7 @@ def test_discover_archive_hours_reads_listing_pages(monkeypatch) -> None:
     ]
 
 
-def test_download_raw_hours_fetches_archive_then_relay_fallback(
-    monkeypatch, tmp_path: Path
-) -> None:
+def test_download_raw_hours_fetches_archive_fallbacks(monkeypatch, tmp_path: Path) -> None:
     payload = _raw_parquet_payload()
     requested_urls: list[str] = []
 
@@ -141,10 +139,7 @@ def test_download_raw_hours_fetches_archive_then_relay_fallback(
         del timeout
         if request.get_method() != "HEAD":
             requested_urls.append(request.full_url)
-        if (
-            request.full_url.endswith("2026-03-21T10.parquet")
-            and "/v1/raw/" not in request.full_url
-        ):
+        if request.full_url == "https://r2v2.pmxt.dev/polymarket_orderbook_2026-03-21T10.parquet":
             raise HTTPError(request.full_url, 404, "missing", hdrs=None, fp=None)
         return _Response(payload, headers={"Content-Length": str(len(payload))})
 
@@ -160,12 +155,10 @@ def test_download_raw_hours_fetches_archive_then_relay_fallback(
     assert summary.failed_hours == []
     assert summary.source_hits == {
         "archive:https://r2v2.pmxt.dev": 1,
-        "relay:https://209-209-10-83.sslip.io": 1,
+        "archive:https://r2.pmxt.dev": 1,
     }
     assert requested_urls == [
-        "https://r2v2.pmxt.dev/polymarket_orderbook_2026-03-21T10.parquet",
         "https://r2.pmxt.dev/polymarket_orderbook_2026-03-21T10.parquet",
-        "https://209-209-10-83.sslip.io/v1/raw/2026/03/21/polymarket_orderbook_2026-03-21T10.parquet",
         "https://r2v2.pmxt.dev/polymarket_orderbook_2026-03-21T09.parquet",
     ]
     assert (
@@ -252,10 +245,7 @@ def test_download_raw_hours_progress_output_uses_short_hour_labels(
 
     def fake_urlopen(request, timeout=60):  # type: ignore[no-untyped-def]
         del timeout
-        if (
-            request.full_url.endswith("2026-03-21T10.parquet")
-            and "/v1/raw/" not in request.full_url
-        ):
+        if request.full_url == "https://r2v2.pmxt.dev/polymarket_orderbook_2026-03-21T10.parquet":
             raise HTTPError(request.full_url, 404, "missing", hdrs=None, fp=None)
         return _Response(payload, headers={"Content-Length": str(len(payload))})
 
@@ -273,15 +263,15 @@ def test_download_raw_hours_progress_output_uses_short_hour_labels(
     captured = capsys.readouterr()
 
     assert (
-        "PMXT raw source: direct hour probes (archive best-of https://r2v2.pmxt.dev, https://r2.pmxt.dev -> relay https://209-209-10-83.sslip.io)"
+        "PMXT raw source: direct hour probes (archive best-of https://r2v2.pmxt.dev, https://r2.pmxt.dev)"
     ) in captured.out
     assert "window_start=2026-03-21T09" in captured.out
     assert "window_end=2026-03-21T10" in captured.out
     assert any("active: archive 2026-03-21T09" in status for status in bar.postfixes)
-    assert any("active: relay 2026-03-21T10" in status for status in bar.postfixes)
+    assert any("active: archive 2026-03-21T10" in status for status in bar.postfixes)
     assert not any("+00:00" in status for status in bar.postfixes)
     assert any("2026-03-21T09" in line and line.endswith("archive") for line in bar.writes)
-    assert any("2026-03-21T10" in line and line.endswith("relay") for line in bar.writes)
+    assert any("2026-03-21T10" in line and line.endswith("archive") for line in bar.writes)
     assert not any("+00:00" in line for line in bar.writes)
     assert "Downloading raw hours (0/2 done, 1 active)" in bar.descriptions
     assert bar.desc == "Downloading raw hours (2/2 done)"

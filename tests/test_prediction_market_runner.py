@@ -147,7 +147,6 @@ def test_generic_runner_dispatches_pmxt_quote_tick(monkeypatch) -> None:
                 sources=(
                     "local:/Volumes/LaCie/pmxt_raws",
                     "archive:mirror.example.com",
-                    "relay:relay.example.com",
                 ),
             ),
             market_slug="demo-market",
@@ -170,7 +169,6 @@ def test_generic_runner_dispatches_pmxt_quote_tick(monkeypatch) -> None:
     assert captured["experiment"].data.sources == (
         "local:/Volumes/LaCie/pmxt_raws",
         "archive:mirror.example.com",
-        "relay:relay.example.com",
     )
 
 

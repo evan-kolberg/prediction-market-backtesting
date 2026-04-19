@@ -10,18 +10,14 @@ order is:
 2. each explicit raw source in `DATA.sources`, left to right
 3. none
 
-`DATA.sources` is prefix-driven on purpose: use `local:`, `archive:`, and
-`relay:` only. Bare hosts, bare paths, and alias prefixes are not accepted.
+`DATA.sources` is prefix-driven on purpose: use `local:` and `archive:` only.
+Bare hosts, bare paths, and alias prefixes are not accepted.
 
 Two practical notes matter here:
 
-- the shared public relay for this repository is mirror-first, so raw-hour
-  serving is the supported shared-server path
-- the public runner layer disables relay-hosted filtered parquet
 - PMXT upstream raw hours live at flat object URLs like
   `https://r2v2.pmxt.dev/polymarket_orderbook_YYYY-MM-DDTHH.parquet`, while the
-  local mirror serves those same files under dated `/v1/raw/YYYY/MM/DD/...`
-  paths
+  local mirror stores those same files under dated `YYYY/MM/DD/...` paths
 
 After a successful fetch from a raw source, the result is written to the local
 filtered cache so subsequent runs are fast.
@@ -39,7 +35,7 @@ uv run python main.py
 Running: polymarket_quote_tick_joint_portfolio_runner
 Running: polymarket_quote_tick_ema_crossover
 
-PMXT source: explicit priority (cache -> local /Volumes/LaCie/pmxt_raws -> archive https://r2v2.pmxt.dev -> relay https://209-209-10-83.sslip.io)
+PMXT source: explicit priority (cache -> local /Volumes/LaCie/pmxt_raws -> archive https://r2v2.pmxt.dev -> archive https://r2.pmxt.dev)
 Loading PMXT Polymarket market will-ludvig-aberg-win-the-2026-masters-tournament (token_index=0, window_start=2026-04-05T00:00:00+00:00, window_end=2026-04-07T23:59:59+00:00)...
   2026-04-05T00:00:00+00:00      ...          ... rows  cache 2026-04-05T00
   2026-04-05T01:00:00+00:00      ...          ... rows  cache 2026-04-05T01
@@ -51,7 +47,7 @@ Fetching hours (69/72 done, 3 active):  96%|████████████
 
 The important signals are:
 
-- the `PMXT source:` line shows the exact cache, local, archive, and relay priority
+- the `PMXT source:` line shows the exact cache, local, and archive priority
   the runner will use
 - each per-hour line shows the hour, load time, filtered row count, and the
   source that satisfied that hour
@@ -76,7 +72,6 @@ printed in the same terminal session:
 | Local cache | <0.05s | Second run onward for the same market/token/hour |
 | Local raw PMXT archive | local disk bound | You mirrored raw PMXT hours locally and pointed `DATA.sources` at `local:/...`, or used `PMXT_RAW_ROOT` for a lower-level loader workflow |
 | Remote raw PMXT archive | network and file-size bound | Hour is missing from local cache and local raw mirror, so the client downloads the upstream raw parquet to a temp file and filters it locally |
-| Relay raw mirror | network and file-size bound | A mirror-only relay serves `/v1/raw/...`, so the client downloads the raw parquet to a temp file and filters it locally |
 | None | <1s | Hour does not exist yet |
 
 ## How To See This Output
@@ -104,7 +99,7 @@ uv run python prediction_market_extensions/backtesting/_timing_test.py backtests
 
 Public PMXT examples are pinned to known-good sample windows in code so the
 direct script paths stay runnable without editing the file first. If your local
-raw mirror or relay lives somewhere else, update `DATA.sources` in the runner
-file. Public Kalshi trade-tick examples similarly pin `end_time` to a known-good
+raw mirror lives somewhere else, update `DATA.sources` in the runner file.
+Public Kalshi trade-tick examples similarly pin `end_time` to a known-good
 close window, while native trade-tick runners that omit `end_time` still use
 rolling lookbacks.

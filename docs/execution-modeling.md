@@ -64,6 +64,7 @@ the raw venue data are:
   `loaded_end`, `coverage_ratio`, and `requested_coverage_ratio`
 - Kalshi public backtests here are trade-tick replay only
 - Polymarket PMXT-backed backtests are full L2 order-book replay
+- Polymarket Telonex-backed backtests are quote-tick replay only
 - taker-heavy strategies that harvest tiny price changes can look much worse
   once fees and one-tick slippage are turned on
 - PMXT L2 helps with taker modeling, but robust maker realism still needs L3
@@ -74,15 +75,23 @@ the raw venue data are:
 ### PMXT
 
 - the loader prefers local filtered cache first, then raw sources in the order
-  configured by the runner with `local:`, `archive:`, and `relay:`
+  configured by the runner with `local:` and `archive:`
 - for the public PMXT runners in this repo, that usually means local raw
-  mirror first, then the configured remote archive, then a raw mirror fallback
-- the current shared relay direction is mirror-only, so the durable shared
-  server path is raw parquet serving rather than server-side filtered-hour
-  processing
+  mirror first, then the configured remote archives
 - local PMXT filtered cache is enabled by default and grows with the number of
   unique `(condition_id, token_id, hour)` tuples you replay
 - `BACKTEST_ENABLE_TIMING=0` is the opt-out if you want a quieter PMXT run
+
+### Telonex
+
+- Telonex support is quote-tick only in this repo
+- `local:` reads already-downloaded Telonex Parquet files, while `api:` uses
+  the Telonex download endpoint with `TELONEX_API_KEY` from the environment
+- because Telonex quote ticks do not carry full order-book depth here, the
+  adapter uses the quote-tick execution profile rather than PMXT's L2 passive
+  book profile
+- use PMXT when a strategy depends on L2 replay behavior; use Telonex for
+  quote-tick strategies where the daily Parquet source is the desired input
 
 For concrete timings and source tiers, see [Vendor Fetch Sources And
 Timing](pmxt-fetch-sources.md).

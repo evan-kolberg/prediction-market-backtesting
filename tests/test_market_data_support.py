@@ -9,6 +9,7 @@ from prediction_market_extensions.backtesting._market_data_support import (
 from prediction_market_extensions.backtesting._replay_specs import QuoteReplay, TradeReplay
 from prediction_market_extensions.backtesting.data_sources import (
     PMXT,
+    TELONEX_VENDOR,
     Kalshi,
     Native,
     Polymarket,
@@ -22,12 +23,14 @@ def test_support_matrix_matches_publicly_supported_combinations() -> None:
         ("kalshi", "trade_tick", "native"),
         ("polymarket", "trade_tick", "native"),
         ("polymarket", "quote_tick", "pmxt"),
+        ("polymarket", "quote_tick", "telonex"),
     }
 
     for platform, data_type, vendor in (
         (Kalshi, TradeTick, Native),
         (Polymarket, TradeTick, Native),
         (Polymarket, QuoteTick, PMXT),
+        (Polymarket, QuoteTick, TELONEX_VENDOR),
     ):
         support = resolve_market_data_support(
             platform=platform,
@@ -80,6 +83,6 @@ def test_single_market_replay_construction_is_adapter_owned() -> None:
     )
 
 
-def test_unsupported_vendor_is_not_exported() -> None:
-    assert not hasattr(data_sources, "Telonex")
-    assert not hasattr(data_sources, "TELONEX_VENDOR")
+def test_telonex_vendor_is_exported() -> None:
+    assert data_sources.Telonex.name == "telonex"
+    assert data_sources.TELONEX_VENDOR.name == "telonex"

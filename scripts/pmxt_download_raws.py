@@ -33,8 +33,7 @@ def main() -> int:
             "Download PMXT raw archive hours into a local mirror. With no time "
             "window, the script walks direct hourly filenames from the first PMXT "
             "Polymarket raw hour through the current UTC hour, probes r2v2 and r2, "
-            "keeps the larger archive object when both exist, and uses relay as "
-            "fallback."
+            "and keeps the larger archive object when both exist."
         )
     )
     parser.add_argument("--destination", type=Path, required=True)
@@ -51,13 +50,12 @@ def main() -> int:
             "the raw base URL. Defaults to r2v2.pmxt.dev and r2.pmxt.dev."
         ),
     )
-    parser.add_argument("--relay-base-url", default="https://209-209-10-83.sslip.io")
     parser.add_argument(
         "--source",
         action="append",
-        choices=("archive", "relay"),
+        choices=("archive",),
         default=[],
-        help="Download source order. Defaults to archive first, then relay.",
+        help="Download source order. Defaults to archive.",
     )
     parser.add_argument("--start-time", default=None)
     parser.add_argument("--end-time", default=None)
@@ -97,7 +95,6 @@ def main() -> int:
         archive_listing_url=archive_listing_url,
         archive_base_url=archive_base_url,
         archive_sources=archive_sources,
-        relay_base_url=args.relay_base_url,
         source_order=args.source or None,
         start_time=args.start_time,
         end_time=args.end_time,

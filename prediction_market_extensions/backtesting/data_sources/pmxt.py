@@ -24,7 +24,6 @@ PMXT_DATA_SOURCE_ENV = "PMXT_DATA_SOURCE"
 PMXT_LOCAL_RAWS_DIR_ENV = "PMXT_LOCAL_RAWS_DIR"
 PMXT_RAW_ROOT_ENV = "PMXT_RAW_ROOT"
 PMXT_DISABLE_REMOTE_ARCHIVE_ENV = "PMXT_DISABLE_REMOTE_ARCHIVE"
-PMXT_RELAY_BASE_URL_ENV = "PMXT_RELAY_BASE_URL"
 PMXT_REMOTE_BASE_URL_ENV = "PMXT_REMOTE_BASE_URL"
 PMXT_CACHE_DIR_ENV = "PMXT_CACHE_DIR"
 PMXT_DISABLE_CACHE_ENV = "PMXT_DISABLE_CACHE"
@@ -35,32 +34,26 @@ _PMXT_RUNNER_HTTP_TIMEOUT_SECS = 30
 _PMXT_LOCAL_RAW_PREFETCH_WORKERS = "4"
 _PMXT_ARCHIVE_SOURCE_PREFIXES = ("archive:",)
 _PMXT_RAW_LOCAL_SOURCE_PREFIXES = ("local:",)
-_PMXT_RELAY_SOURCE_PREFIXES = ("relay:",)
 
 _PMXT_SOURCE_STAGE_RAW_LOCAL = "raw-local"
 _PMXT_SOURCE_STAGE_RAW_REMOTE = "raw-remote"
-_PMXT_SOURCE_STAGE_RELAY_RAW = "relay-raw"
 _PMXT_VALID_SOURCE_STAGES = (
     _PMXT_SOURCE_STAGE_RAW_LOCAL,
     _PMXT_SOURCE_STAGE_RAW_REMOTE,
-    _PMXT_SOURCE_STAGE_RELAY_RAW,
 )
 
 _MODE_ALIASES = {
     "": "auto",
     "auto": "auto",
     "default": "auto",
-    "relay": "relay",
-    "relay-first": "relay",
     "raw": "raw-remote",
     "raw-remote": "raw-remote",
     "remote-raw": "raw-remote",
     "raw-local": "raw-local",
     "local-raw": "raw-local",
     "local-raws": "raw-local",
-    "mirror": "raw-local",
 }
-_VALID_MODES = ("auto", "relay", "raw-remote", "raw-local")
+_VALID_MODES = ("auto", "raw-remote", "raw-local")
 
 
 @dataclass(frozen=True)
@@ -68,7 +61,6 @@ class PMXTLoaderConfig:
     mode: str
     raw_root: Path | None
     remote_base_urls: tuple[str, ...]
-    relay_base_url: str | None
     disable_remote_archive: bool
     source_priority: tuple[str, ...]
     prefetch_workers: int | None = None
@@ -155,19 +147,6 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
                 urls.append(normalized)
         return tuple(urls)
 
-    @classmethod
-    def _resolve_relay_base_url(cls) -> str | None:
-        config = _current_loader_config()
-        if config is not None:
-            return config.relay_base_url
-
-        configured = env_value(os.getenv(PMXT_RELAY_BASE_URL_ENV))
-        if configured is None:
-            return None
-        if configured.casefold() in DISABLED_ENV_VALUES:
-            return None
-        return normalize_urlish(configured)
-
     def _archive_url_for_hour(self, hour):  # type: ignore[override]
         urls = getattr(self, "_pmxt_remote_base_urls", ()) or ()
         if not urls:
@@ -240,11 +219,6 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
         finally:
             self._pmxt_remote_base_url = original
 
-    def _relay_url_for_hour(self, hour):  # type: ignore[no-untyped-def]
-        del hour
-        # The active relay only serves raw hours, so runner code never attempts
-        # any alternate relay data path here.
-
     @classmethod
     def _resolve_source_priority(cls) -> tuple[str, ...]:
         config = _current_loader_config()
@@ -279,37 +253,30 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
     @contextmanager
     def _scoped_source_entry(self, kind: str, target: str):  # type: ignore[no-untyped-def]
         """
-        Temporarily bind the loader's active raw_root / remote_base_url / relay_base_url
+        Temporarily bind the loader's active raw_root / remote_base_url
         to match the entry under evaluation. Restores the prior values afterwards.
         """
         prior_raw_root = self._pmxt_raw_root
         prior_remote_url = self._pmxt_remote_base_url
         prior_remote_urls = getattr(self, "_pmxt_remote_base_urls", ())
-        prior_relay_url = getattr(self, "_pmxt_relay_base_url", None)
         try:
             if kind == _PMXT_SOURCE_STAGE_RAW_LOCAL:
                 self._pmxt_raw_root = Path(target).expanduser()
             elif kind == _PMXT_SOURCE_STAGE_RAW_REMOTE:
                 self._pmxt_remote_base_url = target
                 self._pmxt_remote_base_urls = (target,)
-            elif kind == _PMXT_SOURCE_STAGE_RELAY_RAW:
-                self._pmxt_relay_base_url = target
             yield
         finally:
             self._pmxt_raw_root = prior_raw_root
             self._pmxt_remote_base_url = prior_remote_url
             if hasattr(self, "_pmxt_remote_base_urls"):
                 self._pmxt_remote_base_urls = prior_remote_urls
-            if hasattr(self, "_pmxt_relay_base_url"):
-                self._pmxt_relay_base_url = prior_relay_url
 
     def _load_entry_batches(self, kind: str, hour, *, batch_size: int):  # type: ignore[no-untyped-def]
         if kind == _PMXT_SOURCE_STAGE_RAW_LOCAL:
             return self._load_local_archive_market_batches(hour, batch_size=batch_size)
         if kind == _PMXT_SOURCE_STAGE_RAW_REMOTE:
             return self._load_remote_market_batches(hour, batch_size=batch_size)
-        if kind == _PMXT_SOURCE_STAGE_RELAY_RAW:
-            return self._load_relay_raw_market_batches(hour, batch_size=batch_size)
         return None
 
     def _write_cache_if_enabled(self, hour, table) -> None:  # type: ignore[no-untyped-def]
@@ -369,16 +336,6 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
                     return remote_table
                 continue
 
-            relay_raw_batches = self._load_relay_raw_market_batches(hour, batch_size=batch_size)
-            if relay_raw_batches is not None:
-                table = (
-                    pa.Table.from_batches(relay_raw_batches)
-                    if relay_raw_batches
-                    else self._empty_market_table()
-                )
-                self._write_cache_if_enabled(hour, table)
-                return table
-
         return None
 
     def _load_market_batches(self, hour, *, batch_size: int):  # type: ignore[no-untyped-def]
@@ -428,15 +385,6 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
                         self._write_cache_if_enabled(hour, table)
                     return batches
                 continue
-
-            batches = self._load_relay_raw_market_batches(hour, batch_size=batch_size)
-            if batches is not None:
-                if self._pmxt_cache_dir is not None:
-                    table = (
-                        pa.Table.from_batches(batches) if batches else self._empty_market_table()
-                    )
-                    self._write_cache_if_enabled(hour, table)
-                return batches
 
         return None
 
@@ -629,17 +577,6 @@ def _resolve_source_priority_override() -> tuple[str, ...]:
     return tuple(priority) or _PMXT_VALID_SOURCE_STAGES
 
 
-def _resolve_existing_relay_url() -> str | None:
-    configured = os.getenv(PMXT_RELAY_BASE_URL_ENV)
-    if configured is None:
-        return None
-
-    value = configured.strip().rstrip("/")
-    if value.casefold() in DISABLED_ENV_VALUES:
-        return None
-    return normalize_urlish(value) if value else None
-
-
 def _resolve_existing_remote_url() -> str | None:
     urls = _resolve_existing_remote_urls()
     return urls[0] if urls else None
@@ -699,7 +636,6 @@ def _classify_explicit_pmxt_sources(
 ) -> tuple[
     str | None,
     tuple[str, ...],
-    str | None,
     tuple[str, ...],
     tuple[str, ...],
     tuple[tuple[str, str], ...],
@@ -707,18 +643,17 @@ def _classify_explicit_pmxt_sources(
     """
     Classify explicit DATA.sources entries preserving user-provided order.
 
-    Returns (first_raw_root, remote_urls_ordered_dedup, first_relay_url,
-             stage_priority_dedup, ordered_display_entries_dedup,
+    Returns (first_raw_root, remote_urls_ordered_dedup, stage_priority_dedup,
+             ordered_display_entries_dedup,
              ordered_entries_full_with_duplicates).
 
     ordered_entries_full_with_duplicates is the authoritative per-entry
     evaluation order — each entry is (kind, target) where kind is one of
-    "raw-local" / "raw-remote" / "relay-raw". Duplicates are preserved so
+    "raw-local" / "raw-remote". Duplicates are preserved so
     users can interleave the same target multiple times between other kinds.
     """
     raw_root_first: str | None = None
     remote_urls_dedup: list[str] = []
-    relay_url_first: str | None = None
     priority_dedup: list[str] = []
     display_dedup: list[str] = []
     ordered_entries: list[tuple[str, str]] = []
@@ -731,7 +666,7 @@ def _classify_explicit_pmxt_sources(
             raise ValueError(
                 "Unsupported PMXT explicit source 'cache'. "
                 "The cache layer is implicit. Use local:/path to pin a local raw "
-                "mirror, or archive:/relay: to control remote fetch order."
+                "mirror, or archive: to control remote fetch order."
             )
         normalized_archive = _strip_prefixed_remote_source(
             stripped, prefixes=_PMXT_ARCHIVE_SOURCE_PREFIXES
@@ -759,27 +694,13 @@ def _classify_explicit_pmxt_sources(
             if raw_display not in display_dedup:
                 display_dedup.append(raw_display)
             continue
-        normalized_relay = _strip_prefixed_remote_source(
-            stripped, prefixes=_PMXT_RELAY_SOURCE_PREFIXES
-        )
-        if normalized_relay is not None:
-            ordered_entries.append((_PMXT_SOURCE_STAGE_RELAY_RAW, normalized_relay))
-            if relay_url_first is None:
-                relay_url_first = normalized_relay
-            if _PMXT_SOURCE_STAGE_RELAY_RAW not in priority_dedup:
-                priority_dedup.append(_PMXT_SOURCE_STAGE_RELAY_RAW)
-            relay_display = f"relay {normalized_relay}"
-            if relay_display not in display_dedup:
-                display_dedup.append(relay_display)
-            continue
         raise ValueError(
-            f"Unsupported PMXT explicit source {stripped!r}. Use one of: local:, archive:, relay:."
+            f"Unsupported PMXT explicit source {stripped!r}. Use one of: local:, archive:."
         )
 
     return (
         raw_root_first,
         tuple(remote_urls_dedup),
-        relay_url_first,
         tuple(priority_dedup),
         tuple(display_dedup),
         tuple(ordered_entries),
@@ -795,7 +716,6 @@ def _explicit_source_summary(
         labels = {
             _PMXT_SOURCE_STAGE_RAW_LOCAL: "local",
             _PMXT_SOURCE_STAGE_RAW_REMOTE: "archive",
-            _PMXT_SOURCE_STAGE_RELAY_RAW: "relay",
         }
         parts = ["cache"] + [
             f"{labels.get(kind, kind)} {target}" for kind, target in ordered_entries
@@ -812,7 +732,6 @@ def resolve_pmxt_loader_config(
         (
             raw_root,
             remote_base_urls,
-            relay_base_url,
             source_priority,
             ordered_sources,
             ordered_source_entries,
@@ -829,7 +748,6 @@ def resolve_pmxt_loader_config(
                 mode="auto",
                 raw_root=Path(raw_root).expanduser() if raw_root is not None else None,
                 remote_base_urls=remote_base_urls,
-                relay_base_url=relay_base_url,
                 disable_remote_archive=not remote_base_urls,
                 source_priority=source_priority or _PMXT_VALID_SOURCE_STAGES,
                 prefetch_workers=(
@@ -849,14 +767,12 @@ def resolve_pmxt_loader_config(
 
     if configured_mode is None:
         raw_root = _env_value(PMXT_RAW_ROOT_ENV)
-        relay_base_url = _env_value(PMXT_RELAY_BASE_URL_ENV)
         remote_base_url = _env_value(PMXT_REMOTE_BASE_URL_ENV)
         raw_root_path = (
             Path(raw_root).expanduser()
             if raw_root is not None and raw_root.casefold() not in DISABLED_ENV_VALUES
             else None
         )
-        resolved_relay_url = _resolve_existing_relay_url()
         resolved_remote_urls = _resolve_existing_remote_urls()
         disable_remote_archive = _env_enabled(PMXT_DISABLE_REMOTE_ARCHIVE_ENV)
 
@@ -869,22 +785,6 @@ def resolve_pmxt_loader_config(
                     mode="raw-local",
                     raw_root=raw_root_path,
                     remote_base_urls=resolved_remote_urls,
-                    relay_base_url=resolved_relay_url,
-                    disable_remote_archive=disable_remote_archive,
-                    source_priority=source_priority,
-                ),
-            )
-
-        if relay_base_url is not None and relay_base_url.casefold() in DISABLED_ENV_VALUES:
-            return (
-                PMXTDataSourceSelection(
-                    mode="raw-remote", summary="PMXT source: raw remote archive (relay disabled)"
-                ),
-                PMXTLoaderConfig(
-                    mode="raw-remote",
-                    raw_root=None,
-                    remote_base_urls=resolved_remote_urls,
-                    relay_base_url=None,
                     disable_remote_archive=disable_remote_archive,
                     source_priority=source_priority,
                 ),
@@ -893,13 +793,12 @@ def resolve_pmxt_loader_config(
         if remote_base_url is not None and remote_base_url.casefold() in DISABLED_ENV_VALUES:
             return (
                 PMXTDataSourceSelection(
-                    mode="relay", summary="PMXT source: relay-first (remote raw disabled)"
+                    mode="auto", summary="PMXT source: auto (cache -> local raws)"
                 ),
                 PMXTLoaderConfig(
-                    mode="relay",
+                    mode="auto",
                     raw_root=None,
                     remote_base_urls=(),
-                    relay_base_url=resolved_relay_url,
                     disable_remote_archive=True,
                     source_priority=source_priority,
                 ),
@@ -908,15 +807,12 @@ def resolve_pmxt_loader_config(
         return (
             PMXTDataSourceSelection(
                 mode="auto",
-                summary=(
-                    "PMXT source: auto (cache -> local raws -> explicit remote raw -> explicit relay)"
-                ),
+                summary="PMXT source: auto (cache -> local raws -> explicit remote raw)",
             ),
             PMXTLoaderConfig(
                 mode="auto",
                 raw_root=None,
                 remote_base_urls=resolved_remote_urls,
-                relay_base_url=resolved_relay_url,
                 disable_remote_archive=disable_remote_archive,
                 source_priority=source_priority,
             ),
@@ -926,31 +822,12 @@ def resolve_pmxt_loader_config(
         return (
             PMXTDataSourceSelection(
                 mode=mode,
-                summary=(
-                    "PMXT source: auto (cache -> local raws -> explicit remote raw -> explicit relay)"
-                ),
+                summary="PMXT source: auto (cache -> local raws -> explicit remote raw)",
             ),
             PMXTLoaderConfig(
                 mode=mode,
                 raw_root=None,
                 remote_base_urls=_resolve_existing_remote_urls(),
-                relay_base_url=_resolve_existing_relay_url(),
-                disable_remote_archive=False,
-                source_priority=source_priority,
-            ),
-        )
-
-    if mode == "relay":
-        relay_url = _resolve_existing_relay_url()
-        if relay_url is None:
-            raise ValueError(f"{PMXT_RELAY_BASE_URL_ENV} is required when using relay mode.")
-        return (
-            PMXTDataSourceSelection(mode=mode, summary=f"PMXT source: relay-first ({relay_url})"),
-            PMXTLoaderConfig(
-                mode=mode,
-                raw_root=None,
-                remote_base_urls=(),
-                relay_base_url=relay_url,
                 disable_remote_archive=False,
                 source_priority=source_priority,
             ),
@@ -958,14 +835,11 @@ def resolve_pmxt_loader_config(
 
     if mode == "raw-remote":
         return (
-            PMXTDataSourceSelection(
-                mode=mode, summary="PMXT source: raw remote archive (relay disabled)"
-            ),
+            PMXTDataSourceSelection(mode=mode, summary="PMXT source: raw remote archive"),
             PMXTLoaderConfig(
                 mode=mode,
                 raw_root=None,
                 remote_base_urls=_resolve_existing_remote_urls(),
-                relay_base_url=None,
                 disable_remote_archive=False,
                 source_priority=source_priority,
             ),
@@ -979,7 +853,6 @@ def resolve_pmxt_loader_config(
                 mode=mode,
                 raw_root=raw_root,
                 remote_base_urls=(),
-                relay_base_url=None,
                 disable_remote_archive=True,
                 source_priority=source_priority,
                 prefetch_workers=_resolve_prefetch_workers_override(
@@ -996,7 +869,6 @@ def _loader_config_to_env_updates(config: PMXTLoaderConfig) -> dict[str, str | N
         PMXT_REMOTE_BASE_URL_ENV: (
             ",".join(config.remote_base_urls) if config.remote_base_urls else "0"
         ),
-        PMXT_RELAY_BASE_URL_ENV: config.relay_base_url or "0",
         PMXT_DISABLE_REMOTE_ARCHIVE_ENV: ("1" if config.disable_remote_archive else None),
         PMXT_SOURCE_PRIORITY_ENV: ",".join(config.source_priority) or None,
         PMXT_PREFETCH_WORKERS_ENV: (

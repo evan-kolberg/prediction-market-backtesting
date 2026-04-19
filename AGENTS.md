@@ -24,8 +24,6 @@ paper over failures that could make a reader trust misleading results.
 - Do not add extra things to the root README.
 - `docs/project-status.md` is the place for roadmap, known issues, and recently
   fixed history; include PR links there instead of in the root README body.
-- If relay behavior or env vars change, update both `pmxt_relay/README.md` and
-  `pmxt_relay/systemd/pmxt-relay.env.example`.
 - When touching MkDocs config, theme CSS, code-fence behavior, or docs assets,
   verify with:
 
@@ -39,8 +37,7 @@ Treat these as high-value issues:
 
 - broken direct runner entrypoints
 - `make backtest` or menu behavior drifting from docs
-- public relay correctness, fairness, and survivability
-- relay docs or env vars that do not match live reality
+- vendor archive and local-source correctness
 - API handler event-loop blocking
 - memory growth that can accumulate forever
 - timestamp or datetime warnings in normal runs
@@ -93,8 +90,8 @@ score = pnl - 0.5 * max_drawdown_currency - penalties
   exact slugs before scaling notebook runs.
 - Before running notebook optimizers, run the same slugs and timestamps through
   a regular runner so PMXT source and cache-fill progress is visible. Otherwise
-  a cold local-cache -> R2/archive -> relay fill can take a long time with
-  little notebook output.
+  a cold local-cache -> R2/archive fill can take a long time with little
+  notebook output.
 - For many-market research, prefer downloading PMXT raw dumps first:
 
 ```bash
@@ -112,17 +109,14 @@ for each new market.
 ~/.cache/nautilus_trader/pmxt
 ```
 
-- Public PMXT runners pin local raw first, then archive, then relay, usually:
+- Public PMXT runners pin local raw first, then archive, usually:
 
 ```text
 local:/Volumes/LaCie/pmxt_raws
 archive:r2v2.pmxt.dev
 archive:r2.pmxt.dev
-relay:209-209-10-83.sslip.io
 ```
 
-- The shared public relay is a raw mirror service. Filtered relay behavior is
-  legacy or self-hosted.
 - Root setup docs should include `duckdb`.
 - `docs/setup.md` and PMXT docs should describe cache default-on behavior and
   timing output default-on behavior, with `BACKTEST_ENABLE_TIMING=0` as the
@@ -181,7 +175,7 @@ processes before finishing.
 
 When asked to review or look for issues, prioritize:
 
-1. public relay correctness and survivability
+1. vendor source correctness and survivability
 2. backtest runner correctness
 3. docs/setup drift
 4. organizational consistency
@@ -190,59 +184,8 @@ Explicitly check:
 
 - Does `make backtest` still behave as expected?
 - Do direct runner paths still work?
-- Do public relay endpoints return quickly and consistently?
-- Do service names, env vars, and deploy paths in docs match reality?
-- Can reverse proxies collapse client identity or headers?
 - Are stale buckets, temp files, or background artifacts growing forever?
 - Are normal runs still warning-free?
-
-## Relay Facts
-
-- Live checkout path: `/opt/prediction-market-backtesting`
-- Relay env file: `/etc/pmxt-relay.env`
-- Relay services:
-  - `pmxt-relay-api.service`
-  - `pmxt-relay-worker.service`
-- Public relay URL: `https://209-209-10-83.sslip.io`
-- Trusted proxy env var: `PMXT_RELAY_TRUSTED_PROXY_IPS`
-
-If relay code changes are deployed, verify both service state and HTTP health:
-
-```bash
-systemctl is-active pmxt-relay-api.service pmxt-relay-worker.service
-curl -fsS https://209-209-10-83.sslip.io/healthz
-curl -fsS https://209-209-10-83.sslip.io/v1/stats
-curl -fsS https://209-209-10-83.sslip.io/v1/system
-```
-
-If a PR changes live relay behavior in `pmxt_relay/`, do not stop at local
-tests if deploy access is available. Deploy and verify the real box.
-
-When touching the VPS over SSH:
-
-- prefer one persistent PTY SSH session for the deploy/observe cycle
-- avoid many short-lived SSH sessions; fail2ban is enabled
-- run `systemctl`, `curl`, and observation loops inside that one PTY unless
-  there is a strong reason not to
-
-Typical deploy steps:
-
-```bash
-rsync updated relay files to /opt/prediction-market-backtesting
-update /etc/pmxt-relay.env if env semantics changed
-systemctl restart pmxt-relay-api.service pmxt-relay-worker.service
-systemctl is-active pmxt-relay-api.service pmxt-relay-worker.service
-```
-
-After deploy, observe for a few minutes instead of doing a single spot check.
-Watch for repeated endpoint timeouts, services drifting from `active`, rising
-error counts, CPU staying pinned while API responsiveness degrades, or memory
-climbing without settling.
-
-Relay `/v1/system` CPU is based on 1-minute load average divided by CPU count,
-capped at 100. A high percentage can reflect worker load or I/O wait; confirm
-with `uptime`, `/proc/loadavg`, `vmstat`, and top processes before concluding
-the box is unhealthy.
 
 ## PR Hygiene
 

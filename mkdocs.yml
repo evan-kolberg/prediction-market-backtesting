@@ -21,7 +21,6 @@ nav:
   - Research: research.md
   - Execution Modeling: execution-modeling.md
   - Data Vendors, Local Mirrors, And Raw PMXT: pmxt-byod.md
-  - Mirror And Relay Ops: pmxt-relay.md
   - Vendor Fetch Sources And Timing: pmxt-fetch-sources.md
   - Plotting: plotting.md
   - Testing: testing.md

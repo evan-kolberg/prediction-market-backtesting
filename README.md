@@ -17,19 +17,13 @@
 ![GitHub top language](https://img.shields.io/github/languages/top/evan-kolberg/prediction-market-backtesting)
 ![GitHub open issues](https://img.shields.io/github/issues/evan-kolberg/prediction-market-backtesting)
 
-[![Relay Status](https://209-209-10-83.sslip.io/v1/badge/status.svg)](https://209-209-10-83.sslip.io/v1/stats)
-[![r2v2.pmxt.dev](https://209-209-10-83.sslip.io/v1/badge/upstream.svg)](https://209-209-10-83.sslip.io/v1/queue)
-[![r2.pmxt.dev](https://209-209-10-83.sslip.io/v1/badge/upstream-r2.svg)](https://209-209-10-83.sslip.io/v1/queue)
-[![CPU Load](https://209-209-10-83.sslip.io/v1/badge/cpu.svg)](https://209-209-10-83.sslip.io/v1/system)
-[![I/O Wait](https://209-209-10-83.sslip.io/v1/badge/iowait.svg)](https://209-209-10-83.sslip.io/v1/system)
-[![RAM](https://209-209-10-83.sslip.io/v1/badge/mem.svg)](https://209-209-10-83.sslip.io/v1/system)
-[![Disk](https://209-209-10-83.sslip.io/v1/badge/disk.svg)](https://209-209-10-83.sslip.io/v1/system)
-[![Mirror Service](https://209-209-10-83.sslip.io/v1/badge/worker.svg)](https://209-209-10-83.sslip.io/v1/system)
-[![Hour Files](https://209-209-10-83.sslip.io/v1/badge/hour-files.svg)](https://209-209-10-83.sslip.io/v1/stats)
-[![Hours Since First](https://209-209-10-83.sslip.io/v1/badge/hours-since-first.svg)](https://209-209-10-83.sslip.io/v1/stats)
-[![Latest Hour](https://209-209-10-83.sslip.io/v1/badge/latest-hour.svg)](https://209-209-10-83.sslip.io/v1/stats)
 
 **Thanks to [PMXT](https://github.com/pmxt-dev/pmxt) for providing this data for free!**
+
+**New in Version 3:**
+- Telonex vendor support
+- 
+
 
 **New in Version 2:**
 - Nautilus 1.225.0, via PyPI in lieu of a subtree
@@ -79,6 +73,7 @@ Detailed guides have been filed away in the [docs index](https://evan-kolberg.gi
   - [Data Vendor Notes](https://evan-kolberg.github.io/prediction-market-backtesting/backtests/#data-vendor-notes)
     - [Native Vendors](https://evan-kolberg.github.io/prediction-market-backtesting/backtests/#native-vendors)
     - [PMXT](https://evan-kolberg.github.io/prediction-market-backtesting/backtests/#pmxt)
+    - [Telonex](https://evan-kolberg.github.io/prediction-market-backtesting/backtests/#telonex)
 - [Research](https://evan-kolberg.github.io/prediction-market-backtesting/research/)
   - [Overview](https://evan-kolberg.github.io/prediction-market-backtesting/research/#overview)
   - [Warm PMXT Cache Before Notebook Runs](https://evan-kolberg.github.io/prediction-market-backtesting/research/#warm-pmxt-cache-before-notebook-runs)
@@ -97,6 +92,7 @@ Detailed guides have been filed away in the [docs index](https://evan-kolberg.gi
   - [Limits](https://evan-kolberg.github.io/prediction-market-backtesting/execution-modeling/#limits)
   - [Vendor L2 Behavior](https://evan-kolberg.github.io/prediction-market-backtesting/execution-modeling/#vendor-l2-behavior)
     - [PMXT](https://evan-kolberg.github.io/prediction-market-backtesting/execution-modeling/#pmxt)
+    - [Telonex](https://evan-kolberg.github.io/prediction-market-backtesting/execution-modeling/#telonex)
 - [Data Vendors, Local Mirrors, And Raw PMXT](https://evan-kolberg.github.io/prediction-market-backtesting/pmxt-byod/)
   - [PMXT](https://evan-kolberg.github.io/prediction-market-backtesting/pmxt-byod/#pmxt)
     - [Runner Source Modes](https://evan-kolberg.github.io/prediction-market-backtesting/pmxt-byod/#runner-source-modes)
@@ -105,11 +101,8 @@ Detailed guides have been filed away in the [docs index](https://evan-kolberg.gi
     - [Supported Local File Layout](https://evan-kolberg.github.io/prediction-market-backtesting/pmxt-byod/#supported-local-file-layout)
     - [Required Parquet Columns](https://evan-kolberg.github.io/prediction-market-backtesting/pmxt-byod/#required-parquet-columns)
     - [Required JSON Payload Shape](https://evan-kolberg.github.io/prediction-market-backtesting/pmxt-byod/#required-json-payload-shape)
-  - [Relay Mode](https://evan-kolberg.github.io/prediction-market-backtesting/pmxt-byod/#relay-mode)
+  - [Telonex](https://evan-kolberg.github.io/prediction-market-backtesting/pmxt-byod/#telonex)
   - [What Is Not Plug-And-Play Yet](https://evan-kolberg.github.io/prediction-market-backtesting/pmxt-byod/#what-is-not-plug-and-play-yet)
-- [Mirror And Relay Ops](https://evan-kolberg.github.io/prediction-market-backtesting/pmxt-relay/)
-  - [Active Mirror Service](https://evan-kolberg.github.io/prediction-market-backtesting/pmxt-relay/#active-mirror-service)
-  - [PC-Side Alternative](https://evan-kolberg.github.io/prediction-market-backtesting/pmxt-relay/#pc-side-alternative)
 - [Vendor Fetch Sources And Timing](https://evan-kolberg.github.io/prediction-market-backtesting/pmxt-fetch-sources/)
   - [PMXT](https://evan-kolberg.github.io/prediction-market-backtesting/pmxt-fetch-sources/#pmxt)
   - [Example Output](https://evan-kolberg.github.io/prediction-market-backtesting/pmxt-fetch-sources/#example-output)
