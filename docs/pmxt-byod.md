@@ -239,6 +239,35 @@ Recommended local layout:
 The loader also accepts `outcome_id=0`, `0`, and a few flat filename fallbacks
 for test fixtures and ad hoc downloads.
 
+### Download Local Telonex Files
+
+Use the local downloader to warm the same directory the public Telonex runner
+uses by default:
+
+```bash
+TELONEX_API_KEY=... make download-telonex-data TELONEX_DOWNLOAD_FLAGS='\
+  --market-slug us-recession-by-end-of-2026 \
+  --outcome-id 0 \
+  --start-date 2026-01-19 \
+  --end-date 2026-02-01'
+```
+
+The default destination is `/Volumes/LaCie/telonex_data`. Override it with
+`TELONEX_DATA_DESTINATION=/path/to/telonex_data` or call the script directly:
+
+```bash
+uv run python scripts/telonex_download_data.py \
+  --destination /Volumes/LaCie/telonex_data \
+  --market-slug us-recession-by-end-of-2026 \
+  --outcome-id 0 \
+  --start-date 2026-01-19 \
+  --end-date 2026-02-01
+```
+
+The script reads the API key only from `TELONEX_API_KEY` and writes files under
+`polymarket/<channel>/<market_slug>/<outcome-or-outcome_id>/<YYYY-MM-DD>.parquet`,
+which is the layout accepted by `local:/Volumes/LaCie/telonex_data`.
+
 ## What Is Not Plug-And-Play Yet
 
 - arbitrary third-party vendor raw formats

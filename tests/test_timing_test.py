@@ -38,6 +38,18 @@ def test_transfer_label_identifies_r2_raw_urls() -> None:
     assert label == "r2 raw 2026-02-22T11"
 
 
+def test_transfer_label_identifies_telonex_sources() -> None:
+    local_label = _transfer_label(
+        "telonex-local::/Volumes/LaCie/telonex_data/polymarket/quotes/slug/0/2026-03-01.parquet"
+    )
+    api_label = _transfer_label(
+        "telonex-api::https://api.telonex.io/v1/downloads/polymarket/quotes/2026-03-01?slug=slug&outcome_id=0"
+    )
+
+    assert local_label == "telonex local 2026-03-01.parquet"
+    assert api_label == "telonex api 2026-03-01"
+
+
 def test_format_completed_hour_line_keeps_long_elapsed_values_aligned() -> None:
     line = _format_completed_hour_line(
         datetime(2026, 2, 22, 1, tzinfo=timezone.utc),
@@ -59,6 +71,14 @@ def test_progress_bar_description_reports_completion_and_active_work() -> None:
     description = _progress_bar_description(total_hours=44, started_hours=7, completed_hours=3)
 
     assert description == "Fetching hours (3/44 done, 4 active)"
+
+
+def test_progress_bar_description_can_report_days() -> None:
+    description = _progress_bar_description(
+        total_hours=3, started_hours=1, completed_hours=0, item_label="days"
+    )
+
+    assert description == "Fetching days (1/3 started, 1 active)"
 
 
 def test_progress_bar_description_uses_actual_active_transfer_count() -> None:
@@ -183,3 +203,21 @@ def test_install_timing_patches_runner_loader_override() -> None:
                 setattr(RunnerPolymarketPMXTDataLoader, name, original)
             elif name in RunnerPolymarketPMXTDataLoader.__dict__:
                 delattr(RunnerPolymarketPMXTDataLoader, name)
+
+
+def test_install_timing_patches_telonex_loader() -> None:
+    from prediction_market_extensions.backtesting import _timing_test as timing_module
+    from prediction_market_extensions.backtesting.data_sources.telonex import (
+        RunnerPolymarketTelonexQuoteDataLoader,
+    )
+
+    timing_module = importlib.reload(timing_module)
+    original = RunnerPolymarketTelonexQuoteDataLoader.load_quotes
+
+    try:
+        timing_module.install_timing()
+
+        assert RunnerPolymarketTelonexQuoteDataLoader.load_quotes is not original
+    finally:
+        timing_module._installed = False
+        RunnerPolymarketTelonexQuoteDataLoader.load_quotes = original

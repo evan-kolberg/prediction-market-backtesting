@@ -107,6 +107,7 @@ Repo-layer source syntax is explicit on purpose:
 - Kalshi native trade-tick runners use `rest:...`
 - Polymarket native trade-tick runners use `gamma:...`, `trades:...`, and `clob:...`
 - PMXT quote-tick runners use `local:...` and `archive:...`
+- Telonex quote-tick runners use `local:...` and `api:...`
 
 To mirror PMXT raw archive hours locally, run:
 
@@ -136,6 +137,19 @@ Downloading raw hours (2/3 done, 1 active):  67%|██████████�
 The counts, hour labels, source label, and byte totals vary with the current
 archive and the window you are mirroring.
 
+To mirror Telonex daily Parquet files locally, run:
+
+```bash
+TELONEX_API_KEY=... make download-telonex-data TELONEX_DOWNLOAD_FLAGS='\
+  --market-slug us-recession-by-end-of-2026 \
+  --outcome-id 0 \
+  --start-date 2026-01-19 \
+  --end-date 2026-02-01'
+```
+
+The default destination is `/Volumes/LaCie/telonex_data`, matching the
+`local:/Volumes/LaCie/telonex_data` source in the public Telonex runner.
+
 If you want to see the full loader and reporting flow in one place, the PMXT
 basket output below is representative of the current repo-layer behavior:
 Nautilus logs stay visible, the summary table is printed in-terminal, and the
@@ -154,6 +168,8 @@ after the run.
   the historical fallback)
 - PMXT `DATA.sources` entries are explicit and prefix-driven: `local:`,
   `archive:`
+- Telonex timing is daily-file based and reports active `local:`/`api:` loads
+  through the same `@timing_harness`
 - normal Nautilus logs are still printed; the timing harness is additive
 
 ## Extension Architecture

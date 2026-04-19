@@ -31,6 +31,7 @@ _TELONEX_DEFAULT_API_BASE_URL = "https://api.telonex.io"
 _TELONEX_DEFAULT_CHANNEL = "quotes"
 _TELONEX_EXCHANGE = "polymarket"
 _TELONEX_HTTP_TIMEOUT_SECS = 60
+_TELONEX_DOWNLOAD_CHUNK_SIZE = 1024 * 1024
 _TELONEX_USER_AGENT = "prediction-market-backtesting/1.0"
 _TELONEX_LOCAL_PREFIX = "local:"
 _TELONEX_API_PREFIX = "api:"
@@ -183,6 +184,13 @@ def configured_telonex_data_source(
 
 
 class RunnerPolymarketTelonexQuoteDataLoader(PolymarketDataLoader):
+    def _download_progress(
+        self, url: str, downloaded_bytes: int, total_bytes: int | None, finished: bool
+    ) -> None:
+        callback = getattr(self, "_telonex_download_progress_callback", None)
+        if callback is not None:
+            callback(url, downloaded_bytes, total_bytes, finished)
+
     def _config(self) -> TelonexLoaderConfig:
         config = _current_loader_config()
         if config is None:
@@ -232,6 +240,28 @@ class RunnerPolymarketTelonexQuoteDataLoader(PolymarketDataLoader):
         )
         return tuple(candidates)
 
+    def _local_path_for_day(
+        self,
+        *,
+        root: Path,
+        channel: str,
+        date: str,
+        market_slug: str,
+        token_index: int,
+        outcome: str | None,
+    ) -> Path | None:
+        for path in self._local_candidates(
+            root=root,
+            channel=channel,
+            date=date,
+            market_slug=market_slug,
+            token_index=token_index,
+            outcome=outcome,
+        ):
+            if path.exists():
+                return path
+        return None
+
     def _load_local_day(
         self,
         *,
@@ -242,18 +272,17 @@ class RunnerPolymarketTelonexQuoteDataLoader(PolymarketDataLoader):
         token_index: int,
         outcome: str | None,
     ) -> pd.DataFrame | None:
-        for path in self._local_candidates(
+        path = self._local_path_for_day(
             root=root,
             channel=channel,
             date=date,
             market_slug=market_slug,
             token_index=token_index,
             outcome=outcome,
-        ):
-            if not path.exists():
-                continue
-            return pd.read_parquet(path)
-        return None
+        )
+        if path is None:
+            return None
+        return pd.read_parquet(path)
 
     @staticmethod
     def _api_url(
@@ -306,7 +335,20 @@ class RunnerPolymarketTelonexQuoteDataLoader(PolymarketDataLoader):
         )
         try:
             with urlopen(request, timeout=_TELONEX_HTTP_TIMEOUT_SECS) as response:
-                payload = response.read()
+                total_bytes_header = response.headers.get("Content-Length")
+                total_bytes = int(total_bytes_header) if total_bytes_header else None
+                downloaded = 0
+                chunks: list[bytes] = []
+                self._download_progress(url, 0, total_bytes, False)
+                while True:
+                    chunk = response.read(_TELONEX_DOWNLOAD_CHUNK_SIZE)
+                    if not chunk:
+                        break
+                    chunks.append(chunk)
+                    downloaded += len(chunk)
+                    self._download_progress(url, downloaded, total_bytes, False)
+                self._download_progress(url, downloaded, total_bytes, True)
+                payload = b"".join(chunks)
         except HTTPError as exc:
             if exc.code == 404:
                 return None

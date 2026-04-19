@@ -65,6 +65,30 @@ This is what the repo's current PMXT basket-runner output looks like once
 Nautilus logs, the market summary table, and HTML artifact paths are all
 printed in the same terminal session:
 
+## Telonex
+
+Telonex quote-tick runners fetch one daily Parquet file per market/outcome/date.
+Use local files first when you have warmed them:
+
+```python
+DATA = MarketDataConfig(
+    platform=Polymarket,
+    data_type=QuoteTick,
+    vendor=Telonex,
+    sources=(
+        "local:/Volumes/LaCie/telonex_data",
+        "api:",
+    ),
+)
+```
+
+The timing harness uses the same `BACKTEST_ENABLE_TIMING` switch for Telonex.
+Because the source files are daily, the progress bar says `Fetching days`
+instead of `Fetching hours`. Active status lines show `telonex local` or
+`telonex api`, byte progress for API downloads when the response exposes a
+content length, scan rows, matched quote rows, and a completed line for each
+date.
+
 ## Timing Expectations By Source
 
 | Source | Typical time | When it happens |
@@ -72,6 +96,8 @@ printed in the same terminal session:
 | Local cache | <0.05s | Second run onward for the same market/token/hour |
 | Local raw PMXT archive | local disk bound | You mirrored raw PMXT hours locally and pointed `DATA.sources` at `local:/...`, or used `PMXT_RAW_ROOT` for a lower-level loader workflow |
 | Remote raw PMXT archive | network and file-size bound | Hour is missing from local cache and local raw mirror, so the client downloads the upstream raw parquet to a temp file and filters it locally |
+| Local Telonex daily Parquet | local disk bound | You warmed `/Volumes/LaCie/telonex_data` and listed `local:/Volumes/LaCie/telonex_data` before `api:` |
+| Telonex API daily Parquet | network and file-size bound | The local daily file is missing and the runner falls back to `api:` with `TELONEX_API_KEY` in the environment |
 | None | <1s | Hour does not exist yet |
 
 ## How To See This Output
@@ -89,6 +115,12 @@ Or run any PMXT runner directly:
 
 ```bash
 uv run python backtests/polymarket_quote_tick_ema_crossover.py
+```
+
+Or run the Telonex joint-portfolio example directly:
+
+```bash
+uv run python backtests/polymarket_telonex_quote_tick_joint_portfolio_runner.py
 ```
 
 You can also time a runner explicitly through the harness test helper:

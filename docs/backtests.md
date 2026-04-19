@@ -37,6 +37,8 @@ Good public examples:
   [`backtests/polymarket_quote_tick_ema_crossover.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/v2/backtests/polymarket_quote_tick_ema_crossover.py)
 - PMXT joint-portfolio basket runner:
   [`backtests/polymarket_quote_tick_joint_portfolio_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/v2/backtests/polymarket_quote_tick_joint_portfolio_runner.py)
+- Telonex joint-portfolio basket runner:
+  [`backtests/polymarket_telonex_quote_tick_joint_portfolio_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/v3/backtests/polymarket_telonex_quote_tick_joint_portfolio_runner.py)
 - PMXT independent basket runner:
   [`backtests/polymarket_quote_tick_independent_multi_replay_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/v2/backtests/polymarket_quote_tick_independent_multi_replay_runner.py)
 - PMXT independent 25-replay basket runner:
@@ -541,8 +543,12 @@ workflows:
 - Telonex source parsing accepts `local:` and `api:` only
 - `api:` reads `TELONEX_API_KEY` from the environment and constructs Telonex
   download URLs; never commit keys or put them in `DATA.sources`
-- prefer `local:/path/to/telonex` for repeatable research once files have been
-  downloaded
+- prefer `local:/Volumes/LaCie/telonex_data` for repeatable research once files
+  have been downloaded with `scripts/telonex_download_data.py` or
+  `make download-telonex-data`
+- Telonex timing output is daily-file based: the `@timing_harness` progress bar
+  reports active `local:`/`api:` loads, byte progress when the API response
+  exposes a size, scan rows, and completed per-day lines
 
 For vendor-specific data-source behavior and timings, use:
 

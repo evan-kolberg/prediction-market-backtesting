@@ -65,6 +65,32 @@ def test_telonex_api_url_uses_slug_and_outcome_id_without_key() -> None:
     )
 
 
+def test_telonex_local_path_matches_download_script_layout(tmp_path) -> None:
+    loader = RunnerPolymarketTelonexQuoteDataLoader.__new__(RunnerPolymarketTelonexQuoteDataLoader)
+    local_path = (
+        tmp_path
+        / "polymarket"
+        / "quotes"
+        / "us-recession-by-end-of-2026"
+        / "0"
+        / "2026-01-19.parquet"
+    )
+    local_path.parent.mkdir(parents=True)
+    local_path.write_bytes(b"parquet")
+
+    assert (
+        loader._local_path_for_day(
+            root=tmp_path,
+            channel="quotes",
+            date="2026-01-19",
+            market_slug="us-recession-by-end-of-2026",
+            token_index=0,
+            outcome=None,
+        )
+        == local_path
+    )
+
+
 def test_telonex_rejects_unprefixed_sources() -> None:
     with pytest.raises(ValueError, match="Use one of: local:, api:"):
         resolve_telonex_loader_config(sources=["https://api.telonex.io"])

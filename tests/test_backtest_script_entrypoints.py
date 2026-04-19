@@ -36,6 +36,7 @@ EXPECTED_PUBLIC_RUNNER_PATHS = [
     Path("backtests/polymarket_quote_tick_independent_25_replay_runner.py"),
     Path("backtests/polymarket_quote_tick_independent_multi_replay_runner.py"),
     Path("backtests/polymarket_quote_tick_joint_portfolio_runner.py"),
+    Path("backtests/polymarket_telonex_quote_tick_joint_portfolio_runner.py"),
     Path("backtests/polymarket_trade_tick_independent_multi_replay_runner.py"),
     Path("backtests/polymarket_trade_tick_joint_portfolio_runner.py"),
     Path("backtests/polymarket_trade_tick_vwap_reversion.py"),
@@ -47,6 +48,9 @@ PMXT_INDEPENDENT_QUOTE_TICK_RUNNERS = [
     Path("backtests/polymarket_quote_tick_independent_25_replay_runner.py"),
 ]
 PMXT_JOINT_QUOTE_TICK_RUNNERS = [Path("backtests/polymarket_quote_tick_joint_portfolio_runner.py")]
+TELONEX_JOINT_QUOTE_TICK_RUNNERS = [
+    Path("backtests/polymarket_telonex_quote_tick_joint_portfolio_runner.py")
+]
 PMXT_QUOTE_TICK_OPTIMIZER_RUNNERS = [Path("backtests/polymarket_quote_tick_ema_optimizer.py")]
 TRADE_TICK_INDEPENDENT_RUNNERS = [
     Path("backtests/kalshi_trade_tick_independent_multi_replay_runner.py"),
@@ -60,6 +64,7 @@ TRADE_TICK_JOINT_RUNNERS = [
 SCRIPT_ENTRYPOINT_PATHS = [
     Path("scripts/pmxt_download_raws.py"),
     Path("scripts/run_all_backtests.py"),
+    Path("scripts/telonex_download_data.py"),
 ]
 
 REPO_BOOTSTRAP_HELPERS = {Path("backtests/_script_helpers.py"), Path("scripts/_script_helpers.py")}
@@ -182,7 +187,12 @@ def test_public_notebook_runners_expose_metadata_contract(relative_path: Path) -
 
 
 @pytest.mark.parametrize(
-    "module_name", ["backtests.kalshi_trade_tick_breakout", "scripts.pmxt_download_raws"]
+    "module_name",
+    [
+        "backtests.kalshi_trade_tick_breakout",
+        "scripts.pmxt_download_raws",
+        "scripts.telonex_download_data",
+    ],
 )
 def test_entrypoint_modules_import_as_packages_without_root_helper_shim(
     monkeypatch: pytest.MonkeyPatch, module_name: str
@@ -285,6 +295,33 @@ def test_pmxt_quote_tick_joint_runners_expose_explicit_summary_contract(
     report = globals_dict["REPORT"]
 
     assert experiment.name == relative_path.stem
+    assert report.summary_report is True
+    assert report.summary_report_path == globals_dict["SUMMARY_REPORT_PATH"]
+    assert experiment.return_summary_series is True
+    assert experiment.multi_replay_mode == "joint_portfolio"
+    assert experiment.emit_html is False
+    assert experiment.chart_output_path == "output"
+
+
+@pytest.mark.parametrize("relative_path", TELONEX_JOINT_QUOTE_TICK_RUNNERS)
+def test_telonex_quote_tick_joint_runners_expose_explicit_summary_contract(
+    monkeypatch: pytest.MonkeyPatch, relative_path: Path
+) -> None:
+    script_path = REPO_ROOT / relative_path
+    normalized_sys_path = [entry for entry in sys.path if Path(entry or ".").resolve() != REPO_ROOT]
+    monkeypatch.setattr(sys, "path", [str(script_path.parent), *normalized_sys_path])
+
+    globals_dict = runpy.run_path(str(script_path), run_name="__script_test__")
+
+    data = globals_dict["DATA"]
+    experiment = globals_dict["EXPERIMENT"]
+    report = globals_dict["REPORT"]
+
+    assert experiment.name == relative_path.stem
+    assert data.platform == "polymarket"
+    assert data.data_type == "quote_tick"
+    assert data.vendor == "telonex"
+    assert data.sources == ("local:/Volumes/LaCie/telonex_data", "api:")
     assert report.summary_report is True
     assert report.summary_report_path == globals_dict["SUMMARY_REPORT_PATH"]
     assert experiment.return_summary_series is True
