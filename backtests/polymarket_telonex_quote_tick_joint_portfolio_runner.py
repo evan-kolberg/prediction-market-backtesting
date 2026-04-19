@@ -67,7 +67,8 @@ PARTIAL_MESSAGE = "Completed {completed} of {total} joint-portfolio Telonex exam
 # Telonex vendor sources. Local-first is the preferred sustained workflow once a
 # Telonex mirror has been downloaded; the `api:` entry is a fallback that reads
 # TELONEX_API_KEY from the environment at fetch time. The key must never live in
-# source files, checked-in config, or the `DATA.sources` tuple.
+# source files, checked-in config, or the `DATA.sources` tuple — pass it at
+# runtime, e.g. `TELONEX_API_KEY=tlx_... uv run python <this file>`.
 DATA = MarketDataConfig(
     platform=Polymarket,
     data_type=QuoteTick,
@@ -78,12 +79,11 @@ DATA = MarketDataConfig(
     ),
 )
 
-# Long-dated example markets for a basket timing run. Telonex stores Polymarket
-# quote ticks as one Parquet file per UTC day, so each replay is scoped to the
-# 2026-03-01 -> 2026-04-11 window that lines up with the PMXT joint-portfolio
-# example.
-_LONG_WINDOW_START = "2026-03-01T00:00:00Z"
-_LONG_WINDOW_END = "2026-04-11T23:59:59Z"
+# One-year replay window ending at today's reference date. Telonex stores
+# Polymarket quote ticks as one Parquet file per UTC day, so the runner walks
+# every day in this span for each replay.
+_LONG_WINDOW_START = "2025-04-19T00:00:00Z"
+_LONG_WINDOW_END = "2026-04-19T23:59:59Z"
 
 REPLAYS = (
     QuoteReplay(
