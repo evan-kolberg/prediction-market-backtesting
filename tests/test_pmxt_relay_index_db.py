@@ -429,6 +429,9 @@ def test_initialize_tolerates_duplicate_column_race_during_schema_upgrade(tmp_pa
             def executescript(self, sql: str):  # type: ignore[no-untyped-def]
                 return self._wrapped.executescript(sql)
 
+            def commit(self) -> None:
+                self._wrapped.commit()
+
             def execute(self, sql: str, params=()):  # type: ignore[no-untyped-def]
                 if (
                     not self._raised
@@ -447,6 +450,43 @@ def test_initialize_tolerates_duplicate_column_race_during_schema_upgrade(tmp_pa
         }
         assert "last_error_at" in columns
         assert "next_retry_at" in columns
+
+
+def test_initialize_releases_write_lock_so_second_process_can_write(tmp_path: Path):
+    """Second writer (worker) must be able to take the WAL write lock after the
+    first writer (API) finishes initializing on a fresh DB. Regression: the
+    legacy-status UPDATE in `_ensure_schema` previously left an open implicit
+    transaction, holding the WAL write lock for the lifetime of the connection
+    and silently deadlocking the worker on a fresh database.
+    """
+    db_path = tmp_path / "relay.sqlite3"
+
+    api_index = RelayIndex(db_path)
+    api_index.initialize(apply_maintenance=False)
+    try:
+        worker_conn = sqlite3.connect(db_path, timeout=2)
+        try:
+            worker_conn.execute("PRAGMA busy_timeout=2000")
+            worker_conn.execute("PRAGMA journal_mode=WAL")
+            with worker_conn:
+                worker_conn.execute(
+                    "INSERT INTO archive_hours "
+                    "(filename, hour, source_url, archive_page, discovered_at) "
+                    "VALUES (?, ?, ?, ?, ?)",
+                    (
+                        "polymarket_orderbook_2026-03-21T12.parquet",
+                        "2026-03-21T12:00:00+00:00",
+                        "https://r2v2.pmxt.dev/polymarket_orderbook_2026-03-21T12.parquet",
+                        1,
+                        "2026-03-21T12:00:00+00:00",
+                    ),
+                )
+            (count,) = worker_conn.execute("SELECT COUNT(*) FROM archive_hours").fetchone()
+            assert count == 1
+        finally:
+            worker_conn.close()
+    finally:
+        api_index.close()
 
 
 def test_list_hours_needing_verification_returns_oldest_first(tmp_path: Path):

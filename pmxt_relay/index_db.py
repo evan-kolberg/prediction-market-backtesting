@@ -209,6 +209,11 @@ class RelayIndex:
             """,
             (_LEGACY_ACTIVE_STATUS,),
         )
+        # The UPDATE above runs inside Python's implicit deferred transaction;
+        # without an explicit commit the WAL write lock stays held for the life
+        # of the connection. On a fresh DB this blocks the worker process from
+        # acquiring its own write lock during initialize().
+        self._conn.commit()
 
     def _ensure_archive_column(self, sql: str) -> None:
         try:
