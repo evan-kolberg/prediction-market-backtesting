@@ -48,24 +48,18 @@ def _transfer_label(source: str) -> str:
     for prefix, label in (
         ("cache::", "cache"),
         ("local-raw::", "local raw"),
-        ("relay-filtered::", "relay filtered"),
-        ("relay-raw::", "relay raw"),
         ("remote-raw::", "r2 raw"),
     ):
         if source.startswith(prefix):
             return f"{label} {_hour_label(source.removeprefix(prefix))}"
 
-    if source in {"none", "unknown", "local raw", "relay filtered", "relay raw"}:
+    if source in {"none", "unknown", "local raw"}:
         return source
 
     parsed = urlparse(source)
     hour_label = _hour_label(source)
     if parsed.scheme == "file" or source.startswith("/"):
         return f"local raw {hour_label}"
-    if "/v1/filtered/" in source:
-        return f"relay filtered {hour_label}"
-    if "/v1/raw/" in source:
-        return f"relay raw {hour_label}"
     return f"r2 raw {hour_label}"
 
 
@@ -420,8 +414,6 @@ def install_timing() -> None:
     def _install_full_timing(loader_cls) -> None:  # type: ignore[no-untyped-def]
         orig_load = loader_cls._load_market_batches
         orig_cached = loader_cls._load_cached_market_batches
-        orig_relay = loader_cls._load_relay_market_batches
-        orig_relay_raw = loader_cls._load_relay_raw_market_batches
         orig_local_archive = loader_cls._load_local_archive_market_batches
         orig_remote = loader_cls._load_remote_market_batches
         orig_iter = loader_cls._iter_market_batches
@@ -431,28 +423,6 @@ def install_timing() -> None:
             if result is not None:
                 cache_path = self._cache_path_for_hour(hour)
                 source_local.source = f"cache::{cache_path}"
-            return result
-
-        def patched_relay(self, hour, *, batch_size):
-            result = orig_relay(self, hour, batch_size=batch_size)
-            if result is not None:
-                relay_url = self._relay_url_for_hour(hour)
-                source_local.source = (
-                    f"relay-filtered::{relay_url}" if relay_url is not None else "relay filtered"
-                )
-            return result
-
-        def patched_relay_raw(self, hour, *, batch_size):
-            relay_raw_url = self._relay_raw_url_for_hour(hour)
-            _start_transfer(hour, relay_raw_url)
-            try:
-                result = orig_relay_raw(self, hour, batch_size=batch_size)
-            finally:
-                _finish_transfer(relay_raw_url)
-            if result is not None:
-                source_local.source = (
-                    f"relay-raw::{relay_raw_url}" if relay_raw_url is not None else "relay raw"
-                )
             return result
 
         def patched_local_archive(self, hour, *, batch_size):
@@ -557,8 +527,6 @@ def install_timing() -> None:
                 heartbeat_thread.join(timeout=1.0)
 
         loader_cls._load_cached_market_batches = patched_cached
-        loader_cls._load_relay_market_batches = patched_relay
-        loader_cls._load_relay_raw_market_batches = patched_relay_raw
         loader_cls._load_local_archive_market_batches = patched_local_archive
         loader_cls._load_remote_market_batches = patched_remote
         loader_cls._load_market_batches = timed_load

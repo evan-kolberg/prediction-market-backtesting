@@ -16,9 +16,19 @@ class MarketDataVendor:
 
 NATIVE_VENDOR = MarketDataVendor("native")
 PMXT_VENDOR = MarketDataVendor("pmxt")
+TELONEX_VENDOR = MarketDataVendor("telonex")
 
 Native = NATIVE_VENDOR
 PMXT = PMXT_VENDOR
+Telonex = TELONEX_VENDOR
 
 
-__all__ = ["NATIVE_VENDOR", "PMXT", "PMXT_VENDOR", "MarketDataVendor", "Native"]
+__all__ = [
+    "NATIVE_VENDOR",
+    "PMXT",
+    "PMXT_VENDOR",
+    "TELONEX_VENDOR",
+    "MarketDataVendor",
+    "Native",
+    "Telonex",
+]

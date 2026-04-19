@@ -1,22 +1,23 @@
 from __future__ import annotations
 
 import os
+import re
 import time
 from collections import Counter
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from urllib.parse import urlencode
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 import pyarrow.parquet as pq
 from tqdm.auto import tqdm
 
-from pmxt_relay.archive import extract_archive_filenames, fetch_archive_page
-from pmxt_relay.coverage import PMXT_ARCHIVE_START_HOUR, floor_utc_hour
-from pmxt_relay.storage import archive_filename_for_hour, parse_archive_hour, raw_relative_path
-
 _USER_AGENT = "prediction-market-backtesting/1.0"
+_ARCHIVE_LINK_RE = re.compile(r"(polymarket_orderbook_\d{4}-\d{2}-\d{2}T\d{2}\.parquet)")
+_ARCHIVE_FILENAME_RE = re.compile(r"^polymarket_orderbook_(\d{4}-\d{2}-\d{2}T\d{2})\.parquet$")
+PMXT_ARCHIVE_START_HOUR = datetime(2026, 2, 21, 16, tzinfo=UTC)
 _DEFAULT_ARCHIVE_LISTING_URL = "https://archive.pmxt.dev/Polymarket/v2"
 _DEFAULT_ARCHIVE_BASE_URL = "https://r2v2.pmxt.dev"
 _DEFAULT_V1_ARCHIVE_LISTING_URL = "https://archive.pmxt.dev/Polymarket/v1"
@@ -25,7 +26,6 @@ _DEFAULT_ARCHIVE_SOURCES = (
     (_DEFAULT_ARCHIVE_LISTING_URL, _DEFAULT_ARCHIVE_BASE_URL),
     (_DEFAULT_V1_ARCHIVE_LISTING_URL, _DEFAULT_V1_ARCHIVE_BASE_URL),
 )
-_DEFAULT_RELAY_BASE_URL = "https://209-209-10-83.sslip.io"
 _DOWNLOAD_CHUNK_SIZE = 8 * 1024 * 1024
 _STATUS_REFRESH_SECS = 0.2
 _MIN_NONEMPTY_RAW_BYTES = 1024 * 1024
@@ -61,6 +61,47 @@ class RawDownloadSummary:
 
     def as_dict(self) -> dict[str, object]:
         return asdict(self)
+
+
+def extract_archive_filenames(html: str) -> list[str]:
+    filenames: list[str] = []
+    seen: set[str] = set()
+    for filename in _ARCHIVE_LINK_RE.findall(html):
+        if filename in seen:
+            continue
+        filenames.append(filename)
+        seen.add(filename)
+    return filenames
+
+
+def fetch_archive_page(archive_listing_url: str, page: int, timeout_secs: int) -> str:
+    query = urlencode({"page": page})
+    separator = "&" if "?" in archive_listing_url else "?"
+    url = f"{archive_listing_url}{separator}{query}"
+    request = Request(url, headers={"User-Agent": _USER_AGENT})
+    with urlopen(request, timeout=timeout_secs) as response:
+        return response.read().decode("utf-8")
+
+
+def floor_utc_hour(value: datetime) -> datetime:
+    return value.astimezone(UTC).replace(minute=0, second=0, microsecond=0)
+
+
+def archive_filename_for_hour(hour: datetime) -> str:
+    normalized = floor_utc_hour(hour)
+    return f"polymarket_orderbook_{normalized:%Y-%m-%dT%H}.parquet"
+
+
+def parse_archive_hour(filename: str) -> datetime:
+    match = _ARCHIVE_FILENAME_RE.match(filename)
+    if match is None:
+        raise ValueError(f"Unsupported PMXT archive filename: {filename}")
+    return datetime.strptime(match.group(1), "%Y-%m-%dT%H").replace(tzinfo=UTC)
+
+
+def raw_relative_path(filename: str) -> Path:
+    hour = parse_archive_hour(filename)
+    return Path(str(hour.year)) / f"{hour.month:02d}" / f"{hour.day:02d}" / filename
 
 
 def _parse_hour_bound(value: str | None) -> datetime | None:
@@ -168,19 +209,6 @@ def _archive_url(base_url: str, filename: str) -> str:
     return f"{base_url.rstrip('/')}/{filename}"
 
 
-def _relay_url(base_url: str, filename: str) -> str:
-    relative = raw_relative_path(filename).as_posix()
-    return f"{base_url.rstrip('/')}/v1/raw/{relative}"
-
-
-def _source_url(
-    *, source: str, filename: str, archive_base_url: str, relay_base_url: str
-) -> tuple[str, str]:
-    if source == "archive":
-        return _archive_url(archive_base_url, filename), f"archive:{archive_base_url.rstrip('/')}"
-    return _relay_url(relay_base_url, filename), f"relay:{relay_base_url.rstrip('/')}"
-
-
 def _archive_sources_from_args(
     *,
     archive_sources: list[tuple[str, str]] | None,
@@ -264,23 +292,22 @@ def _candidate_urls(
     filename: str,
     archive_sources: list[ArchiveSource],
     discovered_archive_base_urls: dict[str, str],
-    relay_base_url: str,
     timeout_secs: int | None = None,
 ) -> list[tuple[str, str]]:
-    if source == "archive":
-        if timeout_secs is not None:
-            return _ranked_archive_candidate_urls(
-                filename=filename,
-                archive_sources=archive_sources,
-                discovered_archive_base_urls=discovered_archive_base_urls,
-                timeout_secs=timeout_secs,
-            )
-        return _archive_candidate_urls(
+    if source != "archive":
+        raise ValueError(f"Unsupported PMXT raw source {source!r}. Use archive.")
+    if timeout_secs is not None:
+        return _ranked_archive_candidate_urls(
             filename=filename,
             archive_sources=archive_sources,
             discovered_archive_base_urls=discovered_archive_base_urls,
+            timeout_secs=timeout_secs,
         )
-    return [(_relay_url(relay_base_url, filename), f"relay:{relay_base_url.rstrip('/')}")]
+    return _archive_candidate_urls(
+        filename=filename,
+        archive_sources=archive_sources,
+        discovered_archive_base_urls=discovered_archive_base_urls,
+    )
 
 
 def _content_length_from_headers(headers) -> int | None:  # type: ignore[no-untyped-def]
@@ -377,15 +404,13 @@ def _format_download_error(exc: Exception) -> str:
 
 
 def _source_priority_summary(
-    *, source_sequence: list[str], archive_sources: list[ArchiveSource], relay_base_url: str
+    *, source_sequence: list[str], archive_sources: list[ArchiveSource]
 ) -> str:
     parts: list[str] = []
     for source in source_sequence:
         if source == "archive":
             archive_labels = ", ".join(source.base_url.rstrip("/") for source in archive_sources)
             parts.append(f"archive best-of {archive_labels}")
-        else:
-            parts.append(f"relay {relay_base_url.rstrip('/')}")
     return "PMXT raw source: direct hour probes (" + " -> ".join(parts) + ")"
 
 
@@ -606,7 +631,6 @@ def download_raw_hours(
     archive_listing_url: str = _DEFAULT_ARCHIVE_LISTING_URL,
     archive_base_url: str = _DEFAULT_ARCHIVE_BASE_URL,
     archive_sources: list[tuple[str, str]] | None = None,
-    relay_base_url: str = _DEFAULT_RELAY_BASE_URL,
     source_order: list[str] | None = None,
     start_time: str | None = None,
     end_time: str | None = None,
@@ -624,12 +648,12 @@ def download_raw_hours(
         archive_base_url=archive_base_url,
     )
 
-    selected_sources = source_order or ["archive", "relay"]
+    selected_sources = source_order or ["archive"]
     source_sequence: list[str] = []
     for source in selected_sources:
         normalized = source.strip().casefold()
-        if normalized not in {"archive", "relay"}:
-            raise ValueError(f"Unsupported PMXT raw source {source!r}. Use archive or relay.")
+        if normalized != "archive":
+            raise ValueError(f"Unsupported PMXT raw source {source!r}. Use archive.")
         if normalized not in source_sequence:
             source_sequence.append(normalized)
     if not source_sequence:
@@ -667,7 +691,6 @@ def download_raw_hours(
             _source_priority_summary(
                 source_sequence=source_sequence,
                 archive_sources=resolved_archive_sources,
-                relay_base_url=relay_base_url,
             )
         )
         window_start_label, window_end_label = _window_label_from_filenames(filenames)
@@ -716,7 +739,6 @@ def download_raw_hours(
                         filename=filename,
                         archive_sources=resolved_archive_sources,
                         discovered_archive_base_urls=discovered_archive_base_urls,
-                        relay_base_url=relay_base_url,
                         timeout_secs=timeout_secs,
                     )
                 ]
@@ -768,7 +790,6 @@ def download_raw_hours(
                     filename=filename,
                     archive_sources=resolved_archive_sources,
                     discovered_archive_base_urls=discovered_archive_base_urls,
-                    relay_base_url=relay_base_url,
                     timeout_secs=timeout_secs,
                 )
                 for url, source_label in source_candidates:

@@ -19,7 +19,6 @@ EXPECTED_PMXT_SOURCES = (
     "local:/Volumes/LaCie/pmxt_raws",
     "archive:r2v2.pmxt.dev",
     "archive:r2.pmxt.dev",
-    "relay:209-209-10-83.sslip.io",
 )
 EXPECTED_DETAIL_PLOT_PANELS = (
     "total_equity",

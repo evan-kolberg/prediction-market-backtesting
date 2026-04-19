@@ -35,15 +35,13 @@ independent basket runner.
 Quote-tick PMXT runners use the source path pinned in `DATA.sources` inside the
 file. Public PMXT runners now pin `local:/Volumes/LaCie/pmxt_raws` first,
 `archive:r2v2.pmxt.dev` + `archive:r2.pmxt.dev` second (tried in that order so
-the newer v2 subdomain is preferred, with v1 covering older history), and
-`relay:209-209-10-83.sslip.io` last. If the local mirror path is absent, the
-loader falls through to archives and then relay.
+the newer v2 subdomain is preferred, with v1 covering older history). If the
+local mirror path is absent, the loader falls through to archives.
 Those prefixes are the contract; do not use unprefixed hosts or ad hoc aliases.
 
 Coverage is mixed by design:
 
-- fast unit tests for strategy, loader, cache, and relay logic
-- relay processor and API integration tests against temp dirs
+- fast unit tests for strategy, loader, cache, and vendor source logic
 - smoke tests that exercise real backtest flows
 - generated chart output either redirected to temp dirs or explicitly cleaned up
   so the working tree stays clean

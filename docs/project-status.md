@@ -19,6 +19,10 @@ No repo-level open issues are tracked here right now.
 
 ## Recently Fixed
 
+- [x] v3 removes the active PMXT relay path, relay badges, and relay service
+  package. PMXT quote-tick runners now use local raw files plus direct
+  `r2v2.pmxt.dev` / `r2.pmxt.dev` archive fallback, and Telonex is available
+  as a separate Polymarket quote-tick vendor.
 - [x] PMXT relay latest-hour badge now prints the mirrored filename
   (`polymarket_orderbook_YYYY-MM-DDTHH`) instead of only the naked hour, the
   mirror worker validates the local file size against upstream before reusing

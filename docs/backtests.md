@@ -113,7 +113,6 @@ DATA = MarketDataConfig(
         "local:/Volumes/LaCie/pmxt_raws",
         "archive:r2v2.pmxt.dev",
         "archive:r2.pmxt.dev",
-        "relay:209-209-10-83.sslip.io",
     ),
 )
 
@@ -498,8 +497,10 @@ workflows:
 - `KALSHI_REST_BASE_URL`
 - `POLYMARKET_GAMMA_BASE_URL`, `POLYMARKET_TRADE_API_BASE_URL`,
   `POLYMARKET_CLOB_BASE_URL`
-- `PMXT_RAW_ROOT`, `PMXT_REMOTE_BASE_URL`, `PMXT_RELAY_BASE_URL`,
-  `PMXT_CACHE_DIR`, `PMXT_DISABLE_CACHE`
+- `PMXT_RAW_ROOT`, `PMXT_REMOTE_BASE_URL`, `PMXT_CACHE_DIR`,
+  `PMXT_DISABLE_CACHE`
+- `TELONEX_LOCAL_DIR`, `TELONEX_API_BASE_URL`, `TELONEX_API_KEY`,
+  `TELONEX_CHANNEL`
 - `BACKTEST_ENABLE_TIMING=0`
 
 ## Data Vendor Notes
@@ -519,26 +520,31 @@ workflows:
 
 - PMXT is the first documented quote-tick vendor adapter in this repo
 - the preferred sustained workflow is raw-first: point runners at a local raw
-  mirror when you have one, otherwise let them pull from archive and relay
+  mirror when you have one, otherwise let them pull from archive
 - use `archive:archive.example.com` when you want the runner to fetch raw
   archive hours explicitly
 - use `local:/path/to/raw-hours` when you want the runner to fetch from a
   local PMXT raw mirror explicitly
-- use `relay:relay.example.com` when you want the runner to fetch raw hours
-  from a relay explicitly
 - after the cache layer, PMXT quote-tick runners try the explicit raw sources
   in the exact order you list them
-- PMXT source parsing is strict on purpose; only `local:`, `archive:`,
-  and `relay:` are accepted in `DATA.sources`
+- PMXT source parsing is strict on purpose; only `local:` and `archive:` are
+  accepted in `DATA.sources`
 - the local PMXT filtered cache is enabled by default at
   `~/.cache/nautilus_trader/pmxt`
-- the shared public relay is now treated as a raw mirror service; filtered
-  relay behavior is legacy or self-hosted
 - direct script execution keeps normal Nautilus output visible, and runners that
   opt into `@timing_harness` keep timing output too
+
+### Telonex
+
+- `telonex` is a Polymarket quote-tick vendor backed by Telonex daily Parquet
+  files
+- Telonex source parsing accepts `local:` and `api:` only
+- `api:` reads `TELONEX_API_KEY` from the environment and constructs Telonex
+  download URLs; never commit keys or put them in `DATA.sources`
+- prefer `local:/path/to/telonex` for repeatable research once files have been
+  downloaded
 
 For vendor-specific data-source behavior and timings, use:
 
 - [Data Vendors, Local Mirrors, And Raw PMXT](pmxt-byod.md)
 - [Vendor Fetch Sources And Timing](pmxt-fetch-sources.md)
-- [Mirror And Relay Ops](pmxt-relay.md)

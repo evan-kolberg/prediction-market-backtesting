@@ -226,7 +226,7 @@ def test_pmxt_quote_tick_wrapper_matches_direct_backtest(monkeypatch) -> None:
             platform="polymarket",
             data_type="quote_tick",
             vendor="pmxt",
-            sources=("local:/tmp/pmxt-a", "archive:archive.vendor.test", "relay:relay.vendor.test"),
+            sources=("local:/tmp/pmxt-a", "archive:archive.vendor.test"),
         ),
         sims=(
             MarketSimConfig(
@@ -252,7 +252,6 @@ def test_pmxt_quote_tick_wrapper_matches_direct_backtest(monkeypatch) -> None:
                 sources=(
                     "local:/tmp/pmxt-a",
                     "archive:archive.vendor.test",
-                    "relay:relay.vendor.test",
                 ),
             ),
             market_slug="demo-market",

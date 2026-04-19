@@ -82,7 +82,10 @@ def coerce_legacy_market_sim_config(
             metadata=sim.metadata,
         )
 
-    if normalized_key == ("polymarket", "quote_tick", "pmxt"):
+    if normalized_key in {
+        ("polymarket", "quote_tick", "pmxt"),
+        ("polymarket", "quote_tick", "telonex"),
+    }:
         if sim.market_slug is None:
             raise ValueError("market_slug is required for quote-tick replays.")
         return QuoteReplay(
