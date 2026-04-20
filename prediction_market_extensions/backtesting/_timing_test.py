@@ -848,9 +848,7 @@ def install_timing() -> None:
 
                     if frame is not None:
                         row_count = len(frame)
-                        _scan_progress(
-                            day_source_label, 1, row_count, 0, day_total_bytes, False
-                        )
+                        _scan_progress(day_source_label, 1, row_count, 0, day_total_bytes, False)
                         local_records = self._quote_ticks_from_frame(frame, start=start, end=end)
                         _scan_progress(
                             day_source_label,

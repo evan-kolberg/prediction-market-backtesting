@@ -113,9 +113,7 @@ def _classify_telonex_sources(sources: Sequence[str]) -> tuple[TelonexSourceEntr
         if folded.startswith(_TELONEX_LOCAL_PREFIX):
             remainder = stripped[len(_TELONEX_LOCAL_PREFIX) :].strip()
             if not remainder:
-                raise ValueError(
-                    f"Telonex explicit source {raw_source!r} is missing a local path."
-                )
+                raise ValueError(f"Telonex explicit source {raw_source!r} is missing a local path.")
             entries.append(
                 TelonexSourceEntry(
                     kind=_TELONEX_SOURCE_LOCAL, target=normalize_local_path(remainder)
@@ -256,9 +254,7 @@ class RunnerPolymarketTelonexQuoteDataLoader(PolymarketDataLoader):
         return candidate if candidate.exists() else None
 
     @staticmethod
-    def _outcome_segment_candidates(
-        *, token_index: int, outcome: str | None
-    ) -> tuple[str, ...]:
+    def _outcome_segment_candidates(*, token_index: int, outcome: str | None) -> tuple[str, ...]:
         segments = [str(token_index)]
         if outcome:
             segments.insert(0, outcome)
@@ -286,9 +282,7 @@ class RunnerPolymarketTelonexQuoteDataLoader(PolymarketDataLoader):
             ).fetchone()[0]
             if not exists:
                 return None
-            segments = self._outcome_segment_candidates(
-                token_index=token_index, outcome=outcome
-            )
+            segments = self._outcome_segment_candidates(token_index=token_index, outcome=outcome)
             placeholders = ", ".join(["?"] * len(segments))
             query = (
                 f'SELECT * FROM "{table}" '

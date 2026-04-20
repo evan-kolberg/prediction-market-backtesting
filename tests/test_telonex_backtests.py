@@ -48,9 +48,7 @@ def test_telonex_joint_portfolio_runner_uses_local_first_sources(
     import sys
 
     monkeypatch.setenv("TELONEX_API_KEY", FAKE_TELONEX_API_KEY)
-    sys.modules.pop(
-        "backtests.polymarket_telonex_quote_tick_joint_portfolio_runner", None
-    )
+    sys.modules.pop("backtests.polymarket_telonex_quote_tick_joint_portfolio_runner", None)
     module = importlib.import_module(
         "backtests.polymarket_telonex_quote_tick_joint_portfolio_runner"
     )

@@ -757,7 +757,9 @@ def _run_jobs(
         if stop_event.is_set():
             with state_lock:
                 cancelled_days += 1
-            return _DownloadResult(job=job, status="cancelled", frame=None, bytes_downloaded=0, error=None)
+            return _DownloadResult(
+                job=job, status="cancelled", frame=None, bytes_downloaded=0, error=None
+            )
 
         token = active_registry.start(job)
         url = _api_url(
@@ -874,9 +876,7 @@ def _run_jobs(
         last_commit_ts = time.monotonic()
         if commit_bar is not None:
             commit_bar.update(inserted)
-            commit_bar.set_postfix_str(
-                f"db={_format_bytes(store.size_bytes())}", refresh=False
-            )
+            commit_bar.set_postfix_str(f"db={_format_bytes(store.size_bytes())}", refresh=False)
             commit_bar.refresh()
 
     def _writer() -> None:
@@ -917,9 +917,7 @@ def _run_jobs(
             # Bounded-producer pattern: keep at most `workers * 3` futures in flight
             # so memory stays flat even when `jobs` has tens of millions of entries.
             in_flight_limit = max(workers * 3, workers + 2)
-            with ThreadPoolExecutor(
-                max_workers=workers, thread_name_prefix="telonex-dl"
-            ) as pool:
+            with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="telonex-dl") as pool:
                 job_iter = iter(jobs)
                 in_flight: set = set()
                 try:
@@ -939,9 +937,7 @@ def _run_jobs(
                             try:
                                 result_queue.put(finished.result())
                             except Exception as exc:  # noqa: BLE001
-                                print(
-                                    f"[telonex] worker raised {exc!r}", file=sys.stderr
-                                )
+                                print(f"[telonex] worker raised {exc!r}", file=sys.stderr)
                         if not stop_event.is_set():
                             for _ in range(len(done)):
                                 try:
@@ -1032,9 +1028,7 @@ def download_telonex_days(
                 fetch_bar = tqdm(
                     total=1, desc="Fetching Telonex markets dataset", unit="ds", leave=False
                 )
-                print(
-                    f"Fetching markets dataset from {base_url.rstrip('/')}...", file=sys.stderr
-                )
+                print(f"Fetching markets dataset from {base_url.rstrip('/')}...", file=sys.stderr)
             markets = _fetch_markets_dataset(base_url, timeout_secs=max(30, timeout_secs))
             if show_progress:
                 fetch_bar.update(1)
@@ -1090,9 +1084,7 @@ def download_telonex_days(
         total_jobs = len(jobs)
         if show_progress:
             existing_blob_size = db_path.stat().st_size if db_path.exists() else 0
-            completed_before = sum(
-                len(store.completed_keys(ch)) for ch in channels
-            )
+            completed_before = sum(len(store.completed_keys(ch)) for ch in channels)
             empty_before = sum(len(store.empty_keys(ch)) for ch in channels)
             print(
                 f"[telonex] Resume summary: blob={db_path} "
