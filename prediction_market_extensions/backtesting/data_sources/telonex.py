@@ -710,8 +710,7 @@ class RunnerPolymarketTelonexQuoteDataLoader(PolymarketDataLoader):
                 )
             except Exception as exc:  # noqa: BLE001 — fall through to next source
                 warnings.warn(
-                    f"Telonex: local blob read failed at {blob_root} ({exc}); "
-                    "trying next source.",
+                    f"Telonex: local blob read failed at {blob_root} ({exc}); trying next source.",
                     stacklevel=2,
                 )
                 blob_frame = None
@@ -727,8 +726,7 @@ class RunnerPolymarketTelonexQuoteDataLoader(PolymarketDataLoader):
             )
         except Exception as exc:  # noqa: BLE001 — fall through to next source
             warnings.warn(
-                f"Telonex: local consolidated read failed at {root} ({exc}); "
-                "trying next source.",
+                f"Telonex: local consolidated read failed at {root} ({exc}); trying next source.",
                 stacklevel=2,
             )
             return None
