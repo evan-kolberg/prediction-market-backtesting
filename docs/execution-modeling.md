@@ -94,4 +94,4 @@ the raw venue data are:
   quote-tick strategies where the daily Parquet source is the desired input
 
 For concrete timings and source tiers, see [Vendor Fetch Sources And
-Timing](pmxt-fetch-sources.md).
+Timing](vendor-fetch-sources.md).
