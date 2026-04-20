@@ -2,15 +2,18 @@ from __future__ import annotations
 
 import io
 import os
+import random
 import sys
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
+import concurrent.futures
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from queue import Empty, Queue
-from urllib.error import HTTPError
+from socket import timeout as SocketTimeout
+from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import HTTPRedirectHandler, Request, build_opener, urlopen
 
@@ -30,6 +33,9 @@ _DOWNLOAD_CHUNK_SIZE = 64 * 1024
 _BLOB_DB_FILENAME = "telonex.duckdb"
 _DEFAULT_COMMIT_BATCH_ROWS = 250_000
 _DEFAULT_COMMIT_BATCH_SECS = 5.0
+_DEFAULT_MAX_RETRIES = 4
+_RETRY_BACKOFF_BASE_SECS = 2.0
+_TRANSIENT_HTTP_CODES = frozenset({408, 425, 429, 500, 502, 503, 504})
 
 _CHANNEL_COLUMN_SUFFIX = {
     "trades": ("trades_from", "trades_to"),
@@ -467,6 +473,58 @@ def _resolve_presigned_url(*, url: str, api_key: str, timeout_secs: int) -> str:
     raise HTTPError(url, 500, "Expected 302 redirect from Telonex", {}, None)  # type: ignore[arg-type]
 
 
+def _is_transient(exc: BaseException) -> bool:
+    if isinstance(exc, HTTPError):
+        return exc.code in _TRANSIENT_HTTP_CODES
+    if isinstance(exc, (URLError, SocketTimeout, TimeoutError, ConnectionError)):
+        return True
+    return False
+
+
+def _download_day_bytes_with_retry(
+    *,
+    url: str,
+    api_key: str,
+    timeout_secs: int,
+    stop_event: threading.Event,
+    progress_cb,
+    max_retries: int,
+) -> bytes:
+    last_exc: BaseException | None = None
+    for attempt in range(max_retries):
+        if stop_event.is_set():
+            raise _CancelledError()
+        try:
+            return _download_day_bytes(
+                url=url,
+                api_key=api_key,
+                timeout_secs=timeout_secs,
+                stop_event=stop_event,
+                progress_cb=progress_cb,
+            )
+        except _CancelledError:
+            raise
+        except HTTPError as exc:
+            if exc.code == 404:
+                raise
+            last_exc = exc
+            if not _is_transient(exc) or attempt == max_retries - 1:
+                raise
+        except Exception as exc:
+            last_exc = exc
+            if not _is_transient(exc) or attempt == max_retries - 1:
+                raise
+        backoff = _RETRY_BACKOFF_BASE_SECS * (2**attempt) + random.uniform(0, 0.5)
+        deadline = time.monotonic() + backoff
+        while time.monotonic() < deadline:
+            if stop_event.is_set():
+                raise _CancelledError()
+            time.sleep(min(0.25, deadline - time.monotonic()))
+    if last_exc is not None:
+        raise last_exc
+    raise RuntimeError("retry loop exited without success or exception")
+
+
 def _download_day_bytes(
     *,
     url: str,
@@ -716,12 +774,13 @@ def _run_jobs(
 
         payload: bytes | None = None
         try:
-            payload = _download_day_bytes(
+            payload = _download_day_bytes_with_retry(
                 url=url,
                 api_key=api_key,
                 timeout_secs=timeout_secs,
                 stop_event=stop_event,
                 progress_cb=_progress_cb,
+                max_retries=_DEFAULT_MAX_RETRIES,
             )
         except _CancelledError:
             active_registry.finish(token)
@@ -843,22 +902,63 @@ def _run_jobs(
         if workers <= 1:
             try:
                 for job in jobs:
+                    if stop_event.is_set():
+                        break
                     result_queue.put(_do_one(job))
             except KeyboardInterrupt:
                 interrupted = True
                 stop_event.set()
+                print(
+                    "\n[telonex] Ctrl-C received — flushing pending rows to the DuckDB blob. "
+                    "Press Ctrl-C again to force-exit (risk losing in-flight day).",
+                    file=sys.stderr,
+                )
         else:
+            # Bounded-producer pattern: keep at most `workers * 3` futures in flight
+            # so memory stays flat even when `jobs` has tens of millions of entries.
+            in_flight_limit = max(workers * 3, workers + 2)
             with ThreadPoolExecutor(
                 max_workers=workers, thread_name_prefix="telonex-dl"
             ) as pool:
-                futures = [pool.submit(_do_one, job) for job in jobs]
+                job_iter = iter(jobs)
+                in_flight: set = set()
                 try:
-                    for future in as_completed(futures):
-                        result_queue.put(future.result())
+                    for _ in range(in_flight_limit):
+                        try:
+                            job = next(job_iter)
+                        except StopIteration:
+                            break
+                        in_flight.add(pool.submit(_do_one, job))
+                    while in_flight:
+                        if stop_event.is_set():
+                            break
+                        done, in_flight = concurrent.futures.wait(
+                            in_flight, timeout=1.0, return_when=FIRST_COMPLETED
+                        )
+                        for finished in done:
+                            try:
+                                result_queue.put(finished.result())
+                            except Exception as exc:  # noqa: BLE001
+                                print(
+                                    f"[telonex] worker raised {exc!r}", file=sys.stderr
+                                )
+                        if not stop_event.is_set():
+                            for _ in range(len(done)):
+                                try:
+                                    job = next(job_iter)
+                                except StopIteration:
+                                    break
+                                in_flight.add(pool.submit(_do_one, job))
                 except KeyboardInterrupt:
                     interrupted = True
                     stop_event.set()
-                    for future in futures:
+                    print(
+                        "\n[telonex] Ctrl-C received — finishing in-flight downloads then "
+                        "flushing pending rows to the DuckDB blob. Press Ctrl-C again to "
+                        "force-exit (risk losing in-flight day).",
+                        file=sys.stderr,
+                    )
+                    for future in in_flight:
                         future.cancel()
     finally:
         writer_done.set()
@@ -989,9 +1089,23 @@ def download_telonex_days(
 
         total_jobs = len(jobs)
         if show_progress:
+            existing_blob_size = db_path.stat().st_size if db_path.exists() else 0
+            completed_before = sum(
+                len(store.completed_keys(ch)) for ch in channels
+            )
+            empty_before = sum(len(store.empty_keys(ch)) for ch in channels)
             print(
-                f"Planned {total_jobs:,} day-files across {markets_considered:,} markets "
-                f"(channels={channels}, blob={db_path})",
+                f"[telonex] Resume summary: blob={db_path} "
+                f"({_format_bytes(existing_blob_size)}), "
+                f"completed={completed_before:,} 404s={empty_before:,}, "
+                f"planned={planned_jobs:,} skipping={skipped_existing:,} "
+                f"remaining={total_jobs:,}",
+                file=sys.stderr,
+            )
+            print(
+                f"[telonex] Channels={channels} workers={workers} "
+                f"retries={_DEFAULT_MAX_RETRIES} timeout={timeout_secs}s. "
+                f"Ctrl-C once to stop gracefully (manifest + blob are always consistent).",
                 file=sys.stderr,
             )
 
