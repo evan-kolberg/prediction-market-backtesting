@@ -55,6 +55,7 @@ provenance notices with file-specific change dates:
 - `backtests/polymarket_quote_tick_ema_optimizer.py`
 - `backtests/polymarket_quote_tick_independent_multi_replay_runner.py`
 - `backtests/polymarket_quote_tick_joint_portfolio_runner.py`
+- `backtests/polymarket_telonex_quote_tick_joint_portfolio_runner.py`
 - `backtests/polymarket_trade_tick_independent_multi_replay_runner.py`
 - `backtests/polymarket_trade_tick_joint_portfolio_runner.py`
 - `backtests/polymarket_trade_tick_vwap_reversion.py`

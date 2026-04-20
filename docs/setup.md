@@ -107,6 +107,7 @@ Repo-layer source syntax is explicit on purpose:
 - Kalshi native trade-tick runners use `rest:...`
 - Polymarket native trade-tick runners use `gamma:...`, `trades:...`, and `clob:...`
 - PMXT quote-tick runners use `local:...` and `archive:...`
+- Telonex quote-tick runners use `local:...` and `api:...`
 
 To mirror PMXT raw archive hours locally, run:
 
@@ -136,6 +137,43 @@ Downloading raw hours (2/3 done, 1 active):  67%|██████████�
 The counts, hour labels, source label, and byte totals vary with the current
 archive and the window you are mirroring.
 
+To mirror a small Telonex quote-tick window locally, run:
+
+```bash
+TELONEX_API_KEY=... make download-telonex-data TELONEX_DOWNLOAD_FLAGS='\
+  --market-slug us-recession-by-end-of-2026 \
+  --outcome-id 0 \
+  --start-date 2026-01-19 \
+  --end-date 2026-02-01'
+```
+
+To download the full Telonex Polymarket mirror into Hive-partitioned
+Parquet files (`<destination>/data/channel=.../year=.../month=.../part-*.parquet`)
+with a DuckDB manifest at `<destination>/telonex.duckdb`, run:
+
+```bash
+uv run python scripts/telonex_download_data.py \
+  --destination /Volumes/LaCie/telonex_data \
+  --all-markets \
+  --channels quotes trades book_snapshot_5 book_snapshot_25 book_snapshot_full onchain_fills \
+  --workers 16
+```
+
+The default destination is `/Volumes/LaCie/telonex_data`, matching the
+`local:/Volumes/LaCie/telonex_data` source in the public Telonex runner.
+The downloader reports progress while it loads the markets dataset, plans
+market/channel/outcome/day work, and streams day-files directly into
+rolling ~1 GB Parquet parts (no intermediate per-day files touch disk).
+
+The run is **crash-safe and resumable**: completed days and 404-empty days
+are tracked in `completed_days` / `empty_days` tables inside the DuckDB
+manifest, and orphan Parquet parts from hard kills are swept on startup.
+Hit `Ctrl-C` once to stop gracefully — in-flight downloads
+finish, pending rows flush, then the process exits. Re-run the same
+command to skip everything already recorded and pick up where you left
+off. If a batch fails mid-ingest, the writer logs it and keeps running —
+those days simply retry on the next invocation.
+
 If you want to see the full loader and reporting flow in one place, the PMXT
 basket output below is representative of the current repo-layer behavior:
 Nautilus logs stay visible, the summary table is printed in-terminal, and the
@@ -154,6 +192,8 @@ after the run.
   the historical fallback)
 - PMXT `DATA.sources` entries are explicit and prefix-driven: `local:`,
   `archive:`
+- Telonex timing is daily-file based and reports active `local:`/`api:` loads
+  through the same `@timing_harness`
 - normal Nautilus logs are still printed; the timing harness is additive
 
 ## Extension Architecture

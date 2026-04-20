@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -10,8 +11,9 @@ from io import BytesIO
 from pathlib import Path
 from urllib.error import HTTPError
 from urllib.parse import urlencode
-from urllib.request import Request, urlopen
+from urllib.request import HTTPRedirectHandler, Request, build_opener, urlopen
 
+import numpy as np
 import pandas as pd
 from nautilus_trader.model.data import QuoteTick
 
@@ -31,17 +33,21 @@ _TELONEX_DEFAULT_API_BASE_URL = "https://api.telonex.io"
 _TELONEX_DEFAULT_CHANNEL = "quotes"
 _TELONEX_EXCHANGE = "polymarket"
 _TELONEX_HTTP_TIMEOUT_SECS = 60
+_TELONEX_DOWNLOAD_CHUNK_SIZE = 1024 * 1024
 _TELONEX_USER_AGENT = "prediction-market-backtesting/1.0"
 _TELONEX_LOCAL_PREFIX = "local:"
 _TELONEX_API_PREFIX = "api:"
 _TELONEX_SOURCE_LOCAL = "local"
 _TELONEX_SOURCE_API = "api"
+_TELONEX_BLOB_DB_FILENAME = "telonex.duckdb"
+_TELONEX_DATA_SUBDIR = "data"
 
 
 @dataclass(frozen=True)
 class TelonexSourceEntry:
     kind: str
     target: str | None = None
+    api_key: str | None = None
 
 
 @dataclass(frozen=True)
@@ -85,17 +91,31 @@ def _normalize_api_base_url(value: str | None) -> str:
     return normalize_urlish(value)
 
 
+_UNEXPANDED_VAR_PATTERN = re.compile(r"\$\{[^}]+\}|\$[A-Za-z_][A-Za-z0-9_]*")
+
+
+def _expand_source_vars(source: str) -> str:
+    """Expand ${VAR} / $VAR references against the current environment.
+
+    Any references that remain unresolved after expansion are stripped so the
+    classifier sees an empty remainder rather than a literal placeholder.
+    """
+    expanded = os.path.expandvars(source)
+    return _UNEXPANDED_VAR_PATTERN.sub("", expanded)
+
+
 def _classify_telonex_sources(sources: Sequence[str]) -> tuple[TelonexSourceEntry, ...]:
     entries: list[TelonexSourceEntry] = []
-    for source in sources:
-        stripped = source.strip()
+    for raw_source in sources:
+        expanded = _expand_source_vars(str(raw_source))
+        stripped = expanded.strip()
         if not stripped:
             continue
         folded = stripped.casefold()
         if folded.startswith(_TELONEX_LOCAL_PREFIX):
             remainder = stripped[len(_TELONEX_LOCAL_PREFIX) :].strip()
             if not remainder:
-                raise ValueError(f"Telonex explicit source {source!r} is missing a local path.")
+                raise ValueError(f"Telonex explicit source {raw_source!r} is missing a local path.")
             entries.append(
                 TelonexSourceEntry(
                     kind=_TELONEX_SOURCE_LOCAL, target=normalize_local_path(remainder)
@@ -104,10 +124,18 @@ def _classify_telonex_sources(sources: Sequence[str]) -> tuple[TelonexSourceEntr
             continue
         if folded.startswith(_TELONEX_API_PREFIX):
             remainder = stripped[len(_TELONEX_API_PREFIX) :].strip()
+            base_url: str | None = None
+            api_key: str | None = None
+            if remainder:
+                if remainder.lower().startswith(("http://", "https://")):
+                    base_url = remainder
+                else:
+                    api_key = remainder
             entries.append(
                 TelonexSourceEntry(
                     kind=_TELONEX_SOURCE_API,
-                    target=_normalize_api_base_url(remainder),
+                    target=_normalize_api_base_url(base_url),
+                    api_key=api_key,
                 )
             )
             continue
@@ -125,8 +153,15 @@ def _default_telonex_sources_from_env() -> tuple[TelonexSourceEntry, ...]:
         return (
             TelonexSourceEntry(kind=_TELONEX_SOURCE_LOCAL, target=normalize_local_path(local_dir)),
         )
-    if _env_value(TELONEX_API_KEY_ENV) is not None:
-        return (TelonexSourceEntry(kind=_TELONEX_SOURCE_API, target=_normalize_api_base_url(None)),)
+    env_key = _env_value(TELONEX_API_KEY_ENV)
+    if env_key is not None:
+        return (
+            TelonexSourceEntry(
+                kind=_TELONEX_SOURCE_API,
+                target=_normalize_api_base_url(None),
+                api_key=env_key,
+            ),
+        )
     raise ValueError(
         "Telonex requires DATA.sources with local:/path or api:. "
         f"Set {TELONEX_API_KEY_ENV} only when intentionally using api:."
@@ -139,7 +174,8 @@ def _source_summary(entries: Sequence[TelonexSourceEntry]) -> str:
         if entry.kind == _TELONEX_SOURCE_LOCAL:
             parts.append(f"local {entry.target}")
         elif entry.kind == _TELONEX_SOURCE_API:
-            parts.append(f"api {entry.target}")
+            suffix = " (key set)" if entry.api_key else " (key missing)"
+            parts.append(f"api {entry.target}{suffix}")
     return "Telonex source: explicit priority (" + " -> ".join(parts) + ")"
 
 
@@ -183,6 +219,13 @@ def configured_telonex_data_source(
 
 
 class RunnerPolymarketTelonexQuoteDataLoader(PolymarketDataLoader):
+    def _download_progress(
+        self, url: str, downloaded_bytes: int, total_bytes: int | None, finished: bool
+    ) -> None:
+        callback = getattr(self, "_telonex_download_progress_callback", None)
+        if callback is not None:
+            callback(url, downloaded_bytes, total_bytes, finished)
+
     def _config(self) -> TelonexLoaderConfig:
         config = _current_loader_config()
         if config is None:
@@ -201,7 +244,122 @@ class RunnerPolymarketTelonexQuoteDataLoader(PolymarketDataLoader):
         return days
 
     @staticmethod
-    def _local_candidates(
+    def _outcome_segments(*, token_index: int, outcome: str | None) -> tuple[str, ...]:
+        outcome_parts = [f"outcome_id={token_index}", str(token_index)]
+        if outcome:
+            outcome_parts.insert(0, outcome)
+        return tuple(outcome_parts)
+
+    @staticmethod
+    def _local_blob_root(root: Path) -> Path | None:
+        """Return the root if it looks like a Telonex Parquet store.
+
+        A valid store has a manifest DuckDB file and a populated ``data/``
+        directory. We detect both; an empty data dir (e.g. first run) still
+        returns None so the caller falls back to API / daily-parquet paths.
+        """
+        manifest = root / _TELONEX_BLOB_DB_FILENAME
+        data_dir = root / _TELONEX_DATA_SUBDIR
+        if not manifest.exists() or not data_dir.exists():
+            return None
+        return root
+
+    @staticmethod
+    def _outcome_segment_candidates(*, token_index: int, outcome: str | None) -> tuple[str, ...]:
+        segments = [str(token_index)]
+        if outcome:
+            segments.insert(0, outcome)
+        return tuple(segments)
+
+    def _load_blob_range(
+        self,
+        *,
+        store_root: Path,
+        channel: str,
+        market_slug: str,
+        token_index: int,
+        outcome: str | None,
+        start: pd.Timestamp,
+        end: pd.Timestamp,
+    ) -> pd.DataFrame | None:
+        """Query the Hive-partitioned Parquet layout for a single (market,
+        outcome) slice. Returns None when the channel has no data on disk."""
+        try:
+            import duckdb
+        except ImportError:
+            return None
+
+        channel_dir = store_root / _TELONEX_DATA_SUBDIR / f"channel={channel}"
+        if not channel_dir.exists():
+            return None
+        # Glob every part file under this channel, regardless of year/month
+        # partition depth. Empty-but-existing channel dirs yield no matches,
+        # in which case DuckDB will raise — guard with a cheap pre-check.
+        part_glob = str(channel_dir / "**" / "*.parquet")
+        if not any(channel_dir.rglob("*.parquet")):
+            return None
+
+        segments = self._outcome_segment_candidates(token_index=token_index, outcome=outcome)
+        placeholders = ", ".join(["?"] * len(segments))
+
+        start_utc = self._normalize_to_utc(start)
+        end_utc = self._normalize_to_utc(end)
+        start_ym = start_utc.year * 100 + start_utc.month
+        end_ym = end_utc.year * 100 + end_utc.month
+
+        # DuckDB's hive_partitioning exposes year/month as VARCHAR by default —
+        # cast to INTEGER before arithmetic so range pruning works.
+        query = (
+            "SELECT * FROM read_parquet(?, hive_partitioning=1, union_by_name=True) "
+            f"WHERE market_slug = ? AND outcome_segment IN ({placeholders}) "
+            "AND CAST(year AS INTEGER) * 100 + CAST(month AS INTEGER) "
+            "BETWEEN ? AND ?"
+        )
+        params: list[object] = [part_glob, market_slug, *segments, start_ym, end_ym]
+
+        con = duckdb.connect(":memory:")
+        try:
+            frame = con.execute(query, params).fetch_df()
+        finally:
+            con.close()
+
+        if frame is None or frame.empty:
+            return None
+        drop_cols = [
+            c for c in ("market_slug", "outcome_segment", "year", "month") if c in frame.columns
+        ]
+        if drop_cols:
+            frame = frame.drop(columns=drop_cols)
+        return frame
+
+    @classmethod
+    def _local_consolidated_candidates(
+        cls,
+        *,
+        root: Path,
+        channel: str,
+        market_slug: str,
+        token_index: int,
+        outcome: str | None,
+    ) -> tuple[Path, ...]:
+        outcome_parts = cls._outcome_segments(token_index=token_index, outcome=outcome)
+        candidates = [
+            root / _TELONEX_EXCHANGE / market_slug / outcome_part / f"{channel}.parquet"
+            for outcome_part in outcome_parts
+        ]
+        candidates.extend(
+            root / _TELONEX_EXCHANGE / channel / market_slug / f"{outcome_part}.parquet"
+            for outcome_part in outcome_parts
+        )
+        candidates.extend(
+            root / channel / market_slug / f"{outcome_part}.parquet"
+            for outcome_part in outcome_parts
+        )
+        return tuple(candidates)
+
+    @classmethod
+    def _local_daily_candidates(
+        cls,
         *,
         root: Path,
         channel: str,
@@ -210,14 +368,15 @@ class RunnerPolymarketTelonexQuoteDataLoader(PolymarketDataLoader):
         token_index: int,
         outcome: str | None,
     ) -> tuple[Path, ...]:
-        outcome_parts = [f"outcome_id={token_index}", str(token_index)]
-        if outcome:
-            outcome_parts.insert(0, outcome)
-
+        outcome_parts = cls._outcome_segments(token_index=token_index, outcome=outcome)
         candidates = [
-            root / _TELONEX_EXCHANGE / channel / market_slug / outcome_part / f"{date}.parquet"
+            root / _TELONEX_EXCHANGE / market_slug / outcome_part / channel / f"{date}.parquet"
             for outcome_part in outcome_parts
         ]
+        candidates.extend(
+            root / _TELONEX_EXCHANGE / channel / market_slug / outcome_part / f"{date}.parquet"
+            for outcome_part in outcome_parts
+        )
         candidates.extend(
             root / channel / market_slug / outcome_part / f"{date}.parquet"
             for outcome_part in outcome_parts
@@ -232,6 +391,68 @@ class RunnerPolymarketTelonexQuoteDataLoader(PolymarketDataLoader):
         )
         return tuple(candidates)
 
+    def _local_consolidated_path(
+        self,
+        *,
+        root: Path,
+        channel: str,
+        market_slug: str,
+        token_index: int,
+        outcome: str | None,
+    ) -> Path | None:
+        for path in self._local_consolidated_candidates(
+            root=root,
+            channel=channel,
+            market_slug=market_slug,
+            token_index=token_index,
+            outcome=outcome,
+        ):
+            if path.exists():
+                return path
+        return None
+
+    def _local_path_for_day(
+        self,
+        *,
+        root: Path,
+        channel: str,
+        date: str,
+        market_slug: str,
+        token_index: int,
+        outcome: str | None,
+    ) -> Path | None:
+        for path in self._local_daily_candidates(
+            root=root,
+            channel=channel,
+            date=date,
+            market_slug=market_slug,
+            token_index=token_index,
+            outcome=outcome,
+        ):
+            if path.exists():
+                return path
+        return None
+
+    def _load_local_range(
+        self,
+        *,
+        root: Path,
+        channel: str,
+        market_slug: str,
+        token_index: int,
+        outcome: str | None,
+    ) -> pd.DataFrame | None:
+        path = self._local_consolidated_path(
+            root=root,
+            channel=channel,
+            market_slug=market_slug,
+            token_index=token_index,
+            outcome=outcome,
+        )
+        if path is None:
+            return None
+        return pd.read_parquet(path)
+
     def _load_local_day(
         self,
         *,
@@ -242,18 +463,17 @@ class RunnerPolymarketTelonexQuoteDataLoader(PolymarketDataLoader):
         token_index: int,
         outcome: str | None,
     ) -> pd.DataFrame | None:
-        for path in self._local_candidates(
+        path = self._local_path_for_day(
             root=root,
             channel=channel,
             date=date,
             market_slug=market_slug,
             token_index=token_index,
             outcome=outcome,
-        ):
-            if not path.exists():
-                continue
-            return pd.read_parquet(path)
-        return None
+        )
+        if path is None:
+            return None
+        return pd.read_parquet(path)
 
     @staticmethod
     def _api_url(
@@ -275,6 +495,34 @@ class RunnerPolymarketTelonexQuoteDataLoader(PolymarketDataLoader):
             f"?{urlencode(params)}"
         )
 
+    @staticmethod
+    def _resolve_presigned_url(*, url: str, api_key: str) -> str:
+        request = Request(
+            url,
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "User-Agent": _TELONEX_USER_AGENT,
+            },
+            method="GET",
+        )
+
+        class _NoRedirect(HTTPRedirectHandler):
+            def redirect_request(self, req, fp, code, msg, headers, newurl):  # type: ignore[override]
+                return None
+
+        opener = build_opener(_NoRedirect())
+        try:
+            response = opener.open(request, timeout=_TELONEX_HTTP_TIMEOUT_SECS)
+            response.close()
+        except HTTPError as exc:
+            if exc.code in (301, 302, 303, 307, 308):
+                location = exc.headers.get("Location")
+                if not location:
+                    raise
+                return location
+            raise
+        raise HTTPError(url, 500, "Expected 302 redirect from Telonex", {}, None)
+
     def _load_api_day(
         self,
         *,
@@ -284,8 +532,10 @@ class RunnerPolymarketTelonexQuoteDataLoader(PolymarketDataLoader):
         market_slug: str,
         token_index: int,
         outcome: str | None,
+        api_key: str | None = None,
     ) -> pd.DataFrame | None:
-        api_key = _env_value(TELONEX_API_KEY_ENV)
+        if api_key is None or not api_key.strip():
+            api_key = _env_value(TELONEX_API_KEY_ENV)
         if api_key is None:
             raise ValueError(f"{TELONEX_API_KEY_ENV} is required when using Telonex api:.")
 
@@ -297,16 +547,31 @@ class RunnerPolymarketTelonexQuoteDataLoader(PolymarketDataLoader):
             token_index=token_index,
             outcome=outcome,
         )
-        request = Request(
-            url,
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "User-Agent": _TELONEX_USER_AGENT,
-            },
-        )
         try:
-            with urlopen(request, timeout=_TELONEX_HTTP_TIMEOUT_SECS) as response:
-                payload = response.read()
+            presigned_url = self._resolve_presigned_url(url=url, api_key=api_key)
+        except HTTPError as exc:
+            if exc.code == 404:
+                return None
+            raise
+
+        fetch_request = Request(presigned_url, headers={"User-Agent": _TELONEX_USER_AGENT})
+        progress_url = f"telonex-api::{url}"
+        try:
+            with urlopen(fetch_request, timeout=_TELONEX_HTTP_TIMEOUT_SECS) as response:
+                total_bytes_header = response.headers.get("Content-Length")
+                total_bytes = int(total_bytes_header) if total_bytes_header else None
+                downloaded = 0
+                chunks: list[bytes] = []
+                self._download_progress(progress_url, 0, total_bytes, False)
+                while True:
+                    chunk = response.read(_TELONEX_DOWNLOAD_CHUNK_SIZE)
+                    if not chunk:
+                        break
+                    chunks.append(chunk)
+                    downloaded += len(chunk)
+                    self._download_progress(progress_url, downloaded, total_bytes, False)
+                self._download_progress(progress_url, downloaded, total_bytes, True)
+                payload = b"".join(chunks)
         except HTTPError as exc:
             if exc.code == 404:
                 return None
@@ -314,20 +579,21 @@ class RunnerPolymarketTelonexQuoteDataLoader(PolymarketDataLoader):
         return pd.read_parquet(BytesIO(payload))
 
     @staticmethod
-    def _timestamp_ns(row: pd.Series, timestamp_column: str) -> int:
-        value = row[timestamp_column]
-        if timestamp_column == "timestamp_us":
-            return int(value) * 1_000
-        if timestamp_column == "timestamp_ms":
-            return int(value) * 1_000_000
-        if isinstance(value, (int, float)):
-            return int(float(value) * 1_000_000_000)
-        timestamp = pd.Timestamp(value)
-        if timestamp.tzinfo is None:
-            timestamp = timestamp.tz_localize(UTC)
-        else:
-            timestamp = timestamp.tz_convert(UTC)
-        return int(timestamp.value)
+    def _column_to_ns(column: pd.Series, column_name: str) -> np.ndarray:
+        if column_name == "timestamp_us":
+            return column.to_numpy(dtype="int64") * 1_000
+        if column_name == "timestamp_ms":
+            return column.to_numpy(dtype="int64") * 1_000_000
+        if pd.api.types.is_numeric_dtype(column):
+            return (column.astype("float64") * 1_000_000_000).to_numpy(dtype="int64")
+        parsed = pd.to_datetime(column, utc=True, errors="coerce")
+        return parsed.astype("int64").to_numpy()
+
+    @staticmethod
+    def _normalize_to_utc(value: pd.Timestamp) -> pd.Timestamp:
+        if value.tzinfo is None:
+            return value.tz_localize(UTC)
+        return value.tz_convert(UTC)
 
     @staticmethod
     def _first_present_column(frame: pd.DataFrame, names: Sequence[str], *, label: str) -> str:
@@ -358,28 +624,44 @@ class RunnerPolymarketTelonexQuoteDataLoader(PolymarketDataLoader):
             frame, ("ask_size", "best_ask_size", "ask_qty", "ask_quantity"), label="quote"
         )
 
+        # Normalize the user's start/end to UTC ns — a naive Timestamp's `.value`
+        # is wall-clock ns, not UTC, and would silently mis-filter the range.
+        start_ns = int(self._normalize_to_utc(start).value)
+        end_ns = int(self._normalize_to_utc(end).value)
+
+        ts_ns = self._column_to_ns(frame[timestamp_column], timestamp_column)
+        mask = (ts_ns >= start_ns) & (ts_ns <= end_ns)
+        if not mask.any():
+            return []
+
+        bid_px = frame[bid_price_column].to_numpy()[mask]
+        ask_px = frame[ask_price_column].to_numpy()[mask]
+        bid_sz = frame[bid_size_column].to_numpy()[mask]
+        ask_sz = frame[ask_size_column].to_numpy()[mask]
+        ns_arr = ts_ns[mask]
+
+        order = np.argsort(ns_arr, kind="stable")
+        bid_px = bid_px[order]
+        ask_px = ask_px[order]
+        bid_sz = bid_sz[order]
+        ask_sz = ask_sz[order]
+        ns_arr = ns_arr[order]
+
         make_price = self.instrument.make_price
         make_qty = self.instrument.make_qty
-        records: list[QuoteTick] = []
-        start_ns = int(start.value)
-        end_ns = int(end.value)
-        for _index, row in frame.iterrows():
-            ts_event = self._timestamp_ns(row, timestamp_column)
-            if ts_event < start_ns or ts_event > end_ns:
-                continue
-            records.append(
-                QuoteTick(
-                    instrument_id=self.instrument.id,
-                    bid_price=make_price(row[bid_price_column]),
-                    ask_price=make_price(row[ask_price_column]),
-                    bid_size=make_qty(row[bid_size_column]),
-                    ask_size=make_qty(row[ask_size_column]),
-                    ts_event=ts_event,
-                    ts_init=ts_event,
-                )
+        instrument_id = self.instrument.id
+        return [
+            QuoteTick(
+                instrument_id=instrument_id,
+                bid_price=make_price(bp),
+                ask_price=make_price(ap),
+                bid_size=make_qty(bs),
+                ask_size=make_qty(sz),
+                ts_event=int(ns),
+                ts_init=int(ns),
             )
-        records.sort(key=lambda quote: quote.ts_event)
-        return records
+            for bp, ap, bs, sz, ns in zip(bid_px, ask_px, bid_sz, ask_sz, ns_arr, strict=True)
+        ]
 
     def load_quotes(
         self,
@@ -392,6 +674,34 @@ class RunnerPolymarketTelonexQuoteDataLoader(PolymarketDataLoader):
     ) -> list[QuoteTick]:
         config = self._config()
         records: list[QuoteTick] = []
+        for entry in config.ordered_source_entries:
+            if entry.kind != _TELONEX_SOURCE_LOCAL:
+                break
+            assert entry.target is not None
+            root = Path(entry.target).expanduser()
+            blob_root = self._local_blob_root(root)
+            if blob_root is not None:
+                blob_frame = self._load_blob_range(
+                    store_root=blob_root,
+                    channel=config.channel,
+                    market_slug=market_slug,
+                    token_index=token_index,
+                    outcome=outcome,
+                    start=start,
+                    end=end,
+                )
+                if blob_frame is not None:
+                    return self._quote_ticks_from_frame(blob_frame, start=start, end=end)
+            frame = self._load_local_range(
+                root=root,
+                channel=config.channel,
+                market_slug=market_slug,
+                token_index=token_index,
+                outcome=outcome,
+            )
+            if frame is not None:
+                return self._quote_ticks_from_frame(frame, start=start, end=end)
+
         for date in self._date_range(start, end):
             frame: pd.DataFrame | None = None
             for entry in config.ordered_source_entries:
@@ -414,6 +724,7 @@ class RunnerPolymarketTelonexQuoteDataLoader(PolymarketDataLoader):
                         market_slug=market_slug,
                         token_index=token_index,
                         outcome=outcome,
+                        api_key=entry.api_key,
                     )
                 if frame is not None:
                     break

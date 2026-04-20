@@ -230,14 +230,73 @@ Recommended local layout:
 ```text
 /path/to/telonex/
   polymarket/
-    quotes/
-      market-slug/
-        Yes/
-          2026-01-20.parquet
+    market-slug/
+      0/
+        quotes.parquet
+        trades.parquet
+        book_snapshot_5.parquet
+        book_snapshot_25.parquet
+        book_snapshot_full.parquet
+        onchain_fills.parquet
+      1/
+        quotes.parquet
 ```
 
-The loader also accepts `outcome_id=0`, `0`, and a few flat filename fallbacks
-for test fixtures and ad hoc downloads.
+The downloader consolidates each `(market, outcome, channel)` group by default
+so a full mirror does not create one tiny file per market/outcome/day. With
+`--no-consolidate`, daily files are kept under
+`polymarket/<market_slug>/<outcome>/<channel>/<YYYY-MM-DD>.parquet`. The loader
+also accepts the earlier channel-first daily layout and a few flat filename
+fallbacks for test fixtures and ad hoc downloads.
+
+### Download Local Telonex Files
+
+Use the local downloader to warm the same directory the public Telonex runner
+uses by default:
+
+```bash
+TELONEX_API_KEY=... make download-telonex-data TELONEX_DOWNLOAD_FLAGS='\
+  --market-slug us-recession-by-end-of-2026 \
+  --outcome-id 0 \
+  --start-date 2026-01-19 \
+  --end-date 2026-02-01'
+```
+
+To mirror every Telonex Polymarket market and every channel into
+Hive-partitioned Parquet (with a DuckDB manifest for resumability), run:
+
+```bash
+uv run python scripts/telonex_download_data.py \
+  --destination /Volumes/LaCie/telonex_data \
+  --all-markets \
+  --channels quotes trades book_snapshot_5 book_snapshot_25 book_snapshot_full onchain_fills \
+  --workers 16
+```
+
+The default destination is `/Volumes/LaCie/telonex_data`. Override it with
+`TELONEX_DATA_DESTINATION=/path/to/telonex_data` or call the script directly:
+
+```bash
+uv run python scripts/telonex_download_data.py \
+  --destination /Volumes/LaCie/telonex_data \
+  --market-slug us-recession-by-end-of-2026 \
+  --outcome-id 0 \
+  --start-date 2026-01-19 \
+  --end-date 2026-02-01
+```
+
+The script reads the API key only from `TELONEX_API_KEY` and writes everything
+into `<destination>/telonex.duckdb` — one file per destination, with one
+table per channel (`quotes_data`, `trades_data`, …) plus `completed_days` /
+`empty_days` manifest tables for crash-safe resume. The
+`local:/Volumes/LaCie/telonex_data` source reads back through the same blob.
+
+For `--all-markets`, progress is visible in three phases: loading the markets
+dataset, planning concrete day-file downloads from each market availability
+window, and downloading straight into the blob. The process is resumable:
+`Ctrl-C` once to stop gracefully, then re-run the same command to skip
+everything already recorded and continue. Transient HTTP failures
+(408/425/429/5xx) and connection errors are retried with exponential backoff.
 
 ## What Is Not Plug-And-Play Yet
 

@@ -19,6 +19,9 @@ No repo-level open issues are tracked here right now.
 
 ## Recently Fixed
 
+- [x] v3 adds a Telonex joint-portfolio runner, local Telonex daily-Parquet
+  downloader, and daily-file timing output for Telonex `local:` / `api:`
+  sources.
 - [x] v3 removes the active PMXT relay path, relay badges, and relay service
   package. PMXT quote-tick runners now use local raw files plus direct
   `r2v2.pmxt.dev` / `r2.pmxt.dev` archive fallback, and Telonex is available

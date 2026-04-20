@@ -2,7 +2,7 @@ name: Docs
 
 on:
   push:
-    branches: [v2]
+    branches: [v3]
     paths:
       - ".github/workflows/docs.yml"
       - "README.md"
@@ -10,7 +10,7 @@ on:
       - "docs_overrides/**"
       - "mkdocs.yml"
   pull_request:
-    branches: [v2]
+    branches: [v3]
     paths:
       - ".github/workflows/docs.yml"
       - "README.md"

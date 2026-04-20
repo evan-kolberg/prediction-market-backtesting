@@ -16,14 +16,14 @@
 ![GitHub code size](https://img.shields.io/github/languages/code-size/evan-kolberg/prediction-market-backtesting)
 ![GitHub top language](https://img.shields.io/github/languages/top/evan-kolberg/prediction-market-backtesting)
 ![GitHub open issues](https://img.shields.io/github/issues/evan-kolberg/prediction-market-backtesting)
-
-
-**Thanks to [PMXT](https://github.com/pmxt-dev/pmxt) for providing this data for free!**
+![GitHub contributors](https://img.shields.io/github/contributors/evan-kolberg/prediction-market-backtesting)
+![GitHub pull requests](https://img.shields.io/github/issues-pr/evan-kolberg/prediction-market-backtesting)
+![GitHub closed issues](https://img.shields.io/github/issues-closed/evan-kolberg/prediction-market-backtesting)
+![GitHub closed pull requests](https://img.shields.io/github/issues-pr-closed/evan-kolberg/prediction-market-backtesting)
 
 **New in Version 3:**
 - Telonex vendor support
-- 
-
+- Local Telonex download script
 
 **New in Version 2:**
 - Nautilus 1.225.0, via PyPI in lieu of a subtree
@@ -102,10 +102,12 @@ Detailed guides have been filed away in the [docs index](https://evan-kolberg.gi
     - [Required Parquet Columns](https://evan-kolberg.github.io/prediction-market-backtesting/pmxt-byod/#required-parquet-columns)
     - [Required JSON Payload Shape](https://evan-kolberg.github.io/prediction-market-backtesting/pmxt-byod/#required-json-payload-shape)
   - [Telonex](https://evan-kolberg.github.io/prediction-market-backtesting/pmxt-byod/#telonex)
+    - [Download Local Telonex Files](https://evan-kolberg.github.io/prediction-market-backtesting/pmxt-byod/#download-local-telonex-files)
   - [What Is Not Plug-And-Play Yet](https://evan-kolberg.github.io/prediction-market-backtesting/pmxt-byod/#what-is-not-plug-and-play-yet)
 - [Vendor Fetch Sources And Timing](https://evan-kolberg.github.io/prediction-market-backtesting/pmxt-fetch-sources/)
   - [PMXT](https://evan-kolberg.github.io/prediction-market-backtesting/pmxt-fetch-sources/#pmxt)
   - [Example Output](https://evan-kolberg.github.io/prediction-market-backtesting/pmxt-fetch-sources/#example-output)
+  - [Telonex](https://evan-kolberg.github.io/prediction-market-backtesting/pmxt-fetch-sources/#telonex)
   - [Timing Expectations By Source](https://evan-kolberg.github.io/prediction-market-backtesting/pmxt-fetch-sources/#timing-expectations-by-source)
   - [How To See This Output](https://evan-kolberg.github.io/prediction-market-backtesting/pmxt-fetch-sources/#how-to-see-this-output)
 - [Plotting](https://evan-kolberg.github.io/prediction-market-backtesting/plotting/)

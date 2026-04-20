@@ -9,8 +9,9 @@ This repository is documented around two active operating assumptions:
   `REPLAYS`, `STRATEGY_CONFIGS`, optional `EXECUTION` / `REPORT`, and a
   top-level `EXPERIMENT` manifest
 
-PMXT is the first fully documented vendor path. Its v3 workflow is local raw
-files plus remote archives instead of a separate service surface.
+PMXT uses local raw files plus remote archives instead of a separate service
+surface. Telonex uses local daily Parquet files first, with `api:` as an
+explicit fallback.
 
 - [Setup](setup.md)
 - [Backtests And Runners](backtests.md)

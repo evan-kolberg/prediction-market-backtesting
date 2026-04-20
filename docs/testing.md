@@ -24,13 +24,14 @@ uv run python backtests/kalshi_trade_tick_breakout.py
 uv run python backtests/polymarket_trade_tick_vwap_reversion.py
 uv run python backtests/polymarket_quote_tick_ema_crossover.py
 uv run python backtests/polymarket_quote_tick_joint_portfolio_runner.py
+uv run python backtests/polymarket_telonex_quote_tick_joint_portfolio_runner.py
 uv run python backtests/polymarket_quote_tick_independent_multi_replay_runner.py
 ```
 
 Those cover the main user-facing paths in the current tree: one pinned Kalshi
 trade-tick runner, one native Polymarket trade-tick runner, one single-market
-PMXT quote-tick runner, one PMXT joint-portfolio basket runner, and one PMXT
-independent basket runner.
+PMXT quote-tick runner, one PMXT joint-portfolio basket runner, one Telonex
+joint-portfolio basket runner, and one PMXT independent basket runner.
 
 Quote-tick PMXT runners use the source path pinned in `DATA.sources` inside the
 file. Public PMXT runners now pin `local:/Volumes/LaCie/pmxt_raws` first,
@@ -38,6 +39,9 @@ file. Public PMXT runners now pin `local:/Volumes/LaCie/pmxt_raws` first,
 the newer v2 subdomain is preferred, with v1 covering older history). If the
 local mirror path is absent, the loader falls through to archives.
 Those prefixes are the contract; do not use unprefixed hosts or ad hoc aliases.
+Telonex quote-tick runners are local-first at
+`local:/Volumes/LaCie/telonex_data`, then `api:` with `TELONEX_API_KEY` read
+from the environment.
 
 Coverage is mixed by design:
 
