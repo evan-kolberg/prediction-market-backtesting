@@ -1158,9 +1158,7 @@ def _run_jobs(
             with state_lock:
                 failed_days += 1
                 if len(failed_samples) < 20:
-                    failed_samples.append(
-                        f"{job.market_slug} {job.channel} {job.day} HTTP {code}"
-                    )
+                    failed_samples.append(f"{job.market_slug} {job.channel} {job.day} HTTP {code}")
             return _DownloadResult(
                 job=job,
                 status="failed",
@@ -1206,9 +1204,7 @@ def _run_jobs(
         # single-thread disk-write budget.
         loop = asyncio.get_running_loop()
         try:
-            frame = await loop.run_in_executor(
-                parse_pool, pd.read_parquet, io.BytesIO(payload)
-            )
+            frame = await loop.run_in_executor(parse_pool, pd.read_parquet, io.BytesIO(payload))
         except Exception as exc:
             with state_lock:
                 failed_days += 1
@@ -1315,9 +1311,7 @@ def _run_jobs(
     async def _dispatcher() -> None:
         nonlocal http_client, async_stop
         async_stop = asyncio.Event()
-        http_client = _build_async_http_client(
-            concurrency=concurrency, timeout_secs=timeout_secs
-        )
+        http_client = _build_async_http_client(concurrency=concurrency, timeout_secs=timeout_secs)
 
         # Wire signals → async_stop so Ctrl-C / SIGTERM let in-flight requests
         # drain cleanly. `asyncio.run` swallows the SIGINT KeyboardInterrupt
