@@ -22,7 +22,7 @@ else:
 ensure_repo_root(__file__)
 load_dotenv()
 
-TELONEX_API_KEY = os.environ["TELONEX_API_KEY"]
+TELONEX_API_KEY = os.environ.get("TELONEX_API_KEY", "")
 
 from prediction_market_extensions.backtesting._execution_config import (
     ExecutionModelConfig,
