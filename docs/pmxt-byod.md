@@ -230,14 +230,24 @@ Recommended local layout:
 ```text
 /path/to/telonex/
   polymarket/
-    quotes/
-      market-slug/
-        Yes/
-          2026-01-20.parquet
+    market-slug/
+      0/
+        quotes.parquet
+        trades.parquet
+        book_snapshot_5.parquet
+        book_snapshot_25.parquet
+        book_snapshot_full.parquet
+        onchain_fills.parquet
+      1/
+        quotes.parquet
 ```
 
-The loader also accepts `outcome_id=0`, `0`, and a few flat filename fallbacks
-for test fixtures and ad hoc downloads.
+The downloader consolidates each `(market, outcome, channel)` group by default
+so a full mirror does not create one tiny file per market/outcome/day. With
+`--no-consolidate`, daily files are kept under
+`polymarket/<market_slug>/<outcome>/<channel>/<YYYY-MM-DD>.parquet`. The loader
+also accepts the earlier channel-first daily layout and a few flat filename
+fallbacks for test fixtures and ad hoc downloads.
 
 ### Download Local Telonex Files
 
@@ -250,6 +260,17 @@ TELONEX_API_KEY=... make download-telonex-data TELONEX_DOWNLOAD_FLAGS='\
   --outcome-id 0 \
   --start-date 2026-01-19 \
   --end-date 2026-02-01'
+```
+
+To mirror every Telonex Polymarket market and every channel into the
+consolidated local layout, run:
+
+```bash
+uv run python scripts/telonex_download_data.py \
+  --destination /Volumes/LaCie/telonex_data \
+  --all-markets \
+  --channels quotes trades book_snapshot_5 book_snapshot_25 book_snapshot_full onchain_fills \
+  --workers 16
 ```
 
 The default destination is `/Volumes/LaCie/telonex_data`. Override it with
@@ -265,8 +286,11 @@ uv run python scripts/telonex_download_data.py \
 ```
 
 The script reads the API key only from `TELONEX_API_KEY` and writes files under
-`polymarket/<channel>/<market_slug>/<outcome-or-outcome_id>/<YYYY-MM-DD>.parquet`,
+`polymarket/<market_slug>/<outcome-or-outcome_id>/<channel>.parquet`,
 which is the layout accepted by `local:/Volumes/LaCie/telonex_data`.
+For `--all-markets`, progress is visible in three phases: loading the markets
+dataset, planning concrete day-file downloads from each market availability
+window, and downloading/consolidating the files.
 
 ## What Is Not Plug-And-Play Yet
 

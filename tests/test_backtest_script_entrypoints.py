@@ -307,6 +307,7 @@ def test_pmxt_quote_tick_joint_runners_expose_explicit_summary_contract(
 def test_telonex_quote_tick_joint_runners_expose_explicit_summary_contract(
     monkeypatch: pytest.MonkeyPatch, relative_path: Path
 ) -> None:
+    monkeypatch.setenv("TELONEX_API_KEY", "test-telonex-key")
     script_path = REPO_ROOT / relative_path
     normalized_sys_path = [entry for entry in sys.path if Path(entry or ".").resolve() != REPO_ROOT]
     monkeypatch.setattr(sys, "path", [str(script_path.parent), *normalized_sys_path])
@@ -321,7 +322,10 @@ def test_telonex_quote_tick_joint_runners_expose_explicit_summary_contract(
     assert data.platform == "polymarket"
     assert data.data_type == "quote_tick"
     assert data.vendor == "telonex"
-    assert data.sources == ("local:/Volumes/LaCie/telonex_data", "api:")
+    assert data.sources == (
+        "local:/Volumes/LaCie/telonex_data",
+        "api:test-telonex-key",
+    )
     assert report.summary_report is True
     assert report.summary_report_path == globals_dict["SUMMARY_REPORT_PATH"]
     assert experiment.return_summary_series is True

@@ -538,14 +538,15 @@ workflows:
 
 ### Telonex
 
-- `telonex` is a Polymarket quote-tick vendor backed by Telonex daily Parquet
-  files
+- `telonex` is a Polymarket quote-tick vendor backed by Telonex Parquet files
 - Telonex source parsing accepts `local:` and `api:` only
 - `api:` reads `TELONEX_API_KEY` from the environment and constructs Telonex
   download URLs; never commit keys or put them in `DATA.sources`
 - prefer `local:/Volumes/LaCie/telonex_data` for repeatable research once files
   have been downloaded with `scripts/telonex_download_data.py` or
   `make download-telonex-data`
+- the local downloader consolidates by default to
+  `polymarket/<market_slug>/<outcome>/<channel>.parquet`
 - Telonex timing output is daily-file based: the `@timing_harness` progress bar
   reports active `local:`/`api:` loads, byte progress when the API response
   exposes a size, scan rows, and completed per-day lines

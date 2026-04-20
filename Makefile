@@ -1,4 +1,4 @@
-.PHONY: backtest install update test check clear-pmxt-cache download-pmxt-raws download-telonex-data
+.PHONY: backtest install update test check clear-pmxt-cache clear-telonex-cache download-pmxt-raws download-telonex-data
 
 PMXT_CACHE_ROOT ?= $(if $(XDG_CACHE_HOME),$(XDG_CACHE_HOME),$(HOME)/.cache)/nautilus_trader/pmxt
 DESTINATION ?=
@@ -23,6 +23,11 @@ clear-pmxt-cache:
 	rm -rf "$(PMXT_CACHE_ROOT)"
 	mkdir -p "$(PMXT_CACHE_ROOT)"
 	du -sh "$(PMXT_CACHE_ROOT)"
+
+clear-telonex-cache:
+	rm -rf "$(TELONEX_DATA_DESTINATION)"
+	mkdir -p "$(TELONEX_DATA_DESTINATION)"
+	du -sh "$(TELONEX_DATA_DESTINATION)"
 
 download-pmxt-raws:
 	@if [ -z "$(DESTINATION)" ]; then echo "Set DESTINATION=/path"; exit 2; fi

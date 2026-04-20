@@ -9,7 +9,10 @@
 
 from __future__ import annotations
 
+import os
 from decimal import Decimal
+
+from dotenv import load_dotenv
 
 if __package__ in {None, ""}:
     from _script_helpers import ensure_repo_root
@@ -17,6 +20,9 @@ else:
     from ._script_helpers import ensure_repo_root
 
 ensure_repo_root(__file__)
+load_dotenv()
+
+TELONEX_API_KEY = os.environ["TELONEX_API_KEY"]
 
 from prediction_market_extensions.backtesting._execution_config import (
     ExecutionModelConfig,
@@ -64,77 +70,64 @@ SUMMARY_PLOT_PANELS = (
 EMPTY_MESSAGE = "No Telonex joint-portfolio example windows met the quote-tick requirements."
 PARTIAL_MESSAGE = "Completed {completed} of {total} joint-portfolio Telonex example replays."
 
-# Telonex vendor sources. Local-first is the preferred sustained workflow once a
-# Telonex mirror has been downloaded; the `api:` entry is a fallback that reads
-# TELONEX_API_KEY from the environment at fetch time. The key must never live in
-# source files, checked-in config, or the `DATA.sources` tuple — pass it at
-# runtime, e.g. `TELONEX_API_KEY=tlx_... uv run python <this file>`.
+
 DATA = MarketDataConfig(
     platform=Polymarket,
     data_type=QuoteTick,
     vendor=Telonex,
     sources=(
         "local:/Volumes/LaCie/telonex_data",
-        "api:",
+        f"api:{TELONEX_API_KEY}",
     ),
 )
 
-# One-year replay window ending at today's reference date. Telonex stores
-# Polymarket quote ticks as one Parquet file per UTC day, so the runner walks
-# every day in this span for each replay.
-_LONG_WINDOW_START = "2025-04-19T00:00:00Z"
-_LONG_WINDOW_END = "2026-04-19T23:59:59Z"
 
 REPLAYS = (
     QuoteReplay(
-        market_slug="human-moon-landing-in-2026",
+        market_slug="will-tesla-release-optimus-by-june-30-2026",
         token_index=0,
-        start_time=_LONG_WINDOW_START,
-        end_time=_LONG_WINDOW_END,
-        metadata={"sim_label": "moon-landing-2026"},
+        start_time="2025-10-11T00:00:00Z",
+        end_time="2026-04-19T00:00:00Z",
+        metadata={"sim_label": "tesla-optimus-june-2026"},
     ),
     QuoteReplay(
-        market_slug="new-coronavirus-pandemic-in-2026",
+        market_slug="will-stripe-not-ipo-by-june-30-2026",
         token_index=0,
-        start_time=_LONG_WINDOW_START,
-        end_time=_LONG_WINDOW_END,
-        metadata={"sim_label": "coronavirus-pandemic-2026"},
+        start_time="2025-10-11T00:00:00Z",
+        end_time="2026-04-19T00:00:00Z",
+        metadata={"sim_label": "stripe-no-ipo-june-2026"},
     ),
     QuoteReplay(
-        market_slug="will-openais-market-cap-be-between-750b-and-1t-at-market-close-on-ipo-day",
+        market_slug="will-trump-pardon-ghislaine-maxwell",
         token_index=0,
-        start_time=_LONG_WINDOW_START,
-        end_time=_LONG_WINDOW_END,
-        metadata={"sim_label": "openai-ipo-market-cap-750b-1t"},
+        start_time="2025-10-11T00:00:00Z",
+        end_time="2026-04-19T00:00:00Z",
+        metadata={"sim_label": "trump-pardon-maxwell"},
     ),
     QuoteReplay(
-        market_slug="okx-ipo-in-2026",
+        market_slug="will-kylian-mbapp-win-the-2026-ballon-dor",
         token_index=0,
-        start_time=_LONG_WINDOW_START,
-        end_time=_LONG_WINDOW_END,
-        metadata={"sim_label": "okx-ipo-2026"},
+        start_time="2025-10-11T00:00:00Z",
+        end_time="2026-04-19T00:00:00Z",
+        metadata={"sim_label": "mbappe-ballon-dor-2026"},
     ),
     QuoteReplay(
-        market_slug="nothing-ever-happens-2026",
+        market_slug="will-databricks-market-cap-be-between-100b-and-125b-at-market-close-on-ipo-day",
         token_index=0,
-        start_time=_LONG_WINDOW_START,
-        end_time=_LONG_WINDOW_END,
-        metadata={"sim_label": "nothing-ever-happens-2026"},
+        start_time="2025-10-11T00:00:00Z",
+        end_time="2026-04-19T00:00:00Z",
+        metadata={"sim_label": "databricks-ipo-100b-125b"},
     ),
 )
 
 STRATEGY_CONFIGS = [
     {
-        "strategy_path": "strategies:QuoteTickVWAPReversionStrategy",
-        "config_path": "strategies:QuoteTickVWAPReversionConfig",
+        "strategy_path": "strategies:QuoteTickDeepValueHoldStrategy",
+        "config_path": "strategies:QuoteTickDeepValueHoldConfig",
         "config": {
             "trade_size": Decimal(5),
-            "vwap_window": 30,
-            "entry_threshold": 0.0015,
-            "exit_threshold": 0.0003,
-            "min_tick_size": 0.0,
-            "take_profit": 0.004,
-            "stop_loss": 0.004,
+            "entry_price_max": 0.15,
+            "single_entry": True,
         },
     }
 ]

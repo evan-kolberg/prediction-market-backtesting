@@ -137,7 +137,7 @@ Downloading raw hours (2/3 done, 1 active):  67%|██████████�
 The counts, hour labels, source label, and byte totals vary with the current
 archive and the window you are mirroring.
 
-To mirror Telonex daily Parquet files locally, run:
+To mirror a small Telonex quote-tick window locally, run:
 
 ```bash
 TELONEX_API_KEY=... make download-telonex-data TELONEX_DOWNLOAD_FLAGS='\
@@ -147,8 +147,21 @@ TELONEX_API_KEY=... make download-telonex-data TELONEX_DOWNLOAD_FLAGS='\
   --end-date 2026-02-01'
 ```
 
+To download the full Telonex Polymarket mirror into consolidated
+`polymarket/<market>/<outcome>/<channel>.parquet` files, run:
+
+```bash
+uv run python scripts/telonex_download_data.py \
+  --destination /Volumes/LaCie/telonex_data \
+  --all-markets \
+  --channels quotes trades book_snapshot_5 book_snapshot_25 book_snapshot_full onchain_fills \
+  --workers 16
+```
+
 The default destination is `/Volumes/LaCie/telonex_data`, matching the
 `local:/Volumes/LaCie/telonex_data` source in the public Telonex runner.
+The downloader reports progress while it loads the markets dataset, plans
+market/channel/outcome/day work, downloads day-files, and consolidates them.
 
 If you want to see the full loader and reporting flow in one place, the PMXT
 basket output below is representative of the current repo-layer behavior:

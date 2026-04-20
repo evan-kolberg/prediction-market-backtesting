@@ -19,9 +19,12 @@ from __future__ import annotations
 
 import asyncio
 import importlib.util
+import os
 import sys
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
+from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -33,6 +36,7 @@ _installed = False
 _COMPLETED_HOUR_TIMESTAMP_WIDTH = 25
 _COMPLETED_HOUR_ELAPSED_WIDTH = 9
 _COMPLETED_HOUR_ROWS_WIDTH = 8
+_TELONEX_TIMING_WORKERS_ENV = "TELONEX_TIMING_WORKERS"
 
 
 def _hour_label(source: str) -> str:
@@ -44,11 +48,25 @@ def _hour_label(source: str) -> str:
     return filename or path
 
 
+def _format_bytes(size: int | None) -> str:
+    if size is None:
+        return "? B"
+    value = max(0, int(size))
+    if value < 1024:
+        return f"{value} B"
+    if value < 1024 * 1024:
+        return f"{value / 1024:.1f} KiB"
+    if value < 1024 * 1024 * 1024:
+        return f"{value / (1024 * 1024):.1f} MiB"
+    return f"{value / (1024 * 1024 * 1024):.2f} GiB"
+
+
 def _transfer_label(source: str) -> str:
     for prefix, label in (
         ("cache::", "cache"),
         ("local-raw::", "local raw"),
         ("remote-raw::", "r2 raw"),
+        ("telonex-blob::", "telonex blob"),
         ("telonex-local::", "telonex local"),
         ("telonex-api::", "telonex api"),
     ):
@@ -121,9 +139,10 @@ def _format_completed_hour_line(
     elapsed: float,
     rows: int,
     source: str,
+    timestamp_width: int = _COMPLETED_HOUR_TIMESTAMP_WIDTH,
 ) -> str:
     return (
-        f"  {_hour_progress_key(hour):>{_COMPLETED_HOUR_TIMESTAMP_WIDTH}s}"
+        f"  {_hour_progress_key(hour):>{timestamp_width}s}"
         f"  {elapsed:{_COMPLETED_HOUR_ELAPSED_WIDTH}.3f}s"
         f"  {rows:>{_COMPLETED_HOUR_ROWS_WIDTH}} rows  {_transfer_label(source)}"
     )
@@ -229,6 +248,7 @@ def install_timing() -> None:
         "stop": threading.Event(),
         "spinner_index": 0,
         "parallel": False,
+        "item_label": "hours",
     }
 
     def _ensure_transfer_state(
@@ -280,7 +300,7 @@ def install_timing() -> None:
             downloaded_bytes = int(state["downloaded_bytes"])
             total_bytes = state["total_bytes"]
             if mode == "scan":
-                size_text = f"{(total_bytes / (1024 * 1024)):,.1f}MiB" if total_bytes else "scan"
+                size_text = _format_bytes(total_bytes) if total_bytes else "scan"
                 scanned_batches = int(state["scanned_batches"])
                 scanned_rows = int(state["scanned_rows"])
                 matched_rows = int(state["matched_rows"])
@@ -297,15 +317,15 @@ def install_timing() -> None:
                     f"{(' ' + detail) if detail else ''} {elapsed:4.1f}s"
                 )
             elif total_bytes:
-                mib_total = total_bytes / (1024 * 1024)
-                mib_downloaded = downloaded_bytes / (1024 * 1024)
                 labels.append(
-                    f"{_transfer_label(str(state['url']))} {mib_downloaded:,.1f}/{mib_total:,.1f} MiB {elapsed:4.1f}s"
+                    f"{_transfer_label(str(state['url']))} "
+                    f"{_format_bytes(downloaded_bytes)}/{_format_bytes(total_bytes)} "
+                    f"{elapsed:4.1f}s"
                 )
             else:
-                mib_downloaded = downloaded_bytes / (1024 * 1024)
                 labels.append(
-                    f"{_transfer_label(str(state['url']))} {mib_downloaded:,.1f} MiB {elapsed:4.1f}s"
+                    f"{_transfer_label(str(state['url']))} "
+                    f"{_format_bytes(downloaded_bytes)} {elapsed:4.1f}s"
                 )
         if len(active_downloads) > len(labels):
             labels.append(f"+{len(active_downloads) - len(labels)} more")
@@ -331,6 +351,7 @@ def install_timing() -> None:
                 started_hours=int(progress_state["started_hours"]),
                 completed_hours=int(progress_state["completed_hours"]),
                 active_hours=active_hours,
+                item_label=str(transfer_state["item_label"]),
             ),
             refresh=False,
         )
@@ -492,6 +513,7 @@ def install_timing() -> None:
                 progress_state["total_hours"] = len(hours)
                 progress_state["started_hours"] = 0
                 progress_state["completed_hours"] = 0
+                transfer_state["item_label"] = "hours"
                 hour_keys_by_label.clear()
                 progress_keys["started"].clear()
                 progress_keys["completed"].clear()
@@ -525,6 +547,7 @@ def install_timing() -> None:
                     downloads: dict[str, dict[str, object]] = transfer_state["downloads"]  # type: ignore[assignment]
                     downloads.clear()
                     transfer_state["parallel"] = False
+                    transfer_state["item_label"] = "hours"
                     progress_state["total_hours"] = 0
                     progress_state["started_hours"] = 0
                     progress_state["completed_hours"] = 0
@@ -584,6 +607,7 @@ def install_timing() -> None:
                 progress_state["total_hours"] = len(dates)
                 progress_state["started_hours"] = 0
                 progress_state["completed_hours"] = 0
+                transfer_state["item_label"] = "days"
                 hour_keys_by_label.clear()
                 progress_keys["started"].clear()
                 progress_keys["completed"].clear()
@@ -610,19 +634,159 @@ def install_timing() -> None:
                 heartbeat_thread.start()
 
             try:
-                for date in dates:
-                    source_local.source = "none"
-                    source_label = "unknown"
-                    source_key: str | None = None
-                    total_bytes: int | None = None
+                if dates:
+                    for entry in config.ordered_source_entries:
+                        if entry.kind != "local":
+                            break
+                        assert entry.target is not None
+                        root = Path(entry.target).expanduser()
+                        blob_db_path = self._local_blob_db_path(root)
+                        if blob_db_path is not None:
+                            blob_frame = self._load_blob_range(
+                                db_path=blob_db_path,
+                                channel=config.channel,
+                                market_slug=market_slug,
+                                token_index=token_index,
+                                outcome=outcome,
+                            )
+                            if blob_frame is not None:
+                                source_label = f"telonex-blob::{blob_db_path}"
+                                try:
+                                    total_bytes = blob_db_path.stat().st_size
+                                except OSError:
+                                    total_bytes = None
+                                started_at = time.perf_counter()
+                                with pbar_lock:
+                                    for date in dates:
+                                        _mark_hour_started(date)
+                                    _ensure_transfer_state(
+                                        url=source_label,
+                                        total_bytes=total_bytes,
+                                        mode="scan",
+                                        hour_key=_hour_progress_key(dates[0]),
+                                    )
+                                    _refresh_transfer_status()
+                                row_count = len(blob_frame)
+                                _scan_progress(source_label, 1, row_count, 0, total_bytes, False)
+                                records = self._quote_ticks_from_frame(
+                                    blob_frame, start=start, end=end
+                                )
+                                _scan_progress(
+                                    source_label,
+                                    1,
+                                    row_count,
+                                    len(records),
+                                    total_bytes,
+                                    True,
+                                )
+                                elapsed = time.perf_counter() - started_at
+                                with pbar_lock:
+                                    bar = pbar_state["bar"]
+                                    if bar is not None:
+                                        for date in dates:
+                                            bar.write(
+                                                _format_completed_hour_line(
+                                                    date,
+                                                    elapsed=elapsed if date == dates[-1] else 0.0,
+                                                    rows=0,
+                                                    source=source_label,
+                                                    timestamp_width=10,
+                                                )
+                                            )
+                                            _mark_hour_completed(date)
+                                        _refresh_transfer_status()
+                                records.sort(key=lambda quote: quote.ts_event)
+                                return records
+                        local_path = self._local_consolidated_path(
+                            root=root,
+                            channel=config.channel,
+                            market_slug=market_slug,
+                            token_index=token_index,
+                            outcome=outcome,
+                        )
+                        if local_path is None:
+                            continue
+
+                        source_label = f"telonex-local::{local_path}"
+                        try:
+                            total_bytes = local_path.stat().st_size
+                        except OSError:
+                            total_bytes = None
+                        started_at = time.perf_counter()
+                        with pbar_lock:
+                            for date in dates:
+                                _mark_hour_started(date)
+                            _ensure_transfer_state(
+                                url=source_label,
+                                total_bytes=total_bytes,
+                                mode="scan",
+                                hour_key=_hour_progress_key(dates[0]),
+                            )
+                            _refresh_transfer_status()
+
+                        frame = self._load_local_range(
+                            root=root,
+                            channel=config.channel,
+                            market_slug=market_slug,
+                            token_index=token_index,
+                            outcome=outcome,
+                        )
+                        if frame is None:
+                            _finish_transfer(source_label)
+                            continue
+
+                        row_count = len(frame)
+                        _scan_progress(source_label, 1, row_count, 0, total_bytes, False)
+                        records = self._quote_ticks_from_frame(frame, start=start, end=end)
+                        _scan_progress(
+                            source_label,
+                            1,
+                            row_count,
+                            len(records),
+                            total_bytes,
+                            True,
+                        )
+                        rows_by_date: dict[str, int] = {}
+                        for quote in records:
+                            date_key = (
+                                datetime.fromtimestamp(quote.ts_event / 1_000_000_000, tz=UTC)
+                                .date()
+                                .isoformat()
+                            )
+                            rows_by_date[date_key] = rows_by_date.get(date_key, 0) + 1
+
+                        elapsed = time.perf_counter() - started_at
+                        with pbar_lock:
+                            bar = pbar_state["bar"]
+                            if bar is not None:
+                                for date in dates:
+                                    bar.write(
+                                        _format_completed_hour_line(
+                                            date,
+                                            elapsed=elapsed if date == dates[-1] else 0.0,
+                                            rows=rows_by_date.get(str(date), 0),
+                                            source=source_label,
+                                            timestamp_width=10,
+                                        )
+                                    )
+                                    _mark_hour_completed(date)
+                                _refresh_transfer_status()
+                        records.sort(key=lambda quote: quote.ts_event)
+                        return records
+
+                def _fetch_one_day(date: str) -> tuple[str, list, str, float]:
+                    local_records: list = []
+                    day_source_label = "unknown"
+                    day_total_bytes: int | None = None
                     frame = None
-                    started_at = time.perf_counter()
+                    day_started_at = time.perf_counter()
 
                     with pbar_lock:
                         _mark_hour_started(date)
                         _refresh_transfer_status()
 
                     for entry in config.ordered_source_entries:
+                        source_key: str | None = None
                         if entry.kind == "local":
                             assert entry.target is not None
                             root = Path(entry.target).expanduser()
@@ -637,11 +801,11 @@ def install_timing() -> None:
                             if local_path is None:
                                 continue
                             source_key = f"telonex-local::{local_path}"
-                            source_label = source_key
+                            day_source_label = source_key
                             try:
-                                total_bytes = local_path.stat().st_size
+                                day_total_bytes = local_path.stat().st_size
                             except OSError:
-                                total_bytes = None
+                                day_total_bytes = None
                             _start_transfer(date, source_key)
                             try:
                                 frame = self._load_local_day(
@@ -664,9 +828,9 @@ def install_timing() -> None:
                                 token_index=token_index,
                                 outcome=outcome,
                             )
-                            source_key = api_url
-                            source_label = f"telonex-api::{api_url}"
-                            _start_transfer(date, api_url)
+                            source_key = f"telonex-api::{api_url}"
+                            day_source_label = source_key
+                            _start_transfer(date, source_key)
                             try:
                                 frame = self._load_api_day(
                                     base_url=entry.target,
@@ -675,36 +839,29 @@ def install_timing() -> None:
                                     market_slug=market_slug,
                                     token_index=token_index,
                                     outcome=outcome,
+                                    api_key=getattr(entry, "api_key", None),
                                 )
                             finally:
-                                _finish_transfer(api_url)
+                                _finish_transfer(source_key)
                         if frame is not None:
                             break
 
-                    day_records = []
                     if frame is not None:
-                        scan_source = source_label
                         row_count = len(frame)
                         _scan_progress(
-                            scan_source,
-                            1,
-                            row_count,
-                            0,
-                            total_bytes,
-                            False,
+                            day_source_label, 1, row_count, 0, day_total_bytes, False
                         )
-                        day_records = self._quote_ticks_from_frame(frame, start=start, end=end)
+                        local_records = self._quote_ticks_from_frame(frame, start=start, end=end)
                         _scan_progress(
-                            scan_source,
+                            day_source_label,
                             1,
                             row_count,
-                            len(day_records),
-                            total_bytes,
+                            len(local_records),
+                            day_total_bytes,
                             True,
                         )
-                        records.extend(day_records)
 
-                    elapsed = time.perf_counter() - started_at
+                    elapsed = time.perf_counter() - day_started_at
                     with pbar_lock:
                         bar = pbar_state["bar"]
                         if bar is not None:
@@ -712,12 +869,31 @@ def install_timing() -> None:
                                 _format_completed_hour_line(
                                     date,
                                     elapsed=elapsed,
-                                    rows=len(day_records),
-                                    source=source_label,
+                                    rows=len(local_records),
+                                    source=day_source_label,
+                                    timestamp_width=10,
                                 )
                             )
                             _mark_hour_completed(date)
                             _refresh_transfer_status()
+                    return (date, local_records, day_source_label, elapsed)
+
+                workers = max(1, int(os.getenv(_TELONEX_TIMING_WORKERS_ENV, "8")))
+                workers = min(workers, len(dates)) if dates else 1
+                with pbar_lock:
+                    transfer_state["parallel"] = workers > 1
+                if workers <= 1:
+                    for date in dates:
+                        _, day_records, _, _ = _fetch_one_day(date)
+                        records.extend(day_records)
+                else:
+                    with ThreadPoolExecutor(
+                        max_workers=workers, thread_name_prefix="telonex-fetch"
+                    ) as executor:
+                        for _date, day_records, _source, _elapsed in executor.map(
+                            _fetch_one_day, dates
+                        ):
+                            records.extend(day_records)
                 records.sort(key=lambda quote: quote.ts_event)
                 return records
             finally:
@@ -727,6 +903,7 @@ def install_timing() -> None:
                     downloads: dict[str, dict[str, object]] = transfer_state["downloads"]  # type: ignore[assignment]
                     downloads.clear()
                     transfer_state["parallel"] = False
+                    transfer_state["item_label"] = "hours"
                     progress_state["total_hours"] = 0
                     progress_state["started_hours"] = 0
                     progress_state["completed_hours"] = 0

@@ -16,14 +16,14 @@
 ![GitHub code size](https://img.shields.io/github/languages/code-size/evan-kolberg/prediction-market-backtesting)
 ![GitHub top language](https://img.shields.io/github/languages/top/evan-kolberg/prediction-market-backtesting)
 ![GitHub open issues](https://img.shields.io/github/issues/evan-kolberg/prediction-market-backtesting)
-
-
-**Thanks to [PMXT](https://github.com/pmxt-dev/pmxt) for providing this data for free!**
+![GitHub contributors](https://img.shields.io/github/contributors/evan-kolberg/prediction-market-backtesting)
+![GitHub pull requests](https://img.shields.io/github/issues-pr/evan-kolberg/prediction-market-backtesting)
+![GitHub closed issues](https://img.shields.io/github/issues-closed/evan-kolberg/prediction-market-backtesting)
+![GitHub closed pull requests](https://img.shields.io/github/issues-pr-closed/evan-kolberg/prediction-market-backtesting)
 
 **New in Version 3:**
 - Telonex vendor support
-- 
-
+- Local Telonex download script
 
 **New in Version 2:**
 - Nautilus 1.225.0, via PyPI in lieu of a subtree

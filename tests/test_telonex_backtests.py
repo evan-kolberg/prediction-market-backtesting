@@ -6,10 +6,14 @@ import pytest
 from nautilus_trader.model.identifiers import InstrumentId, Symbol, Venue
 
 from prediction_market_extensions.backtesting._strategy_configs import build_strategies_from_configs
-from strategies import QuoteTickVWAPReversionConfig, QuoteTickVWAPReversionStrategy
+from strategies import QuoteTickDeepValueHoldConfig, QuoteTickDeepValueHoldStrategy
 
 INSTRUMENT_ID = InstrumentId(Symbol("PM-TEST-YES"), Venue("POLYMARKET"))
-EXPECTED_TELONEX_SOURCES = ("local:/Volumes/LaCie/telonex_data", "api:")
+FAKE_TELONEX_API_KEY = "test-telonex-key"
+EXPECTED_TELONEX_SOURCES = (
+    "local:/Volumes/LaCie/telonex_data",
+    f"api:{FAKE_TELONEX_API_KEY}",
+)
 EXPECTED_DETAIL_PLOT_PANELS = (
     "total_equity",
     "equity",
@@ -41,6 +45,12 @@ EXPECTED_SUMMARY_PLOT_PANELS = (
 def test_telonex_joint_portfolio_runner_uses_local_first_sources(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    import sys
+
+    monkeypatch.setenv("TELONEX_API_KEY", FAKE_TELONEX_API_KEY)
+    sys.modules.pop(
+        "backtests.polymarket_telonex_quote_tick_joint_portfolio_runner", None
+    )
     module = importlib.import_module(
         "backtests.polymarket_telonex_quote_tick_joint_portfolio_runner"
     )
@@ -60,8 +70,8 @@ def test_telonex_joint_portfolio_runner_uses_local_first_sources(
     assert len(strategies) == 1
     strategy = strategies[0]
 
-    assert isinstance(strategy, QuoteTickVWAPReversionStrategy)
-    assert isinstance(strategy.config, QuoteTickVWAPReversionConfig)
+    assert isinstance(strategy, QuoteTickDeepValueHoldStrategy)
+    assert isinstance(strategy.config, QuoteTickDeepValueHoldConfig)
     assert module.DATA.vendor == "telonex"
     assert module.DATA.sources == EXPECTED_TELONEX_SOURCES
     assert len(module.REPLAYS) == 5

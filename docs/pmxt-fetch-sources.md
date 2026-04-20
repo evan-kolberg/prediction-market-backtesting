@@ -67,8 +67,10 @@ printed in the same terminal session:
 
 ## Telonex
 
-Telonex quote-tick runners fetch one daily Parquet file per market/outcome/date.
-Use local files first when you have warmed them:
+Telonex quote-tick runners can read consolidated local Parquet files from
+`polymarket/<market>/<outcome>/<channel>.parquet`, or fetch missing daily files
+from `api:` when the local mirror is not present. Use local files first when you
+have warmed them:
 
 ```python
 DATA = MarketDataConfig(
@@ -83,11 +85,10 @@ DATA = MarketDataConfig(
 ```
 
 The timing harness uses the same `BACKTEST_ENABLE_TIMING` switch for Telonex.
-Because the source files are daily, the progress bar says `Fetching days`
-instead of `Fetching hours`. Active status lines show `telonex local` or
-`telonex api`, byte progress for API downloads when the response exposes a
-content length, scan rows, matched quote rows, and a completed line for each
-date.
+Because the API source is daily, the progress bar says `Fetching days` instead
+of `Fetching hours`. Active status lines show `telonex local` or `telonex api`,
+byte progress for API downloads when the response exposes a content length,
+scan rows, matched quote rows, and a completed line for each date.
 
 ## Timing Expectations By Source
 

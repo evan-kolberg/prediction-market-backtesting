@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+from io import BytesIO
 from pathlib import Path
 
+import duckdb
+import pandas as pd
 import pytest
 
 from scripts import _telonex_data_download as telonex_download
@@ -27,20 +30,48 @@ class _Response:
         return chunk
 
 
-def test_download_telonex_days_writes_loader_local_layout(
+def _parquet_payload(timestamp_us: int) -> bytes:
+    frame = pd.DataFrame(
+        {
+            "timestamp_us": [timestamp_us],
+            "bid_price": [0.44],
+            "ask_price": [0.45],
+            "bid_size": [10.0],
+            "ask_size": [12.0],
+        }
+    )
+    buffer = BytesIO()
+    frame.to_parquet(buffer, index=False)
+    return buffer.getvalue()
+
+
+def test_download_telonex_days_writes_duckdb_blob(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    payload = b"telonex-parquet"
     requested_urls: list[str] = []
-    auth_headers: list[str | None] = []
+    resolved_urls: list[str] = []
+    auth_keys: list[str] = []
+    payloads = {
+        "https://download.example/2026-01-19.parquet": _parquet_payload(1_768_780_800_000_000),
+        "https://download.example/2026-01-20.parquet": _parquet_payload(1_768_867_200_000_000),
+    }
+
+    def fake_resolve_presigned_url(*, url: str, api_key: str, timeout_secs: int) -> str:
+        del timeout_secs
+        requested_urls.append(url)
+        auth_keys.append(api_key)
+        day = url.rsplit("/", 1)[1].split("?", 1)[0]
+        resolved = f"https://download.example/{day}.parquet"
+        resolved_urls.append(resolved)
+        return resolved
 
     def fake_urlopen(request, timeout=60):  # type: ignore[no-untyped-def]
         del timeout
-        requested_urls.append(request.full_url)
-        auth_headers.append(request.headers.get("Authorization"))
+        payload = payloads[request.full_url]
         return _Response(payload, headers={"Content-Length": str(len(payload))})
 
     monkeypatch.setenv("TELONEX_API_KEY", "test-key")
+    monkeypatch.setattr(telonex_download, "_resolve_presigned_url", fake_resolve_presigned_url)
     monkeypatch.setattr(telonex_download, "urlopen", fake_urlopen)
 
     summary = telonex_download.download_telonex_days(
@@ -50,31 +81,54 @@ def test_download_telonex_days_writes_loader_local_layout(
         start_date="2026-01-19",
         end_date="2026-01-20",
         show_progress=False,
+        workers=1,
     )
 
     assert summary.requested_days == 2
     assert summary.downloaded_days == 2
     assert summary.skipped_existing_days == 0
-    assert summary.failed_days == []
-    assert summary.missing_days == []
-    assert requested_urls == [
+    assert summary.failed_days == 0
+    assert summary.missing_days == 0
+    assert sorted(requested_urls) == [
         "https://api.telonex.io/v1/downloads/polymarket/quotes/2026-01-19?slug=us-recession-by-end-of-2026&outcome_id=0",
         "https://api.telonex.io/v1/downloads/polymarket/quotes/2026-01-20?slug=us-recession-by-end-of-2026&outcome_id=0",
     ]
-    assert auth_headers == ["Bearer test-key", "Bearer test-key"]
-    assert (
-        tmp_path
-        / "polymarket"
-        / "quotes"
-        / "us-recession-by-end-of-2026"
-        / "0"
-        / "2026-01-20.parquet"
-    ).read_bytes() == payload
+    assert sorted(resolved_urls) == [
+        "https://download.example/2026-01-19.parquet",
+        "https://download.example/2026-01-20.parquet",
+    ]
+    assert sorted(auth_keys) == ["test-key", "test-key"]
+
+    blob_path = tmp_path / "telonex.duckdb"
+    assert blob_path.exists()
+    assert summary.db_path == str(blob_path)
+    assert summary.db_size_bytes > 0
+    # Critically: no stray per-day parquet files on disk.
+    assert list(tmp_path.rglob("*.parquet")) == []
+
+    con = duckdb.connect(str(blob_path), read_only=True)
+    try:
+        rows = con.execute(
+            "SELECT market_slug, outcome_segment, timestamp_us FROM quotes_data "
+            "ORDER BY timestamp_us"
+        ).fetchall()
+        manifest = con.execute(
+            "SELECT channel, market_slug, outcome_segment, day, rows FROM completed_days "
+            "ORDER BY day"
+        ).fetchall()
+    finally:
+        con.close()
+
+    assert [row[2] for row in rows] == [1_768_780_800_000_000, 1_768_867_200_000_000]
+    assert {row[0] for row in rows} == {"us-recession-by-end-of-2026"}
+    assert {row[1] for row in rows} == {"0"}
+    assert len(manifest) == 2
+    assert {row[0] for row in manifest} == {"quotes"}
 
 
 def test_download_telonex_days_requires_key_from_env(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-):
+) -> None:
     monkeypatch.delenv("TELONEX_API_KEY", raising=False)
 
     with pytest.raises(ValueError, match="TELONEX_API_KEY"):
@@ -88,34 +142,142 @@ def test_download_telonex_days_requires_key_from_env(
         )
 
 
-def test_download_telonex_days_skips_existing_without_api_call(
+def test_download_telonex_days_resumes_from_manifest(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    destination = (
-        tmp_path
-        / "polymarket"
-        / "quotes"
-        / "us-recession-by-end-of-2026"
-        / "0"
-        / "2026-01-19.parquet"
-    )
-    destination.parent.mkdir(parents=True)
-    destination.write_bytes(b"existing")
+    payloads = {
+        "https://download.example/2026-01-19.parquet": _parquet_payload(1_768_780_800_000_000),
+    }
 
-    def unexpected_urlopen(request, timeout=60):  # type: ignore[no-untyped-def]
-        raise AssertionError(f"unexpected Telonex request for {request.full_url}")
+    def fake_resolve_presigned_url(*, url: str, api_key: str, timeout_secs: int) -> str:
+        del url, api_key, timeout_secs
+        return "https://download.example/2026-01-19.parquet"
+
+    def fake_urlopen(request, timeout=60):  # type: ignore[no-untyped-def]
+        del timeout
+        payload = payloads[request.full_url]
+        return _Response(payload, headers={"Content-Length": str(len(payload))})
 
     monkeypatch.setenv("TELONEX_API_KEY", "test-key")
-    monkeypatch.setattr(telonex_download, "urlopen", unexpected_urlopen)
+    monkeypatch.setattr(telonex_download, "_resolve_presigned_url", fake_resolve_presigned_url)
+    monkeypatch.setattr(telonex_download, "urlopen", fake_urlopen)
 
-    summary = telonex_download.download_telonex_days(
+    first = telonex_download.download_telonex_days(
         destination=tmp_path,
         market_slugs=["us-recession-by-end-of-2026"],
         outcome_id=0,
         start_date="2026-01-19",
         end_date="2026-01-19",
         show_progress=False,
+        workers=1,
+    )
+    assert first.downloaded_days == 1
+
+    def unexpected_urlopen(request, timeout=60):  # type: ignore[no-untyped-def]
+        raise AssertionError(f"unexpected Telonex request for {request.full_url}")
+
+    monkeypatch.setattr(telonex_download, "urlopen", unexpected_urlopen)
+
+    second = telonex_download.download_telonex_days(
+        destination=tmp_path,
+        market_slugs=["us-recession-by-end-of-2026"],
+        outcome_id=0,
+        start_date="2026-01-19",
+        end_date="2026-01-19",
+        show_progress=False,
+        workers=1,
+    )
+    assert second.downloaded_days == 0
+    assert second.skipped_existing_days == 1
+
+
+def test_download_telonex_days_records_404_so_reruns_skip_empty_days(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from urllib.error import HTTPError
+
+    def fake_resolve_presigned_url(*, url: str, api_key: str, timeout_secs: int) -> str:
+        del api_key, timeout_secs
+        raise HTTPError(url, 404, "Not Found", {}, None)  # type: ignore[arg-type]
+
+    monkeypatch.setenv("TELONEX_API_KEY", "test-key")
+    monkeypatch.setattr(telonex_download, "_resolve_presigned_url", fake_resolve_presigned_url)
+
+    summary = telonex_download.download_telonex_days(
+        destination=tmp_path,
+        market_slugs=["no-such-market"],
+        outcome_id=0,
+        start_date="2026-01-19",
+        end_date="2026-01-19",
+        show_progress=False,
+        workers=1,
+    )
+    assert summary.missing_days == 1
+    assert summary.downloaded_days == 0
+
+    def boom(*_args, **_kwargs):  # type: ignore[no-untyped-def]
+        raise AssertionError("should not retry a known-empty day")
+
+    monkeypatch.setattr(telonex_download, "_resolve_presigned_url", boom)
+
+    rerun = telonex_download.download_telonex_days(
+        destination=tmp_path,
+        market_slugs=["no-such-market"],
+        outcome_id=0,
+        start_date="2026-01-19",
+        end_date="2026-01-19",
+        show_progress=False,
+        workers=1,
+    )
+    assert rerun.skipped_existing_days == 1
+
+
+def test_download_telonex_days_all_markets_expands_every_channel(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    captured_jobs = []
+
+    markets = pd.DataFrame(
+        {
+            "slug": ["market-one"],
+            "status": ["resolved"],
+            "quotes_from": ["2026-01-19"],
+            "quotes_to": ["2026-01-19"],
+            "trades_from": ["2026-01-19"],
+            "trades_to": ["2026-01-19"],
+            "book_snapshot_5_from": ["2026-01-19"],
+            "book_snapshot_5_to": ["2026-01-19"],
+            "book_snapshot_25_from": ["2026-01-19"],
+            "book_snapshot_25_to": ["2026-01-19"],
+            "book_snapshot_full_from": ["2026-01-19"],
+            "book_snapshot_full_to": ["2026-01-19"],
+            "onchain_fills_from": ["2026-01-19"],
+            "onchain_fills_to": ["2026-01-19"],
+        }
     )
 
-    assert summary.downloaded_days == 0
-    assert summary.skipped_existing_days == 1
+    def fake_fetch_markets_dataset(base_url: str, timeout_secs: int) -> pd.DataFrame:
+        del base_url, timeout_secs
+        return markets
+
+    def fake_run_jobs(jobs, **kwargs):  # type: ignore[no-untyped-def]
+        del kwargs
+        captured_jobs.extend(jobs)
+        return (len(jobs), 0, 0, 0, 123, False, [])
+
+    monkeypatch.setenv("TELONEX_API_KEY", "test-key")
+    monkeypatch.setattr(telonex_download, "_fetch_markets_dataset", fake_fetch_markets_dataset)
+    monkeypatch.setattr(telonex_download, "_run_jobs", fake_run_jobs)
+
+    summary = telonex_download.download_telonex_days(
+        destination=tmp_path,
+        all_markets=True,
+        channels=list(telonex_download.VALID_CHANNELS),
+        show_progress=False,
+    )
+
+    assert summary.markets_considered == 1
+    assert summary.requested_days == 12
+    assert summary.downloaded_days == 12
+    assert {job.channel for job in captured_jobs} == set(telonex_download.VALID_CHANNELS)
+    assert {job.outcome_segment for job in captured_jobs} == {"0", "1"}
