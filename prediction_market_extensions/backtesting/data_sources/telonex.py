@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import re
+import warnings
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -9,7 +10,7 @@ from dataclasses import dataclass
 from datetime import UTC
 from io import BytesIO
 from pathlib import Path
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import HTTPRedirectHandler, Request, build_opener, urlopen
 
@@ -319,7 +320,15 @@ class RunnerPolymarketTelonexQuoteDataLoader(PolymarketDataLoader):
 
         con = duckdb.connect(":memory:")
         try:
-            frame = con.execute(query, params).fetch_df()
+            try:
+                frame = con.execute(query, params).fetch_df()
+            except duckdb.Error as exc:
+                warnings.warn(
+                    f"Telonex: skipping blob store {store_root} for {market_slug}/"
+                    f"{token_index} ({channel}) — DuckDB failed: {exc}",
+                    stacklevel=2,
+                )
+                return None
         finally:
             con.close()
 
@@ -433,6 +442,17 @@ class RunnerPolymarketTelonexQuoteDataLoader(PolymarketDataLoader):
                 return path
         return None
 
+    @staticmethod
+    def _safe_read_parquet(path: Path) -> pd.DataFrame | None:
+        try:
+            return pd.read_parquet(path)
+        except (OSError, ValueError, RuntimeError) as exc:
+            warnings.warn(
+                f"Telonex: skipping unreadable parquet {path} ({exc})",
+                stacklevel=2,
+            )
+            return None
+
     def _load_local_range(
         self,
         *,
@@ -451,7 +471,7 @@ class RunnerPolymarketTelonexQuoteDataLoader(PolymarketDataLoader):
         )
         if path is None:
             return None
-        return pd.read_parquet(path)
+        return self._safe_read_parquet(path)
 
     def _load_local_day(
         self,
@@ -473,7 +493,7 @@ class RunnerPolymarketTelonexQuoteDataLoader(PolymarketDataLoader):
         )
         if path is None:
             return None
-        return pd.read_parquet(path)
+        return self._safe_read_parquet(path)
 
     @staticmethod
     def _api_url(
@@ -663,6 +683,94 @@ class RunnerPolymarketTelonexQuoteDataLoader(PolymarketDataLoader):
             for bp, ap, bs, sz, ns in zip(bid_px, ask_px, bid_sz, ask_sz, ns_arr, strict=True)
         ]
 
+    def _try_load_range_from_local(
+        self,
+        *,
+        entry: TelonexSourceEntry,
+        channel: str,
+        market_slug: str,
+        token_index: int,
+        outcome: str | None,
+        start: pd.Timestamp,
+        end: pd.Timestamp,
+    ) -> pd.DataFrame | None:
+        assert entry.target is not None
+        root = Path(entry.target).expanduser()
+        blob_root = self._local_blob_root(root)
+        if blob_root is not None:
+            try:
+                blob_frame = self._load_blob_range(
+                    store_root=blob_root,
+                    channel=channel,
+                    market_slug=market_slug,
+                    token_index=token_index,
+                    outcome=outcome,
+                    start=start,
+                    end=end,
+                )
+            except Exception as exc:  # noqa: BLE001 — fall through to next source
+                warnings.warn(
+                    f"Telonex: local blob read failed at {blob_root} ({exc}); trying next source.",
+                    stacklevel=2,
+                )
+                blob_frame = None
+            if blob_frame is not None:
+                return blob_frame
+        try:
+            return self._load_local_range(
+                root=root,
+                channel=channel,
+                market_slug=market_slug,
+                token_index=token_index,
+                outcome=outcome,
+            )
+        except Exception as exc:  # noqa: BLE001 — fall through to next source
+            warnings.warn(
+                f"Telonex: local consolidated read failed at {root} ({exc}); trying next source.",
+                stacklevel=2,
+            )
+            return None
+
+    def _try_load_day_from_entry(
+        self,
+        *,
+        entry: TelonexSourceEntry,
+        channel: str,
+        date: str,
+        market_slug: str,
+        token_index: int,
+        outcome: str | None,
+    ) -> pd.DataFrame | None:
+        assert entry.target is not None
+        try:
+            if entry.kind == _TELONEX_SOURCE_LOCAL:
+                return self._load_local_day(
+                    root=Path(entry.target).expanduser(),
+                    channel=channel,
+                    date=date,
+                    market_slug=market_slug,
+                    token_index=token_index,
+                    outcome=outcome,
+                )
+            if entry.kind == _TELONEX_SOURCE_API:
+                return self._load_api_day(
+                    base_url=entry.target,
+                    channel=channel,
+                    date=date,
+                    market_slug=market_slug,
+                    token_index=token_index,
+                    outcome=outcome,
+                    api_key=entry.api_key,
+                )
+        except (HTTPError, URLError, OSError, ValueError, RuntimeError) as exc:
+            warnings.warn(
+                f"Telonex: source {entry.kind}:{entry.target} failed for {date} "
+                f"({market_slug}/{token_index}): {exc}; trying next source.",
+                stacklevel=2,
+            )
+            return None
+        return None
+
     def load_quotes(
         self,
         start: pd.Timestamp,
@@ -676,28 +784,15 @@ class RunnerPolymarketTelonexQuoteDataLoader(PolymarketDataLoader):
         records: list[QuoteTick] = []
         for entry in config.ordered_source_entries:
             if entry.kind != _TELONEX_SOURCE_LOCAL:
-                break
-            assert entry.target is not None
-            root = Path(entry.target).expanduser()
-            blob_root = self._local_blob_root(root)
-            if blob_root is not None:
-                blob_frame = self._load_blob_range(
-                    store_root=blob_root,
-                    channel=config.channel,
-                    market_slug=market_slug,
-                    token_index=token_index,
-                    outcome=outcome,
-                    start=start,
-                    end=end,
-                )
-                if blob_frame is not None:
-                    return self._quote_ticks_from_frame(blob_frame, start=start, end=end)
-            frame = self._load_local_range(
-                root=root,
+                continue
+            frame = self._try_load_range_from_local(
+                entry=entry,
                 channel=config.channel,
                 market_slug=market_slug,
                 token_index=token_index,
                 outcome=outcome,
+                start=start,
+                end=end,
             )
             if frame is not None:
                 return self._quote_ticks_from_frame(frame, start=start, end=end)
@@ -705,27 +800,14 @@ class RunnerPolymarketTelonexQuoteDataLoader(PolymarketDataLoader):
         for date in self._date_range(start, end):
             frame: pd.DataFrame | None = None
             for entry in config.ordered_source_entries:
-                if entry.kind == _TELONEX_SOURCE_LOCAL:
-                    assert entry.target is not None
-                    frame = self._load_local_day(
-                        root=Path(entry.target).expanduser(),
-                        channel=config.channel,
-                        date=date,
-                        market_slug=market_slug,
-                        token_index=token_index,
-                        outcome=outcome,
-                    )
-                elif entry.kind == _TELONEX_SOURCE_API:
-                    assert entry.target is not None
-                    frame = self._load_api_day(
-                        base_url=entry.target,
-                        channel=config.channel,
-                        date=date,
-                        market_slug=market_slug,
-                        token_index=token_index,
-                        outcome=outcome,
-                        api_key=entry.api_key,
-                    )
+                frame = self._try_load_day_from_entry(
+                    entry=entry,
+                    channel=config.channel,
+                    date=date,
+                    market_slug=market_slug,
+                    token_index=token_index,
+                    outcome=outcome,
+                )
                 if frame is not None:
                     break
             if frame is None:
