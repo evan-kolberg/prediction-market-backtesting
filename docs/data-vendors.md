@@ -1,4 +1,4 @@
-# Data Vendors, Local Mirrors, And Raw PMXT
+# Data Vendors And Local Mirrors
 
 This page is intentionally strict about what is supported today.
 

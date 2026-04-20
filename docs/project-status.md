@@ -19,13 +19,18 @@ No repo-level open issues are tracked here right now.
 
 ## Recently Fixed
 
+- [x] Telonex source loading now falls through to the next source when one
+  fails (so a missing `local:` mirror cleanly hands off to `api:`) instead of
+  aborting the whole replay [PR#105](https://github.com/evan-kolberg/prediction-market-backtesting/pull/105)
 - [x] v3 adds a Telonex joint-portfolio runner, local Telonex daily-Parquet
-  downloader, and daily-file timing output for Telonex `local:` / `api:`
-  sources.
+  downloader, Hive-partitioned Parquet output with a DuckDB resume manifest,
+  and daily-file timing output for Telonex `local:` / `api:` sources [PR#104](https://github.com/evan-kolberg/prediction-market-backtesting/pull/104)
 - [x] v3 removes the active PMXT relay path, relay badges, and relay service
   package. PMXT quote-tick runners now use local raw files plus direct
   `r2v2.pmxt.dev` / `r2.pmxt.dev` archive fallback, and Telonex is available
-  as a separate Polymarket quote-tick vendor.
+  as a separate Polymarket quote-tick vendor [PR#103](https://github.com/evan-kolberg/prediction-market-backtesting/pull/103)
+- [x] relay schema-bootstrap now commits its `UPDATE` so a second writer can
+  take the WAL lock instead of deadlocking on first start [PR#102](https://github.com/evan-kolberg/prediction-market-backtesting/pull/102)
 - [x] PMXT relay latest-hour badge now prints the mirrored filename
   (`polymarket_orderbook_YYYY-MM-DDTHH`) instead of only the naked hour, the
   mirror worker validates the local file size against upstream before reusing
@@ -33,7 +38,19 @@ No repo-level open issues are tracked here right now.
   as `ready`), `count_raw_dump_files` excludes undersized parquet files from
   the public coverage denominator, and startup adoption purges orphan raw
   files under the nonempty byte threshold that aren't tracked as ready in the
-  index DB
+  index DB [PR#101](https://github.com/evan-kolberg/prediction-market-backtesting/pull/101)
+- [x] PMXT relay archive-coverage redesign exposes per-source priority
+  metrics, mirrored-vs-archive accounting, and clearer empty-hour handling
+  [PR#100](https://github.com/evan-kolberg/prediction-market-backtesting/pull/100), [PR#95](https://github.com/evan-kolberg/prediction-market-backtesting/pull/95), [PR#94](https://github.com/evan-kolberg/prediction-market-backtesting/pull/94), [PR#93](https://github.com/evan-kolberg/prediction-market-backtesting/pull/93), [PR#90](https://github.com/evan-kolberg/prediction-market-backtesting/pull/90), [PR#89](https://github.com/evan-kolberg/prediction-market-backtesting/pull/89)
+- [x] PMXT runners support full per-entry source ordering and split raw-archive
+  sources, so `DATA.sources` can interleave `local:` and `archive:` entries in
+  any order the runner needs [PR#98](https://github.com/evan-kolberg/prediction-market-backtesting/pull/98), [PR#92](https://github.com/evan-kolberg/prediction-market-backtesting/pull/92)
+- [x] public runner validation harness covers every flat runner under
+  `backtests/` to keep direct script paths and the menu deterministic
+  [PR#91](https://github.com/evan-kolberg/prediction-market-backtesting/pull/91)
+- [x] ruff-driven cleanups across relay, adapters, and plotting; docs now
+  include an embedded-HTML example, acknowledgements, and a fixed index
+  anchor URL [PR#88](https://github.com/evan-kolberg/prediction-market-backtesting/pull/88), [PR#87](https://github.com/evan-kolberg/prediction-market-backtesting/pull/87)
 - [x] multi-market runners now default to `EMIT_HTML=False` and the artifact
   pipeline downsamples price points to 5 000 before building dense equity
   curves, cutting wall time from ~320s to ~26s on an 8-market basket

@@ -553,5 +553,5 @@ workflows:
 
 For vendor-specific data-source behavior and timings, use:
 
-- [Data Vendors, Local Mirrors, And Raw PMXT](pmxt-byod.md)
-- [Vendor Fetch Sources And Timing](pmxt-fetch-sources.md)
+- [Data Vendors And Local Mirrors](data-vendors.md)
+- [Vendor Fetch Sources And Timing](vendor-fetch-sources.md)

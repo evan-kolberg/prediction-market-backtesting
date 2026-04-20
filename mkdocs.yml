@@ -20,8 +20,8 @@ nav:
   - Backtests And Runners: backtests.md
   - Research: research.md
   - Execution Modeling: execution-modeling.md
-  - Data Vendors, Local Mirrors, And Raw PMXT: pmxt-byod.md
-  - Vendor Fetch Sources And Timing: pmxt-fetch-sources.md
+  - Data Vendors And Local Mirrors: data-vendors.md
+  - Vendor Fetch Sources And Timing: vendor-fetch-sources.md
   - Plotting: plotting.md
   - Testing: testing.md
   - Project Status: project-status.md
