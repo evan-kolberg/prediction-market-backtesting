@@ -3,6 +3,7 @@
 Measures: presigned resolve time, TLS setup, content fetch, parquet parse.
 Compares urllib (current) vs httpx.Client (pooled, single-request-with-redirect).
 """
+
 from __future__ import annotations
 
 import io
@@ -28,12 +29,15 @@ t0 = time.time()
 req = Request(f"{BASE}/v1/datasets/polymarket/markets", headers={"User-Agent": UA})
 with urlopen(req, timeout=120) as r:
     markets_bytes = r.read()
-print(f"  catalog {len(markets_bytes)/1024/1024:.1f} MiB in {time.time()-t0:.1f}s", flush=True)
+print(
+    f"  catalog {len(markets_bytes) / 1024 / 1024:.1f} MiB in {time.time() - t0:.1f}s", flush=True
+)
 markets = pd.read_parquet(io.BytesIO(markets_bytes))
 
 # Pick markets with recent quotes availability — use quotes_from which should
 # have a non-zero yes-outcome file.
-from datetime import date, timedelta
+from datetime import date  # noqa: E402
+
 
 def _parse_d(v):
     if pd.isna(v):
@@ -43,6 +47,7 @@ def _parse_d(v):
         return date.fromisoformat(s)
     except ValueError:
         return None
+
 
 frame = markets.dropna(subset=["quotes_from", "quotes_to"])
 jobs = []
@@ -61,6 +66,7 @@ print(f"Built {len(jobs)} sample jobs", flush=True)
 
 
 CHANNEL = os.environ.get("PROFILE_CHANNEL", "book_snapshot_25")
+
 
 def build_url(slug: str, date: str, channel: str = CHANNEL) -> str:
     return f"{BASE}/v1/downloads/polymarket/{channel}/{date}?slug={slug}&outcome_id=0"
@@ -103,6 +109,7 @@ client = httpx.Client(
     headers={"User-Agent": UA},
 )
 
+
 def httpx_fetch(slug: str, date: str) -> tuple[float, float, int]:
     t0 = time.time()
     url = build_url(slug, date)
@@ -131,8 +138,11 @@ def bench(label: str, fn, workers: int):
             ok += 1
             bytes_total += size
     elapsed = time.time() - t0
-    print(f"  {ok} ok, {missed} missed in {elapsed:.1f}s ({len(jobs)/elapsed:.1f} req/s, "
-          f"{bytes_total/elapsed/1024:.0f} KiB/s)", flush=True)
+    print(
+        f"  {ok} ok, {missed} missed in {elapsed:.1f}s ({len(jobs) / elapsed:.1f} req/s, "
+        f"{bytes_total / elapsed / 1024:.0f} KiB/s)",
+        flush=True,
+    )
 
 
 # Warmup (prime DNS/TLS for urllib/httpx roughly equally)
@@ -181,6 +191,9 @@ with ThreadPoolExecutor(max_workers=64) as pool:
         fetch_total += fetch
         parse_total += parse
 elapsed = time.time() - t0
-print(f"  total={elapsed:.1f}s, wall req/s={len(jobs)/elapsed:.1f}, "
-      f"sum fetch={fetch_total:.1f}s, sum parse={parse_total:.1f}s "
-      f"(parse is {parse_total/fetch_total*100:.0f}% of fetch time across threads)", flush=True)
+print(
+    f"  total={elapsed:.1f}s, wall req/s={len(jobs) / elapsed:.1f}, "
+    f"sum fetch={fetch_total:.1f}s, sum parse={parse_total:.1f}s "
+    f"(parse is {parse_total / fetch_total * 100:.0f}% of fetch time across threads)",
+    flush=True,
+)
