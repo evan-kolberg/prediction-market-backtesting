@@ -281,3 +281,205 @@ def test_download_telonex_days_all_markets_expands_every_channel(
     assert summary.downloaded_days == 12
     assert {job.channel for job in captured_jobs} == set(telonex_download.VALID_CHANNELS)
     assert {job.outcome_segment for job in captured_jobs} == {"0", "1"}
+
+
+def _parquet_payload_with_extra(
+    timestamp_us: int, *, extra_columns: dict[str, object] | None = None
+) -> bytes:
+    data = {
+        "timestamp_us": [timestamp_us],
+        "bid_price": [0.44],
+        "ask_price": [0.45],
+        "bid_size": [10.0],
+        "ask_size": [12.0],
+    }
+    if extra_columns:
+        for key, value in extra_columns.items():
+            data[key] = [value]
+    frame = pd.DataFrame(data)
+    buffer = BytesIO()
+    frame.to_parquet(buffer, index=False)
+    return buffer.getvalue()
+
+
+def test_download_telonex_days_schema_evolves_when_later_day_has_new_column(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Day 2's parquet has an `origin_asset_id` column that day 1's didn't —
+    the writer must ALTER TABLE rather than crashing with BinderException."""
+    payloads = {
+        "https://download.example/2026-01-19.parquet": _parquet_payload_with_extra(
+            1_768_780_800_000_000
+        ),
+        "https://download.example/2026-01-20.parquet": _parquet_payload_with_extra(
+            1_768_867_200_000_000,
+            extra_columns={"origin_asset_id": "abc123"},
+        ),
+    }
+
+    def fake_resolve_presigned_url(*, url: str, api_key: str, timeout_secs: int) -> str:
+        del api_key, timeout_secs
+        day = url.rsplit("/", 1)[1].split("?", 1)[0]
+        return f"https://download.example/{day}.parquet"
+
+    def fake_urlopen(request, timeout=60):  # type: ignore[no-untyped-def]
+        del timeout
+        payload = payloads[request.full_url]
+        return _Response(payload, headers={"Content-Length": str(len(payload))})
+
+    monkeypatch.setenv("TELONEX_API_KEY", "test-key")
+    monkeypatch.setattr(telonex_download, "_resolve_presigned_url", fake_resolve_presigned_url)
+    monkeypatch.setattr(telonex_download, "urlopen", fake_urlopen)
+    # Force each day into its own commit batch so day 2 triggers the
+    # schema-evolution path against an already-created table.
+    monkeypatch.setattr(telonex_download, "_DEFAULT_COMMIT_BATCH_ROWS", 1)
+    monkeypatch.setattr(telonex_download, "_DEFAULT_COMMIT_BATCH_SECS", 0.0)
+
+    summary = telonex_download.download_telonex_days(
+        destination=tmp_path,
+        market_slugs=["evolving-schema-market"],
+        outcome_id=0,
+        start_date="2026-01-19",
+        end_date="2026-01-20",
+        show_progress=False,
+        workers=1,
+    )
+    assert summary.downloaded_days == 2
+    assert summary.failed_days == 0
+
+    con = duckdb.connect(str(tmp_path / "telonex.duckdb"), read_only=True)
+    try:
+        cols = {
+            row[0]
+            for row in con.execute(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_name = 'quotes_data'"
+            ).fetchall()
+        }
+        rows = con.execute(
+            "SELECT origin_asset_id FROM quotes_data ORDER BY timestamp_us"
+        ).fetchall()
+    finally:
+        con.close()
+    assert "origin_asset_id" in cols
+    assert rows == [(None,), ("abc123",)]
+
+
+def test_download_telonex_days_retries_transient_5xx_then_succeeds(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from urllib.error import HTTPError
+
+    call_count = {"n": 0}
+    payload = _parquet_payload(1_768_780_800_000_000)
+
+    def fake_resolve_presigned_url(*, url: str, api_key: str, timeout_secs: int) -> str:
+        del api_key, timeout_secs
+        call_count["n"] += 1
+        if call_count["n"] <= 2:
+            raise HTTPError(url, 503, "Service Unavailable", {}, None)  # type: ignore[arg-type]
+        return "https://download.example/day.parquet"
+
+    def fake_urlopen(request, timeout=60):  # type: ignore[no-untyped-def]
+        del timeout
+        return _Response(payload, headers={"Content-Length": str(len(payload))})
+
+    monkeypatch.setenv("TELONEX_API_KEY", "test-key")
+    monkeypatch.setattr(telonex_download, "_resolve_presigned_url", fake_resolve_presigned_url)
+    monkeypatch.setattr(telonex_download, "urlopen", fake_urlopen)
+    # Zero out the retry backoff so the test finishes quickly.
+    monkeypatch.setattr(telonex_download, "_RETRY_BACKOFF_BASE_SECS", 0.0)
+
+    summary = telonex_download.download_telonex_days(
+        destination=tmp_path,
+        market_slugs=["flaky-market"],
+        outcome_id=0,
+        start_date="2026-01-19",
+        end_date="2026-01-19",
+        show_progress=False,
+        workers=1,
+    )
+    assert summary.downloaded_days == 1
+    assert summary.failed_days == 0
+    # 2 transient failures + 1 success
+    assert call_count["n"] == 3
+
+
+def test_download_telonex_days_resumes_midrun_interruption(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Simulate the realistic crash case: day 1 commits to the blob, day 2
+    raises before it can commit. On the next run, day 1 must skip and day 2
+    must re-fetch and succeed."""
+    payloads = {
+        "https://download.example/2026-01-19.parquet": _parquet_payload(1_768_780_800_000_000),
+        "https://download.example/2026-01-20.parquet": _parquet_payload(1_768_867_200_000_000),
+    }
+    seen_days: list[str] = []
+
+    def fake_resolve_presigned_url(*, url: str, api_key: str, timeout_secs: int) -> str:
+        del api_key, timeout_secs
+        day = url.rsplit("/", 1)[1].split("?", 1)[0]
+        seen_days.append(day)
+        if day == "2026-01-20":
+            raise RuntimeError("simulated mid-run crash before day 2 commits")
+        return f"https://download.example/{day}.parquet"
+
+    def fake_urlopen(request, timeout=60):  # type: ignore[no-untyped-def]
+        del timeout
+        payload = payloads[request.full_url]
+        return _Response(payload, headers={"Content-Length": str(len(payload))})
+
+    monkeypatch.setenv("TELONEX_API_KEY", "test-key")
+    monkeypatch.setattr(telonex_download, "_resolve_presigned_url", fake_resolve_presigned_url)
+    monkeypatch.setattr(telonex_download, "urlopen", fake_urlopen)
+    # Zero backoff so retries are fast.
+    monkeypatch.setattr(telonex_download, "_RETRY_BACKOFF_BASE_SECS", 0.0)
+
+    summary_a = telonex_download.download_telonex_days(
+        destination=tmp_path,
+        market_slugs=["crash-market"],
+        outcome_id=0,
+        start_date="2026-01-19",
+        end_date="2026-01-20",
+        show_progress=False,
+        workers=1,
+    )
+    assert summary_a.downloaded_days == 1
+    assert summary_a.failed_days == 1
+
+    seen_days.clear()
+
+    # Now the crash is fixed — day 2 resolves normally.
+    def resolve_ok(*, url: str, api_key: str, timeout_secs: int) -> str:
+        del api_key, timeout_secs
+        day = url.rsplit("/", 1)[1].split("?", 1)[0]
+        seen_days.append(day)
+        return f"https://download.example/{day}.parquet"
+
+    monkeypatch.setattr(telonex_download, "_resolve_presigned_url", resolve_ok)
+
+    summary_b = telonex_download.download_telonex_days(
+        destination=tmp_path,
+        market_slugs=["crash-market"],
+        outcome_id=0,
+        start_date="2026-01-19",
+        end_date="2026-01-20",
+        show_progress=False,
+        workers=1,
+    )
+    # Day 1 already committed → skip. Day 2 → fresh fetch.
+    assert summary_b.downloaded_days == 1
+    assert summary_b.skipped_existing_days == 1
+    assert summary_b.failed_days == 0
+    assert seen_days == ["2026-01-20"]
+
+    # Final blob has both days.
+    con = duckdb.connect(str(tmp_path / "telonex.duckdb"), read_only=True)
+    try:
+        days = sorted(
+            row[0] for row in con.execute("SELECT day FROM completed_days ORDER BY day").fetchall()
+        )
+    finally:
+        con.close()
+    assert [d.isoformat() for d in days] == ["2026-01-19", "2026-01-20"]

@@ -243,8 +243,13 @@ class _TelonexBlobStore:
         return {row[0]: row[1] for row in rows}
 
     def _probe_columns(self, sample_frame: pd.DataFrame) -> dict[str, str]:
-        """Ask DuckDB for the column types it would infer from this frame."""
-        probe = sample_frame.head(1).copy()
+        """Ask DuckDB for the column types it would infer from this frame.
+
+        Uses the full frame rather than `head(1)` so columns that are all-null
+        in the first row don't get mis-inferred (e.g. an object column
+        containing [NaN, 'abc123'] would look INTEGER from head(1)).
+        """
+        probe = sample_frame.copy()
         probe["market_slug"] = "_schema_"
         probe["outcome_segment"] = "_schema_"
         self._con.register("_probe_frame", probe)
@@ -265,9 +270,11 @@ class _TelonexBlobStore:
                 [table],
             ).fetchone()[0]
             if not exists:
-                schema_source = sample_frame.head(1).copy()
-                if schema_source.empty:
+                if sample_frame.empty:
                     return
+                # Use the full frame (not head(1)) so object-dtype columns that
+                # are all-null in the first row don't get mis-inferred as INT.
+                schema_source = sample_frame.copy()
                 schema_source["market_slug"] = "_schema_"
                 schema_source["outcome_segment"] = "_schema_"
                 self._con.register("_ingest_schema", schema_source)
@@ -326,7 +333,6 @@ class _TelonexBlobStore:
                         if entry.frame is not None and not entry.frame.empty
                     ]
                     if non_empty:
-                        self._ensure_channel_table(channel, non_empty[0].frame)
                         enriched_frames: list[pd.DataFrame] = []
                         for entry in non_empty:
                             assert entry.frame is not None
@@ -335,6 +341,10 @@ class _TelonexBlobStore:
                             enriched["outcome_segment"] = entry.job.outcome_segment
                             enriched_frames.append(enriched)
                         combined = pd.concat(enriched_frames, ignore_index=True, copy=False)
+                        # Evolve schema against the UNION of all frames in the
+                        # batch, not just the first — daily parquets don't share
+                        # a fixed set of columns.
+                        self._ensure_channel_table(channel, combined)
                         table = f"{channel}_data"
                         self._con.register("_ingest_rows", combined)
                         try:
@@ -1086,14 +1096,9 @@ def download_telonex_days(
     try:
         if all_markets:
             if show_progress:
-                fetch_bar = tqdm(
-                    total=1, desc="Fetching Telonex markets dataset", unit="ds", leave=False
-                )
                 print(f"Fetching markets dataset from {base_url.rstrip('/')}...", file=sys.stderr)
             markets = _fetch_markets_dataset(base_url, timeout_secs=max(30, timeout_secs))
             if show_progress:
-                fetch_bar.update(1)
-                fetch_bar.close()
                 print(f"Loaded {len(markets):,} markets", file=sys.stderr)
             slug_filter = set(market_slugs) if market_slugs else None
             outcomes = outcomes_for_all or [0, 1]
