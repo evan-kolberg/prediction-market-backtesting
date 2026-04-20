@@ -784,6 +784,8 @@ async def _download_day_bytes_async(
     `follow_redirects=True` on the client collapses this to one logical GET;
     httpx strips `Authorization` on cross-origin redirect so the token never
     leaks to S3."""
+    if stop_event.is_set():
+        raise _CancelledError()
     headers = {"Authorization": f"Bearer {api_key}"}
     async with client.stream("GET", url, headers=headers) as response:
         if response.status_code == 404:
@@ -1382,10 +1384,22 @@ def _run_jobs(
             if in_flight:
                 for task in in_flight:
                     task.cancel()
-                results = await asyncio.gather(*in_flight, return_exceptions=True)
-                for r in results:
-                    if isinstance(r, _DownloadResult):
-                        await _handoff(r)
+                try:
+                    results = await asyncio.wait_for(
+                        asyncio.gather(*in_flight, return_exceptions=True),
+                        timeout=15.0,
+                    )
+                except asyncio.TimeoutError:
+                    stranded = sum(1 for t in in_flight if not t.done())
+                    print(
+                        f"[telonex] {stranded} task(s) still in flight after 15s drain "
+                        "— forcing close",
+                        file=sys.stderr,
+                    )
+                else:
+                    for r in results:
+                        if isinstance(r, _DownloadResult):
+                            await _handoff(r)
         finally:
             for sig in installed:
                 try:
@@ -1393,7 +1407,13 @@ def _run_jobs(
                 except (NotImplementedError, RuntimeError):
                     pass
             if http_client is not None:
-                await http_client.aclose()
+                try:
+                    await asyncio.wait_for(http_client.aclose(), timeout=10.0)
+                except asyncio.TimeoutError:
+                    print(
+                        "[telonex] httpx client close timed out — connections abandoned",
+                        file=sys.stderr,
+                    )
 
     def _async_stop_signal() -> None:
         # Runs in the event loop thread. Flip both the threading event (writer,

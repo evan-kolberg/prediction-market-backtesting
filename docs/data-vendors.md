@@ -269,9 +269,15 @@ Hive-partitioned Parquet (with a DuckDB manifest for resumability), run:
 uv run python scripts/telonex_download_data.py \
   --destination /Volumes/LaCie/telonex_data \
   --all-markets \
-  --channels quotes trades book_snapshot_5 book_snapshot_25 book_snapshot_full onchain_fills \
-  --workers 16
+  --channels quotes trades book_snapshot_5 book_snapshot_25 book_snapshot_full onchain_fills
 ```
+
+The default `--workers 128` is the in-flight coroutine ceiling in the
+async `httpx` pool. On a bandwidth-heavy VPS push this to `256`–`512`
+(each slot is a coroutine + socket, not an OS thread); transient
+`408/425/429/5xx` responses retry with exponential backoff, and the
+single-thread Parquet writer is the usual practical bottleneck. Hit
+`Ctrl-C` once to stop gracefully; the same command resumes.
 
 The default destination is `/Volumes/LaCie/telonex_data`. Override it with
 `TELONEX_DATA_DESTINATION=/path/to/telonex_data` or call the script directly:

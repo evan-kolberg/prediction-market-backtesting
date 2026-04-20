@@ -155,13 +155,18 @@ with a DuckDB manifest at `<destination>/telonex.duckdb`, run:
 uv run python scripts/telonex_download_data.py \
   --destination /Volumes/LaCie/telonex_data \
   --all-markets \
-  --channels quotes trades book_snapshot_5 book_snapshot_25 book_snapshot_full onchain_fills \
-  --workers 16
+  --channels quotes trades book_snapshot_5 book_snapshot_25 book_snapshot_full onchain_fills
 ```
 
 The default destination is `/Volumes/LaCie/telonex_data`, matching the
 `local:/Volumes/LaCie/telonex_data` source in the public Telonex runner.
-The downloader reports progress while it loads the markets dataset, plans
+The downloader uses an async `httpx` pool with `--workers 128`
+in-flight coroutines by default; on a bandwidth-heavy VPS you can push
+this to `256`–`512` since each slot is a coroutine, not an OS thread
+(the real ceiling is network bandwidth or the single-thread Parquet
+writer). Transient `408/425/429/5xx` responses are retried with
+exponential backoff, and SIGINT/SIGTERM stop the loop gracefully. The
+downloader reports progress while it loads the markets dataset, plans
 market/channel/outcome/day work, and streams day-files directly into
 rolling ~1 GB Parquet parts (no intermediate per-day files touch disk).
 
