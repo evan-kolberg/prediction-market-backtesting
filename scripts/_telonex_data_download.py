@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import os
 import random
+import signal
 import sys
 import threading
 import time
@@ -19,6 +20,8 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener, urlopen
 
 import duckdb
 import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
 from tqdm.auto import tqdm
 
 from prediction_market_extensions.backtesting.data_sources.telonex import (
@@ -30,7 +33,11 @@ _DEFAULT_API_BASE_URL = "https://api.telonex.io"
 _DEFAULT_CHANNEL = "quotes"
 _EXCHANGE = "polymarket"
 _DOWNLOAD_CHUNK_SIZE = 64 * 1024
-_BLOB_DB_FILENAME = "telonex.duckdb"
+_MANIFEST_FILENAME = "telonex.duckdb"
+_DATA_SUBDIR = "data"
+_TARGET_PART_BYTES = 1 << 30  # 1 GiB uncompressed Arrow before rolling
+_PARQUET_COMPRESSION = "zstd"
+_PARQUET_COMPRESSION_LEVEL = 3
 _DEFAULT_COMMIT_BATCH_ROWS = 250_000
 _DEFAULT_COMMIT_BATCH_SECS = 5.0
 _DEFAULT_MAX_RETRIES = 4
@@ -51,7 +58,7 @@ VALID_CHANNELS = tuple(_CHANNEL_COLUMN_SUFFIX.keys())
 @dataclass(frozen=True)
 class TelonexDownloadSummary:
     destination: str
-    db_path: str
+    db_path: str  # manifest DuckDB path — kept named db_path for wire compat
     channels: list[str]
     base_url: str
     markets_considered: int
@@ -156,28 +163,67 @@ class _CancelledError(Exception):
     pass
 
 
-class _TelonexBlobStore:
-    """Single-file DuckDB store for Telonex Polymarket daily payloads.
+@dataclass
+class _OpenPart:
+    """A Parquet part-file that's open for appending row groups.
 
-    Per-channel tables are created on first insert from the incoming
-    DataFrame's schema. Everything flows through one DuckDB connection behind a
-    lock — parquets never land on the filesystem.
+    Stays open across commit batches until it crosses `_TARGET_PART_BYTES`;
+    only then do we close it and flush its manifest rows. Partial parts on
+    crash are orphaned but never referenced from the manifest, so they're
+    benign — the affected days re-download on the next run.
     """
 
-    def __init__(self, db_path: Path) -> None:
-        self._path = db_path
+    path: Path
+    writer: pq.ParquetWriter
+    schema: pa.Schema
+    bytes_written: int
+    pending: list[tuple[_DownloadResult, int]]  # (result, row_count) waiting for manifest commit
+
+
+class _TelonexParquetStore:
+    """Hive-partitioned Parquet store with a small DuckDB manifest.
+
+    Layout::
+
+        <root>/
+          telonex.duckdb                           -- manifest only (MB-scale)
+          data/
+            channel=<channel>/year=<y>/month=<mm>/part-NNNNNN.parquet
+
+    Writer rolls a new part file when the open part crosses `_TARGET_PART_BYTES`
+    or when the incoming batch's schema doesn't match the open writer's schema
+    (new columns appearing mid-stream). Readers query everything via
+    `read_parquet('<root>/data/channel=X/**/*.parquet', hive_partitioning=1,
+    union_by_name=True)` — DuckDB prunes on year/month for free.
+    """
+
+    def __init__(self, root: Path, *, manifest_name: str = _MANIFEST_FILENAME) -> None:
+        self._root = root
+        self._data_root = root / _DATA_SUBDIR
+        self._data_root.mkdir(parents=True, exist_ok=True)
+        self._manifest_path = root / manifest_name
         self._lock = threading.Lock()
-        self._con = duckdb.connect(str(db_path))
+        self._con = duckdb.connect(str(self._manifest_path))
         self._init_schema()
-        self._channel_tables_ready: set[str] = set()
-        self._channel_columns: dict[str, set[str]] = {}
+        self._writers: dict[tuple[str, int, int], _OpenPart] = {}
+        # A previous run killed via SIGTERM/SIGKILL may have left half-written
+        # Parquet files on disk — no footer, unreadable. Sweep them before any
+        # new writes so the channel globs stay clean.
+        self._remove_orphan_parts()
 
     @property
-    def path(self) -> Path:
-        return self._path
+    def manifest_path(self) -> Path:
+        return self._manifest_path
+
+    @property
+    def data_root(self) -> Path:
+        return self._data_root
 
     def close(self) -> None:
+        """Flush all open writers and close the manifest. Idempotent."""
         with self._lock:
+            for key in list(self._writers.keys()):
+                self._flush_open_part_locked(key)
             self._con.close()
 
     def _init_schema(self) -> None:
@@ -191,6 +237,7 @@ class _TelonexBlobStore:
                     day DATE NOT NULL,
                     rows BIGINT NOT NULL,
                     bytes_downloaded BIGINT NOT NULL,
+                    parquet_part VARCHAR,
                     downloaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     PRIMARY KEY (channel, market_slug, outcome_segment, day)
                 )
@@ -235,154 +282,235 @@ class _TelonexBlobStore:
                 [job.channel, job.market_slug, job.outcome_segment, job.day, status],
             )
 
-    def _table_columns(self, table: str) -> dict[str, str]:
-        rows = self._con.execute(
-            "SELECT column_name, data_type FROM information_schema.columns WHERE table_name = ?",
-            [table],
-        ).fetchall()
-        return {row[0]: row[1] for row in rows}
+    def _partition_dir(self, channel: str, year: int, month: int) -> Path:
+        # Hive-style keys so DuckDB's `hive_partitioning=1` recovers year/month
+        # as queryable columns on read.
+        return self._data_root / f"channel={channel}" / f"year={year}" / f"month={month:02d}"
 
-    def _probe_columns(self, sample_frame: pd.DataFrame) -> dict[str, str]:
-        """Ask DuckDB for the column types it would infer from this frame.
+    @staticmethod
+    def _next_part_number(partition_dir: Path) -> int:
+        if not partition_dir.exists():
+            return 0
+        nums: list[int] = []
+        for path in partition_dir.glob("part-*.parquet"):
+            try:
+                nums.append(int(path.stem.rsplit("-", 1)[1]))
+            except (ValueError, IndexError):
+                continue
+        return (max(nums) + 1) if nums else 0
 
-        Uses the full frame rather than `head(1)` so columns that are all-null
-        in the first row don't get mis-inferred (e.g. an object column
-        containing [NaN, 'abc123'] would look INTEGER from head(1)).
+    def _open_part(self, key: tuple[str, int, int], schema: pa.Schema) -> _OpenPart:
+        channel, year, month = key
+        partition_dir = self._partition_dir(channel, year, month)
+        partition_dir.mkdir(parents=True, exist_ok=True)
+        part_num = self._next_part_number(partition_dir)
+        part_path = partition_dir / f"part-{part_num:06d}.parquet"
+        writer = pq.ParquetWriter(
+            where=str(part_path),
+            schema=schema,
+            compression=_PARQUET_COMPRESSION,
+            compression_level=_PARQUET_COMPRESSION_LEVEL,
+        )
+        return _OpenPart(
+            path=part_path,
+            writer=writer,
+            schema=schema,
+            bytes_written=0,
+            pending=[],
+        )
+
+    def _flush_open_part_locked(self, key: tuple[str, int, int]) -> None:
+        """Close the open writer for a partition and commit its pending manifest rows.
+
+        Caller MUST hold `self._lock`. On failure to commit manifest rows, the
+        Parquet file on disk becomes an orphan (not referenced) — its days will
+        be retried on the next run, producing a fresh part file.
         """
-        probe = sample_frame.copy()
-        probe["market_slug"] = "_schema_"
-        probe["outcome_segment"] = "_schema_"
-        self._con.register("_probe_frame", probe)
+        part = self._writers.pop(key, None)
+        if part is None:
+            return
         try:
-            rows = self._con.execute("DESCRIBE _probe_frame").fetchall()
-        finally:
-            self._con.unregister("_probe_frame")
-        # DESCRIBE returns (column_name, column_type, null, key, default, extra)
-        return {row[0]: row[1] for row in rows}
-
-    def _ensure_channel_table(self, channel: str, sample_frame: pd.DataFrame) -> None:
-        table = f"{channel}_data"
-        sample_cols = set(sample_frame.columns) | {"market_slug", "outcome_segment"}
-
-        if channel not in self._channel_tables_ready:
-            exists = self._con.execute(
-                "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = ?",
-                [table],
-            ).fetchone()[0]
-            if not exists:
-                if sample_frame.empty:
-                    return
-                # Use the full frame (not head(1)) so object-dtype columns that
-                # are all-null in the first row don't get mis-inferred as INT.
-                schema_source = sample_frame.copy()
-                schema_source["market_slug"] = "_schema_"
-                schema_source["outcome_segment"] = "_schema_"
-                self._con.register("_ingest_schema", schema_source)
-                try:
-                    self._con.execute(
-                        f'CREATE TABLE "{table}" AS SELECT * FROM _ingest_schema WHERE 1=0'
-                    )
-                finally:
-                    self._con.unregister("_ingest_schema")
-                self._con.execute(
-                    f'CREATE INDEX IF NOT EXISTS "{table}_key_idx" '
-                    f'ON "{table}" (market_slug, outcome_segment)'
-                )
-            self._channel_columns[channel] = set(self._table_columns(table).keys())
-            self._channel_tables_ready.add(channel)
-
-        # Fast path: incoming columns are already in the table.
-        known = self._channel_columns[channel]
-        missing = sample_cols - known
-        if not missing:
+            part.writer.close()
+        except Exception:
+            # Close itself failed — try to unlink the half-written file so it
+            # doesn't confuse readers or the next-part-number scan.
+            try:
+                part.path.unlink()
+            except OSError:
+                pass
+            raise
+        if not part.pending:
+            # Empty writer (shouldn't normally happen). Delete the empty file.
+            try:
+                part.path.unlink()
+            except OSError:
+                pass
             return
 
-        # Schema evolution — only ALTER for the truly new columns, and only
-        # probe the frame once to infer their types.
-        incoming_types = self._probe_columns(sample_frame)
-        added: list[str] = []
-        for col_name in missing:
-            col_type = incoming_types.get(col_name, "VARCHAR")
-            self._con.execute(f'ALTER TABLE "{table}" ADD COLUMN "{col_name}" {col_type}')
-            known.add(col_name)
-            added.append(col_name)
-        if added:
-            print(
-                f"[telonex] {table}: schema evolved — added {len(added)} column(s): "
-                f"{', '.join(added)}",
-                file=sys.stderr,
-            )
+        rel_part = str(part.path.relative_to(self._root))
+        self._con.execute("BEGIN TRANSACTION")
+        try:
+            for result, row_count in part.pending:
+                self._con.execute(
+                    "INSERT OR REPLACE INTO completed_days "
+                    "(channel, market_slug, outcome_segment, day, rows, "
+                    "bytes_downloaded, parquet_part) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    [
+                        result.job.channel,
+                        result.job.market_slug,
+                        result.job.outcome_segment,
+                        result.job.day,
+                        row_count,
+                        result.bytes_downloaded,
+                        rel_part,
+                    ],
+                )
+            self._con.execute("COMMIT")
+        except Exception:
+            self._con.execute("ROLLBACK")
+            raise
+
+    def _append_to_partition(
+        self, key: tuple[str, int, int], entries: list[_DownloadResult]
+    ) -> int:
+        """Write one enriched, concatenated Arrow table to the partition's open
+        part. Rolls on schema mismatch or size threshold. Caller holds lock."""
+        enriched_frames: list[pd.DataFrame] = []
+        for entry in entries:
+            assert entry.frame is not None
+            enriched = entry.frame.copy()
+            enriched["market_slug"] = entry.job.market_slug
+            enriched["outcome_segment"] = entry.job.outcome_segment
+            enriched_frames.append(enriched)
+        combined = pd.concat(enriched_frames, ignore_index=True, copy=False)
+        table = pa.Table.from_pandas(combined, preserve_index=False)
+
+        part = self._writers.get(key)
+        if part is not None and not part.schema.equals(table.schema):
+            # Schema changed mid-partition (new column, type promotion, etc.) —
+            # close the current part and start a new one. `union_by_name=True`
+            # on read lets the two files coexist.
+            self._flush_open_part_locked(key)
+            part = None
+
+        if part is None:
+            part = self._open_part(key, table.schema)
+            self._writers[key] = part
+
+        part.writer.write_table(table)
+        part.bytes_written += table.nbytes
+        for entry in entries:
+            part.pending.append((entry, len(entry.frame) if entry.frame is not None else 0))
+
+        if part.bytes_written >= _TARGET_PART_BYTES:
+            self._flush_open_part_locked(key)
+
+        return len(combined)
 
     def ingest_batch(self, results: list[_DownloadResult]) -> int:
-        """Insert a batch of successful downloads atomically."""
-        by_channel: dict[str, list[_DownloadResult]] = {}
+        """Route a batch of downloads into open Parquet part writers and update
+        manifest rows for empty-but-ok days. Non-empty days have their manifest
+        rows committed as part of `_flush_open_part_locked` when the part closes.
+
+        Raising here means nothing was promoted to the manifest for this batch —
+        those days will be retried on the next run.
+        """
+        ok_by_partition: dict[tuple[str, int, int], list[_DownloadResult]] = {}
+        empty_ok: list[_DownloadResult] = []
         for result in results:
-            if result.status != "ok" or result.frame is None or result.frame.empty:
-                by_channel.setdefault(result.job.channel, []).append(result)
+            if result.status != "ok":
                 continue
-            by_channel.setdefault(result.job.channel, []).append(result)
+            if result.frame is None or result.frame.empty:
+                empty_ok.append(result)
+                continue
+            key = (
+                result.job.channel,
+                result.job.day.year,
+                result.job.day.month,
+            )
+            ok_by_partition.setdefault(key, []).append(result)
 
         total_rows = 0
         with self._lock:
-            self._con.execute("BEGIN TRANSACTION")
-            try:
-                for channel, entries in by_channel.items():
-                    non_empty = [
-                        entry
-                        for entry in entries
-                        if entry.frame is not None and not entry.frame.empty
-                    ]
-                    if non_empty:
-                        enriched_frames: list[pd.DataFrame] = []
-                        for entry in non_empty:
-                            assert entry.frame is not None
-                            enriched = entry.frame.copy()
-                            enriched["market_slug"] = entry.job.market_slug
-                            enriched["outcome_segment"] = entry.job.outcome_segment
-                            enriched_frames.append(enriched)
-                        combined = pd.concat(enriched_frames, ignore_index=True, copy=False)
-                        # Evolve schema against the UNION of all frames in the
-                        # batch, not just the first — daily parquets don't share
-                        # a fixed set of columns.
-                        self._ensure_channel_table(channel, combined)
-                        table = f"{channel}_data"
-                        self._con.register("_ingest_rows", combined)
-                        try:
-                            self._con.execute(
-                                f'INSERT INTO "{table}" BY NAME SELECT * FROM _ingest_rows'
-                            )
-                        finally:
-                            self._con.unregister("_ingest_rows")
-                        total_rows += len(combined)
+            for key, entries in ok_by_partition.items():
+                total_rows += self._append_to_partition(key, entries)
 
-                    for entry in entries:
-                        rows = 0
-                        if entry.frame is not None and not entry.frame.empty:
-                            rows = len(entry.frame)
+            # Empty-but-ok days are recorded inline — no Parquet file to reference.
+            if empty_ok:
+                self._con.execute("BEGIN TRANSACTION")
+                try:
+                    for entry in empty_ok:
                         self._con.execute(
                             "INSERT OR REPLACE INTO completed_days "
-                            "(channel, market_slug, outcome_segment, day, rows, bytes_downloaded) "
-                            "VALUES (?, ?, ?, ?, ?, ?)",
+                            "(channel, market_slug, outcome_segment, day, rows, "
+                            "bytes_downloaded, parquet_part) "
+                            "VALUES (?, ?, ?, ?, 0, ?, NULL)",
                             [
-                                channel,
+                                entry.job.channel,
                                 entry.job.market_slug,
                                 entry.job.outcome_segment,
                                 entry.job.day,
-                                rows,
                                 entry.bytes_downloaded,
                             ],
                         )
-                self._con.execute("COMMIT")
-            except Exception:
-                self._con.execute("ROLLBACK")
-                raise
+                    self._con.execute("COMMIT")
+                except Exception:
+                    self._con.execute("ROLLBACK")
+                    raise
         return total_rows
 
+    def flush_all(self) -> None:
+        """Close every open part writer, committing their pending manifest rows.
+        Used at the end of a run so days aren't left in-memory."""
+        with self._lock:
+            for key in list(self._writers.keys()):
+                self._flush_open_part_locked(key)
+
     def size_bytes(self) -> int:
+        total = 0
         try:
-            return self._path.stat().st_size
+            total += self._manifest_path.stat().st_size
         except OSError:
-            return 0
+            pass
+        for path in self._data_root.rglob("*.parquet"):
+            try:
+                total += path.stat().st_size
+            except OSError:
+                continue
+        return total
+
+    def _remove_orphan_parts(self) -> int:
+        """Delete Parquet parts not referenced by `completed_days.parquet_part`.
+
+        Hard kills (SIGKILL, power loss) can leave half-written files with no
+        Parquet footer; the days they contained aren't in the manifest either,
+        so they'll be re-fetched on the next run. Sweeping the orphans prevents
+        `read_parquet` globs from tripping over unreadable files.
+        """
+        referenced = {
+            row[0]
+            for row in self._con.execute(
+                "SELECT DISTINCT parquet_part FROM completed_days WHERE parquet_part IS NOT NULL"
+            ).fetchall()
+        }
+        removed = 0
+        for path in self._data_root.rglob("*.parquet"):
+            rel = str(path.relative_to(self._root))
+            if rel in referenced:
+                continue
+            try:
+                path.unlink()
+                removed += 1
+            except OSError:
+                continue
+        if removed:
+            print(
+                f"[telonex] Cleared {removed} orphan Parquet part(s) from a prior "
+                "ungraceful shutdown. Their days will re-download.",
+                file=sys.stderr,
+            )
+        return removed
 
 
 def _fetch_markets_dataset(base_url: str, timeout_secs: int) -> pd.DataFrame:
@@ -403,7 +531,9 @@ def _iter_days_for_market(
     from_col, to_col = _CHANNEL_COLUMN_SUFFIX[channel]
     raw_from = row.get(from_col)
     raw_to = row.get(to_col)
-    if raw_from in (None, "") or raw_to in (None, ""):
+    # pd.isna catches NaT/NaN returned by Series.get for null cells — a plain
+    # `in (None, "")` check misses those and crashes _parse_date_bound on "nan".
+    if pd.isna(raw_from) or pd.isna(raw_to) or raw_from in (None, "") or raw_to in (None, ""):
         return []
     start = _parse_date_bound(raw_from)
     end = _parse_date_bound(raw_to)
@@ -688,7 +818,7 @@ def _postfix_text(
 def _prune_jobs_against_manifest(
     *,
     jobs: list[_Job],
-    store: _TelonexBlobStore,
+    store: _TelonexParquetStore,
     overwrite: bool,
     show_progress: bool,
 ) -> tuple[list[_Job], int]:
@@ -731,15 +861,20 @@ def _prune_jobs_against_manifest(
 def _run_jobs(
     jobs: list[_Job],
     *,
-    store: _TelonexBlobStore,
+    store: _TelonexParquetStore,
     api_key: str,
     base_url: str,
     timeout_secs: int,
     workers: int,
     show_progress: bool,
-    commit_batch_rows: int = _DEFAULT_COMMIT_BATCH_ROWS,
-    commit_batch_secs: float = _DEFAULT_COMMIT_BATCH_SECS,
+    commit_batch_rows: int | None = None,
+    commit_batch_secs: float | None = None,
 ) -> tuple[int, int, int, int, int, bool, list[str]]:
+    # Resolve at call-time so monkeypatched module constants take effect in tests.
+    if commit_batch_rows is None:
+        commit_batch_rows = _DEFAULT_COMMIT_BATCH_ROWS
+    if commit_batch_secs is None:
+        commit_batch_secs = _DEFAULT_COMMIT_BATCH_SECS
     downloaded_days = 0
     missing_days = 0
     failed_days = 0
@@ -980,7 +1115,7 @@ def _run_jobs(
                 interrupted = True
                 stop_event.set()
                 print(
-                    "\n[telonex] Ctrl-C received — flushing pending rows to the DuckDB blob. "
+                    "\n[telonex] Ctrl-C received — flushing pending rows to the Parquet store. "
                     "Press Ctrl-C again to force-exit (risk losing in-flight day).",
                     file=sys.stderr,
                 )
@@ -1021,7 +1156,7 @@ def _run_jobs(
                     stop_event.set()
                     print(
                         "\n[telonex] Ctrl-C received — finishing in-flight downloads then "
-                        "flushing pending rows to the DuckDB blob. Press Ctrl-C again to "
+                        "flushing pending rows to the Parquet store. Press Ctrl-C again to "
                         "force-exit (risk losing in-flight day).",
                         file=sys.stderr,
                     )
@@ -1067,7 +1202,7 @@ def download_telonex_days(
     timeout_secs: int = 60,
     workers: int = 16,
     show_progress: bool = True,
-    db_filename: str = _BLOB_DB_FILENAME,
+    db_filename: str = _MANIFEST_FILENAME,
 ) -> TelonexDownloadSummary:
     if channel is not None and channels is None:
         channels = [channel]
@@ -1086,11 +1221,27 @@ def download_telonex_days(
 
     normalized_destination = destination.expanduser().resolve()
     normalized_destination.mkdir(parents=True, exist_ok=True)
-    db_path = normalized_destination / db_filename
-    store = _TelonexBlobStore(db_path)
+    store = _TelonexParquetStore(normalized_destination, manifest_name=db_filename)
+    db_path = store.manifest_path
 
     window_start = _parse_date_bound(start_date)
     window_end = _parse_date_bound(end_date)
+
+    # Route SIGTERM (from `timeout`, scheduler kills, etc.) through the same
+    # KeyboardInterrupt path Ctrl-C already uses, so store.close() in the
+    # `finally` gets to flush open Parquet writers instead of leaving orphans.
+    # Nested/pre-existing handlers are preserved and restored.
+    previous_sigterm_handler = signal.getsignal(signal.SIGTERM)
+
+    def _sigterm_as_interrupt(signum, frame):  # type: ignore[no-untyped-def]
+        del signum, frame
+        raise KeyboardInterrupt("SIGTERM")
+
+    try:
+        signal.signal(signal.SIGTERM, _sigterm_as_interrupt)
+    except (ValueError, OSError):
+        # Not in main thread — skip. The finally path still runs on Ctrl-C.
+        previous_sigterm_handler = None
 
     markets_considered = 0
     try:
@@ -1149,12 +1300,12 @@ def download_telonex_days(
 
         total_jobs = len(jobs)
         if show_progress:
-            existing_blob_size = db_path.stat().st_size if db_path.exists() else 0
+            existing_store_size = store.size_bytes()
             completed_before = sum(len(store.completed_keys(ch)) for ch in channels)
             empty_before = sum(len(store.empty_keys(ch)) for ch in channels)
             print(
-                f"[telonex] Resume summary: blob={db_path} "
-                f"({_format_bytes(existing_blob_size)}), "
+                f"[telonex] Resume summary: manifest={db_path} "
+                f"data={store.data_root} total={_format_bytes(existing_store_size)}, "
                 f"completed={completed_before:,} 404s={empty_before:,}, "
                 f"planned={planned_jobs:,} skipping={skipped_existing:,} "
                 f"remaining={total_jobs:,}",
@@ -1162,8 +1313,9 @@ def download_telonex_days(
             )
             print(
                 f"[telonex] Channels={channels} workers={workers} "
-                f"retries={_DEFAULT_MAX_RETRIES} timeout={timeout_secs}s. "
-                f"Ctrl-C once to stop gracefully (manifest + blob are always consistent).",
+                f"retries={_DEFAULT_MAX_RETRIES} timeout={timeout_secs}s "
+                f"part-roll-at={_format_bytes(_TARGET_PART_BYTES)}. "
+                f"Ctrl-C once to stop gracefully (manifest + parquets stay consistent).",
                 file=sys.stderr,
             )
 
@@ -1185,7 +1337,14 @@ def download_telonex_days(
             show_progress=show_progress,
         )
     finally:
-        store.close()
+        try:
+            store.close()
+        finally:
+            if previous_sigterm_handler is not None:
+                try:
+                    signal.signal(signal.SIGTERM, previous_sigterm_handler)
+                except (ValueError, OSError):
+                    pass
 
     start_out = f"{window_start:%Y-%m-%d}" if window_start else None
     end_out = f"{window_end:%Y-%m-%d}" if window_end else None
@@ -1205,7 +1364,7 @@ def download_telonex_days(
         bytes_downloaded=bytes_total,
         start_date=start_out,
         end_date=end_out,
-        db_size_bytes=db_path.stat().st_size if db_path.exists() else 0,
+        db_size_bytes=store.size_bytes(),
         interrupted=interrupted,
         failed_samples=failed_samples,
     )

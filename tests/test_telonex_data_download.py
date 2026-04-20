@@ -99,31 +99,55 @@ def test_download_telonex_days_writes_duckdb_blob(
     ]
     assert sorted(auth_keys) == ["test-key", "test-key"]
 
-    blob_path = tmp_path / "telonex.duckdb"
-    assert blob_path.exists()
-    assert summary.db_path == str(blob_path)
+    manifest_path = tmp_path / "telonex.duckdb"
+    assert manifest_path.exists()
+    assert summary.db_path == str(manifest_path)
     assert summary.db_size_bytes > 0
-    # Critically: no stray per-day parquet files on disk.
-    assert list(tmp_path.rglob("*.parquet")) == []
 
-    con = duckdb.connect(str(blob_path), read_only=True)
+    # The store is Hive-partitioned Parquet: data/channel=X/year=.../month=.../part-*.parquet
+    data_root = tmp_path / "data"
+    assert data_root.exists()
+    parquet_files = sorted(data_root.rglob("*.parquet"))
+    assert len(parquet_files) >= 1, "expected at least one Parquet part file"
+    # Every part file sits under the expected Hive path.
+    for path in parquet_files:
+        rel = path.relative_to(data_root).parts
+        assert rel[0].startswith("channel=")
+        assert rel[1].startswith("year=")
+        assert rel[2].startswith("month=")
+        assert path.name.startswith("part-")
+
+    con = duckdb.connect(str(manifest_path), read_only=True)
     try:
-        rows = con.execute(
-            "SELECT market_slug, outcome_segment, timestamp_us FROM quotes_data "
-            "ORDER BY timestamp_us"
-        ).fetchall()
         manifest = con.execute(
-            "SELECT channel, market_slug, outcome_segment, day, rows FROM completed_days "
-            "ORDER BY day"
+            "SELECT channel, market_slug, outcome_segment, day, rows, parquet_part "
+            "FROM completed_days ORDER BY day"
         ).fetchall()
     finally:
         con.close()
 
+    # Resolve part paths via the manifest, then read the rows back via DuckDB's
+    # hive-partitioned read_parquet API — the same code path readers take.
+    assert len(manifest) == 2
+    assert {row[0] for row in manifest} == {"quotes"}
+    assert {row[1] for row in manifest} == {"us-recession-by-end-of-2026"}
+    assert {row[2] for row in manifest} == {"0"}
+    assert all(row[5] is not None for row in manifest)
+
+    glob = str(data_root / "channel=quotes" / "**" / "*.parquet")
+    con = duckdb.connect(":memory:")
+    try:
+        rows = con.execute(
+            "SELECT market_slug, outcome_segment, timestamp_us FROM "
+            "read_parquet(?, hive_partitioning=1, union_by_name=True) "
+            "ORDER BY timestamp_us",
+            [glob],
+        ).fetchall()
+    finally:
+        con.close()
     assert [row[2] for row in rows] == [1_768_780_800_000_000, 1_768_867_200_000_000]
     assert {row[0] for row in rows} == {"us-recession-by-end-of-2026"}
     assert {row[1] for row in rows} == {"0"}
-    assert len(manifest) == 2
-    assert {row[0] for row in manifest} == {"quotes"}
 
 
 def test_download_telonex_days_requires_key_from_env(
@@ -347,21 +371,20 @@ def test_download_telonex_days_schema_evolves_when_later_day_has_new_column(
     assert summary.downloaded_days == 2
     assert summary.failed_days == 0
 
-    con = duckdb.connect(str(tmp_path / "telonex.duckdb"), read_only=True)
+    # Two commit batches with different schemas must both land on disk.
+    # `union_by_name=True` on read reconciles the per-file schemas, so the
+    # reader sees `origin_asset_id` as NULL for day 1 and populated for day 2.
+    glob = str(tmp_path / "data" / "channel=quotes" / "**" / "*.parquet")
+    con = duckdb.connect(":memory:")
     try:
-        cols = {
-            row[0]
-            for row in con.execute(
-                "SELECT column_name FROM information_schema.columns "
-                "WHERE table_name = 'quotes_data'"
-            ).fetchall()
-        }
         rows = con.execute(
-            "SELECT origin_asset_id FROM quotes_data ORDER BY timestamp_us"
+            "SELECT origin_asset_id FROM "
+            "read_parquet(?, hive_partitioning=1, union_by_name=True) "
+            "ORDER BY timestamp_us",
+            [glob],
         ).fetchall()
     finally:
         con.close()
-    assert "origin_asset_id" in cols
     assert rows == [(None,), ("abc123",)]
 
 
@@ -403,6 +426,183 @@ def test_download_telonex_days_retries_transient_5xx_then_succeeds(
     assert summary.failed_days == 0
     # 2 transient failures + 1 success
     assert call_count["n"] == 3
+
+
+def test_downloaded_parquet_is_readable_by_telonex_loader(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """End-to-end: the downloader's Parquet layout must be what the reader
+    expects. Without this, the downloader can silently produce files no loader
+    can consume."""
+    payloads = {
+        "https://download.example/2026-01-19.parquet": _parquet_payload(1_768_780_800_000_000),
+        "https://download.example/2026-01-20.parquet": _parquet_payload(1_768_867_200_000_000),
+    }
+
+    def fake_resolve(*, url: str, api_key: str, timeout_secs: int) -> str:
+        del api_key, timeout_secs
+        day = url.rsplit("/", 1)[1].split("?", 1)[0]
+        return f"https://download.example/{day}.parquet"
+
+    def fake_urlopen(request, timeout=60):  # type: ignore[no-untyped-def]
+        del timeout
+        payload = payloads[request.full_url]
+        return _Response(payload, headers={"Content-Length": str(len(payload))})
+
+    monkeypatch.setenv("TELONEX_API_KEY", "test-key")
+    monkeypatch.setattr(telonex_download, "_resolve_presigned_url", fake_resolve)
+    monkeypatch.setattr(telonex_download, "urlopen", fake_urlopen)
+
+    telonex_download.download_telonex_days(
+        destination=tmp_path,
+        market_slugs=["us-recession-by-end-of-2026"],
+        outcome_id=0,
+        start_date="2026-01-19",
+        end_date="2026-01-20",
+        show_progress=False,
+        workers=1,
+    )
+
+    from prediction_market_extensions.backtesting.data_sources.telonex import (
+        RunnerPolymarketTelonexQuoteDataLoader,
+    )
+
+    loader = RunnerPolymarketTelonexQuoteDataLoader.__new__(RunnerPolymarketTelonexQuoteDataLoader)
+    blob_root = loader._local_blob_root(tmp_path)
+    assert blob_root is not None, "downloader output should be detected as a blob store"
+
+    frame = loader._load_blob_range(
+        store_root=blob_root,
+        channel="quotes",
+        market_slug="us-recession-by-end-of-2026",
+        token_index=0,
+        outcome=None,
+        start=pd.Timestamp("2026-01-19", tz="UTC"),
+        end=pd.Timestamp("2026-01-20 23:59:59", tz="UTC"),
+    )
+    assert frame is not None and len(frame) == 2
+    # Bookkeeping columns stripped.
+    assert "market_slug" not in frame.columns
+    assert "outcome_segment" not in frame.columns
+    assert "year" not in frame.columns
+    assert "month" not in frame.columns
+    assert set(frame["timestamp_us"]) == {1_768_780_800_000_000, 1_768_867_200_000_000}
+
+    # Month-range pruning works: January-only query drops all rows.
+    frame_dec = loader._load_blob_range(
+        store_root=blob_root,
+        channel="quotes",
+        market_slug="us-recession-by-end-of-2026",
+        token_index=0,
+        outcome=None,
+        start=pd.Timestamp("2025-12-01", tz="UTC"),
+        end=pd.Timestamp("2025-12-31", tz="UTC"),
+    )
+    assert frame_dec is None
+
+
+def test_download_telonex_days_rolls_part_files_when_threshold_exceeded(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """With a tiny part-roll threshold, each batch closes one file and opens
+    the next. The manifest must reference the correct file for each day."""
+    payloads = {
+        "https://download.example/2026-01-19.parquet": _parquet_payload(1_768_780_800_000_000),
+        "https://download.example/2026-01-20.parquet": _parquet_payload(1_768_867_200_000_000),
+    }
+
+    def fake_resolve(*, url: str, api_key: str, timeout_secs: int) -> str:
+        del api_key, timeout_secs
+        day = url.rsplit("/", 1)[1].split("?", 1)[0]
+        return f"https://download.example/{day}.parquet"
+
+    def fake_urlopen(request, timeout=60):  # type: ignore[no-untyped-def]
+        del timeout
+        payload = payloads[request.full_url]
+        return _Response(payload, headers={"Content-Length": str(len(payload))})
+
+    monkeypatch.setenv("TELONEX_API_KEY", "test-key")
+    monkeypatch.setattr(telonex_download, "_resolve_presigned_url", fake_resolve)
+    monkeypatch.setattr(telonex_download, "urlopen", fake_urlopen)
+    # Force a part roll after each day by setting the threshold below one row's size.
+    monkeypatch.setattr(telonex_download, "_TARGET_PART_BYTES", 1)
+    monkeypatch.setattr(telonex_download, "_DEFAULT_COMMIT_BATCH_ROWS", 1)
+    monkeypatch.setattr(telonex_download, "_DEFAULT_COMMIT_BATCH_SECS", 0.0)
+
+    telonex_download.download_telonex_days(
+        destination=tmp_path,
+        market_slugs=["roll-test"],
+        outcome_id=0,
+        start_date="2026-01-19",
+        end_date="2026-01-20",
+        show_progress=False,
+        workers=1,
+    )
+
+    parts = sorted((tmp_path / "data").rglob("*.parquet"))
+    # Both days fell in the same (channel=quotes, year=2026, month=01) partition.
+    # With threshold=1, each day triggered a roll ⇒ two distinct part files.
+    assert len(parts) == 2
+    assert all("part-" in p.name for p in parts)
+
+    con = duckdb.connect(str(tmp_path / "telonex.duckdb"), read_only=True)
+    try:
+        rows = con.execute("SELECT day, parquet_part FROM completed_days ORDER BY day").fetchall()
+    finally:
+        con.close()
+    assert len({row[1] for row in rows}) == 2  # different parts for different days
+
+
+def test_store_sweeps_orphan_parquet_on_startup(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A SIGKILL between writer.close() and manifest update leaves a Parquet
+    file on disk that isn't referenced. On the next startup, the store must
+    delete the orphan so read_parquet globs stay clean."""
+    payloads = {
+        "https://download.example/2026-01-19.parquet": _parquet_payload(1_768_780_800_000_000),
+    }
+
+    def fake_resolve(*, url: str, api_key: str, timeout_secs: int) -> str:
+        del url, api_key, timeout_secs
+        return "https://download.example/2026-01-19.parquet"
+
+    def fake_urlopen(request, timeout=60):  # type: ignore[no-untyped-def]
+        del timeout
+        payload = payloads[request.full_url]
+        return _Response(payload, headers={"Content-Length": str(len(payload))})
+
+    monkeypatch.setenv("TELONEX_API_KEY", "test-key")
+    monkeypatch.setattr(telonex_download, "_resolve_presigned_url", fake_resolve)
+    monkeypatch.setattr(telonex_download, "urlopen", fake_urlopen)
+
+    telonex_download.download_telonex_days(
+        destination=tmp_path,
+        market_slugs=["orphan-test"],
+        outcome_id=0,
+        start_date="2026-01-19",
+        end_date="2026-01-19",
+        show_progress=False,
+        workers=1,
+    )
+
+    parts_after_first = sorted((tmp_path / "data").rglob("*.parquet"))
+    assert len(parts_after_first) == 1
+    real_part = parts_after_first[0]
+
+    # Plant a decoy orphan next to the real file — simulates a half-written
+    # part left behind by SIGKILL.
+    orphan = real_part.parent / "part-999999.parquet"
+    orphan.write_bytes(b"not a valid parquet footer")
+    assert orphan.exists()
+
+    # Re-open the store — no download, just init — and the orphan should go.
+    store = telonex_download._TelonexParquetStore(tmp_path)
+    try:
+        assert not orphan.exists(), "orphan should be swept on startup"
+        assert real_part.exists(), "manifest-referenced file must survive"
+    finally:
+        store.close()
 
 
 def test_download_telonex_days_resumes_midrun_interruption(

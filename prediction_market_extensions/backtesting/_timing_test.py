@@ -640,21 +640,20 @@ def install_timing() -> None:
                             break
                         assert entry.target is not None
                         root = Path(entry.target).expanduser()
-                        blob_db_path = self._local_blob_db_path(root)
-                        if blob_db_path is not None:
+                        blob_root = self._local_blob_root(root)
+                        if blob_root is not None:
                             blob_frame = self._load_blob_range(
-                                db_path=blob_db_path,
+                                store_root=blob_root,
                                 channel=config.channel,
                                 market_slug=market_slug,
                                 token_index=token_index,
                                 outcome=outcome,
+                                start=start,
+                                end=end,
                             )
                             if blob_frame is not None:
-                                source_label = f"telonex-blob::{blob_db_path}"
-                                try:
-                                    total_bytes = blob_db_path.stat().st_size
-                                except OSError:
-                                    total_bytes = None
+                                source_label = f"telonex-blob::{blob_root}"
+                                total_bytes = None
                                 started_at = time.perf_counter()
                                 with pbar_lock:
                                     for date in dates:

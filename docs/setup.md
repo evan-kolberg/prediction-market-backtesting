@@ -147,8 +147,9 @@ TELONEX_API_KEY=... make download-telonex-data TELONEX_DOWNLOAD_FLAGS='\
   --end-date 2026-02-01'
 ```
 
-To download the full Telonex Polymarket mirror into a single DuckDB blob
-(`<destination>/telonex.duckdb`) with per-channel tables, run:
+To download the full Telonex Polymarket mirror into Hive-partitioned
+Parquet files (`<destination>/data/channel=.../year=.../month=.../part-*.parquet`)
+with a DuckDB manifest at `<destination>/telonex.duckdb`, run:
 
 ```bash
 uv run python scripts/telonex_download_data.py \
@@ -161,12 +162,13 @@ uv run python scripts/telonex_download_data.py \
 The default destination is `/Volumes/LaCie/telonex_data`, matching the
 `local:/Volumes/LaCie/telonex_data` source in the public Telonex runner.
 The downloader reports progress while it loads the markets dataset, plans
-market/channel/outcome/day work, and streams day-files directly into the
-blob (no intermediate parquet files touch disk).
+market/channel/outcome/day work, and streams day-files directly into
+rolling ~1 GB Parquet parts (no intermediate per-day files touch disk).
 
 The run is **crash-safe and resumable**: completed days and 404-empty days
-are tracked in `completed_days` / `empty_days` manifest tables inside the
-same blob. Hit `Ctrl-C` once to stop gracefully — in-flight downloads
+are tracked in `completed_days` / `empty_days` tables inside the DuckDB
+manifest, and orphan Parquet parts from hard kills are swept on startup.
+Hit `Ctrl-C` once to stop gracefully — in-flight downloads
 finish, pending rows flush, then the process exits. Re-run the same
 command to skip everything already recorded and pick up where you left
 off. If a batch fails mid-ingest, the writer logs it and keeps running —

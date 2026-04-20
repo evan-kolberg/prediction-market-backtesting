@@ -262,8 +262,8 @@ TELONEX_API_KEY=... make download-telonex-data TELONEX_DOWNLOAD_FLAGS='\
   --end-date 2026-02-01'
 ```
 
-To mirror every Telonex Polymarket market and every channel into a single
-DuckDB blob, run:
+To mirror every Telonex Polymarket market and every channel into
+Hive-partitioned Parquet (with a DuckDB manifest for resumability), run:
 
 ```bash
 uv run python scripts/telonex_download_data.py \

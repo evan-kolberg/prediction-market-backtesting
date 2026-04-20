@@ -13,6 +13,7 @@ from urllib.error import HTTPError
 from urllib.parse import urlencode
 from urllib.request import HTTPRedirectHandler, Request, build_opener, urlopen
 
+import numpy as np
 import pandas as pd
 from nautilus_trader.model.data import QuoteTick
 
@@ -39,6 +40,7 @@ _TELONEX_API_PREFIX = "api:"
 _TELONEX_SOURCE_LOCAL = "local"
 _TELONEX_SOURCE_API = "api"
 _TELONEX_BLOB_DB_FILENAME = "telonex.duckdb"
+_TELONEX_DATA_SUBDIR = "data"
 
 
 @dataclass(frozen=True)
@@ -249,9 +251,18 @@ class RunnerPolymarketTelonexQuoteDataLoader(PolymarketDataLoader):
         return tuple(outcome_parts)
 
     @staticmethod
-    def _local_blob_db_path(root: Path) -> Path | None:
-        candidate = root / _TELONEX_BLOB_DB_FILENAME
-        return candidate if candidate.exists() else None
+    def _local_blob_root(root: Path) -> Path | None:
+        """Return the root if it looks like a Telonex Parquet store.
+
+        A valid store has a manifest DuckDB file and a populated ``data/``
+        directory. We detect both; an empty data dir (e.g. first run) still
+        returns None so the caller falls back to API / daily-parquet paths.
+        """
+        manifest = root / _TELONEX_BLOB_DB_FILENAME
+        data_dir = root / _TELONEX_DATA_SUBDIR
+        if not manifest.exists() or not data_dir.exists():
+            return None
+        return root
 
     @staticmethod
     def _outcome_segment_candidates(*, token_index: int, outcome: str | None) -> tuple[str, ...]:
@@ -263,38 +274,60 @@ class RunnerPolymarketTelonexQuoteDataLoader(PolymarketDataLoader):
     def _load_blob_range(
         self,
         *,
-        db_path: Path,
+        store_root: Path,
         channel: str,
         market_slug: str,
         token_index: int,
         outcome: str | None,
+        start: pd.Timestamp,
+        end: pd.Timestamp,
     ) -> pd.DataFrame | None:
+        """Query the Hive-partitioned Parquet layout for a single (market,
+        outcome) slice. Returns None when the channel has no data on disk."""
         try:
             import duckdb
         except ImportError:
             return None
-        table = f"{channel}_data"
-        con = duckdb.connect(str(db_path), read_only=True)
+
+        channel_dir = store_root / _TELONEX_DATA_SUBDIR / f"channel={channel}"
+        if not channel_dir.exists():
+            return None
+        # Glob every part file under this channel, regardless of year/month
+        # partition depth. Empty-but-existing channel dirs yield no matches,
+        # in which case DuckDB will raise — guard with a cheap pre-check.
+        part_glob = str(channel_dir / "**" / "*.parquet")
+        if not any(channel_dir.rglob("*.parquet")):
+            return None
+
+        segments = self._outcome_segment_candidates(token_index=token_index, outcome=outcome)
+        placeholders = ", ".join(["?"] * len(segments))
+
+        start_utc = self._normalize_to_utc(start)
+        end_utc = self._normalize_to_utc(end)
+        start_ym = start_utc.year * 100 + start_utc.month
+        end_ym = end_utc.year * 100 + end_utc.month
+
+        # DuckDB's hive_partitioning exposes year/month as VARCHAR by default —
+        # cast to INTEGER before arithmetic so range pruning works.
+        query = (
+            "SELECT * FROM read_parquet(?, hive_partitioning=1, union_by_name=True) "
+            f"WHERE market_slug = ? AND outcome_segment IN ({placeholders}) "
+            "AND CAST(year AS INTEGER) * 100 + CAST(month AS INTEGER) "
+            "BETWEEN ? AND ?"
+        )
+        params: list[object] = [part_glob, market_slug, *segments, start_ym, end_ym]
+
+        con = duckdb.connect(":memory:")
         try:
-            exists = con.execute(
-                "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = ?",
-                [table],
-            ).fetchone()[0]
-            if not exists:
-                return None
-            segments = self._outcome_segment_candidates(token_index=token_index, outcome=outcome)
-            placeholders = ", ".join(["?"] * len(segments))
-            query = (
-                f'SELECT * FROM "{table}" '
-                f"WHERE market_slug = ? AND outcome_segment IN ({placeholders})"
-            )
-            params = [market_slug, *segments]
             frame = con.execute(query, params).fetch_df()
         finally:
             con.close()
+
         if frame is None or frame.empty:
             return None
-        drop_cols = [c for c in ("market_slug", "outcome_segment") if c in frame.columns]
+        drop_cols = [
+            c for c in ("market_slug", "outcome_segment", "year", "month") if c in frame.columns
+        ]
         if drop_cols:
             frame = frame.drop(columns=drop_cols)
         return frame
@@ -546,20 +579,21 @@ class RunnerPolymarketTelonexQuoteDataLoader(PolymarketDataLoader):
         return pd.read_parquet(BytesIO(payload))
 
     @staticmethod
-    def _timestamp_ns(row: pd.Series, timestamp_column: str) -> int:
-        value = row[timestamp_column]
-        if timestamp_column == "timestamp_us":
-            return int(value) * 1_000
-        if timestamp_column == "timestamp_ms":
-            return int(value) * 1_000_000
-        if isinstance(value, (int, float)):
-            return int(float(value) * 1_000_000_000)
-        timestamp = pd.Timestamp(value)
-        if timestamp.tzinfo is None:
-            timestamp = timestamp.tz_localize(UTC)
-        else:
-            timestamp = timestamp.tz_convert(UTC)
-        return int(timestamp.value)
+    def _column_to_ns(column: pd.Series, column_name: str) -> np.ndarray:
+        if column_name == "timestamp_us":
+            return column.to_numpy(dtype="int64") * 1_000
+        if column_name == "timestamp_ms":
+            return column.to_numpy(dtype="int64") * 1_000_000
+        if pd.api.types.is_numeric_dtype(column):
+            return (column.astype("float64") * 1_000_000_000).to_numpy(dtype="int64")
+        parsed = pd.to_datetime(column, utc=True, errors="coerce")
+        return parsed.astype("int64").to_numpy()
+
+    @staticmethod
+    def _normalize_to_utc(value: pd.Timestamp) -> pd.Timestamp:
+        if value.tzinfo is None:
+            return value.tz_localize(UTC)
+        return value.tz_convert(UTC)
 
     @staticmethod
     def _first_present_column(frame: pd.DataFrame, names: Sequence[str], *, label: str) -> str:
@@ -590,28 +624,44 @@ class RunnerPolymarketTelonexQuoteDataLoader(PolymarketDataLoader):
             frame, ("ask_size", "best_ask_size", "ask_qty", "ask_quantity"), label="quote"
         )
 
+        # Normalize the user's start/end to UTC ns — a naive Timestamp's `.value`
+        # is wall-clock ns, not UTC, and would silently mis-filter the range.
+        start_ns = int(self._normalize_to_utc(start).value)
+        end_ns = int(self._normalize_to_utc(end).value)
+
+        ts_ns = self._column_to_ns(frame[timestamp_column], timestamp_column)
+        mask = (ts_ns >= start_ns) & (ts_ns <= end_ns)
+        if not mask.any():
+            return []
+
+        bid_px = frame[bid_price_column].to_numpy()[mask]
+        ask_px = frame[ask_price_column].to_numpy()[mask]
+        bid_sz = frame[bid_size_column].to_numpy()[mask]
+        ask_sz = frame[ask_size_column].to_numpy()[mask]
+        ns_arr = ts_ns[mask]
+
+        order = np.argsort(ns_arr, kind="stable")
+        bid_px = bid_px[order]
+        ask_px = ask_px[order]
+        bid_sz = bid_sz[order]
+        ask_sz = ask_sz[order]
+        ns_arr = ns_arr[order]
+
         make_price = self.instrument.make_price
         make_qty = self.instrument.make_qty
-        records: list[QuoteTick] = []
-        start_ns = int(start.value)
-        end_ns = int(end.value)
-        for _index, row in frame.iterrows():
-            ts_event = self._timestamp_ns(row, timestamp_column)
-            if ts_event < start_ns or ts_event > end_ns:
-                continue
-            records.append(
-                QuoteTick(
-                    instrument_id=self.instrument.id,
-                    bid_price=make_price(row[bid_price_column]),
-                    ask_price=make_price(row[ask_price_column]),
-                    bid_size=make_qty(row[bid_size_column]),
-                    ask_size=make_qty(row[ask_size_column]),
-                    ts_event=ts_event,
-                    ts_init=ts_event,
-                )
+        instrument_id = self.instrument.id
+        return [
+            QuoteTick(
+                instrument_id=instrument_id,
+                bid_price=make_price(bp),
+                ask_price=make_price(ap),
+                bid_size=make_qty(bs),
+                ask_size=make_qty(sz),
+                ts_event=int(ns),
+                ts_init=int(ns),
             )
-        records.sort(key=lambda quote: quote.ts_event)
-        return records
+            for bp, ap, bs, sz, ns in zip(bid_px, ask_px, bid_sz, ask_sz, ns_arr, strict=True)
+        ]
 
     def load_quotes(
         self,
@@ -629,14 +679,16 @@ class RunnerPolymarketTelonexQuoteDataLoader(PolymarketDataLoader):
                 break
             assert entry.target is not None
             root = Path(entry.target).expanduser()
-            blob_db = self._local_blob_db_path(root)
-            if blob_db is not None:
+            blob_root = self._local_blob_root(root)
+            if blob_root is not None:
                 blob_frame = self._load_blob_range(
-                    db_path=blob_db,
+                    store_root=blob_root,
                     channel=config.channel,
                     market_slug=market_slug,
                     token_index=token_index,
                     outcome=outcome,
+                    start=start,
+                    end=end,
                 )
                 if blob_frame is not None:
                     return self._quote_ticks_from_frame(blob_frame, start=start, end=end)
