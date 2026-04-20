@@ -170,6 +170,7 @@ class _TelonexBlobStore:
         self._con = duckdb.connect(str(db_path))
         self._init_schema()
         self._channel_tables_ready: set[str] = set()
+        self._channel_columns: dict[str, set[str]] = {}
 
     @property
     def path(self) -> Path:
@@ -234,33 +235,76 @@ class _TelonexBlobStore:
                 [job.channel, job.market_slug, job.outcome_segment, job.day, status],
             )
 
+    def _table_columns(self, table: str) -> dict[str, str]:
+        rows = self._con.execute(
+            "SELECT column_name, data_type FROM information_schema.columns WHERE table_name = ?",
+            [table],
+        ).fetchall()
+        return {row[0]: row[1] for row in rows}
+
+    def _probe_columns(self, sample_frame: pd.DataFrame) -> dict[str, str]:
+        """Ask DuckDB for the column types it would infer from this frame."""
+        probe = sample_frame.head(1).copy()
+        probe["market_slug"] = "_schema_"
+        probe["outcome_segment"] = "_schema_"
+        self._con.register("_probe_frame", probe)
+        try:
+            rows = self._con.execute("DESCRIBE _probe_frame").fetchall()
+        finally:
+            self._con.unregister("_probe_frame")
+        # DESCRIBE returns (column_name, column_type, null, key, default, extra)
+        return {row[0]: row[1] for row in rows}
+
     def _ensure_channel_table(self, channel: str, sample_frame: pd.DataFrame) -> None:
         table = f"{channel}_data"
-        if channel in self._channel_tables_ready:
-            return
-        exists = self._con.execute(
-            "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = ?",
-            [table],
-        ).fetchone()[0]
-        if not exists:
-            schema_source = sample_frame.head(1).copy()
-            if schema_source.empty:
-                self._channel_tables_ready.add(channel)
-                return
-            schema_source["market_slug"] = "_schema_"
-            schema_source["outcome_segment"] = "_schema_"
-            self._con.register("_ingest_schema", schema_source)
-            try:
+        sample_cols = set(sample_frame.columns) | {"market_slug", "outcome_segment"}
+
+        if channel not in self._channel_tables_ready:
+            exists = self._con.execute(
+                "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = ?",
+                [table],
+            ).fetchone()[0]
+            if not exists:
+                schema_source = sample_frame.head(1).copy()
+                if schema_source.empty:
+                    return
+                schema_source["market_slug"] = "_schema_"
+                schema_source["outcome_segment"] = "_schema_"
+                self._con.register("_ingest_schema", schema_source)
+                try:
+                    self._con.execute(
+                        f'CREATE TABLE "{table}" AS SELECT * FROM _ingest_schema WHERE 1=0'
+                    )
+                finally:
+                    self._con.unregister("_ingest_schema")
                 self._con.execute(
-                    f'CREATE TABLE "{table}" AS SELECT * FROM _ingest_schema WHERE 1=0'
+                    f'CREATE INDEX IF NOT EXISTS "{table}_key_idx" '
+                    f'ON "{table}" (market_slug, outcome_segment)'
                 )
-            finally:
-                self._con.unregister("_ingest_schema")
-            self._con.execute(
-                f'CREATE INDEX IF NOT EXISTS "{table}_key_idx" '
-                f'ON "{table}" (market_slug, outcome_segment)'
+            self._channel_columns[channel] = set(self._table_columns(table).keys())
+            self._channel_tables_ready.add(channel)
+
+        # Fast path: incoming columns are already in the table.
+        known = self._channel_columns[channel]
+        missing = sample_cols - known
+        if not missing:
+            return
+
+        # Schema evolution — only ALTER for the truly new columns, and only
+        # probe the frame once to infer their types.
+        incoming_types = self._probe_columns(sample_frame)
+        added: list[str] = []
+        for col_name in missing:
+            col_type = incoming_types.get(col_name, "VARCHAR")
+            self._con.execute(f'ALTER TABLE "{table}" ADD COLUMN "{col_name}" {col_type}')
+            known.add(col_name)
+            added.append(col_name)
+        if added:
+            print(
+                f"[telonex] {table}: schema evolved — added {len(added)} column(s): "
+                f"{', '.join(added)}",
+                file=sys.stderr,
             )
-        self._channel_tables_ready.add(channel)
 
     def ingest_batch(self, results: list[_DownloadResult]) -> int:
         """Insert a batch of successful downloads atomically."""
@@ -872,7 +916,24 @@ def _run_jobs(
             return
         batch = pending_for_commit[:]
         pending_for_commit.clear()
-        inserted = store.ingest_batch(batch)
+        try:
+            inserted = store.ingest_batch(batch)
+        except Exception as exc:  # noqa: BLE001
+            # ingest_batch is atomic — failure means nothing was committed and
+            # the completed_days rows were rolled back, so these days will be
+            # retried on the next run. Log, drop the batch, keep the writer alive.
+            sample = batch[:3]
+            sample_text = ", ".join(
+                f"{r.job.channel}/{r.job.market_slug}/{r.job.day}" for r in sample
+            )
+            print(
+                f"[telonex] writer: dropped batch of {len(batch)} day(s) after ingest failure "
+                f"({exc.__class__.__name__}: {exc}) — will retry on next run. "
+                f"Sample: {sample_text}",
+                file=sys.stderr,
+            )
+            last_commit_ts = time.monotonic()
+            return
         last_commit_ts = time.monotonic()
         if commit_bar is not None:
             commit_bar.update(inserted)
