@@ -60,8 +60,8 @@ def _install_payload_stub(
     raise_for_day = raise_for_day or {}
     call_counts: dict[str, int] = {}
 
-    def fake_download_day_bytes(*, client, url, api_key, stop_event, progress_cb):
-        del client, stop_event
+    def fake_download_day_bytes(*, timeout_secs, url, api_key, stop_event, progress_cb):
+        del timeout_secs, stop_event
         if seen_urls is not None:
             seen_urls.append(url)
         if seen_auth is not None:

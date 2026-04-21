@@ -554,41 +554,6 @@ def _fetch_markets_dataset(base_url: str, timeout_secs: int) -> pd.DataFrame:
     return pd.read_parquet(io.BytesIO(payload))
 
 
-def _build_async_http_client(*, concurrency: int, timeout_secs: int) -> httpx.AsyncClient:
-    """Shared pooled async HTTP client.
-
-    `follow_redirects=True` collapses the "302 from api.telonex.io → GET s3"
-    into one logical `client.get()` call; httpx strips `Authorization` on
-    cross-origin redirect automatically.
-
-    Keepalive is disabled (max_keepalive_connections=0) because the S3
-    presigned-URL endpoint closes connections after each transfer, leaving
-    sockets in CLOSE-WAIT that httpx doesn't reclaim, eventually exhausting
-    the pool. Fresh connections per request avoid this entirely.
-    """
-    # Two host buckets (api + s3) × some slack for races.
-    pool_ceiling = max(concurrency * 2 + 32, 128)
-    limits = httpx.Limits(
-        max_connections=pool_ceiling,
-        max_keepalive_connections=0,
-    )
-    timeout = httpx.Timeout(
-        connect=min(30.0, float(timeout_secs)),
-        read=float(timeout_secs),
-        write=float(timeout_secs),
-        # Pool acquire waits can be longer — large concurrency bursts briefly
-        # queue before a slot frees up.
-        pool=float(max(timeout_secs * 2, 60)),
-    )
-    return httpx.AsyncClient(
-        http2=False,  # S3 speaks HTTP/1.1; h2 on API saves little
-        follow_redirects=True,
-        limits=limits,
-        timeout=timeout,
-        headers={"User-Agent": _USER_AGENT},
-    )
-
-
 def _iter_days_for_market_tuple(
     row,
     *,
@@ -775,7 +740,7 @@ def _is_transient(exc: BaseException) -> bool:
 
 async def _download_day_bytes_with_retry_async(
     *,
-    client: httpx.AsyncClient,
+    timeout_secs: int,
     url: str,
     api_key: str,
     stop_event: asyncio.Event,
@@ -797,7 +762,7 @@ async def _download_day_bytes_with_retry_async(
                 raise asyncio.TimeoutError()
             try:
                 return await _download_day_bytes_async(
-                    client=client,
+                    timeout_secs=timeout_secs,
                     url=url,
                     api_key=api_key,
                     stop_event=stop_event,
@@ -840,45 +805,62 @@ async def _download_day_bytes_with_retry_async(
 
 async def _download_day_bytes_async(
     *,
-    client: httpx.AsyncClient,
+    timeout_secs: int,
     url: str,
     api_key: str,
     stop_event: asyncio.Event,
     progress_cb,
 ) -> bytes:
-    """Fetch one day-file via the shared pooled async client.
+    """Fetch one day-file using a per-request async client.
 
     The Telonex API endpoint responds with a 302 to an S3 presigned URL.
-    `follow_redirects=True` on the client collapses this to one logical GET;
-    httpx strips `Authorization` on cross-origin redirect so the token never
-    leaks to S3."""
+    `follow_redirects=True` collapses the redirect; httpx strips
+    `Authorization` on cross-origin redirect so the token never leaks to S3.
+
+    A fresh client per request avoids the CLOSE-WAIT socket leak that
+    plagues httpx's shared connection pool when S3 closes connections
+    after each transfer.
+    """
     if stop_event.is_set():
         raise _CancelledError()
     headers = {"Authorization": f"Bearer {api_key}"}
-    async with client.stream("GET", url, headers=headers) as response:
-        if response.status_code == 404:
-            raise _FakeHTTPError(404, "not found")
-        if response.status_code >= 400:
-            try:
-                await response.aread()
-            except Exception:
-                pass
-            raise _FakeHTTPError(response.status_code, f"HTTP {response.status_code}")
-        total_header = response.headers.get("Content-Length")
-        total_bytes = int(total_header) if total_header else None
-        chunks: list[bytes] = []
-        downloaded = 0
-        progress_cb(0, total_bytes, False)
-        async for chunk in response.aiter_bytes(chunk_size=_DOWNLOAD_CHUNK_SIZE):
-            if stop_event.is_set():
-                raise _CancelledError()
-            if not chunk:
-                continue
-            chunks.append(chunk)
-            downloaded += len(chunk)
-            progress_cb(downloaded, total_bytes, False)
-        progress_cb(downloaded, total_bytes, True)
+    client = httpx.AsyncClient(
+        follow_redirects=True,
+        timeout=httpx.Timeout(
+            connect=min(30.0, float(timeout_secs)),
+            read=float(timeout_secs),
+            write=float(timeout_secs),
+            pool=float(max(timeout_secs * 2, 60)),
+        ),
+        headers={"User-Agent": _USER_AGENT},
+    )
+    try:
+        async with client.stream("GET", url, headers=headers) as response:
+            if response.status_code == 404:
+                raise _FakeHTTPError(404, "not found")
+            if response.status_code >= 400:
+                try:
+                    await response.aread()
+                except Exception:
+                    pass
+                raise _FakeHTTPError(response.status_code, f"HTTP {response.status_code}")
+            total_header = response.headers.get("Content-Length")
+            total_bytes = int(total_header) if total_header else None
+            chunks: list[bytes] = []
+            downloaded = 0
+            progress_cb(0, total_bytes, False)
+            async for chunk in response.aiter_bytes(chunk_size=_DOWNLOAD_CHUNK_SIZE):
+                if stop_event.is_set():
+                    raise _CancelledError()
+                if not chunk:
+                    continue
+                chunks.append(chunk)
+                downloaded += len(chunk)
+                progress_cb(downloaded, total_bytes, False)
+            progress_cb(downloaded, total_bytes, True)
         return b"".join(chunks)
+    finally:
+        await client.aclose()
 
 
 @dataclass
@@ -1123,7 +1105,7 @@ def _run_jobs(
                 raise _CancelledError()
             try:
                 result = stub(
-                    client=http_client,
+                    timeout_secs=timeout_secs,
                     url=url,
                     api_key=api_key,
                     stop_event=stop_event,
@@ -1159,7 +1141,7 @@ def _run_jobs(
         if stub is not None:
             return await _call_stub_with_retry(stub, url, progress_cb)
         return await _download_day_bytes_with_retry_async(
-            client=http_client,
+            timeout_secs=timeout_secs,
             url=url,
             api_key=api_key,
             stop_event=async_stop,
@@ -1387,13 +1369,11 @@ def _run_jobs(
     # an OS thread — so we can set this to thousands on a fast network and the
     # only real cost is the connection pool + open sockets.
     concurrency = max(1, workers)
-    http_client: httpx.AsyncClient | None = None
     async_stop: asyncio.Event | None = None
 
     async def _dispatcher() -> None:
-        nonlocal http_client, async_stop
+        nonlocal async_stop
         async_stop = asyncio.Event()
-        http_client = _build_async_http_client(concurrency=concurrency, timeout_secs=timeout_secs)
 
         # Wire signals → async_stop so Ctrl-C / SIGTERM let in-flight requests
         # drain cleanly. `asyncio.run` swallows the SIGINT KeyboardInterrupt
@@ -1486,14 +1466,7 @@ def _run_jobs(
                     loop.remove_signal_handler(sig)
                 except (NotImplementedError, RuntimeError):
                     pass
-            if http_client is not None:
-                try:
-                    await asyncio.wait_for(http_client.aclose(), timeout=10.0)
-                except asyncio.TimeoutError:
-                    print(
-                        "[telonex] httpx client close timed out — connections abandoned",
-                        file=sys.stderr,
-                    )
+        # Per-request clients close themselves
 
     def _async_stop_signal() -> None:
         # Runs in the event loop thread. Flip both the threading event (writer,
