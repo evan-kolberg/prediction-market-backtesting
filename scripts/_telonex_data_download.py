@@ -8,6 +8,7 @@ import signal
 import sys
 import threading
 import time
+from collections.abc import Iterable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, date, datetime, timedelta
@@ -67,7 +68,7 @@ class TelonexDownloadSummary:
     channels: list[str]
     base_url: str
     markets_considered: int
-    requested_days: int
+    requested_days: int | None
     downloaded_days: int
     skipped_existing_days: int
     missing_days: int
@@ -615,7 +616,7 @@ def _iter_days_for_market(
     return _date_range(start, end)
 
 
-def _build_jobs_from_catalog(
+def _iter_jobs_from_catalog(
     *,
     markets: pd.DataFrame,
     channels: list[str],
@@ -625,9 +626,13 @@ def _build_jobs_from_catalog(
     status_filter: str | None,
     slug_filter: set[str] | None,
     show_progress: bool,
-) -> tuple[list[_Job], int]:
-    jobs: list[_Job] = []
-    considered = 0
+) -> tuple[Iterator[_Job], list[int]]:
+    """Yield jobs lazily from the markets catalog.
+
+    Returns (job_iterator, markets_considered_ref) so the caller can report
+    the count without materializing the full job list (~66M entries => ~12 GiB).
+    Read considered_ref[0] after the iterator is consumed.
+    """
     frame = markets
     if status_filter is not None:
         frame = frame[frame["status"] == status_filter]
@@ -642,21 +647,23 @@ def _build_jobs_from_catalog(
             unit="market",
             leave=False,
         )
-    for _index, row in rows:
-        slug = row.get("slug")
-        if not slug:
-            continue
-        considered += 1
-        for channel in channels:
-            days = _iter_days_for_market(
-                row, channel=channel, window_start=window_start, window_end=window_end
-            )
-            if not days:
+    considered = [0]  # mutable so nested generator can update
+
+    def _generate() -> Iterator[_Job]:
+        for _index, row in rows:
+            slug = row.get("slug")
+            if not slug:
                 continue
-            for outcome_id in outcomes:
-                for day in days:
-                    jobs.append(
-                        _Job(
+            considered[0] += 1
+            for channel in channels:
+                days = _iter_days_for_market(
+                    row, channel=channel, window_start=window_start, window_end=window_end
+                )
+                if not days:
+                    continue
+                for outcome_id in outcomes:
+                    for day in days:
+                        yield _Job(
                             market_slug=str(slug),
                             outcome_segment=str(outcome_id),
                             outcome_id=outcome_id,
@@ -664,8 +671,8 @@ def _build_jobs_from_catalog(
                             channel=channel,
                             day=day,
                         )
-                    )
-    return jobs, considered
+
+    return _generate(), considered  # read [0] after consuming
 
 
 def _build_jobs_from_explicit(
@@ -892,23 +899,31 @@ def _postfix_text(
 
 def _prune_jobs_against_manifest(
     *,
-    jobs: list[_Job],
+    jobs: Iterable[_Job],
     store: _TelonexParquetStore,
     overwrite: bool,
     show_progress: bool,
+    channels_hint: set[str] | None = None,
 ) -> tuple[list[_Job], int]:
+    """Filter out completed/empty days, materializing only the kept jobs.
+
+    Accepts an iterable (including a generator) so the upstream catalog
+    jobs are never fully materialized.  Returns a concrete list of jobs
+    that still need downloading, plus the count of skipped ones.
+    ``channels_hint`` pre-loads manifest keys without iterating jobs.
+    """
     if overwrite:
-        return jobs, 0
+        return list(jobs), 0
 
     completed_by_channel: dict[str, set[tuple[str, str, date]]] = {}
     empty_by_channel: dict[str, set[tuple[str, str, date]]] = {}
-    channels = {job.channel for job in jobs}
+    channel_set = channels_hint or set()
     prune_bar = (
-        tqdm(total=len(channels), desc="Loading manifest", unit="ch", leave=False)
-        if show_progress
+        tqdm(total=len(channel_set), desc="Loading manifest", unit="ch", leave=False)
+        if show_progress and channel_set
         else None
     )
-    for channel in channels:
+    for channel in channel_set:
         completed_by_channel[channel] = store.completed_keys(channel)
         empty_by_channel[channel] = store.empty_keys(channel)
         if prune_bar is not None:
@@ -923,6 +938,10 @@ def _prune_jobs_against_manifest(
         iterator = tqdm(jobs, desc="Filtering resumable jobs", unit="day", leave=False)
     for job in iterator:
         key = (job.market_slug, job.outcome_segment, job.day)
+        # Lazy-load channel keys on first encounter if not pre-loaded.
+        if job.channel not in completed_by_channel:
+            completed_by_channel[job.channel] = store.completed_keys(job.channel)
+            empty_by_channel[job.channel] = store.empty_keys(job.channel)
         if key in completed_by_channel.get(job.channel, set()):
             skipped += 1
             continue
@@ -1528,7 +1547,7 @@ def download_telonex_days(
                 print(f"Loaded {len(markets):,} markets", file=sys.stderr)
             slug_filter = set(market_slugs) if market_slugs else None
             outcomes = outcomes_for_all or [0, 1]
-            jobs, markets_considered = _build_jobs_from_catalog(
+            jobs_iter, _markets_considered_ref = _iter_jobs_from_catalog(
                 markets=markets,
                 channels=list(channels),
                 outcomes=outcomes,
@@ -1538,6 +1557,7 @@ def download_telonex_days(
                 slug_filter=slug_filter,
                 show_progress=show_progress,
             )
+            planned_jobs = None  # unknown until consumed
         else:
             if not market_slugs:
                 raise ValueError("Either --all-markets or --market-slug is required.")
@@ -1553,7 +1573,7 @@ def download_telonex_days(
                 raise ValueError(
                     f"Empty window: start_date {start_date!r} is after end_date {end_date!r}."
                 )
-            jobs = _build_jobs_from_explicit(
+            jobs_iter = _build_jobs_from_explicit(
                 channels=list(channels),
                 market_slugs=market_slugs,
                 outcome=outcome,
@@ -1563,10 +1583,13 @@ def download_telonex_days(
             )
             markets_considered = len(set(market_slugs))
 
-        planned_jobs = len(jobs)
+            planned_jobs = len(jobs_iter)
         jobs, skipped_existing = _prune_jobs_against_manifest(
-            jobs=jobs, store=store, overwrite=overwrite, show_progress=show_progress
+            jobs=jobs_iter, store=store, overwrite=overwrite, show_progress=show_progress,
+            channels_hint=set(channels),
         )
+        if all_markets:
+            markets_considered = _markets_considered_ref[0]
         if show_progress and skipped_existing:
             print(
                 f"Skipping {skipped_existing:,} day-files already recorded in the blob manifest",
@@ -1582,7 +1605,7 @@ def download_telonex_days(
                 f"[telonex] Resume summary: manifest={db_path} "
                 f"data={store.data_root} total={_format_bytes(existing_store_size)}, "
                 f"completed={completed_before:,} 404s={empty_before:,}, "
-                f"planned={planned_jobs:,} skipping={skipped_existing:,} "
+                f"planned={planned_jobs if planned_jobs is not None else total_jobs + skipped_existing:,} skipping={skipped_existing:,} "
                 f"remaining={total_jobs:,}",
                 file=sys.stderr,
             )
@@ -1630,7 +1653,7 @@ def download_telonex_days(
         channels=list(channels),
         base_url=base_url.rstrip("/"),
         markets_considered=markets_considered,
-        requested_days=planned_jobs,
+        requested_days=planned_jobs if planned_jobs is not None else total_jobs + skipped_existing,
         downloaded_days=downloaded,
         skipped_existing_days=skipped_existing,
         missing_days=missing,
