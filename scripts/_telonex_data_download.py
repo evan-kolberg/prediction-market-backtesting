@@ -557,18 +557,20 @@ def _fetch_markets_dataset(base_url: str, timeout_secs: int) -> pd.DataFrame:
 def _build_async_http_client(*, concurrency: int, timeout_secs: int) -> httpx.AsyncClient:
     """Shared pooled async HTTP client.
 
-    Sized so every in-flight request can hold a keepalive slot to both the
-    Telonex API host and the redirected-to S3 host simultaneously. `follow_
-    redirects=True` collapses the "302 from api.telonex.io → GET s3" into one
-    logical `client.get()` call; httpx strips `Authorization` on cross-origin
-    redirect automatically.
+    `follow_redirects=True` collapses the "302 from api.telonex.io → GET s3"
+    into one logical `client.get()` call; httpx strips `Authorization` on
+    cross-origin redirect automatically.
+
+    Keepalive is disabled (max_keepalive_connections=0) because the S3
+    presigned-URL endpoint closes connections after each transfer, leaving
+    sockets in CLOSE-WAIT that httpx doesn't reclaim, eventually exhausting
+    the pool. Fresh connections per request avoid this entirely.
     """
     # Two host buckets (api + s3) × some slack for races.
     pool_ceiling = max(concurrency * 2 + 32, 128)
     limits = httpx.Limits(
         max_connections=pool_ceiling,
-        max_keepalive_connections=pool_ceiling,
-        keepalive_expiry=120.0,
+        max_keepalive_connections=0,
     )
     timeout = httpx.Timeout(
         connect=min(30.0, float(timeout_secs)),
