@@ -262,22 +262,37 @@ TELONEX_API_KEY=... make download-telonex-data TELONEX_DOWNLOAD_FLAGS='\
   --end-date 2026-02-01'
 ```
 
-To mirror every Telonex Polymarket market and every channel into
-Hive-partitioned Parquet (with a DuckDB manifest for resumability), run:
+To mirror every Telonex Polymarket market without storing redundant shallow
+book snapshots, download the quote, trade, full-depth book, and onchain-fill
+channels into Hive-partitioned Parquet (with a DuckDB manifest for
+resumability):
 
 ```bash
 uv run python scripts/telonex_download_data.py \
   --destination /Volumes/LaCie/telonex_data \
   --all-markets \
-  --channels quotes trades book_snapshot_5 book_snapshot_25 book_snapshot_full onchain_fills
+  --channels quotes trades book_snapshot_full onchain_fills
 ```
+
+`book_snapshot_full` carries full-depth snapshots. Use it as the canonical
+book-snapshot source and derive 5-level or 25-level views from it when needed;
+downloading `book_snapshot_5` and `book_snapshot_25` alongside
+`book_snapshot_full` duplicates the same book-state family.
 
 The default `--workers 128` is the in-flight coroutine ceiling in the
 async `httpx` pool. On a bandwidth-heavy VPS push this to `256`–`512`
 (each slot is a coroutine + socket, not an OS thread); transient
 `408/425/429/5xx` responses retry with exponential backoff, and the
 single-thread Parquet writer is the usual practical bottleneck. Hit
-`Ctrl-C` once to stop gracefully; the same command resumes.
+`Ctrl-C` once to stop gracefully; the same command resumes. Five interrupt
+signals are required to force-exit before the graceful drain finishes.
+
+The downloader fetches the Telonex markets catalog on every run, so newly
+listed markets and extended channel availability windows are planned on resume.
+Cached 404 day markers are rechecked after 7 days by default; use
+`--recheck-empty-after-days 0` to recheck 404s every run, or
+`--recheck-empty-after-days -1` to keep 404s forever unless `--overwrite` is
+used.
 
 The default destination is `/Volumes/LaCie/telonex_data`. Override it with
 `TELONEX_DATA_DESTINATION=/path/to/telonex_data` or call the script directly:
@@ -291,17 +306,18 @@ uv run python scripts/telonex_download_data.py \
   --end-date 2026-02-01
 ```
 
-The script reads the API key only from `TELONEX_API_KEY` and writes everything
-into `<destination>/telonex.duckdb` — one file per destination, with one
-table per channel (`quotes_data`, `trades_data`, …) plus `completed_days` /
-`empty_days` manifest tables for crash-safe resume. The
-`local:/Volumes/LaCie/telonex_data` source reads back through the same blob.
+The script reads the API key only from `TELONEX_API_KEY` and writes data under
+`<destination>/data/` with a DuckDB manifest at
+`<destination>/telonex.duckdb`. The manifest tracks `completed_days` and
+`empty_days` for crash-safe resume. The `local:/Volumes/LaCie/telonex_data`
+source reads back through the same blob.
 
 For `--all-markets`, progress is visible in three phases: loading the markets
 dataset, planning concrete day-file downloads from each market availability
 window, and downloading straight into the blob. The process is resumable:
 `Ctrl-C` once to stop gracefully, then re-run the same command to skip
-everything already recorded and continue. Transient HTTP failures
+everything already recorded and continue. Five interrupt signals are required
+to force-exit before the graceful drain finishes. Transient HTTP failures
 (408/425/429/5xx) and connection errors are retried with exponential backoff.
 
 ## What Is Not Plug-And-Play Yet

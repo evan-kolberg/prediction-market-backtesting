@@ -47,6 +47,9 @@ _DEFAULT_COMMIT_BATCH_SECS = 2.0
 _DEFAULT_MAX_RETRIES = 4
 _RETRY_BACKOFF_BASE_SECS = 2.0
 _TRANSIENT_HTTP_CODES = frozenset({408, 425, 429, 500, 502, 503, 504})
+_DEFAULT_EMPTY_RECHECK_AFTER_DAYS = 7
+_FORCE_EXIT_SIGNAL_COUNT = 5
+_MARKETS_BATCH_ROWS = 100_000
 
 _CHANNEL_COLUMN_SUFFIX = {
     "trades": ("trades_from", "trades_to"),
@@ -321,22 +324,41 @@ class _TelonexParquetStore:
             ).fetchall()
         return {(row[0], row[1], row[2]) for row in rows}
 
-    def empty_keys(self, channel: str) -> set[tuple[str, str, date]]:
+    def empty_keys(
+        self, channel: str, *, recheck_after_days: int | None = None
+    ) -> set[tuple[str, str, date]]:
+        where = "channel = ?"
+        params: list[object] = [channel]
+        if recheck_after_days is not None and recheck_after_days >= 0:
+            cutoff = datetime.now(UTC) - timedelta(days=recheck_after_days)
+            where += " AND checked_at > ?"
+            params.append(cutoff)
         with self._lock:
             rows = self._con.execute(
-                "SELECT market_slug, outcome_segment, day FROM empty_days WHERE channel = ?",
-                [channel],
+                f"SELECT market_slug, outcome_segment, day FROM empty_days WHERE {where}",
+                params,
             ).fetchall()
         return {(row[0], row[1], row[2]) for row in rows}
 
     def mark_empty(self, job: _Job, *, status: str) -> None:
         with self._lock:
-            self._con.execute(
-                "INSERT OR REPLACE INTO empty_days "
-                "(channel, market_slug, outcome_segment, day, status) "
-                "VALUES (?, ?, ?, ?, ?)",
-                [job.channel, job.market_slug, job.outcome_segment, job.day, status],
-            )
+            self._con.execute("BEGIN TRANSACTION")
+            try:
+                self._con.execute(
+                    "DELETE FROM completed_days "
+                    "WHERE channel = ? AND market_slug = ? AND outcome_segment = ? AND day = ?",
+                    [job.channel, job.market_slug, job.outcome_segment, job.day],
+                )
+                self._con.execute(
+                    "INSERT OR REPLACE INTO empty_days "
+                    "(channel, market_slug, outcome_segment, day, status) "
+                    "VALUES (?, ?, ?, ?, ?)",
+                    [job.channel, job.market_slug, job.outcome_segment, job.day, status],
+                )
+                self._con.execute("COMMIT")
+            except Exception:
+                self._con.execute("ROLLBACK")
+                raise
 
     def _partition_dir(self, channel: str, year: int, month: int) -> Path:
         # Hive-style keys so DuckDB's `hive_partitioning=1` recovers year/month
@@ -407,6 +429,16 @@ class _TelonexParquetStore:
         self._con.execute("BEGIN TRANSACTION")
         try:
             for result, row_count in part.pending:
+                self._con.execute(
+                    "DELETE FROM empty_days "
+                    "WHERE channel = ? AND market_slug = ? AND outcome_segment = ? AND day = ?",
+                    [
+                        result.job.channel,
+                        result.job.market_slug,
+                        result.job.outcome_segment,
+                        result.job.day,
+                    ],
+                )
                 self._con.execute(
                     "INSERT OR REPLACE INTO completed_days "
                     "(channel, market_slug, outcome_segment, day, rows, "
@@ -521,6 +553,17 @@ class _TelonexParquetStore:
                 try:
                     for entry in empty_ok:
                         self._con.execute(
+                            "DELETE FROM empty_days "
+                            "WHERE channel = ? AND market_slug = ? AND outcome_segment = ? "
+                            "AND day = ?",
+                            [
+                                entry.job.channel,
+                                entry.job.market_slug,
+                                entry.job.outcome_segment,
+                                entry.job.day,
+                            ],
+                        )
+                        self._con.execute(
                             "INSERT OR REPLACE INTO completed_days "
                             "(channel, market_slug, outcome_segment, day, rows, "
                             "bytes_downloaded, parquet_part) "
@@ -592,12 +635,47 @@ class _TelonexParquetStore:
         return removed
 
 
-def _fetch_markets_dataset(base_url: str, timeout_secs: int) -> pd.DataFrame:
+def _fetch_markets_dataset(
+    base_url: str, timeout_secs: int, *, show_progress: bool = False
+) -> pd.DataFrame:
     url = f"{base_url.rstrip('/')}/v1/datasets/polymarket/markets"
     request = Request(url, headers={"User-Agent": _USER_AGENT})
     with urlopen(request, timeout=timeout_secs) as response:
-        payload = response.read()
-    return pd.read_parquet(io.BytesIO(payload))
+        total_raw = response.headers.get("Content-Length")
+        total = int(total_raw) if total_raw and total_raw.isdigit() else None
+        chunks: list[bytes] = []
+        with tqdm(
+            total=total,
+            desc="Fetching Telonex markets",
+            unit="B",
+            unit_scale=True,
+            unit_divisor=1024,
+            dynamic_ncols=True,
+            disable=not show_progress,
+        ) as progress:
+            while True:
+                chunk = response.read(_DOWNLOAD_CHUNK_SIZE)
+                if not chunk:
+                    break
+                chunks.append(chunk)
+                progress.update(len(chunk))
+
+    payload = b"".join(chunks)
+    parquet = pq.ParquetFile(io.BytesIO(payload))
+    total_rows = parquet.metadata.num_rows if parquet.metadata is not None else None
+    batches: list[pa.RecordBatch] = []
+    with tqdm(
+        total=total_rows,
+        desc="Loading Telonex markets",
+        unit="market",
+        dynamic_ncols=True,
+        disable=not show_progress,
+    ) as progress:
+        for batch in parquet.iter_batches(batch_size=_MARKETS_BATCH_ROWS):
+            batches.append(batch)
+            progress.update(batch.num_rows)
+    table = pa.Table.from_batches(batches, schema=parquet.schema_arrow)
+    return table.to_pandas()
 
 
 def _iter_days_for_market_tuple(
@@ -675,8 +753,20 @@ def _iter_jobs_from_catalog(
     # upfront so the per-row loop does zero datetime parsing (the main bottleneck).
     window_start_ts = pd.Timestamp(window_start, tz=UTC) if window_start is not None else None
     window_end_ts = pd.Timestamp(window_end, tz=UTC) if window_end is not None else None
-    for ch in channels:
+    channel_progress = (
+        tqdm(
+            channels,
+            desc="Planning Telonex channels",
+            unit="channel",
+            dynamic_ncols=True,
+        )
+        if show_progress
+        else channels
+    )
+    for ch in channel_progress:
         from_col, to_col = _CHANNEL_COLUMN_SUFFIX[ch]
+        if show_progress:
+            channel_progress.set_postfix_str(ch, refresh=False)
         for col in (from_col, to_col):
             if col in frame.columns:
                 frame[col] = pd.to_datetime(
@@ -705,7 +795,19 @@ def _iter_jobs_from_catalog(
         raise ValueError("Telonex markets catalog is missing required 'slug' column.")
 
     total_jobs = 0
-    for ch, _from_idx, _to_idx in channel_col_idxs:
+    count_progress = (
+        tqdm(
+            channel_col_idxs,
+            desc="Counting Telonex day jobs",
+            unit="channel",
+            dynamic_ncols=True,
+        )
+        if show_progress
+        else channel_col_idxs
+    )
+    for ch, _from_idx, _to_idx in count_progress:
+        if show_progress:
+            count_progress.set_postfix_str(ch, refresh=False)
         from_col, to_col = _CHANNEL_COLUMN_SUFFIX[ch]
         valid = frame[from_col].notna() & frame[to_col].notna() & (frame[from_col] <= frame[to_col])
         if not valid.any():
@@ -995,6 +1097,7 @@ def _prune_jobs_against_manifest(
     overwrite: bool,
     show_progress: bool,
     channels_hint: set[str] | None = None,
+    recheck_empty_after_days: int | None = _DEFAULT_EMPTY_RECHECK_AFTER_DAYS,
 ) -> tuple[Iterator[_Job], list[int]]:
     """Filter out completed/empty days, yielding kept jobs lazily.
 
@@ -1016,7 +1119,9 @@ def _prune_jobs_against_manifest(
         )
     for channel in channel_set:
         completed_by_channel[channel] = store.completed_keys(channel)
-        empty_by_channel[channel] = store.empty_keys(channel)
+        empty_by_channel[channel] = store.empty_keys(
+            channel, recheck_after_days=recheck_empty_after_days
+        )
     if show_progress and channel_set:
         completed = sum(len(keys) for keys in completed_by_channel.values())
         empty = sum(len(keys) for keys in empty_by_channel.values())
@@ -1033,7 +1138,9 @@ def _prune_jobs_against_manifest(
             # Lazy-load channel keys on first encounter if not pre-loaded.
             if job.channel not in completed_by_channel:
                 completed_by_channel[job.channel] = store.completed_keys(job.channel)
-                empty_by_channel[job.channel] = store.empty_keys(job.channel)
+                empty_by_channel[job.channel] = store.empty_keys(
+                    job.channel, recheck_after_days=recheck_empty_after_days
+                )
             if key in completed_by_channel.get(job.channel, set()):
                 skipped[0] += 1
                 continue
@@ -1098,7 +1205,10 @@ def _run_jobs(
             total=total_jobs,
             desc="Downloading Telonex days",
             unit="day",
-            bar_format="{desc}: {n_fmt}/{total_fmt} day [{elapsed}] {postfix}",
+            bar_format=(
+                "{desc}: |{bar}| {percentage:.4f}% {n_fmt}/{total_fmt} day "
+                "[{elapsed}<{remaining}] {postfix}"
+            ),
             dynamic_ncols=True,
         )
         if show_progress and total_jobs != 0
@@ -1109,6 +1219,7 @@ def _run_jobs(
     last_postfix_ts = [0.0]
     writer_failed = threading.Event()
     async_stop: asyncio.Event | None = None
+    interrupt_count = [0]
 
     def _refresh_postfix(force: bool = False) -> None:
         if progress is None:
@@ -1528,11 +1639,29 @@ def _run_jobs(
         # Runs in the event loop thread. Flip both the threading event (writer,
         # retry loops still inspect it) and the asyncio event (coroutines).
         nonlocal interrupted
+        interrupt_count[0] += 1
+        if interrupt_count[0] >= _FORCE_EXIT_SIGNAL_COUNT:
+            print(
+                "\n[telonex] Force-exiting after 5 interrupt signals. Pending uncommitted "
+                "downloads will retry on the next run.",
+                file=sys.stderr,
+                flush=True,
+            )
+            os._exit(130)
         if not stop_event.is_set():
             interrupted = True
+            remaining = _FORCE_EXIT_SIGNAL_COUNT - interrupt_count[0]
             print(
                 "\n[telonex] Signal received — draining in-flight downloads then "
-                "flushing pending rows. Send again to force-exit.",
+                f"flushing pending rows. Send {remaining} more interrupt signal(s) "
+                "to force-exit.",
+                file=sys.stderr,
+            )
+        else:
+            remaining = _FORCE_EXIT_SIGNAL_COUNT - interrupt_count[0]
+            print(
+                "\n[telonex] Still draining/flushing. "
+                f"Send {remaining} more interrupt signal(s) to force-exit.",
                 file=sys.stderr,
             )
         stop_event.set()
@@ -1585,6 +1714,7 @@ def download_telonex_days(
     workers: int = 16,
     show_progress: bool = True,
     db_filename: str = _MANIFEST_FILENAME,
+    recheck_empty_after_days: int | None = _DEFAULT_EMPTY_RECHECK_AFTER_DAYS,
 ) -> TelonexDownloadSummary:
     if channel is not None and channels is None:
         channels = [channel]
@@ -1641,7 +1771,9 @@ def download_telonex_days(
         if all_markets:
             if show_progress:
                 print(f"Fetching markets dataset from {base_url.rstrip('/')}...", file=sys.stderr)
-            markets = _fetch_markets_dataset(base_url, timeout_secs=max(30, timeout_secs))
+            markets = _fetch_markets_dataset(
+                base_url, timeout_secs=max(30, timeout_secs), show_progress=show_progress
+            )
             if show_progress:
                 print(f"Loaded {len(markets):,} markets", file=sys.stderr)
             slug_filter = set(market_slugs) if market_slugs else None
@@ -1694,6 +1826,7 @@ def download_telonex_days(
             overwrite=overwrite,
             show_progress=show_progress,
             channels_hint=set(channels),
+            recheck_empty_after_days=recheck_empty_after_days,
         )
         _skipped: int | None = None
         remaining_jobs = planned_jobs
@@ -1714,7 +1847,8 @@ def download_telonex_days(
                 f"completed={completed_before:,} 404s={empty_before:,}, "
                 f"planned={planned_jobs if planned_jobs is not None else 'streaming'}. "
                 f"{remaining_text}"
-                f"Ctrl-C once to stop gracefully (manifest + parquets stay consistent).",
+                "Ctrl-C once to stop gracefully (manifest + parquets stay consistent); "
+                "five interrupt signals force-exit.",
                 file=sys.stderr,
             )
             print(

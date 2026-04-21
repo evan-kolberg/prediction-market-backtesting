@@ -155,8 +155,13 @@ with a DuckDB manifest at `<destination>/telonex.duckdb`, run:
 uv run python scripts/telonex_download_data.py \
   --destination /Volumes/LaCie/telonex_data \
   --all-markets \
-  --channels quotes trades book_snapshot_5 book_snapshot_25 book_snapshot_full onchain_fills
+  --channels quotes trades book_snapshot_full onchain_fills
 ```
+
+`book_snapshot_full` is the canonical full-depth book snapshot channel. Do not
+also mirror `book_snapshot_5` and `book_snapshot_25` unless you intentionally
+want the shallow vendor files too; 5-level and 25-level views can be derived
+from the full-depth snapshots.
 
 The default destination is `/Volumes/LaCie/telonex_data`, matching the
 `local:/Volumes/LaCie/telonex_data` source in the public Telonex runner.
@@ -168,13 +173,21 @@ writer). Transient `408/425/429/5xx` responses are retried with
 exponential backoff, and SIGINT/SIGTERM stop the loop gracefully. The
 downloader reports progress while it loads the markets dataset, plans
 market/channel/outcome/day work, and streams day-files directly into
-rolling ~1 GB Parquet parts (no intermediate per-day files touch disk).
+the local store. Each run fetches the current Telonex markets catalog, so
+newly listed markets and later channel windows are picked up on resume.
+Cached 404 day markers are rechecked after 7 days by default; use
+`--recheck-empty-after-days 0` to recheck 404s every run, or
+`--recheck-empty-after-days -1` to keep 404s forever unless `--overwrite` is
+used.
+The downloader rolls ~1 GB Parquet parts; no intermediate per-day files touch
+disk.
 
 The run is **crash-safe and resumable**: completed days and 404-empty days
 are tracked in `completed_days` / `empty_days` tables inside the DuckDB
 manifest, and orphan Parquet parts from hard kills are swept on startup.
 Hit `Ctrl-C` once to stop gracefully — in-flight downloads
-finish, pending rows flush, then the process exits. Re-run the same
+finish, pending rows flush, then the process exits. Five interrupt signals are
+required to force-exit before that graceful drain completes. Re-run the same
 command to skip everything already recorded and pick up where you left
 off. If a batch fails mid-ingest, the writer logs it and keeps running —
 those days simply retry on the next invocation.

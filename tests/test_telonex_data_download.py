@@ -258,6 +258,60 @@ def test_download_telonex_days_records_404_so_reruns_skip_empty_days(
     assert rerun.skipped_existing_days == 1
 
 
+def test_download_telonex_days_rechecks_stale_404_and_clears_empty_marker(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("TELONEX_API_KEY", "test-key")
+    _install_payload_stub(monkeypatch, {})  # first run records a 404
+
+    first = telonex_download.download_telonex_days(
+        destination=tmp_path,
+        market_slugs=["late-arriving-market"],
+        outcome_id=0,
+        start_date="2026-01-19",
+        end_date="2026-01-19",
+        show_progress=False,
+        workers=1,
+    )
+    assert first.missing_days == 1
+
+    con = duckdb.connect(str(tmp_path / "telonex.duckdb"))
+    try:
+        con.execute("UPDATE empty_days SET checked_at = TIMESTAMP '2026-01-01 00:00:00'")
+    finally:
+        con.close()
+
+    _install_payload_stub(
+        monkeypatch,
+        {"2026-01-19": _parquet_payload(1_768_780_800_000_000)},
+    )
+
+    second = telonex_download.download_telonex_days(
+        destination=tmp_path,
+        market_slugs=["late-arriving-market"],
+        outcome_id=0,
+        start_date="2026-01-19",
+        end_date="2026-01-19",
+        show_progress=False,
+        workers=1,
+        recheck_empty_after_days=7,
+    )
+
+    assert second.skipped_existing_days == 0
+    assert second.downloaded_days == 1
+    assert second.missing_days == 0
+
+    con = duckdb.connect(str(tmp_path / "telonex.duckdb"), read_only=True)
+    try:
+        completed = con.execute("SELECT COUNT(*) FROM completed_days").fetchone()[0]
+        empty = con.execute("SELECT COUNT(*) FROM empty_days").fetchone()[0]
+    finally:
+        con.close()
+
+    assert completed == 1
+    assert empty == 0
+
+
 def test_download_telonex_days_all_markets_expands_every_channel(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -282,8 +336,10 @@ def test_download_telonex_days_all_markets_expands_every_channel(
         }
     )
 
-    def fake_fetch_markets_dataset(base_url: str, timeout_secs: int) -> pd.DataFrame:
-        del base_url, timeout_secs
+    def fake_fetch_markets_dataset(
+        base_url: str, timeout_secs: int, *, show_progress: bool = False
+    ) -> pd.DataFrame:
+        del base_url, timeout_secs, show_progress
         return markets
 
     def fake_run_jobs(jobs, **kwargs):
@@ -474,7 +530,7 @@ def test_download_telonex_days_reports_writer_commit_failure(
     assert completed == 0
 
 
-def test_download_telonex_progress_format_omits_eta(
+def test_download_telonex_progress_format_includes_bar_percent_and_eta(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     payloads = {"2026-01-19": _parquet_payload(1_768_780_800_000_000)}
@@ -514,7 +570,16 @@ def test_download_telonex_progress_format_omits_eta(
 
     assert summary.downloaded_days == 1
     assert progress_kwargs
-    assert all("remaining" not in str(kwargs.get("bar_format", "")) for kwargs in progress_kwargs)
+    download_bar_formats = [
+        str(kwargs.get("bar_format", ""))
+        for kwargs in progress_kwargs
+        if kwargs.get("desc") == "Downloading Telonex days"
+    ]
+    assert download_bar_formats
+    assert all(fmt.startswith("{desc}: |") for fmt in download_bar_formats)
+    assert all("{bar}" in fmt for fmt in download_bar_formats)
+    assert all("{percentage:.4f}%" in fmt for fmt in download_bar_formats)
+    assert all("{remaining}" in fmt for fmt in download_bar_formats)
 
 
 def test_downloaded_parquet_is_readable_by_telonex_loader(
