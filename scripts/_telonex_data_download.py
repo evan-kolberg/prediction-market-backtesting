@@ -1616,6 +1616,7 @@ def download_telonex_days(
                 slug_filter=slug_filter,
                 show_progress=show_progress,
             )
+            del markets  # free the ~3 GiB catalog; generator holds only a slim ~770 MiB copy
             planned_jobs = None  # unknown until consumed
         else:
             if not market_slugs:
