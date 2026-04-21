@@ -86,6 +86,16 @@ def main() -> int:
         help="Override the Telonex API base URL.",
     )
     parser.add_argument("--overwrite", action="store_true")
+    parser.add_argument(
+        "--recheck-empty-after-days",
+        type=int,
+        default=7,
+        help=(
+            "Reuse cached 404 day markers only while they are this many days old "
+            "(default: 7). Use 0 to recheck 404s every run, or -1 to keep 404s "
+            "forever unless --overwrite is used."
+        ),
+    )
     parser.add_argument("--no-progress", action="store_true")
     parser.add_argument("--timeout-secs", type=int, default=60)
     parser.add_argument(
@@ -128,6 +138,9 @@ def main() -> int:
             workers=max(1, args.workers),
             show_progress=not args.no_progress,
             db_filename=args.db_filename,
+            recheck_empty_after_days=(
+                None if args.recheck_empty_after_days < 0 else args.recheck_empty_after_days
+            ),
         )
     except KeyboardInterrupt:
         # SIGINT/SIGTERM landed in a blocking call outside the job loop (usually
