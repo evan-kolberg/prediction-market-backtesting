@@ -8,6 +8,7 @@ import signal
 import sys
 import threading
 import time
+from collections.abc import Iterable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, date, datetime, timedelta
@@ -25,9 +26,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 from tqdm.auto import tqdm
 
-from prediction_market_extensions.backtesting.data_sources.telonex import (
-    TELONEX_API_KEY_ENV,
-)
+TELONEX_API_KEY_ENV = "TELONEX_API_KEY"
 
 _USER_AGENT = "prediction-market-backtesting/1.0"
 _DEFAULT_API_BASE_URL = "https://api.telonex.io"
@@ -67,7 +66,7 @@ class TelonexDownloadSummary:
     channels: list[str]
     base_url: str
     markets_considered: int
-    requested_days: int
+    requested_days: int | None
     downloaded_days: int
     skipped_existing_days: int
     missing_days: int
@@ -153,6 +152,52 @@ class _Job:
     outcome: str | None
     channel: str
     day: date
+
+
+@dataclass
+class _CatalogJobIterable:
+    frame: pd.DataFrame
+    channel_col_idxs: list[tuple[str, int, int]]
+    slug_idx: int
+    outcomes: list[int]
+    markets_considered: int
+    total_jobs: int
+
+    def __iter__(self) -> Iterator[_Job]:
+        for row in self.frame.itertuples():
+            slug = row[self.slug_idx]
+            if not slug:
+                continue
+            slug_str = str(slug)
+            for channel, from_idx, to_idx in self.channel_col_idxs:
+                raw_from = row[from_idx]
+                raw_to = row[to_idx]
+                if raw_from is None or raw_to is None:
+                    continue
+                try:
+                    if pd.isna(raw_from) or pd.isna(raw_to):
+                        continue
+                except (ValueError, TypeError):
+                    pass
+                start = (
+                    raw_from.date()
+                    if hasattr(raw_from, "date")
+                    else _parse_date_bound(str(raw_from))
+                )
+                end = raw_to.date() if hasattr(raw_to, "date") else _parse_date_bound(str(raw_to))
+                if start is None or end is None or start > end:
+                    continue
+                days = _date_range(start, end)
+                for outcome_id in self.outcomes:
+                    for day in days:
+                        yield _Job(
+                            market_slug=slug_str,
+                            outcome_segment=str(outcome_id),
+                            outcome_id=outcome_id,
+                            outcome=None,
+                            channel=channel,
+                            day=day,
+                        )
 
 
 @dataclass
@@ -555,52 +600,25 @@ def _fetch_markets_dataset(base_url: str, timeout_secs: int) -> pd.DataFrame:
     return pd.read_parquet(io.BytesIO(payload))
 
 
-def _build_async_http_client(*, concurrency: int, timeout_secs: int) -> httpx.AsyncClient:
-    """Shared pooled async HTTP client.
-
-    Sized so every in-flight request can hold a keepalive slot to both the
-    Telonex API host and the redirected-to S3 host simultaneously. `follow_
-    redirects=True` collapses the "302 from api.telonex.io → GET s3" into one
-    logical `client.get()` call; httpx strips `Authorization` on cross-origin
-    redirect automatically.
-    """
-    # Two host buckets (api + s3) × some slack for races.
-    pool_ceiling = max(concurrency * 2 + 32, 128)
-    limits = httpx.Limits(
-        max_connections=pool_ceiling,
-        max_keepalive_connections=pool_ceiling,
-        keepalive_expiry=120.0,
-    )
-    timeout = httpx.Timeout(
-        connect=min(30.0, float(timeout_secs)),
-        read=float(timeout_secs),
-        write=float(timeout_secs),
-        # Pool acquire waits can be longer — large concurrency bursts briefly
-        # queue before a slot frees up.
-        pool=float(max(timeout_secs * 2, 60)),
-    )
-    return httpx.AsyncClient(
-        http2=False,  # S3 speaks HTTP/1.1; h2 on API saves little
-        follow_redirects=True,
-        limits=limits,
-        timeout=timeout,
-        headers={"User-Agent": _USER_AGENT},
-    )
-
-
-def _iter_days_for_market(
-    row: pd.Series,
+def _iter_days_for_market_tuple(
+    row,
     *,
-    channel: str,
+    from_idx: int,
+    to_idx: int,
     window_start: date | None,
     window_end: date | None,
 ) -> list[date]:
-    from_col, to_col = _CHANNEL_COLUMN_SUFFIX[channel]
-    raw_from = row.get(from_col)
-    raw_to = row.get(to_col)
-    # pd.isna catches NaT/NaN returned by Series.get for null cells — a plain
-    # `in (None, "")` check misses those and crashes _parse_date_bound on "nan".
-    if pd.isna(raw_from) or pd.isna(raw_to) or raw_from in (None, "") or raw_to in (None, ""):
+    raw_from = row[from_idx]
+    raw_to = row[to_idx]
+    if raw_from is None or raw_to is None:
+        return []
+    # pd.isna catches NaT/NaN — a plain `in (None, "")` check misses those.
+    try:
+        if pd.isna(raw_from) or pd.isna(raw_to):
+            return []
+    except (ValueError, TypeError):
+        pass
+    if raw_from in (None, "") or raw_to in (None, ""):
         return []
     start = _parse_date_bound(raw_from)
     end = _parse_date_bound(raw_to)
@@ -615,7 +633,7 @@ def _iter_days_for_market(
     return _date_range(start, end)
 
 
-def _build_jobs_from_catalog(
+def _iter_jobs_from_catalog(
     *,
     markets: pd.DataFrame,
     channels: list[str],
@@ -625,47 +643,91 @@ def _build_jobs_from_catalog(
     status_filter: str | None,
     slug_filter: set[str] | None,
     show_progress: bool,
-) -> tuple[list[_Job], int]:
-    jobs: list[_Job] = []
-    considered = 0
-    frame = markets
+) -> _CatalogJobIterable:
+    """Plan catalog job metadata eagerly, then stream jobs on iteration.
+
+    Uses itertuples() instead of iterrows() for ~10-100x faster row iteration.
+    Drops unused columns upfront so the 5+ GiB catalog shrinks before
+    the reusable iterable holds a reference to the slim frame.
+    """
+    if show_progress:
+        print("[telonex] Planning Telonex jobs from catalog...", file=sys.stderr)
+
+    # Collect only the columns we need: slug, status, and per-channel date bounds.
+    needed_cols: list[str] = ["slug"]
+    if status_filter is not None:
+        needed_cols.append("status")
+    for ch in channels:
+        from_col, to_col = _CHANNEL_COLUMN_SUFFIX[ch]
+        needed_cols.extend([from_col, to_col])
+    # Keep only columns that actually exist in the frame.
+    frame = markets[[c for c in needed_cols if c in markets.columns]].copy()
     if status_filter is not None:
         frame = frame[frame["status"] == status_filter]
     if slug_filter is not None:
         frame = frame[frame["slug"].isin(slug_filter)]
-    rows = frame.iterrows()
-    if show_progress:
-        rows = tqdm(
-            rows,
-            total=len(frame),
-            desc="Planning Telonex jobs",
-            unit="market",
-            leave=False,
-        )
-    for _index, row in rows:
-        slug = row.get("slug")
-        if not slug:
+    if "slug" in frame.columns:
+        frame = frame[frame["slug"].notna()]
+        frame = frame[frame["slug"].astype(str) != ""]
+    frame = frame.copy()
+
+    # Vectorized date parsing: convert all date columns to normalized timestamps
+    # upfront so the per-row loop does zero datetime parsing (the main bottleneck).
+    window_start_ts = pd.Timestamp(window_start, tz=UTC) if window_start is not None else None
+    window_end_ts = pd.Timestamp(window_end, tz=UTC) if window_end is not None else None
+    for ch in channels:
+        from_col, to_col = _CHANNEL_COLUMN_SUFFIX[ch]
+        for col in (from_col, to_col):
+            if col in frame.columns:
+                frame[col] = pd.to_datetime(
+                    frame[col], utc=True, errors="coerce", format="mixed"
+                ).dt.normalize()
+        if from_col in frame.columns and to_col in frame.columns:
+            if window_start_ts is not None:
+                clip_start = frame[from_col].notna() & (frame[from_col] < window_start_ts)
+                frame.loc[clip_start, from_col] = window_start_ts
+            if window_end_ts is not None:
+                clip_end = frame[to_col].notna() & (frame[to_col] > window_end_ts)
+                frame.loc[clip_end, to_col] = window_end_ts
+
+    # Pre-compute column indexes for itertuples (namedtuple attr positions).
+    # itertuples()[0] is the Index; column values start at [1].
+    col_index = {col: i + 1 for i, col in enumerate(frame.columns)}
+    slug_idx = col_index.get("slug")
+    channel_col_idxs: list[tuple[str, int, int]] = []
+    for ch in channels:
+        from_col, to_col = _CHANNEL_COLUMN_SUFFIX[ch]
+        from_idx = col_index.get(from_col)
+        to_idx = col_index.get(to_col)
+        if from_idx is not None and to_idx is not None:
+            channel_col_idxs.append((ch, from_idx, to_idx))
+    if slug_idx is None:
+        raise ValueError("Telonex markets catalog is missing required 'slug' column.")
+
+    total_jobs = 0
+    for ch, _from_idx, _to_idx in channel_col_idxs:
+        from_col, to_col = _CHANNEL_COLUMN_SUFFIX[ch]
+        valid = frame[from_col].notna() & frame[to_col].notna() & (frame[from_col] <= frame[to_col])
+        if not valid.any():
             continue
-        considered += 1
-        for channel in channels:
-            days = _iter_days_for_market(
-                row, channel=channel, window_start=window_start, window_end=window_end
-            )
-            if not days:
-                continue
-            for outcome_id in outcomes:
-                for day in days:
-                    jobs.append(
-                        _Job(
-                            market_slug=str(slug),
-                            outcome_segment=str(outcome_id),
-                            outcome_id=outcome_id,
-                            outcome=None,
-                            channel=channel,
-                            day=day,
-                        )
-                    )
-    return jobs, considered
+        day_counts = (frame.loc[valid, to_col] - frame.loc[valid, from_col]).dt.days + 1
+        total_jobs += int(day_counts.sum()) * len(outcomes)
+
+    plan = _CatalogJobIterable(
+        frame=frame,
+        channel_col_idxs=channel_col_idxs,
+        slug_idx=slug_idx,
+        outcomes=outcomes,
+        markets_considered=len(frame),
+        total_jobs=total_jobs,
+    )
+    if show_progress:
+        print(
+            f"[telonex] Planned {plan.total_jobs:,} day job(s) across "
+            f"{plan.markets_considered:,} market(s).",
+            file=sys.stderr,
+        )
+    return plan
 
 
 def _build_jobs_from_explicit(
@@ -728,89 +790,127 @@ def _is_transient(exc: BaseException) -> bool:
 
 async def _download_day_bytes_with_retry_async(
     *,
-    client: httpx.AsyncClient,
+    timeout_secs: int,
     url: str,
     api_key: str,
     stop_event: asyncio.Event,
     progress_cb,
     max_retries: int,
+    total_timeout_secs: float | None = None,
 ) -> bytes:
+    """Fetch with retries. total_timeout_secs caps the entire attempt
+    sequence (including backoff waits); None means no outer cap."""
     last_exc: BaseException | None = None
-    for attempt in range(max_retries):
-        if stop_event.is_set():
-            raise _CancelledError()
-        try:
-            return await _download_day_bytes_async(
-                client=client,
-                url=url,
-                api_key=api_key,
-                stop_event=stop_event,
-                progress_cb=progress_cb,
-            )
-        except _CancelledError:
-            raise
-        except _FakeHTTPError as exc:
-            if exc.code == 404:
-                raise
-            last_exc = exc
-            if not _is_transient(exc) or attempt == max_retries - 1:
-                raise
-        except Exception as exc:
-            last_exc = exc
-            if not _is_transient(exc) or attempt == max_retries - 1:
-                raise
-        backoff = _RETRY_BACKOFF_BASE_SECS * (2**attempt) + random.uniform(0, 0.5)
-        deadline = time.monotonic() + backoff
-        while time.monotonic() < deadline:
+    deadline = time.monotonic() + total_timeout_secs if total_timeout_secs else None
+
+    async def _attempt():
+        nonlocal last_exc
+        for attempt in range(max_retries):
             if stop_event.is_set():
                 raise _CancelledError()
-            await asyncio.sleep(min(0.25, deadline - time.monotonic()))
-    if last_exc is not None:
-        raise last_exc
-    raise RuntimeError("retry loop exited without success or exception")
+            if deadline is not None and time.monotonic() > deadline:
+                raise asyncio.TimeoutError()
+            try:
+                return await _download_day_bytes_async(
+                    timeout_secs=timeout_secs,
+                    url=url,
+                    api_key=api_key,
+                    stop_event=stop_event,
+                    progress_cb=progress_cb,
+                )
+            except _CancelledError:
+                raise
+            except _FakeHTTPError as exc:
+                if exc.code == 404:
+                    raise
+                last_exc = exc
+                if not _is_transient(exc) or attempt == max_retries - 1:
+                    raise
+            except Exception as exc:
+                last_exc = exc
+                if not _is_transient(exc) or attempt == max_retries - 1:
+                    raise
+            backoff = min(
+                _RETRY_BACKOFF_BASE_SECS * (2**attempt) + random.uniform(0, 0.5),
+                30.0,
+            )
+            sleep_end = time.monotonic() + backoff
+            if deadline is not None:
+                sleep_end = min(sleep_end, deadline)
+            while time.monotonic() < sleep_end:
+                if stop_event.is_set():
+                    raise _CancelledError()
+                await asyncio.sleep(min(0.25, sleep_end - time.monotonic()))
+        if last_exc is not None:
+            raise last_exc
+        raise RuntimeError("retry loop exited without success or exception")
+
+    if total_timeout_secs is not None:
+        try:
+            return await asyncio.wait_for(_attempt(), timeout=total_timeout_secs)
+        except asyncio.TimeoutError:
+            raise _FakeHTTPError(408, f"total timeout ({total_timeout_secs:.0f}s)")
+    return await _attempt()
 
 
 async def _download_day_bytes_async(
     *,
-    client: httpx.AsyncClient,
+    timeout_secs: int,
     url: str,
     api_key: str,
     stop_event: asyncio.Event,
     progress_cb,
 ) -> bytes:
-    """Fetch one day-file via the shared pooled async client.
+    """Fetch one day-file using a per-request async client.
 
     The Telonex API endpoint responds with a 302 to an S3 presigned URL.
-    `follow_redirects=True` on the client collapses this to one logical GET;
-    httpx strips `Authorization` on cross-origin redirect so the token never
-    leaks to S3."""
+    `follow_redirects=True` collapses the redirect; httpx strips
+    `Authorization` on cross-origin redirect so the token never leaks to S3.
+
+    A fresh client per request avoids the CLOSE-WAIT socket leak that
+    plagues httpx's shared connection pool when S3 closes connections
+    after each transfer.
+    """
     if stop_event.is_set():
         raise _CancelledError()
     headers = {"Authorization": f"Bearer {api_key}"}
-    async with client.stream("GET", url, headers=headers) as response:
-        if response.status_code == 404:
-            raise _FakeHTTPError(404, "not found")
-        if response.status_code >= 400:
-            try:
-                await response.aread()
-            except Exception:
-                pass
-            raise _FakeHTTPError(response.status_code, f"HTTP {response.status_code}")
-        total_header = response.headers.get("Content-Length")
-        total_bytes = int(total_header) if total_header else None
-        chunks: list[bytes] = []
-        downloaded = 0
-        progress_cb(0, total_bytes, False)
-        async for chunk in response.aiter_bytes(chunk_size=_DOWNLOAD_CHUNK_SIZE):
-            if stop_event.is_set():
-                raise _CancelledError()
-            if not chunk:
-                continue
-            chunks.append(chunk)
-            downloaded += len(chunk)
-            progress_cb(downloaded, total_bytes, False)
-        progress_cb(downloaded, total_bytes, True)
+    client = httpx.AsyncClient(
+        follow_redirects=True,
+        timeout=httpx.Timeout(
+            connect=min(30.0, float(timeout_secs)),
+            read=float(timeout_secs),
+            write=float(timeout_secs),
+            pool=float(max(timeout_secs * 2, 60)),
+        ),
+        headers={"User-Agent": _USER_AGENT},
+    )
+    try:
+        async with client.stream("GET", url, headers=headers) as response:
+            if response.status_code == 404:
+                raise _FakeHTTPError(404, "not found")
+            if response.status_code >= 400:
+                try:
+                    await response.aread()
+                except Exception:
+                    pass
+                raise _FakeHTTPError(response.status_code, f"HTTP {response.status_code}")
+            total_header = response.headers.get("Content-Length")
+            total_bytes = int(total_header) if total_header else None
+            chunks: list[bytes] = []
+            downloaded = 0
+            progress_cb(0, total_bytes, False)
+            async for chunk in response.aiter_bytes(chunk_size=_DOWNLOAD_CHUNK_SIZE):
+                if stop_event.is_set():
+                    raise _CancelledError()
+                if not chunk:
+                    continue
+                chunks.append(chunk)
+                downloaded += len(chunk)
+                progress_cb(downloaded, total_bytes, False)
+            progress_cb(downloaded, total_bytes, True)
         return b"".join(chunks)
+    finally:
+        await client.aclose()
 
 
 @dataclass
@@ -860,7 +960,6 @@ class _ActiveRegistry:
 def _postfix_text(
     *,
     downloaded_days: int,
-    skipped: int,
     missing: int,
     failed: int,
     bytes_total: int,
@@ -869,7 +968,6 @@ def _postfix_text(
     now = time.monotonic()
     parts = [
         f"ok={downloaded_days}",
-        f"skip={skipped}",
         f"miss={missing}",
         f"fail={failed}",
         _format_bytes(bytes_total),
@@ -892,49 +990,63 @@ def _postfix_text(
 
 def _prune_jobs_against_manifest(
     *,
-    jobs: list[_Job],
+    jobs: Iterable[_Job],
     store: _TelonexParquetStore,
     overwrite: bool,
     show_progress: bool,
-) -> tuple[list[_Job], int]:
+    channels_hint: set[str] | None = None,
+) -> tuple[Iterator[_Job], list[int]]:
+    """Filter out completed/empty days, yielding kept jobs lazily.
+
+    Accepts an iterable (including a generator) so the upstream catalog
+    jobs are never fully materialized. Returns a filtered job iterator
+    plus a mutable skipped counter, which is final after the iterator is consumed.
+    ``channels_hint`` pre-loads manifest keys without iterating jobs.
+    """
     if overwrite:
-        return jobs, 0
+        return iter(jobs), [0]
 
     completed_by_channel: dict[str, set[tuple[str, str, date]]] = {}
     empty_by_channel: dict[str, set[tuple[str, str, date]]] = {}
-    channels = {job.channel for job in jobs}
-    prune_bar = (
-        tqdm(total=len(channels), desc="Loading manifest", unit="ch", leave=False)
-        if show_progress
-        else None
-    )
-    for channel in channels:
+    channel_set = channels_hint or set()
+    if show_progress and channel_set:
+        print(
+            f"[telonex] Loading resume manifest for {len(channel_set):,} channel(s)...",
+            file=sys.stderr,
+        )
+    for channel in channel_set:
         completed_by_channel[channel] = store.completed_keys(channel)
         empty_by_channel[channel] = store.empty_keys(channel)
-        if prune_bar is not None:
-            prune_bar.update(1)
-    if prune_bar is not None:
-        prune_bar.close()
+    if show_progress and channel_set:
+        completed = sum(len(keys) for keys in completed_by_channel.values())
+        empty = sum(len(keys) for keys in empty_by_channel.values())
+        print(
+            f"[telonex] Resume manifest loaded: completed={completed:,} 404s={empty:,}.",
+            file=sys.stderr,
+        )
 
-    pruned: list[_Job] = []
-    skipped = 0
-    iterator = jobs
-    if show_progress:
-        iterator = tqdm(jobs, desc="Filtering resumable jobs", unit="day", leave=False)
-    for job in iterator:
-        key = (job.market_slug, job.outcome_segment, job.day)
-        if key in completed_by_channel.get(job.channel, set()):
-            skipped += 1
-            continue
-        if key in empty_by_channel.get(job.channel, set()):
-            skipped += 1
-            continue
-        pruned.append(job)
-    return pruned, skipped
+    skipped = [0]  # mutable so nested generator can update
+
+    def _filtered() -> Iterator[_Job]:
+        for job in jobs:
+            key = (job.market_slug, job.outcome_segment, job.day)
+            # Lazy-load channel keys on first encounter if not pre-loaded.
+            if job.channel not in completed_by_channel:
+                completed_by_channel[job.channel] = store.completed_keys(job.channel)
+                empty_by_channel[job.channel] = store.empty_keys(job.channel)
+            if key in completed_by_channel.get(job.channel, set()):
+                skipped[0] += 1
+                continue
+            if key in empty_by_channel.get(job.channel, set()):
+                skipped[0] += 1
+                continue
+            yield job
+
+    return _filtered(), skipped  # read [0] after consuming
 
 
 def _run_jobs(
-    jobs: list[_Job],
+    jobs: Iterable[_Job],
     *,
     store: _TelonexParquetStore,
     api_key: str,
@@ -942,6 +1054,7 @@ def _run_jobs(
     timeout_secs: int,
     workers: int,
     show_progress: bool,
+    total_jobs: int | None = None,
     commit_batch_rows: int | None = None,
     commit_batch_secs: float | None = None,
 ) -> tuple[int, int, int, int, int, bool, list[str]]:
@@ -982,28 +1095,20 @@ def _run_jobs(
 
     progress = (
         tqdm(
-            total=len(jobs),
+            total=total_jobs,
             desc="Downloading Telonex days",
             unit="day",
-            bar_format="{l_bar}{bar}| [{elapsed}<{remaining}] {postfix}",
+            bar_format="{desc}: {n_fmt}/{total_fmt} day [{elapsed}] {postfix}",
+            dynamic_ncols=True,
         )
-        if show_progress
-        else None
-    )
-    commit_bar = (
-        tqdm(
-            total=0,
-            desc="Committing rows",
-            unit="row",
-            bar_format="{l_bar}{bar}| [{elapsed}] {n_fmt} rows ({postfix})",
-            leave=False,
-        )
-        if show_progress
+        if show_progress and total_jobs != 0
         else None
     )
 
     state_lock = threading.Lock()
     last_postfix_ts = [0.0]
+    writer_failed = threading.Event()
+    async_stop: asyncio.Event | None = None
 
     def _refresh_postfix(force: bool = False) -> None:
         if progress is None:
@@ -1016,7 +1121,6 @@ def _run_jobs(
         with state_lock:
             text = _postfix_text(
                 downloaded_days=downloaded_days,
-                skipped=0,
                 missing=missing_days,
                 failed=failed_days,
                 bytes_total=bytes_total,
@@ -1044,7 +1148,7 @@ def _run_jobs(
                 raise _CancelledError()
             try:
                 result = stub(
-                    client=http_client,
+                    timeout_secs=timeout_secs,
                     url=url,
                     api_key=api_key,
                     stop_event=stop_event,
@@ -1080,12 +1184,13 @@ def _run_jobs(
         if stub is not None:
             return await _call_stub_with_retry(stub, url, progress_cb)
         return await _download_day_bytes_with_retry_async(
-            client=http_client,
+            timeout_secs=timeout_secs,
             url=url,
             api_key=api_key,
             stop_event=async_stop,
             progress_cb=progress_cb,
             max_retries=_DEFAULT_MAX_RETRIES,
+            total_timeout_secs=float(timeout_secs * 3),
         )
 
     async def _do_one_async(job: _Job) -> _DownloadResult:
@@ -1223,9 +1328,6 @@ def _run_jobs(
                 error=str(exc),
             )
 
-        with state_lock:
-            downloaded_days += 1
-            bytes_total += len(payload)
         return _DownloadResult(
             job=job,
             status="ok",
@@ -1240,7 +1342,7 @@ def _run_jobs(
     last_commit_ts = time.monotonic()
 
     def _flush_pending(force: bool = False) -> None:
-        nonlocal last_commit_ts
+        nonlocal last_commit_ts, downloaded_days, failed_days, bytes_total
         if not pending_for_commit:
             return
         total_pending_rows = sum(
@@ -1254,32 +1356,49 @@ def _run_jobs(
             return
         batch = pending_for_commit[:]
         pending_for_commit.clear()
+        batch_days = len(batch)
+        batch_bytes = sum(entry.bytes_downloaded for entry in batch)
         try:
-            inserted = store.ingest_batch(batch)
+            store.ingest_batch(batch)
         except Exception as exc:  # noqa: BLE001
-            # ingest_batch is atomic — failure means nothing was committed and
-            # the completed_days rows were rolled back, so these days will be
-            # retried on the next run. Log, drop the batch, keep the writer alive.
+            # Do not count fetched bytes as durable results until the writer has
+            # committed the manifest path. A writer failure leaves these days
+            # retryable on the next run, so stop scheduling new work and report
+            # the batch as failed instead of silently losing it behind a
+            # successful summary.
             sample = batch[:3]
             sample_text = ", ".join(
                 f"{r.job.channel}/{r.job.market_slug}/{r.job.day}" for r in sample
             )
+            with state_lock:
+                failed_days += batch_days
+                if len(failed_samples) < 20:
+                    failed_samples.append(
+                        f"writer commit failed for {batch_days} day(s): "
+                        f"{exc.__class__.__name__}: {exc}"
+                    )
+            for result in batch:
+                result.frame = None
             print(
-                f"[telonex] writer: dropped batch of {len(batch)} day(s) after ingest failure "
-                f"({exc.__class__.__name__}: {exc}) — will retry on next run. "
+                f"[telonex] writer: failed to commit batch of {batch_days} day(s) "
+                f"({exc.__class__.__name__}: {exc}) — stopping; retry these days "
+                f"on the next run. "
                 f"Sample: {sample_text}",
                 file=sys.stderr,
             )
+            writer_failed.set()
+            stop_event.set()
+            if async_stop is not None:
+                async_stop.set()
             last_commit_ts = time.monotonic()
             return
+        with state_lock:
+            downloaded_days += batch_days
+            bytes_total += batch_bytes
         last_commit_ts = time.monotonic()
-        if commit_bar is not None:
-            commit_bar.update(inserted)
-            commit_bar.set_postfix_str(f"db={_format_bytes(store.size_bytes())}", refresh=False)
-            commit_bar.refresh()
 
     def _writer() -> None:
-        while not (writer_done.is_set() and result_queue.empty()):
+        while not (writer_done.is_set() and result_queue.empty()) and not writer_failed.is_set():
             try:
                 result = result_queue.get(timeout=0.25)
             except Empty:
@@ -1307,13 +1426,10 @@ def _run_jobs(
     # an OS thread — so we can set this to thousands on a fast network and the
     # only real cost is the connection pool + open sockets.
     concurrency = max(1, workers)
-    http_client: httpx.AsyncClient | None = None
-    async_stop: asyncio.Event | None = None
 
     async def _dispatcher() -> None:
-        nonlocal http_client, async_stop
+        nonlocal async_stop
         async_stop = asyncio.Event()
-        http_client = _build_async_http_client(concurrency=concurrency, timeout_secs=timeout_secs)
 
         # Wire signals → async_stop so Ctrl-C / SIGTERM let in-flight requests
         # drain cleanly. `asyncio.run` swallows the SIGINT KeyboardInterrupt
@@ -1349,16 +1465,16 @@ def _run_jobs(
                 # throttles the dispatcher without starving the event loop or
                 # blocking a thread that couldn't be interrupted on SIGTERM.
                 while True:
+                    if writer_failed.is_set():
+                        return
                     try:
                         result_queue.put_nowait(result)
                         return
                     except Full:
-                        if async_stop.is_set():
-                            return
                         await asyncio.sleep(0.05)
 
             while in_flight:
-                if async_stop.is_set():
+                if async_stop.is_set() or writer_failed.is_set():
                     break
                 done, in_flight = await asyncio.wait(
                     in_flight, timeout=1.0, return_when=asyncio.FIRST_COMPLETED
@@ -1406,14 +1522,7 @@ def _run_jobs(
                     loop.remove_signal_handler(sig)
                 except (NotImplementedError, RuntimeError):
                     pass
-            if http_client is not None:
-                try:
-                    await asyncio.wait_for(http_client.aclose(), timeout=10.0)
-                except asyncio.TimeoutError:
-                    print(
-                        "[telonex] httpx client close timed out — connections abandoned",
-                        file=sys.stderr,
-                    )
+        # Per-request clients close themselves
 
     def _async_stop_signal() -> None:
         # Runs in the event loop thread. Flip both the threading event (writer,
@@ -1445,8 +1554,6 @@ def _run_jobs(
         if progress is not None:
             _refresh_postfix(force=True)
             progress.close()
-        if commit_bar is not None:
-            commit_bar.close()
 
     return (
         downloaded_days,
@@ -1494,6 +1601,17 @@ def download_telonex_days(
         )
     api_key = api_key.strip()
 
+    # Per-request AsyncClient at high concurrency opens many sockets;
+    # raise FD ceiling early so parquet writes don't hit EMFILE.
+    try:
+        import resource
+
+        soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+        target = max(hard, 65536)
+        resource.setrlimit(resource.RLIMIT_NOFILE, (min(target, hard), hard))
+    except (ValueError, OSError, ImportError):
+        pass
+
     normalized_destination = destination.expanduser().resolve()
     normalized_destination.mkdir(parents=True, exist_ok=True)
     store = _TelonexParquetStore(normalized_destination, manifest_name=db_filename)
@@ -1528,7 +1646,7 @@ def download_telonex_days(
                 print(f"Loaded {len(markets):,} markets", file=sys.stderr)
             slug_filter = set(market_slugs) if market_slugs else None
             outcomes = outcomes_for_all or [0, 1]
-            jobs, markets_considered = _build_jobs_from_catalog(
+            catalog_jobs = _iter_jobs_from_catalog(
                 markets=markets,
                 channels=list(channels),
                 outcomes=outcomes,
@@ -1538,6 +1656,10 @@ def download_telonex_days(
                 slug_filter=slug_filter,
                 show_progress=show_progress,
             )
+            jobs_iter = catalog_jobs
+            markets_considered = catalog_jobs.markets_considered
+            planned_jobs = catalog_jobs.total_jobs
+            del markets  # free the full catalog; job iterable holds only the slim frame
         else:
             if not market_slugs:
                 raise ValueError("Either --all-markets or --market-slug is required.")
@@ -1553,7 +1675,7 @@ def download_telonex_days(
                 raise ValueError(
                     f"Empty window: start_date {start_date!r} is after end_date {end_date!r}."
                 )
-            jobs = _build_jobs_from_explicit(
+            jobs_iter = _build_jobs_from_explicit(
                 channels=list(channels),
                 market_slugs=market_slugs,
                 outcome=outcome,
@@ -1562,35 +1684,43 @@ def download_telonex_days(
                 end=window_end,
             )
             markets_considered = len(set(market_slugs))
+            planned_jobs = len(jobs_iter)
 
-        planned_jobs = len(jobs)
-        jobs, skipped_existing = _prune_jobs_against_manifest(
-            jobs=jobs, store=store, overwrite=overwrite, show_progress=show_progress
+        # Prune against manifest.  _skipped_ref[0] is accurate only after
+        # _run_jobs consumes the iterator chain, so we defer those reads.
+        jobs_iter, _skipped_ref = _prune_jobs_against_manifest(
+            jobs=jobs_iter,
+            store=store,
+            overwrite=overwrite,
+            show_progress=show_progress,
+            channels_hint=set(channels),
         )
-        if show_progress and skipped_existing:
-            print(
-                f"Skipping {skipped_existing:,} day-files already recorded in the blob manifest",
-                file=sys.stderr,
-            )
+        _skipped: int | None = None
+        remaining_jobs = planned_jobs
+        if not all_markets:
+            explicit_jobs = list(jobs_iter)
+            jobs_iter = explicit_jobs
+            _skipped = _skipped_ref[0]
+            remaining_jobs = len(explicit_jobs)
 
-        total_jobs = len(jobs)
         if show_progress:
             existing_store_size = store.size_bytes()
             completed_before = sum(len(store.completed_keys(ch)) for ch in channels)
             empty_before = sum(len(store.empty_keys(ch)) for ch in channels)
+            remaining_text = f"remaining={remaining_jobs:,}. " if remaining_jobs is not None else ""
             print(
                 f"[telonex] Resume summary: manifest={db_path} "
                 f"data={store.data_root} total={_format_bytes(existing_store_size)}, "
                 f"completed={completed_before:,} 404s={empty_before:,}, "
-                f"planned={planned_jobs:,} skipping={skipped_existing:,} "
-                f"remaining={total_jobs:,}",
+                f"planned={planned_jobs if planned_jobs is not None else 'streaming'}. "
+                f"{remaining_text}"
+                f"Ctrl-C once to stop gracefully (manifest + parquets stay consistent).",
                 file=sys.stderr,
             )
             print(
                 f"[telonex] Channels={channels} workers={workers} "
                 f"retries={_DEFAULT_MAX_RETRIES} timeout={timeout_secs}s "
-                f"part-roll-at={_format_bytes(_TARGET_PART_BYTES)}. "
-                f"Ctrl-C once to stop gracefully (manifest + parquets stay consistent).",
+                f"part-roll-at={_format_bytes(_TARGET_PART_BYTES)}.",
                 file=sys.stderr,
             )
 
@@ -1603,14 +1733,20 @@ def download_telonex_days(
             interrupted,
             failed_samples,
         ) = _run_jobs(
-            jobs,
+            jobs_iter,
             store=store,
             api_key=api_key,
             base_url=base_url,
             timeout_secs=max(1, timeout_secs),
             workers=max(1, workers),
             show_progress=show_progress,
+            total_jobs=remaining_jobs,
         )
+
+        # Deferred reads: mutable list counters are final now that
+        # _run_jobs has consumed the iterator chain.
+        if _skipped is None:
+            _skipped = _skipped_ref[0]
     finally:
         try:
             store.close()
@@ -1630,9 +1766,11 @@ def download_telonex_days(
         channels=list(channels),
         base_url=base_url.rstrip("/"),
         markets_considered=markets_considered,
-        requested_days=planned_jobs,
+        requested_days=planned_jobs
+        if planned_jobs is not None
+        else downloaded + missing + failed + cancelled + _skipped,
         downloaded_days=downloaded,
-        skipped_existing_days=skipped_existing,
+        skipped_existing_days=_skipped,
         missing_days=missing,
         failed_days=failed,
         cancelled_days=cancelled,
