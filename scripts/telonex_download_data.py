@@ -89,7 +89,18 @@ def main() -> int:
     parser.add_argument("--no-progress", action="store_true")
     parser.add_argument("--timeout-secs", type=int, default=60)
     parser.add_argument(
-        "--workers", type=int, default=16, help="Parallel download workers (default: 16)."
+        "--workers",
+        type=int,
+        default=128,
+        help=(
+            "Concurrent in-flight downloads (default: 128). With the async httpx "
+            "client each in-flight request is a coroutine, not an OS thread, so "
+            "pushing to 256–512 on a high-bandwidth VPS costs only sockets + "
+            "RAM. The real ceiling is usually either network bandwidth or the "
+            "disk-side parquet writer (single thread by design so the blob "
+            "store stays consistent); transient 429/503 are retried "
+            "automatically."
+        ),
     )
     parser.add_argument(
         "--db-filename",

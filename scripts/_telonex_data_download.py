@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import io
 import os
 import random
@@ -7,18 +8,18 @@ import signal
 import sys
 import threading
 import time
-import concurrent.futures
-from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
-from queue import Empty, Queue
+from queue import Empty, Full, Queue
 from socket import timeout as SocketTimeout
-from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
-from urllib.request import HTTPRedirectHandler, Request, build_opener, urlopen
+from urllib.request import Request, urlopen
+from urllib.error import HTTPError as UrllibHTTPError, URLError
 
 import duckdb
+import httpx
 import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -32,14 +33,18 @@ _USER_AGENT = "prediction-market-backtesting/1.0"
 _DEFAULT_API_BASE_URL = "https://api.telonex.io"
 _DEFAULT_CHANNEL = "quotes"
 _EXCHANGE = "polymarket"
-_DOWNLOAD_CHUNK_SIZE = 64 * 1024
+_DOWNLOAD_CHUNK_SIZE = 256 * 1024
 _MANIFEST_FILENAME = "telonex.duckdb"
 _DATA_SUBDIR = "data"
 _TARGET_PART_BYTES = 1 << 30  # 1 GiB uncompressed Arrow before rolling
 _PARQUET_COMPRESSION = "zstd"
 _PARQUET_COMPRESSION_LEVEL = 3
-_DEFAULT_COMMIT_BATCH_ROWS = 250_000
-_DEFAULT_COMMIT_BATCH_SECS = 5.0
+# Keep pending_for_commit small so book_snapshot_full DataFrames don't pin RAM
+# for long. With streaming row-group writes a smaller flush threshold has
+# negligible overhead — the parquet writer stays open across flushes and only
+# rolls the part file when `_TARGET_PART_BYTES` is hit.
+_DEFAULT_COMMIT_BATCH_ROWS = 50_000
+_DEFAULT_COMMIT_BATCH_SECS = 2.0
 _DEFAULT_MAX_RETRIES = 4
 _RETRY_BACKOFF_BASE_SECS = 2.0
 _TRANSIENT_HTTP_CODES = frozenset({408, 425, 429, 500, 502, 503, 504})
@@ -154,7 +159,13 @@ class _Job:
 class _DownloadResult:
     job: _Job
     status: str  # "ok", "skipped", "missing", "failed", "cancelled"
+    # `frame` is populated by the writer thread after parsing `payload` — the
+    # network path only fills `payload`. This keeps GIL-heavy parquet parsing
+    # off the asyncio default executor (which fights ~40 threads plus all the
+    # in-flight download coroutines) and collapses the per-in-flight memory
+    # footprint to a single bytes buffer instead of bytes + parsed DataFrame.
     frame: pd.DataFrame | None
+    payload: bytes | None
     bytes_downloaded: int
     error: str | None
 
@@ -374,17 +385,37 @@ class _TelonexParquetStore:
     def _append_to_partition(
         self, key: tuple[str, int, int], entries: list[_DownloadResult]
     ) -> int:
-        """Write one enriched, concatenated Arrow table to the partition's open
-        part. Rolls on schema mismatch or size threshold. Caller holds lock."""
+        """Concat every entry's frame for the partition into one Arrow table
+        and write it as a single row group. `pd.concat` unifies divergent
+        column sets (filling NaN for missing cols), so the partition keeps a
+        single open writer and only rolls when the unified schema genuinely
+        changes (new column appears) or the part crosses the byte target.
+        Caller holds the lock.
+
+        Prior iterations tried a writer-per-schema-fingerprint to avoid
+        rolls — but pandas→arrow type inference splits identical logical
+        schemas (int64 vs Int64, string vs large_string) into distinct fp
+        buckets, so we ended up with hundreds of tiny files and high
+        per-write metadata overhead. Unifying via pandas first gives one big
+        write call per flush.
+        """
         enriched_frames: list[pd.DataFrame] = []
+        per_entry_rows: list[int] = []
         for entry in entries:
             assert entry.frame is not None
-            enriched = entry.frame.copy()
+            enriched = entry.frame
             enriched["market_slug"] = entry.job.market_slug
             enriched["outcome_segment"] = entry.job.outcome_segment
             enriched_frames.append(enriched)
+            per_entry_rows.append(len(enriched))
+            # Drop the dataclass reference so the DataFrame can be GC'd when
+            # the local `enriched_frames` list is cleared below.
+            entry.frame = None
+
         combined = pd.concat(enriched_frames, ignore_index=True, copy=False)
+        enriched_frames.clear()
         table = pa.Table.from_pandas(combined, preserve_index=False)
+        del combined
 
         part = self._writers.get(key)
         if part is not None and not part.schema.equals(table.schema):
@@ -398,15 +429,18 @@ class _TelonexParquetStore:
             part = self._open_part(key, table.schema)
             self._writers[key] = part
 
+        total_rows = table.num_rows
         part.writer.write_table(table)
         part.bytes_written += table.nbytes
-        for entry in entries:
-            part.pending.append((entry, len(entry.frame) if entry.frame is not None else 0))
+        for entry, row_count in zip(entries, per_entry_rows):
+            part.pending.append((entry, row_count))
+
+        del table
 
         if part.bytes_written >= _TARGET_PART_BYTES:
             self._flush_open_part_locked(key)
 
-        return len(combined)
+        return total_rows
 
     def ingest_batch(self, results: list[_DownloadResult]) -> int:
         """Route a batch of downloads into open Parquet part writers and update
@@ -521,6 +555,39 @@ def _fetch_markets_dataset(base_url: str, timeout_secs: int) -> pd.DataFrame:
     return pd.read_parquet(io.BytesIO(payload))
 
 
+def _build_async_http_client(*, concurrency: int, timeout_secs: int) -> httpx.AsyncClient:
+    """Shared pooled async HTTP client.
+
+    Sized so every in-flight request can hold a keepalive slot to both the
+    Telonex API host and the redirected-to S3 host simultaneously. `follow_
+    redirects=True` collapses the "302 from api.telonex.io → GET s3" into one
+    logical `client.get()` call; httpx strips `Authorization` on cross-origin
+    redirect automatically.
+    """
+    # Two host buckets (api + s3) × some slack for races.
+    pool_ceiling = max(concurrency * 2 + 32, 128)
+    limits = httpx.Limits(
+        max_connections=pool_ceiling,
+        max_keepalive_connections=pool_ceiling,
+        keepalive_expiry=120.0,
+    )
+    timeout = httpx.Timeout(
+        connect=min(30.0, float(timeout_secs)),
+        read=float(timeout_secs),
+        write=float(timeout_secs),
+        # Pool acquire waits can be longer — large concurrency bursts briefly
+        # queue before a slot frees up.
+        pool=float(max(timeout_secs * 2, 60)),
+    )
+    return httpx.AsyncClient(
+        http2=False,  # S3 speaks HTTP/1.1; h2 on API saves little
+        follow_redirects=True,
+        limits=limits,
+        timeout=timeout,
+        headers={"User-Agent": _USER_AGENT},
+    )
+
+
 def _iter_days_for_market(
     row: pd.Series,
     *,
@@ -629,48 +696,42 @@ def _build_jobs_from_explicit(
     return jobs
 
 
-def _resolve_presigned_url(*, url: str, api_key: str, timeout_secs: int) -> str:
-    request = Request(
-        url,
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "User-Agent": _USER_AGENT,
-        },
-        method="GET",
-    )
+class _FakeHTTPError(Exception):
+    """Raised for non-success HTTP status after the shared client follows the
+    302. Carries a `code` field so upstream logic can match on 404."""
 
-    class _NoRedirect(HTTPRedirectHandler):
-        def redirect_request(self, req, fp, code, msg, headers, newurl):  # type: ignore[no-untyped-def]
-            return None
-
-    opener = build_opener(_NoRedirect())
-    try:
-        response = opener.open(request, timeout=timeout_secs)
-        response.close()
-    except HTTPError as exc:
-        if exc.code in (301, 302, 303, 307, 308):
-            location = exc.headers.get("Location")
-            if not location:
-                raise
-            return location
-        raise
-    raise HTTPError(url, 500, "Expected 302 redirect from Telonex", {}, None)  # type: ignore[arg-type]
+    def __init__(self, code: int, message: str) -> None:
+        super().__init__(message)
+        self.code = code
 
 
 def _is_transient(exc: BaseException) -> bool:
-    if isinstance(exc, HTTPError):
+    if isinstance(exc, _FakeHTTPError):
         return exc.code in _TRANSIENT_HTTP_CODES
-    if isinstance(exc, (URLError, SocketTimeout, TimeoutError, ConnectionError)):
+    if isinstance(exc, UrllibHTTPError):
+        return exc.code in _TRANSIENT_HTTP_CODES
+    if isinstance(exc, httpx.HTTPStatusError):
+        return exc.response.status_code in _TRANSIENT_HTTP_CODES
+    if isinstance(
+        exc,
+        (
+            httpx.TransportError,  # covers ConnectError, ReadError, WriteError, PoolTimeout, etc.
+            URLError,
+            SocketTimeout,
+            TimeoutError,
+            ConnectionError,
+        ),
+    ):
         return True
     return False
 
 
-def _download_day_bytes_with_retry(
+async def _download_day_bytes_with_retry_async(
     *,
+    client: httpx.AsyncClient,
     url: str,
     api_key: str,
-    timeout_secs: int,
-    stop_event: threading.Event,
+    stop_event: asyncio.Event,
     progress_cb,
     max_retries: int,
 ) -> bytes:
@@ -679,16 +740,16 @@ def _download_day_bytes_with_retry(
         if stop_event.is_set():
             raise _CancelledError()
         try:
-            return _download_day_bytes(
+            return await _download_day_bytes_async(
+                client=client,
                 url=url,
                 api_key=api_key,
-                timeout_secs=timeout_secs,
                 stop_event=stop_event,
                 progress_cb=progress_cb,
             )
         except _CancelledError:
             raise
-        except HTTPError as exc:
+        except _FakeHTTPError as exc:
             if exc.code == 404:
                 raise
             last_exc = exc
@@ -703,34 +764,48 @@ def _download_day_bytes_with_retry(
         while time.monotonic() < deadline:
             if stop_event.is_set():
                 raise _CancelledError()
-            time.sleep(min(0.25, deadline - time.monotonic()))
+            await asyncio.sleep(min(0.25, deadline - time.monotonic()))
     if last_exc is not None:
         raise last_exc
     raise RuntimeError("retry loop exited without success or exception")
 
 
-def _download_day_bytes(
+async def _download_day_bytes_async(
     *,
+    client: httpx.AsyncClient,
     url: str,
     api_key: str,
-    timeout_secs: int,
-    stop_event: threading.Event,
+    stop_event: asyncio.Event,
     progress_cb,
 ) -> bytes:
-    presigned = _resolve_presigned_url(url=url, api_key=api_key, timeout_secs=timeout_secs)
-    request = Request(presigned, headers={"User-Agent": _USER_AGENT})
-    with urlopen(request, timeout=timeout_secs) as response:
+    """Fetch one day-file via the shared pooled async client.
+
+    The Telonex API endpoint responds with a 302 to an S3 presigned URL.
+    `follow_redirects=True` on the client collapses this to one logical GET;
+    httpx strips `Authorization` on cross-origin redirect so the token never
+    leaks to S3."""
+    if stop_event.is_set():
+        raise _CancelledError()
+    headers = {"Authorization": f"Bearer {api_key}"}
+    async with client.stream("GET", url, headers=headers) as response:
+        if response.status_code == 404:
+            raise _FakeHTTPError(404, "not found")
+        if response.status_code >= 400:
+            try:
+                await response.aread()
+            except Exception:
+                pass
+            raise _FakeHTTPError(response.status_code, f"HTTP {response.status_code}")
         total_header = response.headers.get("Content-Length")
         total_bytes = int(total_header) if total_header else None
         chunks: list[bytes] = []
         downloaded = 0
         progress_cb(0, total_bytes, False)
-        while True:
+        async for chunk in response.aiter_bytes(chunk_size=_DOWNLOAD_CHUNK_SIZE):
             if stop_event.is_set():
                 raise _CancelledError()
-            chunk = response.read(_DOWNLOAD_CHUNK_SIZE)
             if not chunk:
-                break
+                continue
             chunks.append(chunk)
             downloaded += len(chunk)
             progress_cb(downloaded, total_bytes, False)
@@ -883,9 +958,27 @@ def _run_jobs(
     failed_samples: list[str] = []
     interrupted = False
 
+    # `threading.Event` still drives the writer thread. A separate asyncio.Event
+    # lets coroutines see stop requests via `await`.
     stop_event = threading.Event()
     active_registry = _ActiveRegistry()
-    result_queue: Queue[_DownloadResult] = Queue()
+    # Bounded so the writer applies backpressure on the async dispatcher: when
+    # the writer falls behind, the put-side coroutine polls until a slot frees
+    # up, which stops new jobs from being scheduled. Kept small relative to
+    # `workers` because each queued result holds a parsed DataFrame — for
+    # book_snapshot_full those can be 50+ MiB, so 32 × 50 MiB ≈ 1.5 GiB is our
+    # worst-case live memory from the queue alone.
+    result_queue: Queue[_DownloadResult] = Queue(maxsize=32)
+
+    # Dedicated bounded pool for CPU-bound parquet parsing. Using the default
+    # asyncio executor (~40 threads) here creates heavy GIL contention with
+    # the writer thread and the event loop, so we cap parse parallelism at a
+    # small fraction of cpu_count. Also keeps post-parse DataFrames from piling
+    # up faster than the writer can drain them.
+    parse_worker_count = min(4, max(1, (os.cpu_count() or 2)))
+    parse_pool = ThreadPoolExecutor(
+        max_workers=parse_worker_count, thread_name_prefix="telonex-parse"
+    )
 
     progress = (
         tqdm(
@@ -941,13 +1034,72 @@ def _run_jobs(
     heartbeat_thread = threading.Thread(target=_heartbeat, name="telonex-heartbeat", daemon=True)
     heartbeat_thread.start()
 
-    def _do_one(job: _Job) -> _DownloadResult:
+    # Test-monkeypatchable hook: tests patch module-level `_download_day_bytes`
+    # to stub the network with a sync callable. When present, route through
+    # the same retry/backoff logic used by the async network path.
+    async def _call_stub_with_retry(stub, url: str, progress_cb) -> bytes:
+        last_exc: BaseException | None = None
+        for attempt in range(_DEFAULT_MAX_RETRIES):
+            if async_stop.is_set():
+                raise _CancelledError()
+            try:
+                result = stub(
+                    client=http_client,
+                    url=url,
+                    api_key=api_key,
+                    stop_event=stop_event,
+                    progress_cb=progress_cb,
+                )
+                if asyncio.iscoroutine(result):
+                    return await result
+                return result
+            except _CancelledError:
+                raise
+            except _FakeHTTPError as exc:
+                if exc.code == 404:
+                    raise
+                last_exc = exc
+                if not _is_transient(exc) or attempt == _DEFAULT_MAX_RETRIES - 1:
+                    raise
+            except Exception as exc:
+                last_exc = exc
+                if not _is_transient(exc) or attempt == _DEFAULT_MAX_RETRIES - 1:
+                    raise
+            backoff = _RETRY_BACKOFF_BASE_SECS * (2**attempt) + random.uniform(0, 0.5)
+            deadline = time.monotonic() + backoff
+            while time.monotonic() < deadline:
+                if async_stop.is_set():
+                    raise _CancelledError()
+                await asyncio.sleep(min(0.25, deadline - time.monotonic()))
+        if last_exc is not None:
+            raise last_exc
+        raise RuntimeError("retry loop exited without success or exception")
+
+    async def _call_download(job: _Job, url: str, progress_cb) -> bytes:
+        stub = globals().get("_download_day_bytes")
+        if stub is not None:
+            return await _call_stub_with_retry(stub, url, progress_cb)
+        return await _download_day_bytes_with_retry_async(
+            client=http_client,
+            url=url,
+            api_key=api_key,
+            stop_event=async_stop,
+            progress_cb=progress_cb,
+            max_retries=_DEFAULT_MAX_RETRIES,
+        )
+
+    async def _do_one_async(job: _Job) -> _DownloadResult:
         nonlocal missing_days, failed_days, cancelled_days, bytes_total, downloaded_days
-        if stop_event.is_set():
+        if async_stop.is_set():
             with state_lock:
                 cancelled_days += 1
             return _DownloadResult(
-                job=job, status="cancelled", frame=None, bytes_downloaded=0, error=None
+                job=job,
+                status="cancelled",
+                frame=None,
+                payload=None,
+                bytes_downloaded=0,
+                error=None,
             )
 
         token = active_registry.start(job)
@@ -965,38 +1117,57 @@ def _run_jobs(
 
         payload: bytes | None = None
         try:
-            payload = _download_day_bytes_with_retry(
-                url=url,
-                api_key=api_key,
-                timeout_secs=timeout_secs,
-                stop_event=stop_event,
-                progress_cb=_progress_cb,
-                max_retries=_DEFAULT_MAX_RETRIES,
-            )
+            payload = await _call_download(job, url, _progress_cb)
         except _CancelledError:
             active_registry.finish(token)
             with state_lock:
                 cancelled_days += 1
             return _DownloadResult(
-                job=job, status="cancelled", frame=None, bytes_downloaded=0, error=None
+                job=job,
+                status="cancelled",
+                frame=None,
+                payload=None,
+                bytes_downloaded=0,
+                error=None,
             )
-        except HTTPError as exc:
+        except asyncio.CancelledError:
             active_registry.finish(token)
-            if exc.code == 404:
+            with state_lock:
+                cancelled_days += 1
+            return _DownloadResult(
+                job=job,
+                status="cancelled",
+                frame=None,
+                payload=None,
+                bytes_downloaded=0,
+                error=None,
+            )
+        except (_FakeHTTPError, UrllibHTTPError) as exc:
+            active_registry.finish(token)
+            if getattr(exc, "code", None) == 404:
                 store.mark_empty(job, status="404")
                 with state_lock:
                     missing_days += 1
                 return _DownloadResult(
-                    job=job, status="missing", frame=None, bytes_downloaded=0, error="404"
+                    job=job,
+                    status="missing",
+                    frame=None,
+                    payload=None,
+                    bytes_downloaded=0,
+                    error="404",
                 )
+            code = getattr(exc, "code", "?")
             with state_lock:
                 failed_days += 1
                 if len(failed_samples) < 20:
-                    failed_samples.append(
-                        f"{job.market_slug} {job.channel} {job.day} HTTP {exc.code}"
-                    )
+                    failed_samples.append(f"{job.market_slug} {job.channel} {job.day} HTTP {code}")
             return _DownloadResult(
-                job=job, status="failed", frame=None, bytes_downloaded=0, error=f"HTTP {exc.code}"
+                job=job,
+                status="failed",
+                frame=None,
+                payload=None,
+                bytes_downloaded=0,
+                error=f"HTTP {code}",
             )
         except Exception as exc:
             active_registry.finish(token)
@@ -1007,7 +1178,12 @@ def _run_jobs(
                         f"{job.market_slug} {job.channel} {job.day} {exc.__class__.__name__}"
                     )
             return _DownloadResult(
-                job=job, status="failed", frame=None, bytes_downloaded=0, error=str(exc)
+                job=job,
+                status="failed",
+                frame=None,
+                payload=None,
+                bytes_downloaded=0,
+                error=str(exc),
             )
 
         active_registry.finish(token)
@@ -1015,11 +1191,22 @@ def _run_jobs(
             with state_lock:
                 failed_days += 1
             return _DownloadResult(
-                job=job, status="failed", frame=None, bytes_downloaded=0, error="empty-body"
+                job=job,
+                status="failed",
+                frame=None,
+                payload=None,
+                bytes_downloaded=0,
+                error="empty-body",
             )
 
+        # Parse parquet on the dedicated small pool (see `parse_pool`). This
+        # caps parse concurrency so the event loop and writer don't compete
+        # with dozens of parse threads for the GIL, while still allowing a few
+        # parses to run in parallel — letting the writer saturate its
+        # single-thread disk-write budget.
+        loop = asyncio.get_running_loop()
         try:
-            frame = pd.read_parquet(io.BytesIO(payload))
+            frame = await loop.run_in_executor(parse_pool, pd.read_parquet, io.BytesIO(payload))
         except Exception as exc:
             with state_lock:
                 failed_days += 1
@@ -1031,6 +1218,7 @@ def _run_jobs(
                 job=job,
                 status="failed",
                 frame=None,
+                payload=None,
                 bytes_downloaded=len(payload),
                 error=str(exc),
             )
@@ -1039,7 +1227,12 @@ def _run_jobs(
             downloaded_days += 1
             bytes_total += len(payload)
         return _DownloadResult(
-            job=job, status="ok", frame=frame, bytes_downloaded=len(payload), error=None
+            job=job,
+            status="ok",
+            frame=frame,
+            payload=None,
+            bytes_downloaded=len(payload),
+            error=None,
         )
 
     writer_done = threading.Event()
@@ -1092,9 +1285,13 @@ def _run_jobs(
             except Empty:
                 _flush_pending(force=False)
                 continue
-            if result.status in ("ok", "missing"):
-                if result.status == "ok":
-                    pending_for_commit.append(result)
+            if result.status == "ok":
+                # The result already carries a parsed DataFrame (parsing ran
+                # in the dedicated parse pool on the async side, see
+                # `_do_one_async`). Writer just appends and periodically flushes.
+                pending_for_commit.append(result)
+                _flush_pending(force=False)
+            elif result.status == "missing":
                 _flush_pending(force=False)
             if progress is not None:
                 progress.update(1)
@@ -1104,69 +1301,147 @@ def _run_jobs(
     writer_thread = threading.Thread(target=_writer, name="telonex-writer", daemon=True)
     writer_thread.start()
 
-    try:
-        if workers <= 1:
+    # --- async dispatch ---
+    # `workers` is the concurrency ceiling: that many downloads are in flight
+    # simultaneously. A coroutine waiting on a 302 is a few hundred bytes, not
+    # an OS thread — so we can set this to thousands on a fast network and the
+    # only real cost is the connection pool + open sockets.
+    concurrency = max(1, workers)
+    http_client: httpx.AsyncClient | None = None
+    async_stop: asyncio.Event | None = None
+
+    async def _dispatcher() -> None:
+        nonlocal http_client, async_stop
+        async_stop = asyncio.Event()
+        http_client = _build_async_http_client(concurrency=concurrency, timeout_secs=timeout_secs)
+
+        # Wire signals → async_stop so Ctrl-C / SIGTERM let in-flight requests
+        # drain cleanly. `asyncio.run` swallows the SIGINT KeyboardInterrupt
+        # otherwise, leaving partial downloads in flight.
+        loop = asyncio.get_running_loop()
+        installed: list[int] = []
+        for sig in (signal.SIGINT, signal.SIGTERM):
             try:
-                for job in jobs:
-                    if stop_event.is_set():
-                        break
-                    result_queue.put(_do_one(job))
-            except KeyboardInterrupt:
-                interrupted = True
-                stop_event.set()
-                print(
-                    "\n[telonex] Ctrl-C received — flushing pending rows to the Parquet store. "
-                    "Press Ctrl-C again to force-exit (risk losing in-flight day).",
-                    file=sys.stderr,
-                )
-        else:
-            # Bounded-producer pattern: keep at most `workers * 3` futures in flight
-            # so memory stays flat even when `jobs` has tens of millions of entries.
-            in_flight_limit = max(workers * 3, workers + 2)
-            with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="telonex-dl") as pool:
-                job_iter = iter(jobs)
-                in_flight: set = set()
+                loop.add_signal_handler(sig, _async_stop_signal)
+                installed.append(sig)
+            except (NotImplementedError, RuntimeError):
+                # add_signal_handler is main-thread only and unavailable on Windows
+                pass
+
+        def _async_stop_signal_local() -> None:
+            pass  # placeholder so closure uses outer scope
+
+        try:
+            job_iter = iter(jobs)
+            in_flight: set[asyncio.Task] = set()
+            # Prime: launch up to `concurrency` tasks at once. The semaphore
+            # lives inside each task (via async_stop check) — we don't need
+            # one because we directly cap the set size.
+            for _ in range(concurrency):
                 try:
-                    for _ in range(in_flight_limit):
+                    j = next(job_iter)
+                except StopIteration:
+                    break
+                in_flight.add(asyncio.create_task(_do_one_async(j)))
+
+            async def _handoff(result: _DownloadResult) -> None:
+                # Cooperative put: poll the bounded queue so a slow writer
+                # throttles the dispatcher without starving the event loop or
+                # blocking a thread that couldn't be interrupted on SIGTERM.
+                while True:
+                    try:
+                        result_queue.put_nowait(result)
+                        return
+                    except Full:
+                        if async_stop.is_set():
+                            return
+                        await asyncio.sleep(0.05)
+
+            while in_flight:
+                if async_stop.is_set():
+                    break
+                done, in_flight = await asyncio.wait(
+                    in_flight, timeout=1.0, return_when=asyncio.FIRST_COMPLETED
+                )
+                for finished in done:
+                    try:
+                        result = finished.result()
+                    except asyncio.CancelledError:
+                        continue
+                    except Exception as exc:
+                        print(f"[telonex] worker raised {exc!r}", file=sys.stderr)
+                        continue
+                    await _handoff(result)
+                if not async_stop.is_set():
+                    for _ in range(len(done)):
                         try:
-                            job = next(job_iter)
+                            j = next(job_iter)
                         except StopIteration:
                             break
-                        in_flight.add(pool.submit(_do_one, job))
-                    while in_flight:
-                        if stop_event.is_set():
-                            break
-                        done, in_flight = concurrent.futures.wait(
-                            in_flight, timeout=1.0, return_when=FIRST_COMPLETED
-                        )
-                        for finished in done:
-                            try:
-                                result_queue.put(finished.result())
-                            except Exception as exc:  # noqa: BLE001
-                                print(f"[telonex] worker raised {exc!r}", file=sys.stderr)
-                        if not stop_event.is_set():
-                            for _ in range(len(done)):
-                                try:
-                                    job = next(job_iter)
-                                except StopIteration:
-                                    break
-                                in_flight.add(pool.submit(_do_one, job))
-                except KeyboardInterrupt:
-                    interrupted = True
-                    stop_event.set()
+                        in_flight.add(asyncio.create_task(_do_one_async(j)))
+
+            # Drain remaining in-flight on stop.
+            if in_flight:
+                for task in in_flight:
+                    task.cancel()
+                try:
+                    results = await asyncio.wait_for(
+                        asyncio.gather(*in_flight, return_exceptions=True),
+                        timeout=15.0,
+                    )
+                except asyncio.TimeoutError:
+                    stranded = sum(1 for t in in_flight if not t.done())
                     print(
-                        "\n[telonex] Ctrl-C received — finishing in-flight downloads then "
-                        "flushing pending rows to the Parquet store. Press Ctrl-C again to "
-                        "force-exit (risk losing in-flight day).",
+                        f"[telonex] {stranded} task(s) still in flight after 15s drain "
+                        "— forcing close",
                         file=sys.stderr,
                     )
-                    for future in in_flight:
-                        future.cancel()
+                else:
+                    for r in results:
+                        if isinstance(r, _DownloadResult):
+                            await _handoff(r)
+        finally:
+            for sig in installed:
+                try:
+                    loop.remove_signal_handler(sig)
+                except (NotImplementedError, RuntimeError):
+                    pass
+            if http_client is not None:
+                try:
+                    await asyncio.wait_for(http_client.aclose(), timeout=10.0)
+                except asyncio.TimeoutError:
+                    print(
+                        "[telonex] httpx client close timed out — connections abandoned",
+                        file=sys.stderr,
+                    )
+
+    def _async_stop_signal() -> None:
+        # Runs in the event loop thread. Flip both the threading event (writer,
+        # retry loops still inspect it) and the asyncio event (coroutines).
+        nonlocal interrupted
+        if not stop_event.is_set():
+            interrupted = True
+            print(
+                "\n[telonex] Signal received — draining in-flight downloads then "
+                "flushing pending rows. Send again to force-exit.",
+                file=sys.stderr,
+            )
+        stop_event.set()
+        if async_stop is not None:
+            async_stop.set()
+
+    try:
+        try:
+            asyncio.run(_dispatcher())
+        except KeyboardInterrupt:
+            interrupted = True
+            stop_event.set()
     finally:
         writer_done.set()
         writer_thread.join(timeout=60.0)
         heartbeat_stop.set()
         heartbeat_thread.join(timeout=2.0)
+        parse_pool.shutdown(wait=True, cancel_futures=True)
         if progress is not None:
             _refresh_postfix(force=True)
             progress.close()
