@@ -105,11 +105,19 @@ def main() -> int:
         help=(
             "Concurrent in-flight downloads (default: 128). With the async httpx "
             "client each in-flight request is a coroutine, not an OS thread, so "
-            "pushing to 256–512 on a high-bandwidth VPS costs only sockets + "
-            "RAM. The real ceiling is usually either network bandwidth or the "
-            "disk-side parquet writer (single thread by design so the blob "
-            "store stays consistent); transient 429/503 are retried "
-            "automatically."
+            "128 is usually the useful ceiling for the consolidated blob writer. "
+            "Try 64 or 256 only when benchmarking your host; transient 429/503 "
+            "are retried automatically."
+        ),
+    )
+    parser.add_argument(
+        "--parse-workers",
+        type=int,
+        default=None,
+        help=(
+            "Concurrent Arrow parquet decode workers (default: min(8, cpu_count); "
+            "also configurable with TELONEX_PARSE_WORKERS). Increase only when "
+            "RAM headroom is available."
         ),
     )
     parser.add_argument(
@@ -141,6 +149,7 @@ def main() -> int:
             recheck_empty_after_days=(
                 None if args.recheck_empty_after_days < 0 else args.recheck_empty_after_days
             ),
+            parse_workers=args.parse_workers,
         )
     except KeyboardInterrupt:
         # SIGINT/SIGTERM landed in a blocking call outside the job loop (usually

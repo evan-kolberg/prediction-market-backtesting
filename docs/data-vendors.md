@@ -279,13 +279,17 @@ book-snapshot source and derive 5-level or 25-level views from it when needed;
 downloading `book_snapshot_5` and `book_snapshot_25` alongside
 `book_snapshot_full` duplicates the same book-state family.
 
-The default `--workers 128` is the in-flight coroutine ceiling in the
-async `httpx` pool. On a bandwidth-heavy VPS push this to `256`–`512`
-(each slot is a coroutine + socket, not an OS thread); transient
-`408/425/429/5xx` responses retry with exponential backoff, and the
-single-thread Parquet writer is the usual practical bottleneck. Hit
-`Ctrl-C` once to stop gracefully; the same command resumes. Five interrupt
-signals are required to force-exit before the graceful drain finishes.
+The default `--workers 128` is the in-flight coroutine ceiling in the shared
+async `httpx` pool. The downloader decodes day Parquet payloads directly into
+Arrow tables and writes consolidated ~1 GiB blob parts; it does not create
+millions of tiny day files. On a fast host, benchmark `--workers 64`, `128`,
+and `256` before scaling up because high concurrency can hit socket/file
+descriptor pressure or outrun the single consolidated Parquet writer.
+`--parse-workers` controls the bounded Arrow decode pool (default:
+`min(8, cpu_count)`, also configurable with `TELONEX_PARSE_WORKERS`). Transient
+`408/425/429/5xx` responses retry with exponential backoff. Hit `Ctrl-C` once
+to stop gracefully; the same command resumes. Five interrupt signals are
+required to force-exit before the graceful drain finishes.
 
 The downloader fetches the Telonex markets catalog on every run, so newly
 listed markets and extended channel availability windows are planned on resume.
