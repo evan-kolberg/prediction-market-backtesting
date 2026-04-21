@@ -638,8 +638,18 @@ def _iter_jobs_from_catalog(
     Read considered_ref[0] after the iterator is consumed.
 
     Uses itertuples() instead of iterrows() for ~10-100x faster row iteration.
+    Drops unused columns upfront so the 5+ GiB catalog shrinks before
+    the generator holds a reference to the slim frame.
     """
-    frame = markets
+    # Collect only the columns we need: slug, status, and per-channel date bounds.
+    needed_cols: list[str] = ["slug"]
+    if status_filter is not None:
+        needed_cols.append("status")
+    for ch in channels:
+        from_col, to_col = _CHANNEL_COLUMN_SUFFIX[ch]
+        needed_cols.extend([from_col, to_col])
+    # Keep only columns that actually exist in the frame.
+    frame = markets[[c for c in needed_cols if c in markets.columns]].copy()
     if status_filter is not None:
         frame = frame[frame["status"] == status_filter]
     if slug_filter is not None:
@@ -769,40 +779,61 @@ async def _download_day_bytes_with_retry_async(
     stop_event: asyncio.Event,
     progress_cb,
     max_retries: int,
+    total_timeout_secs: float | None = None,
 ) -> bytes:
+    """Fetch with retries. total_timeout_secs caps the entire attempt
+    sequence (including backoff waits); None means no outer cap."""
     last_exc: BaseException | None = None
-    for attempt in range(max_retries):
-        if stop_event.is_set():
-            raise _CancelledError()
-        try:
-            return await _download_day_bytes_async(
-                client=client,
-                url=url,
-                api_key=api_key,
-                stop_event=stop_event,
-                progress_cb=progress_cb,
-            )
-        except _CancelledError:
-            raise
-        except _FakeHTTPError as exc:
-            if exc.code == 404:
-                raise
-            last_exc = exc
-            if not _is_transient(exc) or attempt == max_retries - 1:
-                raise
-        except Exception as exc:
-            last_exc = exc
-            if not _is_transient(exc) or attempt == max_retries - 1:
-                raise
-        backoff = _RETRY_BACKOFF_BASE_SECS * (2**attempt) + random.uniform(0, 0.5)
-        deadline = time.monotonic() + backoff
-        while time.monotonic() < deadline:
+    deadline = time.monotonic() + total_timeout_secs if total_timeout_secs else None
+
+    async def _attempt():
+        nonlocal last_exc
+        for attempt in range(max_retries):
             if stop_event.is_set():
                 raise _CancelledError()
-            await asyncio.sleep(min(0.25, deadline - time.monotonic()))
-    if last_exc is not None:
-        raise last_exc
-    raise RuntimeError("retry loop exited without success or exception")
+            if deadline is not None and time.monotonic() > deadline:
+                raise asyncio.TimeoutError()
+            try:
+                return await _download_day_bytes_async(
+                    client=client,
+                    url=url,
+                    api_key=api_key,
+                    stop_event=stop_event,
+                    progress_cb=progress_cb,
+                )
+            except _CancelledError:
+                raise
+            except _FakeHTTPError as exc:
+                if exc.code == 404:
+                    raise
+                last_exc = exc
+                if not _is_transient(exc) or attempt == max_retries - 1:
+                    raise
+            except Exception as exc:
+                last_exc = exc
+                if not _is_transient(exc) or attempt == max_retries - 1:
+                    raise
+            backoff = min(
+                _RETRY_BACKOFF_BASE_SECS * (2**attempt) + random.uniform(0, 0.5),
+                30.0,
+            )
+            sleep_end = time.monotonic() + backoff
+            if deadline is not None:
+                sleep_end = min(sleep_end, deadline)
+            while time.monotonic() < sleep_end:
+                if stop_event.is_set():
+                    raise _CancelledError()
+                await asyncio.sleep(min(0.25, sleep_end - time.monotonic()))
+        if last_exc is not None:
+            raise last_exc
+        raise RuntimeError("retry loop exited without success or exception")
+
+    if total_timeout_secs is not None:
+        try:
+            return await asyncio.wait_for(_attempt(), timeout=total_timeout_secs)
+        except asyncio.TimeoutError:
+            raise _FakeHTTPError(408, f"total timeout ({total_timeout_secs:.0f}s)")
+    return await _attempt()
 
 
 async def _download_day_bytes_async(
@@ -1132,6 +1163,7 @@ def _run_jobs(
             stop_event=async_stop,
             progress_cb=progress_cb,
             max_retries=_DEFAULT_MAX_RETRIES,
+            total_timeout_secs=float(timeout_secs * 3),
         )
 
     async def _do_one_async(job: _Job) -> _DownloadResult:
