@@ -26,9 +26,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 from tqdm.auto import tqdm
 
-from prediction_market_extensions.backtesting.data_sources.telonex import (
-    TELONEX_API_KEY_ENV,
-)
+TELONEX_API_KEY_ENV = "TELONEX_API_KEY"
 
 _USER_AGENT = "prediction-market-backtesting/1.0"
 _DEFAULT_API_BASE_URL = "https://api.telonex.io"
