@@ -587,19 +587,25 @@ def _build_async_http_client(*, concurrency: int, timeout_secs: int) -> httpx.As
     )
 
 
-def _iter_days_for_market(
-    row: pd.Series,
+def _iter_days_for_market_tuple(
+    row,
     *,
-    channel: str,
+    from_idx: int,
+    to_idx: int,
     window_start: date | None,
     window_end: date | None,
 ) -> list[date]:
-    from_col, to_col = _CHANNEL_COLUMN_SUFFIX[channel]
-    raw_from = row.get(from_col)
-    raw_to = row.get(to_col)
-    # pd.isna catches NaT/NaN returned by Series.get for null cells — a plain
-    # `in (None, "")` check misses those and crashes _parse_date_bound on "nan".
-    if pd.isna(raw_from) or pd.isna(raw_to) or raw_from in (None, "") or raw_to in (None, ""):
+    raw_from = row[from_idx]
+    raw_to = row[to_idx]
+    if raw_from is None or raw_to is None:
+        return []
+    # pd.isna catches NaT/NaN — a plain `in (None, "")` check misses those.
+    try:
+        if pd.isna(raw_from) or pd.isna(raw_to):
+            return []
+    except (ValueError, TypeError):
+        pass
+    if raw_from in (None, "") or raw_to in (None, ""):
         return []
     start = _parse_date_bound(raw_from)
     end = _parse_date_bound(raw_to)
@@ -630,39 +636,63 @@ def _iter_jobs_from_catalog(
     Returns (job_iterator, markets_considered_ref) so the caller can report
     the count without materializing the full job list (~66M entries => ~12 GiB).
     Read considered_ref[0] after the iterator is consumed.
+
+    Uses itertuples() instead of iterrows() for ~10-100x faster row iteration.
     """
     frame = markets
     if status_filter is not None:
         frame = frame[frame["status"] == status_filter]
     if slug_filter is not None:
         frame = frame[frame["slug"].isin(slug_filter)]
-    rows = frame.iterrows()
+
+    # Pre-compute column indexes for itertuples (namedtuple attr positions).
+    # itertuples()[0] is the Index; column values start at [1].
+    col_index = {col: i + 1 for i, col in enumerate(frame.columns)}
+    slug_idx = col_index.get("slug")
+    channel_col_idxs: list[tuple[str, int, int]] = []
+    for ch in channels:
+        from_col, to_col = _CHANNEL_COLUMN_SUFFIX[ch]
+        from_idx = col_index.get(from_col)
+        to_idx = col_index.get(to_col)
+        if from_idx is not None and to_idx is not None:
+            channel_col_idxs.append((ch, from_idx, to_idx))
+
+    rows_iter = frame.itertuples()
     if show_progress:
-        rows = tqdm(
-            rows,
+        rows_iter = tqdm(
+            rows_iter,
             total=len(frame),
             desc="Planning Telonex jobs",
             unit="market",
             leave=False,
         )
     considered = [0]  # mutable so nested generator can update
+    _slug_idx = slug_idx  # capture for closure
 
     def _generate() -> Iterator[_Job]:
-        for _index, row in rows:
-            slug = row.get("slug")
+        for row in rows_iter:
+            if _slug_idx is not None:
+                slug = row[_slug_idx]
+            else:
+                continue
             if not slug:
                 continue
             considered[0] += 1
-            for channel in channels:
-                days = _iter_days_for_market(
-                    row, channel=channel, window_start=window_start, window_end=window_end
+            slug_str = str(slug)
+            for channel, from_idx, to_idx in channel_col_idxs:
+                days = _iter_days_for_market_tuple(
+                    row,
+                    from_idx=from_idx,
+                    to_idx=to_idx,
+                    window_start=window_start,
+                    window_end=window_end,
                 )
                 if not days:
                     continue
                 for outcome_id in outcomes:
                     for day in days:
                         yield _Job(
-                            market_slug=str(slug),
+                            market_slug=slug_str,
                             outcome_segment=str(outcome_id),
                             outcome_id=outcome_id,
                             outcome=None,
