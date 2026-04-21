@@ -313,13 +313,13 @@ def test_download_telonex_days_all_markets_expands_every_channel(
 def test_all_markets_catalog_date_parsing_handles_mixed_valid_formats() -> None:
     markets = pd.DataFrame(
         {
-            "slug": ["date-only", "iso-timestamp"],
-            "quotes_from": ["2026-01-19", "2026-01-20T05:00:00Z"],
-            "quotes_to": ["2026-01-19", "2026-01-20T23:59:59Z"],
+            "slug": ["date-only", "iso-timestamp", "missing-bounds"],
+            "quotes_from": ["2026-01-19", "2026-01-20T05:00:00Z", None],
+            "quotes_to": ["2026-01-19", "2026-01-20T23:59:59Z", None],
         }
     )
 
-    jobs_iter, considered = telonex_download._iter_jobs_from_catalog(
+    jobs_iter = telonex_download._iter_jobs_from_catalog(
         markets=markets,
         channels=["quotes"],
         outcomes=[0],
@@ -332,10 +332,41 @@ def test_all_markets_catalog_date_parsing_handles_mixed_valid_formats() -> None:
 
     jobs = list(jobs_iter)
 
-    assert considered[0] == 2
+    assert jobs_iter.markets_considered == 3
+    assert jobs_iter.total_jobs == 2
     assert [(job.market_slug, job.day.isoformat()) for job in jobs] == [
         ("date-only", "2026-01-19"),
         ("iso-timestamp", "2026-01-20"),
+    ]
+
+
+def test_all_markets_catalog_window_clipping_preserves_missing_bounds() -> None:
+    markets = pd.DataFrame(
+        {
+            "slug": ["clipped", "missing-from", "missing-to"],
+            "quotes_from": ["2026-01-18", None, "2026-01-18"],
+            "quotes_to": ["2026-01-22", "2026-01-22", None],
+        }
+    )
+
+    jobs_iter = telonex_download._iter_jobs_from_catalog(
+        markets=markets,
+        channels=["quotes"],
+        outcomes=[0],
+        window_start=telonex_download._parse_date_bound("2026-01-20"),
+        window_end=telonex_download._parse_date_bound("2026-01-21"),
+        status_filter=None,
+        slug_filter=None,
+        show_progress=False,
+    )
+
+    jobs = list(jobs_iter)
+
+    assert jobs_iter.markets_considered == 3
+    assert jobs_iter.total_jobs == 2
+    assert [(job.market_slug, job.day.isoformat()) for job in jobs] == [
+        ("clipped", "2026-01-20"),
+        ("clipped", "2026-01-21"),
     ]
 
 
@@ -402,6 +433,88 @@ def test_download_telonex_days_retries_transient_5xx_then_succeeds(
     )
     assert summary.downloaded_days == 1
     assert summary.failed_days == 0
+
+
+def test_download_telonex_days_reports_writer_commit_failure(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    payloads = {"2026-01-19": _parquet_payload(1_768_780_800_000_000)}
+
+    monkeypatch.setenv("TELONEX_API_KEY", "test-key")
+    _install_payload_stub(monkeypatch, payloads)
+    monkeypatch.setattr(telonex_download, "_DEFAULT_COMMIT_BATCH_ROWS", 1)
+    monkeypatch.setattr(telonex_download, "_DEFAULT_COMMIT_BATCH_SECS", 0.0)
+
+    def fail_ingest(self, results):  # type: ignore[no-untyped-def]
+        del self, results
+        raise RuntimeError("simulated writer failure")
+
+    monkeypatch.setattr(telonex_download._TelonexParquetStore, "ingest_batch", fail_ingest)
+
+    summary = telonex_download.download_telonex_days(
+        destination=tmp_path,
+        market_slugs=["writer-failure-market"],
+        outcome_id=0,
+        start_date="2026-01-19",
+        end_date="2026-01-19",
+        show_progress=False,
+        workers=1,
+    )
+
+    assert summary.downloaded_days == 0
+    assert summary.failed_days == 1
+    assert summary.bytes_downloaded == 0
+    assert "writer commit failed" in summary.failed_samples[0]
+
+    con = duckdb.connect(str(tmp_path / "telonex.duckdb"), read_only=True)
+    try:
+        completed = con.execute("SELECT count(*) FROM completed_days").fetchone()[0]
+    finally:
+        con.close()
+    assert completed == 0
+
+
+def test_download_telonex_progress_format_omits_eta(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    payloads = {"2026-01-19": _parquet_payload(1_768_780_800_000_000)}
+    progress_kwargs: list[dict[str, object]] = []
+
+    class FakeTqdm:
+        def __init__(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+            del args
+            progress_kwargs.append(kwargs)
+            self.n = 0
+
+        def update(self, value: int) -> None:
+            self.n += value
+
+        def set_postfix_str(self, value: str, refresh: bool = False) -> None:
+            del value, refresh
+
+        def refresh(self) -> None:
+            pass
+
+        def close(self) -> None:
+            pass
+
+    monkeypatch.setenv("TELONEX_API_KEY", "test-key")
+    _install_payload_stub(monkeypatch, payloads)
+    monkeypatch.setattr(telonex_download, "tqdm", FakeTqdm)
+
+    summary = telonex_download.download_telonex_days(
+        destination=tmp_path,
+        market_slugs=["progress-market"],
+        outcome_id=0,
+        start_date="2026-01-19",
+        end_date="2026-01-19",
+        show_progress=True,
+        workers=1,
+    )
+
+    assert summary.downloaded_days == 1
+    assert progress_kwargs
+    assert all("remaining" not in str(kwargs.get("bar_format", "")) for kwargs in progress_kwargs)
 
 
 def test_downloaded_parquet_is_readable_by_telonex_loader(

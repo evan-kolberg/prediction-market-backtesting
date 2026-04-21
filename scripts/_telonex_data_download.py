@@ -155,6 +155,52 @@ class _Job:
 
 
 @dataclass
+class _CatalogJobIterable:
+    frame: pd.DataFrame
+    channel_col_idxs: list[tuple[str, int, int]]
+    slug_idx: int
+    outcomes: list[int]
+    markets_considered: int
+    total_jobs: int
+
+    def __iter__(self) -> Iterator[_Job]:
+        for row in self.frame.itertuples():
+            slug = row[self.slug_idx]
+            if not slug:
+                continue
+            slug_str = str(slug)
+            for channel, from_idx, to_idx in self.channel_col_idxs:
+                raw_from = row[from_idx]
+                raw_to = row[to_idx]
+                if raw_from is None or raw_to is None:
+                    continue
+                try:
+                    if pd.isna(raw_from) or pd.isna(raw_to):
+                        continue
+                except (ValueError, TypeError):
+                    pass
+                start = (
+                    raw_from.date()
+                    if hasattr(raw_from, "date")
+                    else _parse_date_bound(str(raw_from))
+                )
+                end = raw_to.date() if hasattr(raw_to, "date") else _parse_date_bound(str(raw_to))
+                if start is None or end is None or start > end:
+                    continue
+                days = _date_range(start, end)
+                for outcome_id in self.outcomes:
+                    for day in days:
+                        yield _Job(
+                            market_slug=slug_str,
+                            outcome_segment=str(outcome_id),
+                            outcome_id=outcome_id,
+                            outcome=None,
+                            channel=channel,
+                            day=day,
+                        )
+
+
+@dataclass
 class _DownloadResult:
     job: _Job
     status: str  # "ok", "skipped", "missing", "failed", "cancelled"
@@ -597,17 +643,16 @@ def _iter_jobs_from_catalog(
     status_filter: str | None,
     slug_filter: set[str] | None,
     show_progress: bool,
-) -> tuple[Iterator[_Job], list[int]]:
-    """Yield jobs lazily from the markets catalog.
-
-    Returns (job_iterator, markets_considered_ref) so the caller can report
-    the count without materializing the full job list (~66M entries => ~12 GiB).
-    Read considered_ref[0] after the iterator is consumed.
+) -> _CatalogJobIterable:
+    """Plan catalog job metadata eagerly, then stream jobs on iteration.
 
     Uses itertuples() instead of iterrows() for ~10-100x faster row iteration.
     Drops unused columns upfront so the 5+ GiB catalog shrinks before
-    the generator holds a reference to the slim frame.
+    the reusable iterable holds a reference to the slim frame.
     """
+    if show_progress:
+        print("[telonex] Planning Telonex jobs from catalog...", file=sys.stderr)
+
     # Collect only the columns we need: slug, status, and per-channel date bounds.
     needed_cols: list[str] = ["slug"]
     if status_filter is not None:
@@ -621,16 +666,29 @@ def _iter_jobs_from_catalog(
         frame = frame[frame["status"] == status_filter]
     if slug_filter is not None:
         frame = frame[frame["slug"].isin(slug_filter)]
+    if "slug" in frame.columns:
+        frame = frame[frame["slug"].notna()]
+        frame = frame[frame["slug"].astype(str) != ""]
+    frame = frame.copy()
 
-    # Vectorized date parsing: convert all date columns to python date objects
+    # Vectorized date parsing: convert all date columns to normalized timestamps
     # upfront so the per-row loop does zero datetime parsing (the main bottleneck).
+    window_start_ts = pd.Timestamp(window_start, tz=UTC) if window_start is not None else None
+    window_end_ts = pd.Timestamp(window_end, tz=UTC) if window_end is not None else None
     for ch in channels:
         from_col, to_col = _CHANNEL_COLUMN_SUFFIX[ch]
         for col in (from_col, to_col):
             if col in frame.columns:
                 frame[col] = pd.to_datetime(
                     frame[col], utc=True, errors="coerce", format="mixed"
-                ).dt.date
+                ).dt.normalize()
+        if from_col in frame.columns and to_col in frame.columns:
+            if window_start_ts is not None:
+                clip_start = frame[from_col].notna() & (frame[from_col] < window_start_ts)
+                frame.loc[clip_start, from_col] = window_start_ts
+            if window_end_ts is not None:
+                clip_end = frame[to_col].notna() & (frame[to_col] > window_end_ts)
+                frame.loc[clip_end, to_col] = window_end_ts
 
     # Pre-compute column indexes for itertuples (namedtuple attr positions).
     # itertuples()[0] is the Index; column values start at [1].
@@ -643,64 +701,33 @@ def _iter_jobs_from_catalog(
         to_idx = col_index.get(to_col)
         if from_idx is not None and to_idx is not None:
             channel_col_idxs.append((ch, from_idx, to_idx))
+    if slug_idx is None:
+        raise ValueError("Telonex markets catalog is missing required 'slug' column.")
 
-    rows_iter = frame.itertuples()
+    total_jobs = 0
+    for ch, _from_idx, _to_idx in channel_col_idxs:
+        from_col, to_col = _CHANNEL_COLUMN_SUFFIX[ch]
+        valid = frame[from_col].notna() & frame[to_col].notna() & (frame[from_col] <= frame[to_col])
+        if not valid.any():
+            continue
+        day_counts = (frame.loc[valid, to_col] - frame.loc[valid, from_col]).dt.days + 1
+        total_jobs += int(day_counts.sum()) * len(outcomes)
+
+    plan = _CatalogJobIterable(
+        frame=frame,
+        channel_col_idxs=channel_col_idxs,
+        slug_idx=slug_idx,
+        outcomes=outcomes,
+        markets_considered=len(frame),
+        total_jobs=total_jobs,
+    )
     if show_progress:
-        rows_iter = tqdm(
-            rows_iter,
-            total=len(frame),
-            desc="Planning Telonex jobs",
-            unit="market",
-            leave=False,
+        print(
+            f"[telonex] Planned {plan.total_jobs:,} day job(s) across "
+            f"{plan.markets_considered:,} market(s).",
+            file=sys.stderr,
         )
-    considered = [0]  # mutable so nested generator can update
-    _slug_idx = slug_idx  # capture for closure
-
-    def _generate() -> Iterator[_Job]:
-        for row in rows_iter:
-            if _slug_idx is not None:
-                slug = row[_slug_idx]
-            else:
-                continue
-            if not slug:
-                continue
-            considered[0] += 1
-            slug_str = str(slug)
-            for channel, from_idx, to_idx in channel_col_idxs:
-                raw_from = row[from_idx]
-                raw_to = row[to_idx]
-                # Dates were pre-parsed to date objects above;
-                # pd.NaT becomes NaN after .dt.date, catch both.
-                if raw_from is None or raw_to is None:
-                    continue
-                try:
-                    if pd.isna(raw_from) or pd.isna(raw_to):
-                        continue
-                except (ValueError, TypeError):
-                    pass
-                start = raw_from if isinstance(raw_from, date) else _parse_date_bound(str(raw_from))
-                end = raw_to if isinstance(raw_to, date) else _parse_date_bound(str(raw_to))
-                if start is None or end is None:
-                    continue
-                if window_start is not None and start < window_start:
-                    start = window_start
-                if window_end is not None and end > window_end:
-                    end = window_end
-                if start > end:
-                    continue
-                days = _date_range(start, end)
-                for outcome_id in outcomes:
-                    for day in days:
-                        yield _Job(
-                            market_slug=slug_str,
-                            outcome_segment=str(outcome_id),
-                            outcome_id=outcome_id,
-                            outcome=None,
-                            channel=channel,
-                            day=day,
-                        )
-
-    return _generate(), considered  # read [0] after consuming
+    return plan
 
 
 def _build_jobs_from_explicit(
@@ -968,40 +995,40 @@ def _prune_jobs_against_manifest(
     overwrite: bool,
     show_progress: bool,
     channels_hint: set[str] | None = None,
-) -> tuple[Iterator[_Job], int]:
+) -> tuple[Iterator[_Job], list[int]]:
     """Filter out completed/empty days, yielding kept jobs lazily.
 
     Accepts an iterable (including a generator) so the upstream catalog
-    jobs are never fully materialized.  Returns a concrete list of jobs
-    that still need downloading, plus the count of skipped ones.
+    jobs are never fully materialized. Returns a filtered job iterator
+    plus a mutable skipped counter, which is final after the iterator is consumed.
     ``channels_hint`` pre-loads manifest keys without iterating jobs.
     """
     if overwrite:
-        return iter(jobs), 0
+        return iter(jobs), [0]
 
     completed_by_channel: dict[str, set[tuple[str, str, date]]] = {}
     empty_by_channel: dict[str, set[tuple[str, str, date]]] = {}
     channel_set = channels_hint or set()
-    prune_bar = (
-        tqdm(total=len(channel_set), desc="Loading manifest", unit="ch", leave=False)
-        if show_progress and channel_set
-        else None
-    )
+    if show_progress and channel_set:
+        print(
+            f"[telonex] Loading resume manifest for {len(channel_set):,} channel(s)...",
+            file=sys.stderr,
+        )
     for channel in channel_set:
         completed_by_channel[channel] = store.completed_keys(channel)
         empty_by_channel[channel] = store.empty_keys(channel)
-        if prune_bar is not None:
-            prune_bar.update(1)
-    if prune_bar is not None:
-        prune_bar.close()
+    if show_progress and channel_set:
+        completed = sum(len(keys) for keys in completed_by_channel.values())
+        empty = sum(len(keys) for keys in empty_by_channel.values())
+        print(
+            f"[telonex] Resume manifest loaded: completed={completed:,} 404s={empty:,}.",
+            file=sys.stderr,
+        )
 
     skipped = [0]  # mutable so nested generator can update
 
     def _filtered() -> Iterator[_Job]:
-        iterator = jobs
-        if show_progress:
-            iterator = tqdm(jobs, desc="Filtering resumable jobs", unit="day", leave=False)
-        for job in iterator:
+        for job in jobs:
             key = (job.market_slug, job.outcome_segment, job.day)
             # Lazy-load channel keys on first encounter if not pre-loaded.
             if job.channel not in completed_by_channel:
@@ -1027,6 +1054,7 @@ def _run_jobs(
     timeout_secs: int,
     workers: int,
     show_progress: bool,
+    total_jobs: int | None = None,
     commit_batch_rows: int | None = None,
     commit_batch_secs: float | None = None,
 ) -> tuple[int, int, int, int, int, bool, list[str]]:
@@ -1067,28 +1095,20 @@ def _run_jobs(
 
     progress = (
         tqdm(
-            total=0,
+            total=total_jobs,
             desc="Downloading Telonex days",
             unit="day",
-            bar_format="{l_bar}{bar}| [{elapsed}<{remaining}] {postfix}",
+            bar_format="{desc}: {n_fmt}/{total_fmt} day [{elapsed}] {postfix}",
+            dynamic_ncols=True,
         )
-        if show_progress
-        else None
-    )
-    commit_bar = (
-        tqdm(
-            total=0,
-            desc="Committing rows",
-            unit="row",
-            bar_format="{l_bar}{bar}| [{elapsed}] {n_fmt} rows ({postfix})",
-            leave=False,
-        )
-        if show_progress
+        if show_progress and total_jobs != 0
         else None
     )
 
     state_lock = threading.Lock()
     last_postfix_ts = [0.0]
+    writer_failed = threading.Event()
+    async_stop: asyncio.Event | None = None
 
     def _refresh_postfix(force: bool = False) -> None:
         if progress is None:
@@ -1308,9 +1328,6 @@ def _run_jobs(
                 error=str(exc),
             )
 
-        with state_lock:
-            downloaded_days += 1
-            bytes_total += len(payload)
         return _DownloadResult(
             job=job,
             status="ok",
@@ -1325,7 +1342,7 @@ def _run_jobs(
     last_commit_ts = time.monotonic()
 
     def _flush_pending(force: bool = False) -> None:
-        nonlocal last_commit_ts
+        nonlocal last_commit_ts, downloaded_days, failed_days, bytes_total
         if not pending_for_commit:
             return
         total_pending_rows = sum(
@@ -1339,32 +1356,49 @@ def _run_jobs(
             return
         batch = pending_for_commit[:]
         pending_for_commit.clear()
+        batch_days = len(batch)
+        batch_bytes = sum(entry.bytes_downloaded for entry in batch)
         try:
-            inserted = store.ingest_batch(batch)
+            store.ingest_batch(batch)
         except Exception as exc:  # noqa: BLE001
-            # ingest_batch is atomic — failure means nothing was committed and
-            # the completed_days rows were rolled back, so these days will be
-            # retried on the next run. Log, drop the batch, keep the writer alive.
+            # Do not count fetched bytes as durable results until the writer has
+            # committed the manifest path. A writer failure leaves these days
+            # retryable on the next run, so stop scheduling new work and report
+            # the batch as failed instead of silently losing it behind a
+            # successful summary.
             sample = batch[:3]
             sample_text = ", ".join(
                 f"{r.job.channel}/{r.job.market_slug}/{r.job.day}" for r in sample
             )
+            with state_lock:
+                failed_days += batch_days
+                if len(failed_samples) < 20:
+                    failed_samples.append(
+                        f"writer commit failed for {batch_days} day(s): "
+                        f"{exc.__class__.__name__}: {exc}"
+                    )
+            for result in batch:
+                result.frame = None
             print(
-                f"[telonex] writer: dropped batch of {len(batch)} day(s) after ingest failure "
-                f"({exc.__class__.__name__}: {exc}) — will retry on next run. "
+                f"[telonex] writer: failed to commit batch of {batch_days} day(s) "
+                f"({exc.__class__.__name__}: {exc}) — stopping; retry these days "
+                f"on the next run. "
                 f"Sample: {sample_text}",
                 file=sys.stderr,
             )
+            writer_failed.set()
+            stop_event.set()
+            if async_stop is not None:
+                async_stop.set()
             last_commit_ts = time.monotonic()
             return
+        with state_lock:
+            downloaded_days += batch_days
+            bytes_total += batch_bytes
         last_commit_ts = time.monotonic()
-        if commit_bar is not None:
-            commit_bar.update(inserted)
-            commit_bar.set_postfix_str(f"db={_format_bytes(store.size_bytes())}", refresh=False)
-            commit_bar.refresh()
 
     def _writer() -> None:
-        while not (writer_done.is_set() and result_queue.empty()):
+        while not (writer_done.is_set() and result_queue.empty()) and not writer_failed.is_set():
             try:
                 result = result_queue.get(timeout=0.25)
             except Empty:
@@ -1392,7 +1426,6 @@ def _run_jobs(
     # an OS thread — so we can set this to thousands on a fast network and the
     # only real cost is the connection pool + open sockets.
     concurrency = max(1, workers)
-    async_stop: asyncio.Event | None = None
 
     async def _dispatcher() -> None:
         nonlocal async_stop
@@ -1432,16 +1465,16 @@ def _run_jobs(
                 # throttles the dispatcher without starving the event loop or
                 # blocking a thread that couldn't be interrupted on SIGTERM.
                 while True:
+                    if writer_failed.is_set():
+                        return
                     try:
                         result_queue.put_nowait(result)
                         return
                     except Full:
-                        if async_stop.is_set():
-                            return
                         await asyncio.sleep(0.05)
 
             while in_flight:
-                if async_stop.is_set():
+                if async_stop.is_set() or writer_failed.is_set():
                     break
                 done, in_flight = await asyncio.wait(
                     in_flight, timeout=1.0, return_when=asyncio.FIRST_COMPLETED
@@ -1521,8 +1554,6 @@ def _run_jobs(
         if progress is not None:
             _refresh_postfix(force=True)
             progress.close()
-        if commit_bar is not None:
-            commit_bar.close()
 
     return (
         downloaded_days,
@@ -1615,7 +1646,7 @@ def download_telonex_days(
                 print(f"Loaded {len(markets):,} markets", file=sys.stderr)
             slug_filter = set(market_slugs) if market_slugs else None
             outcomes = outcomes_for_all or [0, 1]
-            jobs_iter, _markets_considered_ref = _iter_jobs_from_catalog(
+            catalog_jobs = _iter_jobs_from_catalog(
                 markets=markets,
                 channels=list(channels),
                 outcomes=outcomes,
@@ -1625,8 +1656,10 @@ def download_telonex_days(
                 slug_filter=slug_filter,
                 show_progress=show_progress,
             )
-            del markets  # free the ~3 GiB catalog; generator holds only a slim ~770 MiB copy
-            planned_jobs = None  # unknown until consumed
+            jobs_iter = catalog_jobs
+            markets_considered = catalog_jobs.markets_considered
+            planned_jobs = catalog_jobs.total_jobs
+            del markets  # free the full catalog; job iterable holds only the slim frame
         else:
             if not market_slugs:
                 raise ValueError("Either --all-markets or --market-slug is required.")
@@ -1662,16 +1695,25 @@ def download_telonex_days(
             show_progress=show_progress,
             channels_hint=set(channels),
         )
+        _skipped: int | None = None
+        remaining_jobs = planned_jobs
+        if not all_markets:
+            explicit_jobs = list(jobs_iter)
+            jobs_iter = explicit_jobs
+            _skipped = _skipped_ref[0]
+            remaining_jobs = len(explicit_jobs)
 
         if show_progress:
             existing_store_size = store.size_bytes()
             completed_before = sum(len(store.completed_keys(ch)) for ch in channels)
             empty_before = sum(len(store.empty_keys(ch)) for ch in channels)
+            remaining_text = f"remaining={remaining_jobs:,}. " if remaining_jobs is not None else ""
             print(
                 f"[telonex] Resume summary: manifest={db_path} "
                 f"data={store.data_root} total={_format_bytes(existing_store_size)}, "
                 f"completed={completed_before:,} 404s={empty_before:,}, "
                 f"planned={planned_jobs if planned_jobs is not None else 'streaming'}. "
+                f"{remaining_text}"
                 f"Ctrl-C once to stop gracefully (manifest + parquets stay consistent).",
                 file=sys.stderr,
             )
@@ -1698,13 +1740,13 @@ def download_telonex_days(
             timeout_secs=max(1, timeout_secs),
             workers=max(1, workers),
             show_progress=show_progress,
+            total_jobs=remaining_jobs,
         )
 
         # Deferred reads: mutable list counters are final now that
         # _run_jobs has consumed the iterator chain.
-        _skipped = _skipped_ref[0]
-        if all_markets:
-            markets_considered = _markets_considered_ref[0]
+        if _skipped is None:
+            _skipped = _skipped_ref[0]
     finally:
         try:
             store.close()
