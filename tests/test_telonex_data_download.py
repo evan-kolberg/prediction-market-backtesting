@@ -310,6 +310,35 @@ def test_download_telonex_days_all_markets_expands_every_channel(
     assert {job.outcome_segment for job in captured_jobs} == {"0", "1"}
 
 
+def test_all_markets_catalog_date_parsing_handles_mixed_valid_formats() -> None:
+    markets = pd.DataFrame(
+        {
+            "slug": ["date-only", "iso-timestamp"],
+            "quotes_from": ["2026-01-19", "2026-01-20T05:00:00Z"],
+            "quotes_to": ["2026-01-19", "2026-01-20T23:59:59Z"],
+        }
+    )
+
+    jobs_iter, considered = telonex_download._iter_jobs_from_catalog(
+        markets=markets,
+        channels=["quotes"],
+        outcomes=[0],
+        window_start=None,
+        window_end=None,
+        status_filter=None,
+        slug_filter=None,
+        show_progress=False,
+    )
+
+    jobs = list(jobs_iter)
+
+    assert considered[0] == 2
+    assert [(job.market_slug, job.day.isoformat()) for job in jobs] == [
+        ("date-only", "2026-01-19"),
+        ("iso-timestamp", "2026-01-20"),
+    ]
+
+
 def test_download_telonex_days_schema_evolves_when_later_day_has_new_column(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

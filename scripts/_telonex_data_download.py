@@ -622,6 +622,16 @@ def _iter_jobs_from_catalog(
     if slug_filter is not None:
         frame = frame[frame["slug"].isin(slug_filter)]
 
+    # Vectorized date parsing: convert all date columns to python date objects
+    # upfront so the per-row loop does zero datetime parsing (the main bottleneck).
+    for ch in channels:
+        from_col, to_col = _CHANNEL_COLUMN_SUFFIX[ch]
+        for col in (from_col, to_col):
+            if col in frame.columns:
+                frame[col] = pd.to_datetime(
+                    frame[col], utc=True, errors="coerce", format="mixed"
+                ).dt.date
+
     # Pre-compute column indexes for itertuples (namedtuple attr positions).
     # itertuples()[0] is the Index; column values start at [1].
     col_index = {col: i + 1 for i, col in enumerate(frame.columns)}
@@ -657,15 +667,28 @@ def _iter_jobs_from_catalog(
             considered[0] += 1
             slug_str = str(slug)
             for channel, from_idx, to_idx in channel_col_idxs:
-                days = _iter_days_for_market_tuple(
-                    row,
-                    from_idx=from_idx,
-                    to_idx=to_idx,
-                    window_start=window_start,
-                    window_end=window_end,
-                )
-                if not days:
+                raw_from = row[from_idx]
+                raw_to = row[to_idx]
+                # Dates were pre-parsed to date objects above;
+                # pd.NaT becomes NaN after .dt.date, catch both.
+                if raw_from is None or raw_to is None:
                     continue
+                try:
+                    if pd.isna(raw_from) or pd.isna(raw_to):
+                        continue
+                except (ValueError, TypeError):
+                    pass
+                start = raw_from if isinstance(raw_from, date) else _parse_date_bound(str(raw_from))
+                end = raw_to if isinstance(raw_to, date) else _parse_date_bound(str(raw_to))
+                if start is None or end is None:
+                    continue
+                if window_start is not None and start < window_start:
+                    start = window_start
+                if window_end is not None and end > window_end:
+                    end = window_end
+                if start > end:
+                    continue
+                days = _date_range(start, end)
                 for outcome_id in outcomes:
                     for day in days:
                         yield _Job(
@@ -1546,6 +1569,17 @@ def download_telonex_days(
             f"{TELONEX_API_KEY_ENV} must be set in the environment to download Telonex files."
         )
     api_key = api_key.strip()
+
+    # Per-request AsyncClient at high concurrency opens many sockets;
+    # raise FD ceiling early so parquet writes don't hit EMFILE.
+    try:
+        import resource
+
+        soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+        target = max(hard, 65536)
+        resource.setrlimit(resource.RLIMIT_NOFILE, (min(target, hard), hard))
+    except (ValueError, OSError, ImportError):
+        pass
 
     normalized_destination = destination.expanduser().resolve()
     normalized_destination.mkdir(parents=True, exist_ok=True)
