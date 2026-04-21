@@ -865,7 +865,6 @@ class _ActiveRegistry:
 def _postfix_text(
     *,
     downloaded_days: int,
-    skipped: int,
     missing: int,
     failed: int,
     bytes_total: int,
@@ -874,7 +873,6 @@ def _postfix_text(
     now = time.monotonic()
     parts = [
         f"ok={downloaded_days}",
-        f"skip={skipped}",
         f"miss={missing}",
         f"fail={failed}",
         _format_bytes(bytes_total),
@@ -1035,7 +1033,6 @@ def _run_jobs(
         with state_lock:
             text = _postfix_text(
                 downloaded_days=downloaded_days,
-                skipped=0,
                 missing=missing_days,
                 failed=failed_days,
                 bytes_total=bytes_total,
