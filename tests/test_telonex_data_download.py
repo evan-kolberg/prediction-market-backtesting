@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date
 from io import BytesIO
 from pathlib import Path
 
@@ -39,6 +40,20 @@ def _parquet_payload_with_extra(
         for key, value in extra_columns.items():
             data[key] = [value]
     frame = pd.DataFrame(data)
+    buffer = BytesIO()
+    frame.to_parquet(buffer, index=False)
+    return buffer.getvalue()
+
+
+def _parquet_payload_with_local_timestamp(value: int | float) -> bytes:
+    frame = pd.DataFrame(
+        {
+            "timestamp_us": [1_768_780_800_000_000],
+            "local_timestamp_us": [value],
+            "bid_price": [0.44],
+            "ask_price": [0.45],
+        }
+    )
     buffer = BytesIO()
     frame.to_parquet(buffer, index=False)
     return buffer.getvalue()
@@ -469,6 +484,44 @@ def test_download_telonex_days_schema_evolves_when_later_day_has_new_column(
     assert rows == [(None,), ("abc123",)]
 
 
+def test_download_telonex_days_rolls_when_arrow_types_conflict(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    payloads = {
+        "2026-01-19": _parquet_payload_with_local_timestamp(1_768_780_800_000_000),
+        "2026-01-20": _parquet_payload_with_local_timestamp(1_768_867_200_000_000.0),
+    }
+
+    monkeypatch.setenv("TELONEX_API_KEY", "test-key")
+    _install_payload_stub(monkeypatch, payloads)
+    monkeypatch.setattr(telonex_download, "_DEFAULT_COMMIT_BATCH_ROWS", 10_000_000)
+    monkeypatch.setattr(telonex_download, "_DEFAULT_COMMIT_BATCH_SECS", 999.0)
+
+    summary = telonex_download.download_telonex_days(
+        destination=tmp_path,
+        market_slugs=["mixed-arrow-type-market"],
+        outcome_id=0,
+        start_date="2026-01-19",
+        end_date="2026-01-20",
+        show_progress=False,
+        workers=1,
+    )
+
+    assert summary.downloaded_days == 2
+    assert summary.failed_days == 0
+
+    con = duckdb.connect(str(tmp_path / "telonex.duckdb"), read_only=True)
+    try:
+        manifest = con.execute(
+            "SELECT day, parquet_part FROM completed_days ORDER BY day"
+        ).fetchall()
+    finally:
+        con.close()
+
+    assert len(manifest) == 2
+    assert manifest[0][1] != manifest[1][1]
+
+
 def test_download_telonex_days_retries_transient_5xx_then_succeeds(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -489,6 +542,103 @@ def test_download_telonex_days_retries_transient_5xx_then_succeeds(
     )
     assert summary.downloaded_days == 1
     assert summary.failed_days == 0
+
+
+def test_resolve_parse_worker_count_uses_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("TELONEX_PARSE_WORKERS", "12")
+    assert telonex_download._resolve_parse_worker_count(None) == 12
+    assert telonex_download._resolve_parse_worker_count(3) == 3
+
+
+def test_run_jobs_reuses_one_async_http_client(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    payload = _parquet_payload(1_768_780_800_000_000)
+    clients = []
+    requested_urls: list[str] = []
+
+    class FakeResponse:
+        status_code = 200
+        headers = {"Content-Length": str(len(payload))}
+
+        async def aread(self) -> bytes:
+            return payload
+
+        async def aiter_bytes(self, *, chunk_size: int):
+            del chunk_size
+            yield payload
+
+    class FakeStream:
+        async def __aenter__(self) -> FakeResponse:
+            return FakeResponse()
+
+        async def __aexit__(self, exc_type, exc, tb) -> bool:  # type: ignore[no-untyped-def]
+            del exc_type, exc, tb
+            return False
+
+    class FakeAsyncClient:
+        def __init__(self, *args, **kwargs) -> None:  # type: ignore[no-untyped-def]
+            del args, kwargs
+            clients.append(self)
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb) -> bool:  # type: ignore[no-untyped-def]
+            del exc_type, exc, tb
+            return False
+
+        def stream(self, method: str, url: str, *, headers: dict[str, str]) -> FakeStream:
+            assert method == "GET"
+            assert headers["Authorization"] == "Bearer test-key"
+            requested_urls.append(url)
+            return FakeStream()
+
+    monkeypatch.setattr(telonex_download.httpx, "AsyncClient", FakeAsyncClient)
+    store = telonex_download._TelonexParquetStore(tmp_path)
+    try:
+        jobs = [
+            telonex_download._Job(
+                market_slug="pooled-market",
+                outcome_segment="0",
+                outcome_id=0,
+                outcome=None,
+                channel="quotes",
+                day=date(2026, 1, 19),
+            ),
+            telonex_download._Job(
+                market_slug="pooled-market",
+                outcome_segment="0",
+                outcome_id=0,
+                outcome=None,
+                channel="quotes",
+                day=date(2026, 1, 20),
+            ),
+        ]
+
+        downloaded, missing, failed, cancelled, _bytes, interrupted, samples = (
+            telonex_download._run_jobs(
+                jobs,
+                store=store,
+                api_key="test-key",
+                base_url="https://api.telonex.io",
+                timeout_secs=60,
+                workers=2,
+                show_progress=False,
+                total_jobs=len(jobs),
+            )
+        )
+    finally:
+        store.close()
+
+    assert downloaded == 2
+    assert missing == 0
+    assert failed == 0
+    assert cancelled == 0
+    assert interrupted is False
+    assert samples == []
+    assert len(clients) == 1
+    assert len(requested_urls) == 2
 
 
 def test_download_telonex_days_reports_writer_commit_failure(

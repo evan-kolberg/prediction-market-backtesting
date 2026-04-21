@@ -165,16 +165,20 @@ from the full-depth snapshots.
 
 The default destination is `/Volumes/LaCie/telonex_data`, matching the
 `local:/Volumes/LaCie/telonex_data` source in the public Telonex runner.
-The downloader uses an async `httpx` pool with `--workers 128`
-in-flight coroutines by default; on a bandwidth-heavy VPS you can push
-this to `256`–`512` since each slot is a coroutine, not an OS thread
-(the real ceiling is network bandwidth or the single-thread Parquet
-writer). Transient `408/425/429/5xx` responses are retried with
-exponential backoff, and SIGINT/SIGTERM stop the loop gracefully. The
-downloader reports progress while it loads the markets dataset, plans
-market/channel/outcome/day work, and streams day-files directly into
-the local store. Each run fetches the current Telonex markets catalog, so
-newly listed markets and later channel windows are picked up on resume.
+The downloader uses a shared async `httpx` pool with `--workers 128`
+in-flight coroutines by default. The hot path decodes day Parquet payloads
+directly into Arrow tables and writes them into consolidated ~1 GiB blob
+parts; it does not create millions of tiny day files. On a fast host, benchmark
+`--workers 64`, `128`, and `256` before scaling up; higher worker counts can
+hit socket/file-descriptor pressure or outrun the single consolidated Parquet
+writer. `--parse-workers` controls the bounded Arrow decode pool (default:
+`min(8, cpu_count)`, also configurable with `TELONEX_PARSE_WORKERS`). Transient
+`408/425/429/5xx` responses are retried with exponential backoff, and
+SIGINT/SIGTERM stop the loop gracefully. The downloader reports progress while
+it loads the markets dataset, plans market/channel/outcome/day work, and
+streams day-files directly into the local store. Each run fetches the current
+Telonex markets catalog, so newly listed markets and later channel windows are
+picked up on resume.
 Cached 404 day markers are rechecked after 7 days by default; use
 `--recheck-empty-after-days 0` to recheck 404s every run, or
 `--recheck-empty-after-days -1` to keep 404s forever unless `--overwrite` is
