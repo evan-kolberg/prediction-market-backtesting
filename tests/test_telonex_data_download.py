@@ -288,8 +288,9 @@ def test_download_telonex_days_all_markets_expands_every_channel(
 
     def fake_run_jobs(jobs, **kwargs):
         del kwargs
-        captured_jobs.extend(jobs)
-        return (len(jobs), 0, 0, 0, 123, False, [])
+        job_list = list(jobs)
+        captured_jobs.extend(job_list)
+        return (len(job_list), 0, 0, 0, 123, False, [])
 
     monkeypatch.setenv("TELONEX_API_KEY", "test-key")
     monkeypatch.setattr(telonex_download, "_fetch_markets_dataset", fake_fetch_markets_dataset)

@@ -904,8 +904,8 @@ def _prune_jobs_against_manifest(
     overwrite: bool,
     show_progress: bool,
     channels_hint: set[str] | None = None,
-) -> tuple[list[_Job], int]:
-    """Filter out completed/empty days, materializing only the kept jobs.
+) -> tuple[Iterator[_Job], int]:
+    """Filter out completed/empty days, yielding kept jobs lazily.
 
     Accepts an iterable (including a generator) so the upstream catalog
     jobs are never fully materialized.  Returns a concrete list of jobs
@@ -913,7 +913,7 @@ def _prune_jobs_against_manifest(
     ``channels_hint`` pre-loads manifest keys without iterating jobs.
     """
     if overwrite:
-        return list(jobs), 0
+        return iter(jobs), 0
 
     completed_by_channel: dict[str, set[tuple[str, str, date]]] = {}
     empty_by_channel: dict[str, set[tuple[str, str, date]]] = {}
@@ -931,29 +931,31 @@ def _prune_jobs_against_manifest(
     if prune_bar is not None:
         prune_bar.close()
 
-    pruned: list[_Job] = []
-    skipped = 0
-    iterator = jobs
-    if show_progress:
-        iterator = tqdm(jobs, desc="Filtering resumable jobs", unit="day", leave=False)
-    for job in iterator:
-        key = (job.market_slug, job.outcome_segment, job.day)
-        # Lazy-load channel keys on first encounter if not pre-loaded.
-        if job.channel not in completed_by_channel:
-            completed_by_channel[job.channel] = store.completed_keys(job.channel)
-            empty_by_channel[job.channel] = store.empty_keys(job.channel)
-        if key in completed_by_channel.get(job.channel, set()):
-            skipped += 1
-            continue
-        if key in empty_by_channel.get(job.channel, set()):
-            skipped += 1
-            continue
-        pruned.append(job)
-    return pruned, skipped
+    skipped = [0]  # mutable so nested generator can update
+
+    def _filtered() -> Iterator[_Job]:
+        iterator = jobs
+        if show_progress:
+            iterator = tqdm(jobs, desc="Filtering resumable jobs", unit="day", leave=False)
+        for job in iterator:
+            key = (job.market_slug, job.outcome_segment, job.day)
+            # Lazy-load channel keys on first encounter if not pre-loaded.
+            if job.channel not in completed_by_channel:
+                completed_by_channel[job.channel] = store.completed_keys(job.channel)
+                empty_by_channel[job.channel] = store.empty_keys(job.channel)
+            if key in completed_by_channel.get(job.channel, set()):
+                skipped[0] += 1
+                continue
+            if key in empty_by_channel.get(job.channel, set()):
+                skipped[0] += 1
+                continue
+            yield job
+
+    return _filtered(), skipped  # read [0] after consuming
 
 
 def _run_jobs(
-    jobs: list[_Job],
+    jobs: Iterable[_Job],
     *,
     store: _TelonexParquetStore,
     api_key: str,
@@ -1001,7 +1003,7 @@ def _run_jobs(
 
     progress = (
         tqdm(
-            total=len(jobs),
+            total=0,
             desc="Downloading Telonex days",
             unit="day",
             bar_format="{l_bar}{bar}| [{elapsed}<{remaining}] {postfix}",
@@ -1582,24 +1584,18 @@ def download_telonex_days(
                 end=window_end,
             )
             markets_considered = len(set(market_slugs))
-
             planned_jobs = len(jobs_iter)
-        jobs, skipped_existing = _prune_jobs_against_manifest(
+
+        # Prune against manifest.  _skipped_ref[0] is accurate only after
+        # _run_jobs consumes the iterator chain, so we defer those reads.
+        jobs_iter, _skipped_ref = _prune_jobs_against_manifest(
             jobs=jobs_iter,
             store=store,
             overwrite=overwrite,
             show_progress=show_progress,
             channels_hint=set(channels),
         )
-        if all_markets:
-            markets_considered = _markets_considered_ref[0]
-        if show_progress and skipped_existing:
-            print(
-                f"Skipping {skipped_existing:,} day-files already recorded in the blob manifest",
-                file=sys.stderr,
-            )
 
-        total_jobs = len(jobs)
         if show_progress:
             existing_store_size = store.size_bytes()
             completed_before = sum(len(store.completed_keys(ch)) for ch in channels)
@@ -1608,15 +1604,14 @@ def download_telonex_days(
                 f"[telonex] Resume summary: manifest={db_path} "
                 f"data={store.data_root} total={_format_bytes(existing_store_size)}, "
                 f"completed={completed_before:,} 404s={empty_before:,}, "
-                f"planned={planned_jobs if planned_jobs is not None else total_jobs + skipped_existing:,} skipping={skipped_existing:,} "
-                f"remaining={total_jobs:,}",
+                f"planned={planned_jobs if planned_jobs is not None else 'streaming'}. "
+                f"Ctrl-C once to stop gracefully (manifest + parquets stay consistent).",
                 file=sys.stderr,
             )
             print(
                 f"[telonex] Channels={channels} workers={workers} "
                 f"retries={_DEFAULT_MAX_RETRIES} timeout={timeout_secs}s "
-                f"part-roll-at={_format_bytes(_TARGET_PART_BYTES)}. "
-                f"Ctrl-C once to stop gracefully (manifest + parquets stay consistent).",
+                f"part-roll-at={_format_bytes(_TARGET_PART_BYTES)}.",
                 file=sys.stderr,
             )
 
@@ -1629,7 +1624,7 @@ def download_telonex_days(
             interrupted,
             failed_samples,
         ) = _run_jobs(
-            jobs,
+            jobs_iter,
             store=store,
             api_key=api_key,
             base_url=base_url,
@@ -1637,6 +1632,12 @@ def download_telonex_days(
             workers=max(1, workers),
             show_progress=show_progress,
         )
+
+        # Deferred reads: mutable list counters are final now that
+        # _run_jobs has consumed the iterator chain.
+        _skipped = _skipped_ref[0]
+        if all_markets:
+            markets_considered = _markets_considered_ref[0]
     finally:
         try:
             store.close()
@@ -1656,9 +1657,11 @@ def download_telonex_days(
         channels=list(channels),
         base_url=base_url.rstrip("/"),
         markets_considered=markets_considered,
-        requested_days=planned_jobs if planned_jobs is not None else total_jobs + skipped_existing,
+        requested_days=planned_jobs
+        if planned_jobs is not None
+        else downloaded + missing + failed + cancelled + _skipped,
         downloaded_days=downloaded,
-        skipped_existing_days=skipped_existing,
+        skipped_existing_days=_skipped,
         missing_days=missing,
         failed_days=failed,
         cancelled_days=cancelled,
