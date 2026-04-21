@@ -1585,7 +1585,10 @@ def download_telonex_days(
 
             planned_jobs = len(jobs_iter)
         jobs, skipped_existing = _prune_jobs_against_manifest(
-            jobs=jobs_iter, store=store, overwrite=overwrite, show_progress=show_progress,
+            jobs=jobs_iter,
+            store=store,
+            overwrite=overwrite,
+            show_progress=show_progress,
             channels_hint=set(channels),
         )
         if all_markets:
