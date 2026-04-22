@@ -9,6 +9,8 @@ from types import SimpleNamespace
 
 import pandas as pd
 import pytest
+from nautilus_trader.adapters.polymarket.common.parsing import parse_polymarket_instrument
+from nautilus_trader.model.data import OrderBookDeltas, QuoteTick
 
 import prediction_market_extensions.backtesting.data_sources.telonex as telonex_module
 from prediction_market_extensions.backtesting.data_sources.telonex import (
@@ -22,6 +24,28 @@ from prediction_market_extensions.backtesting.data_sources.telonex import (
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+def _make_polymarket_loader() -> RunnerPolymarketTelonexQuoteDataLoader:
+    instrument = parse_polymarket_instrument(
+        market_info={
+            "condition_id": "0x" + "1" * 64,
+            "question": "Synthetic Telonex market",
+            "minimum_tick_size": "0.01",
+            "minimum_order_size": "1",
+            "end_date_iso": "2026-12-31T00:00:00Z",
+            "maker_base_fee": "0",
+            "taker_base_fee": "0",
+        },
+        token_id="2" * 64,
+        outcome="Yes",
+        ts_init=0,
+    )
+    loader = RunnerPolymarketTelonexQuoteDataLoader.__new__(RunnerPolymarketTelonexQuoteDataLoader)
+    loader._instrument = instrument
+    loader._token_id = "2" * 64
+    loader._condition_id = "0x" + "1" * 64
+    return loader
 
 
 class _FakeHTTPResponse:
@@ -72,6 +96,18 @@ def test_configured_telonex_data_source_preserves_explicit_order(tmp_path) -> No
             ("local", str(local_root)),
             ("api", "https://api.example.test"),
         ]
+
+
+def test_configured_telonex_data_source_can_pin_full_book_channel(tmp_path) -> None:
+    local_root = tmp_path / "telonex"
+    local_root.mkdir()
+
+    with configured_telonex_data_source(
+        sources=[f"local:{local_root}"], channel="book_snapshot_full"
+    ):
+        _selection, config = resolve_telonex_loader_config()
+
+    assert config.channel == "book_snapshot_full"
 
 
 def test_configured_telonex_data_source_omits_disabled_cache(
@@ -362,6 +398,159 @@ def test_telonex_load_quotes_uses_local_before_api_after_cache_miss(
 
     assert len(records) == 1
     assert calls == ["cache", "local"]
+
+
+def test_telonex_full_book_snapshots_replay_l2_deltas_and_quotes() -> None:
+    loader = _make_polymarket_loader()
+    frame = pd.DataFrame(
+        {
+            "timestamp_us": [1_768_780_800_000_000, 1_768_780_800_100_000],
+            "bids": [
+                [{"price": "0.34", "size": "10"}, {"price": "0.33", "size": "20"}],
+                [{"price": "0.34", "size": "7"}, {"price": "0.32", "size": "5"}],
+            ],
+            "asks": [
+                [{"price": "0.39", "size": "11"}, {"price": "0.40", "size": "22"}],
+                [{"price": "0.38", "size": "12"}, {"price": "0.40", "size": "22"}],
+            ],
+        }
+    )
+
+    records = loader._book_events_from_frame(
+        frame,
+        start=pd.Timestamp("2026-01-19T00:00:00Z"),
+        end=pd.Timestamp("2026-01-20T00:00:00Z"),
+    )
+
+    assert [type(record) for record in records] == [
+        OrderBookDeltas,
+        QuoteTick,
+        OrderBookDeltas,
+        QuoteTick,
+    ]
+    quotes = [record for record in records if isinstance(record, QuoteTick)]
+    assert [(float(quote.bid_price), float(quote.ask_price)) for quote in quotes] == [
+        (0.34, 0.39),
+        (0.34, 0.38),
+    ]
+
+
+def test_telonex_full_book_loader_uses_cache_before_local(monkeypatch: pytest.MonkeyPatch) -> None:
+    module = importlib.reload(telonex_module)
+    loader_cls = module.RunnerPolymarketTelonexQuoteDataLoader
+    loader = loader_cls.__new__(loader_cls)
+    config = module.TelonexLoaderConfig(
+        channel="book_snapshot_full",
+        ordered_source_entries=(
+            module.TelonexSourceEntry(kind="local", target="/tmp/local"),
+            module.TelonexSourceEntry(
+                kind="api", target="https://api.example.test", api_key="test-key"
+            ),
+        ),
+    )
+    frame = pd.DataFrame(
+        {
+            "timestamp_us": [1_768_780_800_000_000],
+            "bids": [[{"price": "0.34", "size": "10"}]],
+            "asks": [[{"price": "0.39", "size": "11"}]],
+        }
+    )
+    calls: list[str] = []
+
+    monkeypatch.setattr(loader, "_config", lambda: config)
+
+    def fake_cache(**kwargs: object) -> pd.DataFrame:
+        calls.append("cache")
+        return frame
+
+    def fail_local(**kwargs: object) -> None:
+        calls.append("local")
+        raise AssertionError("local should not be checked when cache has the day")
+
+    def fail_source(**kwargs: object) -> None:
+        calls.append("api")
+        raise AssertionError("api should not be checked when cache has the day")
+
+    monkeypatch.setattr(loader, "_load_api_cache_day", fake_cache)
+    monkeypatch.setattr(loader, "_try_load_day_from_local", fail_local)
+    monkeypatch.setattr(loader, "_try_load_day_from_entry", fail_source)
+    monkeypatch.setattr(
+        loader,
+        "_book_events_from_frame",
+        lambda _frame, *, start, end, include_order_book, include_quotes: [
+            SimpleNamespace(ts_event=1, ts_init=1)
+        ],
+    )
+
+    records = loader.load_order_book_and_quotes(
+        pd.Timestamp("2026-01-19", tz="UTC"),
+        pd.Timestamp("2026-01-19 23:59:59", tz="UTC"),
+        market_slug="cache-test",
+        token_index=0,
+        outcome=None,
+    )
+
+    assert len(records) == 1
+    assert calls == ["cache"]
+
+
+def test_telonex_full_book_loader_falls_back_to_api_when_blob_partition_is_incomplete(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    module = importlib.reload(telonex_module)
+    loader_cls = module.RunnerPolymarketTelonexQuoteDataLoader
+    loader = loader_cls.__new__(loader_cls)
+    local_root = tmp_path / "telonex"
+    partition_dir = local_root / "data" / "channel=book_snapshot_full" / "year=2026" / "month=01"
+    partition_dir.mkdir(parents=True)
+    (local_root / "telonex.duckdb").write_bytes(b"not-used")
+    (partition_dir / "part-000001.parquet").write_bytes(b"incomplete")
+
+    config = module.TelonexLoaderConfig(
+        channel="book_snapshot_full",
+        ordered_source_entries=(
+            module.TelonexSourceEntry(kind="local", target=str(local_root)),
+            module.TelonexSourceEntry(
+                kind="api", target="https://api.example.test", api_key="test-key"
+            ),
+        ),
+    )
+    api_frame = pd.DataFrame(
+        {
+            "timestamp_us": [1_768_780_800_000_000],
+            "bids": [[{"price": "0.34", "size": "10"}]],
+            "asks": [[{"price": "0.39", "size": "11"}]],
+        }
+    )
+    calls: list[str] = []
+
+    monkeypatch.setattr(loader, "_config", lambda: config)
+    monkeypatch.setattr(loader, "_load_api_cache_day", lambda **kwargs: None)
+
+    def fake_api_day(**kwargs: object) -> pd.DataFrame:
+        calls.append("api")
+        return api_frame
+
+    monkeypatch.setattr(loader, "_load_api_day", fake_api_day)
+    monkeypatch.setattr(
+        loader,
+        "_book_events_from_frame",
+        lambda _frame, *, start, end, include_order_book, include_quotes: [
+            SimpleNamespace(ts_event=1, ts_init=1)
+        ],
+    )
+
+    with pytest.warns(UserWarning, match="trying next source"):
+        records = loader.load_order_book_and_quotes(
+            pd.Timestamp("2026-01-19", tz="UTC"),
+            pd.Timestamp("2026-01-19 23:59:59", tz="UTC"),
+            market_slug="fallback-test",
+            token_index=0,
+            outcome=None,
+        )
+
+    assert len(records) == 1
+    assert calls == ["api"]
 
 
 def test_telonex_local_range_matches_consolidated_download_script_layout(tmp_path) -> None:

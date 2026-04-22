@@ -986,7 +986,7 @@ def save_aggregate_backtest_report(
 
     final_equity = float(aggregate_equity.iloc[-1])
     equity_values = pd.Series([snapshot.total_equity for snapshot in equity_curve], dtype=float)
-    running_peak = equity_values.cummax().replace(0.0, pd.NA)
+    running_peak = equity_values.cummax().mask(lambda values: values == 0.0)
     drawdowns = ((equity_values - running_peak) / running_peak).fillna(0.0)
     max_drawdown = float(drawdowns.min()) if not drawdowns.empty else 0.0
     metrics = {
@@ -1219,7 +1219,7 @@ def save_joint_portfolio_backtest_report(
     ]
 
     equity_values = pd.Series([snapshot.total_equity for snapshot in equity_curve], dtype=float)
-    running_peak = equity_values.cummax().replace(0.0, pd.NA)
+    running_peak = equity_values.cummax().mask(lambda values: values == 0.0)
     drawdowns = ((equity_values - running_peak) / running_peak).fillna(0.0)
     max_drawdown = float(drawdowns.min()) if not drawdowns.empty else 0.0
     metrics = {

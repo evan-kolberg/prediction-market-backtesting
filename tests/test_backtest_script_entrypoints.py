@@ -173,6 +173,35 @@ def test_public_runner_modules_expose_metadata_contract(
     assert callable(globals_dict.get("run"))
 
 
+@pytest.mark.parametrize("relative_path", EXPECTED_PUBLIC_SCRIPT_RUNNER_PATHS)
+def test_public_script_runners_attach_explicit_execution_model(
+    monkeypatch: pytest.MonkeyPatch, relative_path: Path
+) -> None:
+    monkeypatch.setenv("TELONEX_API_KEY", "test-telonex-key")
+    script_path = REPO_ROOT / relative_path
+    normalized_sys_path = [entry for entry in sys.path if Path(entry or ".").resolve() != REPO_ROOT]
+    monkeypatch.setattr(sys, "path", [str(script_path.parent), *normalized_sys_path])
+
+    globals_dict = runpy.run_path(str(script_path), run_name="__script_test__")
+
+    execution = globals_dict.get("EXECUTION")
+    assert execution is not None
+    assert execution.latency_model is not None
+
+    parameter_search = globals_dict.get(
+        "PARAMETER_SEARCH", globals_dict.get("OPTIMIZER", globals_dict.get("OPTIMIZATION"))
+    )
+    experiment = globals_dict["EXPERIMENT"]
+    target = parameter_search if parameter_search is not None else experiment
+    assert target.execution is execution
+
+    data = globals_dict["DATA"]
+    if data.data_type == "quote_tick":
+        assert execution.queue_position is True
+    else:
+        assert execution.queue_position is False
+
+
 @pytest.mark.parametrize("relative_path", PUBLIC_NOTEBOOK_RUNNER_PATHS)
 def test_public_notebook_runners_expose_metadata_contract(relative_path: Path) -> None:
     from prediction_market_extensions.backtesting._notebook_runner import load_notebook_metadata

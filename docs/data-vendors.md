@@ -210,10 +210,13 @@ that field must be present and string-encoded exactly as expected.
 
 ## Telonex
 
-Telonex is a separate Polymarket quote-tick vendor path. It does not use PMXT
-hourly raw files or the PMXT filtered cache. Runner API downloads use a
-separate Telonex API-day cache at `~/.cache/nautilus_trader/telonex` by
-default.
+Telonex is a separate Polymarket vendor path. The public runner surface still
+uses `data_type=quote_tick`, but the Telonex adapter pins the
+`book_snapshot_full` channel, converts full-depth book snapshots into L2
+`OrderBookDeltas`, and emits derived `QuoteTick`s for strategies and reports.
+It does not use PMXT hourly raw files or the PMXT filtered cache. Runner API
+downloads use a separate Telonex API-day cache at
+`~/.cache/nautilus_trader/telonex` by default.
 
 Telonex source syntax is also explicit:
 

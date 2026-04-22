@@ -133,7 +133,7 @@ STRATEGY_CONFIGS = [
 ]
 
 EXECUTION = ExecutionModelConfig(
-    queue_position=False,
+    queue_position=True,
     latency_model=StaticLatencyConfig(
         base_latency_ms=75.0,
         insert_latency_ms=10.0,

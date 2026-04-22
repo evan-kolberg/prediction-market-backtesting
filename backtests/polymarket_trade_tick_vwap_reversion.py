@@ -24,6 +24,10 @@ from prediction_market_extensions.backtesting._experiments import (
     build_replay_experiment,
     run_experiment,
 )
+from prediction_market_extensions.backtesting._execution_config import (
+    ExecutionModelConfig,
+    StaticLatencyConfig,
+)
 from prediction_market_extensions.backtesting._prediction_market_backtest import MarketReportConfig
 from prediction_market_extensions.backtesting._prediction_market_runner import MarketDataConfig
 from prediction_market_extensions.backtesting._replay_specs import TradeReplay
@@ -83,6 +87,16 @@ STRATEGY_CONFIGS = [
     }
 ]
 
+EXECUTION = ExecutionModelConfig(
+    queue_position=False,
+    latency_model=StaticLatencyConfig(
+        base_latency_ms=75.0,
+        insert_latency_ms=10.0,
+        update_latency_ms=5.0,
+        cancel_latency_ms=5.0,
+    ),
+)
+
 REPORT = MarketReportConfig(
     count_key="trades",
     count_label="Trades",
@@ -100,6 +114,7 @@ EXPERIMENT = build_replay_experiment(
     probability_window=30,
     min_trades=300,
     min_price_range=0.005,
+    execution=EXECUTION,
     report=REPORT,
     empty_message="No Polymarket VWAP-reversion sims met the trade-tick requirements.",
     emit_html=True,

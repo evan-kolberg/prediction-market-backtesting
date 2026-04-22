@@ -67,10 +67,11 @@ printed in the same terminal session:
 
 ## Telonex
 
-Telonex quote-tick runners can read consolidated local Parquet files from
+Telonex quote-tick runners read the `book_snapshot_full` channel as L2 book
+data from consolidated local Parquet files at
 `polymarket/<market>/<outcome>/<channel>.parquet`, or fetch missing daily files
-from `api:` when the local mirror is not present. Use local files first when you
-have warmed them:
+from `api:` when the local mirror is not present. Use local files first when
+you have warmed them:
 
 ```python
 DATA = MarketDataConfig(
@@ -90,7 +91,13 @@ of `Fetching hours`. Active status lines show the actual source class:
 `telonex local` for local mirrors, `telonex cache` for cached API-day payloads,
 or `telonex api` for network downloads. API downloads show byte progress when
 the response exposes a content length; every source reports scan rows, matched
-quote rows, and a completed line for each date.
+book/quote rows, and a completed line for each date.
+
+If a local Telonex blob partition contains a Parquet part that is not readable
+yet, for example because a downloader is actively writing the mirror, the runner
+rejects that local blob slice and tries the next source instead of silently
+replaying partial L2 books. With the public source priority, that means API-day
+cache first, then local, then `api:`.
 
 When `TELONEX_CACHE_ROOT` is enabled, the `Telonex source:` line includes the
 implicit cache layer before the configured `local:` and `api:` entries, for
@@ -109,7 +116,7 @@ Telonex source: explicit priority (cache -> local /Volumes/LaCie/telonex_data ->
 | Remote raw PMXT archive | network and file-size bound | Hour is missing from local cache and local raw mirror, so the client downloads the upstream raw parquet to a temp file and filters it locally |
 | Local Telonex daily Parquet | local disk bound | You warmed `/Volumes/LaCie/telonex_data` and listed `local:/Volumes/LaCie/telonex_data` before `api:` |
 | Telonex API-day cache | local disk bound | The same Telonex API day was downloaded earlier and cached under `TELONEX_CACHE_ROOT` |
-| Telonex API daily Parquet | network and file-size bound | The local daily file and API-day cache are missing, so the runner falls back to `api:` with `TELONEX_API_KEY` in the environment |
+| Telonex API daily Parquet | network and file-size bound | The local daily file is missing or a not-yet-readable local blob partition was rejected, and the API-day cache is missing, so the runner falls back to `api:` with `TELONEX_API_KEY` in the environment |
 | None | <1s | Hour does not exist yet |
 
 ## How To See This Output
