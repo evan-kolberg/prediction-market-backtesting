@@ -502,7 +502,7 @@ workflows:
 - `PMXT_RAW_ROOT`, `PMXT_REMOTE_BASE_URL`, `PMXT_CACHE_DIR`,
   `PMXT_DISABLE_CACHE`
 - `TELONEX_LOCAL_DIR`, `TELONEX_API_BASE_URL`, `TELONEX_API_KEY`,
-  `TELONEX_CHANNEL`
+  `TELONEX_CHANNEL`, `TELONEX_CACHE_ROOT`
 - `BACKTEST_ENABLE_TIMING=0`
 
 ## Data Vendor Notes
@@ -542,14 +542,20 @@ workflows:
 - Telonex source parsing accepts `local:` and `api:` only
 - `api:` reads `TELONEX_API_KEY` from the environment and constructs Telonex
   download URLs; never commit keys or put them in `DATA.sources`
+- API-day payloads are cached by default at
+  `~/.cache/nautilus_trader/telonex`; set `TELONEX_CACHE_ROOT=0` to disable or
+  `TELONEX_CACHE_ROOT=/path/to/cache` to move it
+- when the cache is enabled, the `Telonex source:` line includes `cache` before
+  the configured `local:` and `api:` entries
 - prefer `local:/Volumes/LaCie/telonex_data` for repeatable research once files
   have been downloaded with `scripts/telonex_download_data.py` or
   `make download-telonex-data`
 - the local downloader consolidates by default to
   `polymarket/<market_slug>/<outcome>/<channel>.parquet`
 - Telonex timing output is daily-file based: the `@timing_harness` progress bar
-  reports active `local:`/`api:` loads, byte progress when the API response
-  exposes a size, scan rows, and completed per-day lines
+  reports active `telonex local`, `telonex cache`, or `telonex api` loads,
+  byte progress when the API response exposes a size, scan rows, and completed
+  per-day lines
 
 For vendor-specific data-source behavior and timings, use:
 

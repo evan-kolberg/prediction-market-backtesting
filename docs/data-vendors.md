@@ -211,7 +211,9 @@ that field must be present and string-encoded exactly as expected.
 ## Telonex
 
 Telonex is a separate Polymarket quote-tick vendor path. It does not use PMXT
-hourly raw files or the PMXT filtered cache.
+hourly raw files or the PMXT filtered cache. Runner API downloads use a
+separate Telonex API-day cache at `~/.cache/nautilus_trader/telonex` by
+default.
 
 Telonex source syntax is also explicit:
 
@@ -224,6 +226,21 @@ The API path reads the key from `TELONEX_API_KEY`. Do not put API keys in
 `DATA.sources`, notebooks, docs, or committed files. Telonex free trials count
 each daily Parquet download, so warm local files first when you are experimenting
 and use `api:` only for intentional downloads.
+
+When a runner falls back to `api:`, the downloaded daily Parquet payload is
+written to the Telonex API-day cache before it is parsed. A second run for the
+same base URL, channel, market, outcome, and date reads that cache without
+asking Telonex for another presigned URL. Override the cache root with
+`TELONEX_CACHE_ROOT=/path/to/cache`, disable it with `TELONEX_CACHE_ROOT=0`, or
+clear only that cache with:
+
+```bash
+make clear-telonex-cache
+```
+
+Do not point `TELONEX_CACHE_ROOT` at a local mirror. The clear target refuses
+the configured local Telonex data destination, the PMXT raw mirror root, paths
+inside those stores, and parents containing those stores.
 
 Recommended local layout:
 

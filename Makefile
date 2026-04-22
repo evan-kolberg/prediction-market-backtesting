@@ -1,6 +1,8 @@
 .PHONY: backtest install update test check clear-pmxt-cache clear-telonex-cache download-pmxt-raws download-telonex-data
 
 PMXT_CACHE_ROOT ?= $(if $(XDG_CACHE_HOME),$(XDG_CACHE_HOME),$(HOME)/.cache)/nautilus_trader/pmxt
+PMXT_LOCAL_DATA_ROOT ?= /Volumes/LaCie/pmxt_raws
+TELONEX_CACHE_ROOT ?= $(if $(XDG_CACHE_HOME),$(XDG_CACHE_HOME),$(HOME)/.cache)/nautilus_trader/telonex
 DESTINATION ?=
 PMXT_RAW_DOWNLOAD_FLAGS ?=
 TELONEX_DATA_DESTINATION ?= /Volumes/LaCie/telonex_data
@@ -20,14 +22,16 @@ check:
 test: check
 
 clear-pmxt-cache:
+	@python3 scripts/_cache_clear_guard.py --name PMXT_CACHE_ROOT --target "$(PMXT_CACHE_ROOT)" --unsafe "$(PMXT_LOCAL_DATA_ROOT)" --unsafe "$(TELONEX_DATA_DESTINATION)" --unsafe "$(DESTINATION)"
 	rm -rf "$(PMXT_CACHE_ROOT)"
 	mkdir -p "$(PMXT_CACHE_ROOT)"
 	du -sh "$(PMXT_CACHE_ROOT)"
 
 clear-telonex-cache:
-	rm -rf "$(TELONEX_DATA_DESTINATION)"
-	mkdir -p "$(TELONEX_DATA_DESTINATION)"
-	du -sh "$(TELONEX_DATA_DESTINATION)"
+	@python3 scripts/_cache_clear_guard.py --name TELONEX_CACHE_ROOT --target "$(TELONEX_CACHE_ROOT)" --unsafe "$(TELONEX_DATA_DESTINATION)" --unsafe "$(PMXT_LOCAL_DATA_ROOT)" --unsafe "$(DESTINATION)"
+	rm -rf "$(TELONEX_CACHE_ROOT)"
+	mkdir -p "$(TELONEX_CACHE_ROOT)"
+	du -sh "$(TELONEX_CACHE_ROOT)"
 
 download-pmxt-raws:
 	@if [ -z "$(DESTINATION)" ]; then echo "Set DESTINATION=/path"; exit 2; fi
