@@ -59,6 +59,56 @@ def _parquet_payload_with_local_timestamp(value: int | float) -> bytes:
     return buffer.getvalue()
 
 
+def _book_snapshot_payload(
+    timestamp_us: int,
+    *,
+    bids_type: str = "levels",
+    asks_type: str = "levels",
+) -> bytes:
+    levels_type = telonex_download.pa.list_(
+        telonex_download.pa.field(
+            "element",
+            telonex_download.pa.struct(
+                [
+                    telonex_download.pa.field("price", telonex_download.pa.string()),
+                    telonex_download.pa.field("size", telonex_download.pa.string()),
+                ]
+            ),
+        )
+    )
+
+    def side(kind: str):
+        if kind == "null":
+            return telonex_download.pa.array(
+                [[]], type=telonex_download.pa.list_(telonex_download.pa.null())
+            )
+        return telonex_download.pa.array(
+            [[{"price": "0.44", "size": "10"}]],
+            type=levels_type,
+        )
+
+    table = telonex_download.pa.table(
+        {
+            "timestamp_us": telonex_download.pa.array(
+                [timestamp_us], type=telonex_download.pa.int64()
+            ),
+            "local_timestamp_us": telonex_download.pa.array(
+                [float(timestamp_us)], type=telonex_download.pa.float64()
+            ),
+            "exchange": ["polymarket"],
+            "market_id": ["m1"],
+            "slug": ["book-market"],
+            "asset_id": ["asset-0"],
+            "outcome": ["Yes"],
+            "bids": side(bids_type),
+            "asks": side(asks_type),
+        }
+    )
+    buffer = BytesIO()
+    telonex_download.pq.write_table(table, buffer)
+    return buffer.getvalue()
+
+
 def _install_payload_stub(
     monkeypatch: pytest.MonkeyPatch,
     payloads_by_day: dict[str, bytes],
@@ -484,12 +534,12 @@ def test_download_telonex_days_schema_evolves_when_later_day_has_new_column(
     assert rows == [(None,), ("abc123",)]
 
 
-def test_download_telonex_days_rolls_when_arrow_types_conflict(
+def test_download_telonex_days_normalizes_local_timestamps_to_float(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     payloads = {
         "2026-01-19": _parquet_payload_with_local_timestamp(1_768_780_800_000_000),
-        "2026-01-20": _parquet_payload_with_local_timestamp(1_768_867_200_000_000.0),
+        "2026-01-20": _parquet_payload_with_local_timestamp(1_768_867_200_000_000.75),
     }
 
     monkeypatch.setenv("TELONEX_API_KEY", "test-key")
@@ -519,7 +569,84 @@ def test_download_telonex_days_rolls_when_arrow_types_conflict(
         con.close()
 
     assert len(manifest) == 2
-    assert manifest[0][1] != manifest[1][1]
+    assert manifest[0][1] == manifest[1][1]
+
+    part = tmp_path / manifest[0][1]
+    schema = telonex_download.pq.ParquetFile(part).schema_arrow
+    assert schema.field("local_timestamp_us").type == telonex_download.pa.float64()
+
+
+def test_download_telonex_days_keeps_empty_book_sides_in_one_part(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    payloads = {
+        "2026-01-19": _book_snapshot_payload(1_768_780_800_000_000),
+        "2026-01-20": _book_snapshot_payload(1_768_867_200_000_000, bids_type="null"),
+        "2026-01-21": _book_snapshot_payload(1_768_953_600_000_000, asks_type="null"),
+    }
+
+    monkeypatch.setenv("TELONEX_API_KEY", "test-key")
+    _install_payload_stub(monkeypatch, payloads)
+    monkeypatch.setattr(telonex_download, "_DEFAULT_COMMIT_BATCH_ROWS", 1)
+    monkeypatch.setattr(telonex_download, "_DEFAULT_COMMIT_BATCH_SECS", 0.0)
+
+    summary = telonex_download.download_telonex_days(
+        destination=tmp_path,
+        market_slugs=["book-market"],
+        outcome_id=0,
+        channel="book_snapshot_full",
+        start_date="2026-01-19",
+        end_date="2026-01-21",
+        show_progress=False,
+        workers=1,
+    )
+
+    assert summary.downloaded_days == 3
+    assert summary.failed_days == 0
+    parts = sorted((tmp_path / "data").rglob("*.parquet"))
+    assert len(parts) == 1
+    schema = telonex_download.pq.ParquetFile(parts[0]).schema_arrow
+    assert schema.field("bids").type.equals(telonex_download._ORDER_BOOK_LEVELS_TYPE)
+    assert schema.field("asks").type.equals(telonex_download._ORDER_BOOK_LEVELS_TYPE)
+
+
+def test_download_telonex_days_reuses_promoted_optional_column_schema(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    payloads = {
+        "2026-01-19": _parquet_payload_with_extra(1_768_780_800_000_000),
+        "2026-01-20": _parquet_payload_with_extra(
+            1_768_867_200_000_000, extra_columns={"origin_asset_id": "abc123"}
+        ),
+        "2026-01-21": _parquet_payload_with_extra(1_768_953_600_000_000),
+    }
+
+    monkeypatch.setenv("TELONEX_API_KEY", "test-key")
+    _install_payload_stub(monkeypatch, payloads)
+    monkeypatch.setattr(telonex_download, "_DEFAULT_COMMIT_BATCH_ROWS", 1)
+    monkeypatch.setattr(telonex_download, "_DEFAULT_COMMIT_BATCH_SECS", 0.0)
+
+    summary = telonex_download.download_telonex_days(
+        destination=tmp_path,
+        market_slugs=["optional-column-market"],
+        outcome_id=0,
+        start_date="2026-01-19",
+        end_date="2026-01-21",
+        show_progress=False,
+        workers=1,
+    )
+
+    assert summary.downloaded_days == 3
+    assert summary.failed_days == 0
+
+    con = duckdb.connect(str(tmp_path / "telonex.duckdb"), read_only=True)
+    try:
+        rows = con.execute("SELECT day, parquet_part FROM completed_days ORDER BY day").fetchall()
+    finally:
+        con.close()
+
+    assert len({row[1] for row in rows}) == 2
+    assert rows[1][1] == rows[2][1]
 
 
 def test_download_telonex_days_retries_transient_5xx_then_succeeds(
@@ -732,6 +859,75 @@ def test_download_telonex_progress_format_includes_bar_percent_and_eta(
     assert all("{remaining}" in fmt for fmt in download_bar_formats)
 
 
+def test_all_markets_progress_only_uses_fetch_and_download_bars(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    markets = pd.DataFrame(
+        {
+            "slug": ["market-one"],
+            "quotes_from": ["2026-01-19"],
+            "quotes_to": ["2026-01-19"],
+        }
+    )
+    progress_descs: list[str] = []
+
+    class FakeTqdm:
+        def __init__(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+            del args
+            desc = kwargs.get("desc")
+            if desc is not None:
+                progress_descs.append(str(desc))
+            self.n = 0
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):  # type: ignore[no-untyped-def]
+            del exc_type, exc, tb
+            return False
+
+        def update(self, value: int) -> None:
+            self.n += value
+
+        def set_postfix_str(self, value: str, refresh: bool = False) -> None:
+            del value, refresh
+
+        def refresh(self) -> None:
+            pass
+
+        def close(self) -> None:
+            pass
+
+    def fake_fetch_markets_dataset(
+        base_url: str, timeout_secs: int, *, show_progress: bool = False
+    ) -> pd.DataFrame:
+        del base_url, timeout_secs
+        if show_progress:
+            telonex_download.tqdm(total=10, desc="Fetching Telonex markets").close()
+        return markets
+
+    def fake_run_jobs(jobs, **kwargs):
+        assert kwargs["show_progress"] is True
+        list(jobs)
+        telonex_download.tqdm(total=1, desc="Downloading Telonex days").close()
+        return (1, 0, 0, 0, 100, False, [])
+
+    monkeypatch.setenv("TELONEX_API_KEY", "test-key")
+    monkeypatch.setattr(telonex_download, "tqdm", FakeTqdm)
+    monkeypatch.setattr(telonex_download, "_fetch_markets_dataset", fake_fetch_markets_dataset)
+    monkeypatch.setattr(telonex_download, "_run_jobs", fake_run_jobs)
+
+    summary = telonex_download.download_telonex_days(
+        destination=tmp_path,
+        all_markets=True,
+        channels=["quotes"],
+        show_progress=True,
+    )
+
+    assert summary.downloaded_days == 1
+    assert progress_descs == ["Fetching Telonex markets", "Downloading Telonex days"]
+
+
 def test_downloaded_parquet_is_readable_by_telonex_loader(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -906,6 +1102,35 @@ def test_download_telonex_days_rolls_part_files_when_threshold_exceeded(
     assert len({row[1] for row in rows}) == 2
 
 
+def test_download_telonex_days_rolls_part_files_when_disk_threshold_exceeded(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    payloads = {
+        "2026-01-19": _parquet_payload(1_768_780_800_000_000),
+        "2026-01-20": _parquet_payload(1_768_867_200_000_000),
+    }
+
+    monkeypatch.setenv("TELONEX_API_KEY", "test-key")
+    _install_payload_stub(monkeypatch, payloads)
+    monkeypatch.setattr(telonex_download, "_TARGET_PART_BYTES", 1 << 40)
+    monkeypatch.setattr(telonex_download, "_TARGET_PART_DISK_BYTES", 1)
+    monkeypatch.setattr(telonex_download, "_DEFAULT_COMMIT_BATCH_ROWS", 1)
+    monkeypatch.setattr(telonex_download, "_DEFAULT_COMMIT_BATCH_SECS", 0.0)
+
+    telonex_download.download_telonex_days(
+        destination=tmp_path,
+        market_slugs=["disk-roll-test"],
+        outcome_id=0,
+        start_date="2026-01-19",
+        end_date="2026-01-20",
+        show_progress=False,
+        workers=1,
+    )
+
+    parts = sorted((tmp_path / "data").rglob("*.parquet"))
+    assert len(parts) == 2
+
+
 def test_store_sweeps_orphan_parquet_on_startup(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -938,6 +1163,22 @@ def test_store_sweeps_orphan_parquet_on_startup(
         assert real_part.exists()
     finally:
         store.close()
+
+
+def test_store_sweeps_orphan_parquet_on_close(tmp_path: Path) -> None:
+    store = telonex_download._TelonexParquetStore(tmp_path)
+    orphan_dir = tmp_path / "data" / "channel=book_snapshot_full" / "year=2026" / "month=01"
+    orphan_dir.mkdir(parents=True, exist_ok=True)
+    orphan = orphan_dir / "part-999999.parquet"
+    telonex_download.pq.write_table(
+        telonex_download.pa.table({"timestamp_us": [1_768_780_800_000_000]}),
+        orphan,
+    )
+    assert orphan.exists()
+
+    store.close()
+
+    assert not orphan.exists()
 
 
 def test_download_telonex_days_resumes_midrun_interruption(
