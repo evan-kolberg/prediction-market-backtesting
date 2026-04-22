@@ -137,12 +137,14 @@ Downloading raw hours (2/3 done, 1 active):  67%|██████████�
 The counts, hour labels, source label, and byte totals vary with the current
 archive and the window you are mirroring.
 
-To mirror a small Telonex quote-tick window locally, run:
+To mirror a small Telonex runner window locally, include the full-depth book
+channel:
 
 ```bash
 TELONEX_API_KEY=... make download-telonex-data TELONEX_DOWNLOAD_FLAGS='\
   --market-slug us-recession-by-end-of-2026 \
   --outcome-id 0 \
+  --channels quotes book_snapshot_full \
   --start-date 2026-01-19 \
   --end-date 2026-02-01'
 ```

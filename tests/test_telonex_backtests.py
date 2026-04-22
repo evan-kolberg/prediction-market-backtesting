@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import importlib
+from pathlib import Path
 
 import pytest
+from nautilus_trader.model.enums import BookType
 from nautilus_trader.model.identifiers import InstrumentId, Symbol, Venue
 
 from prediction_market_extensions.backtesting._strategy_configs import build_strategies_from_configs
+from prediction_market_extensions.backtesting.data_sources.registry import resolve_replay_adapter
 from strategies import QuoteTickDeepValueHoldConfig, QuoteTickDeepValueHoldStrategy
 
 INSTRUMENT_ID = InstrumentId(Symbol("PM-TEST-YES"), Venue("POLYMARKET"))
@@ -73,7 +76,7 @@ def test_telonex_joint_portfolio_runner_uses_local_first_sources(
     assert module.DATA.vendor == "telonex"
     assert module.DATA.sources == EXPECTED_TELONEX_SOURCES
     assert len(module.REPLAYS) == 5
-    assert module.EXECUTION.queue_position is False
+    assert module.EXECUTION.queue_position is True
     assert module.DETAIL_PLOT_PANELS == EXPECTED_DETAIL_PLOT_PANELS
     assert module.SUMMARY_PLOT_PANELS == EXPECTED_SUMMARY_PLOT_PANELS
     assert module.REPORT.summary_report is True
@@ -82,3 +85,30 @@ def test_telonex_joint_portfolio_runner_uses_local_first_sources(
     assert module.EXPERIMENT.return_summary_series is True
     assert module.EXPERIMENT.multi_replay_mode == "joint_portfolio"
     assert captured["experiment"] is module.EXPERIMENT
+
+
+def test_telonex_quote_adapter_uses_passive_l2_execution_profile() -> None:
+    adapter = resolve_replay_adapter(
+        platform="polymarket", data_type="quote_tick", vendor="telonex"
+    )
+    profile = adapter.engine_profile
+
+    assert profile.fill_model_mode == "passive_book"
+    assert profile.book_type == BookType.L2_MBP
+    assert profile.liquidity_consumption is True
+
+
+def test_telonex_quote_adapter_requests_full_depth_book_channel(tmp_path: Path) -> None:
+    adapter = resolve_replay_adapter(
+        platform="polymarket", data_type="quote_tick", vendor="telonex"
+    )
+
+    with adapter.configure_sources(sources=(f"local:{tmp_path}",)):
+        from prediction_market_extensions.backtesting.data_sources.telonex import (
+            TELONEX_FULL_BOOK_CHANNEL,
+            resolve_telonex_loader_config,
+        )
+
+        _selection, config = resolve_telonex_loader_config()
+
+    assert config.channel == TELONEX_FULL_BOOK_CHANNEL

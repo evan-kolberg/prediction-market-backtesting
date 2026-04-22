@@ -50,6 +50,7 @@ from prediction_market_extensions.backtesting.data_sources.telonex import (
     RunnerPolymarketTelonexQuoteDataLoader as PolymarketTelonexQuoteDataLoader,
 )
 from prediction_market_extensions.backtesting.data_sources.telonex import (
+    TELONEX_FULL_BOOK_CHANNEL,
     configured_telonex_data_source,
 )
 
@@ -533,13 +534,19 @@ class PolymarketTelonexQuoteReplayAdapter(_BaseReplayAdapter):
         super().__init__(
             _key=ReplayAdapterKey("polymarket", "telonex", "quote_tick"),
             _replay_spec_type=QuoteReplay,
-            _configure_sources_fn=configured_telonex_data_source,
+            _configure_sources_fn=lambda *, sources: configured_telonex_data_source(
+                sources=sources,
+                channel=TELONEX_FULL_BOOK_CHANNEL,
+            ),
             _engine_profile=ReplayEngineProfile(
                 venue=POLYMARKET_VENUE,
                 oms_type=OmsType.NETTING,
                 account_type=AccountType.CASH,
                 base_currency=USDC_POS,
                 fee_model_factory=PolymarketFeeModel,
+                fill_model_mode="passive_book",
+                book_type=BookType.L2_MBP,
+                liquidity_consumption=True,
             ),
             _single_market_required_fields=("market_slug",),
             _single_market_forwarded_fields=(
@@ -601,7 +608,7 @@ class PolymarketTelonexQuoteReplayAdapter(_BaseReplayAdapter):
                 replay.market_slug, token_index=replay.token_index
             )
             records = tuple(
-                loader.load_quotes(
+                loader.load_order_book_and_quotes(
                     start,
                     end,
                     market_slug=replay.market_slug,
@@ -610,20 +617,27 @@ class PolymarketTelonexQuoteReplayAdapter(_BaseReplayAdapter):
                 )
             )
         except Exception as exc:
-            print(f"Skip {replay.market_slug}: unable to load Telonex quotes ({exc})")
+            print(f"Skip {replay.market_slug}: unable to load Telonex L2 book data ({exc})")
             return None
 
         if not records:
-            print(f"Skip {replay.market_slug}: no Telonex quotes returned")
+            print(f"Skip {replay.market_slug}: no Telonex L2 book data returned")
             return None
 
-        prices_tuple = tuple(
-            (float(record.bid_price) + float(record.ask_price)) / 2.0 for record in records
-        )
+        quote_tick_type = _resolve_backtest_compat_symbol("QuoteTick", QuoteTick)
+        prices: list[float] = []
+        quote_count = 0
+        for record in records:
+            if not isinstance(record, quote_tick_type):
+                continue
+            quote_count += 1
+            prices.append((float(record.bid_price) + float(record.ask_price)) / 2.0)
+
+        prices_tuple = tuple(prices)
         if not _validate_replay_window(
             market_label=replay.market_slug,
             count_label="quotes",
-            count=len(records),
+            count=quote_count,
             min_record_count=request.min_record_count,
             prices=prices_tuple,
             min_price_range=request.min_price_range,
@@ -634,7 +648,7 @@ class PolymarketTelonexQuoteReplayAdapter(_BaseReplayAdapter):
             replay=replay,
             instrument=loader.instrument,
             records=records,
-            count=len(records),
+            count=quote_count,
             count_key="quotes",
             market_key="slug",
             market_id=replay.market_slug,

@@ -538,7 +538,9 @@ workflows:
 
 ### Telonex
 
-- `telonex` is a Polymarket quote-tick vendor backed by Telonex Parquet files
+- `telonex` is a Polymarket quote-tick runner surface backed by Telonex
+  Parquet files; the adapter reads `book_snapshot_full` and replays L2
+  `OrderBookDeltas` plus derived quotes
 - Telonex source parsing accepts `local:` and `api:` only
 - `api:` reads `TELONEX_API_KEY` from the environment and constructs Telonex
   download URLs; never commit keys or put them in `DATA.sources`
