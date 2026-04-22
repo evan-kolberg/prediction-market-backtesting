@@ -36,7 +36,8 @@ _EXCHANGE = "polymarket"
 _DOWNLOAD_CHUNK_SIZE = 1024 * 1024
 _MANIFEST_FILENAME = "telonex.duckdb"
 _DATA_SUBDIR = "data"
-_TARGET_PART_BYTES = 1 << 30  # 1 GiB uncompressed Arrow before rolling
+_TARGET_PART_BYTES = 64 << 30  # uncompressed Arrow safety cap before rolling
+_TARGET_PART_DISK_BYTES = 512 << 20  # compressed on-disk Parquet target before rolling
 _PARQUET_COMPRESSION = "zstd"
 _PARQUET_COMPRESSION_LEVEL = 3
 # Keep pending_for_commit bounded so book_snapshot_full Arrow tables don't pin
@@ -53,6 +54,11 @@ _FORCE_EXIT_SIGNAL_COUNT = 5
 _MARKETS_BATCH_ROWS = 100_000
 _HTTP_KEEPALIVE_EXPIRY_SECS = 30.0
 _DEFAULT_PARSE_WORKERS = min(8, max(1, os.cpu_count() or 2))
+_ORDER_BOOK_LEVEL_TYPE = pa.struct([pa.field("price", pa.string()), pa.field("size", pa.string())])
+_ORDER_BOOK_LEVELS_TYPE = pa.list_(pa.field("element", _ORDER_BOOK_LEVEL_TYPE))
+_ORDER_BOOK_SIDE_COLUMNS = frozenset({"bids", "asks"})
+_INT_TIMESTAMP_COLUMNS = frozenset({"timestamp_us", "block_timestamp_us"})
+_FLOAT_TIMESTAMP_COLUMNS = frozenset({"local_timestamp_us"})
 
 _CHANNEL_COLUMN_SUFFIX = {
     "trades": ("trades_from", "trades_to"),
@@ -227,7 +233,8 @@ class _CancelledError(Exception):
 class _OpenPart:
     """A Parquet part-file that's open for appending row groups.
 
-    Stays open across commit batches until it crosses `_TARGET_PART_BYTES`;
+    Stays open across commit batches until it crosses the compressed on-disk
+    part target or the uncompressed Arrow safety cap;
     only then do we close it and flush its manifest rows. Partial parts on
     crash are orphaned but never referenced from the manifest, so they're
     benign — the affected days re-download on the next run.
@@ -237,7 +244,108 @@ class _OpenPart:
     writer: pq.ParquetWriter
     schema: pa.Schema
     bytes_written: int
+    disk_bytes: int
     pending: list[tuple[_DownloadResult, int]]  # (result, row_count) waiting for manifest commit
+
+
+def _is_nullish_type(value_type: pa.DataType) -> bool:
+    if pa.types.is_null(value_type):
+        return True
+    if pa.types.is_list(value_type) or pa.types.is_large_list(value_type):
+        return _is_nullish_type(value_type.value_type)
+    return False
+
+
+def _normalize_telonex_table(table: pa.Table) -> pa.Table:
+    fields: list[pa.Field] = []
+    changed = False
+    for schema_field in table.schema:
+        target_type = schema_field.type
+        if schema_field.name in _ORDER_BOOK_SIDE_COLUMNS and _is_nullish_type(schema_field.type):
+            target_type = _ORDER_BOOK_LEVELS_TYPE
+        elif schema_field.name in _INT_TIMESTAMP_COLUMNS and pa.types.is_floating(
+            schema_field.type
+        ):
+            target_type = pa.int64()
+        elif schema_field.name in _FLOAT_TIMESTAMP_COLUMNS and pa.types.is_integer(
+            schema_field.type
+        ):
+            target_type = pa.float64()
+
+        if target_type.equals(schema_field.type):
+            fields.append(schema_field)
+            continue
+        fields.append(
+            pa.field(
+                schema_field.name,
+                target_type,
+                nullable=schema_field.nullable,
+                metadata=schema_field.metadata,
+            )
+        )
+        changed = True
+
+    if not changed:
+        return table
+
+    schema = pa.schema(fields, metadata=table.schema.metadata)
+    try:
+        return table.cast(schema, safe=True)
+    except (pa.ArrowInvalid, pa.ArrowTypeError):
+        return table
+
+
+def _merge_promotable_schema(base: pa.Schema, incoming: pa.Schema) -> pa.Schema | None:
+    """Merge schemas when differences are additive or null-only.
+
+    Parquet files cannot change schema after their writer is opened. This lets
+    the store learn a stable channel schema for future parts while avoiding
+    unsafe numeric/string coercions that could hide real data defects.
+    """
+    incoming_by_name = {field.name: field for field in incoming}
+    merged_fields: list[pa.Field] = []
+    for base_field in base:
+        incoming_field = incoming_by_name.pop(base_field.name, None)
+        if incoming_field is None:
+            merged_fields.append(base_field)
+            continue
+        if base_field.type.equals(incoming_field.type):
+            merged_fields.append(base_field)
+        elif _is_nullish_type(base_field.type):
+            merged_fields.append(incoming_field)
+        elif _is_nullish_type(incoming_field.type):
+            merged_fields.append(base_field)
+        else:
+            return None
+
+    merged_fields.extend(incoming_by_name.values())
+    return pa.schema(merged_fields, metadata=base.metadata or incoming.metadata)
+
+
+def _align_table_to_schema(table: pa.Table, schema: pa.Schema) -> pa.Table | None:
+    source_names = set(table.schema.names)
+    target_names = set(schema.names)
+    if source_names - target_names:
+        return None
+
+    arrays = []
+    for target_field in schema:
+        source_index = table.schema.get_field_index(target_field.name)
+        if source_index < 0:
+            arrays.append(pa.nulls(table.num_rows, type=target_field.type))
+            continue
+        source_field = table.schema.field(source_index)
+        if not source_field.type.equals(target_field.type) and not _is_nullish_type(
+            source_field.type
+        ):
+            return None
+        arrays.append(table.column(source_index))
+
+    aligned = pa.Table.from_arrays(arrays, schema=schema)
+    try:
+        return aligned.cast(schema, safe=True)
+    except (pa.ArrowInvalid, pa.ArrowTypeError):
+        return None
 
 
 class _TelonexParquetStore:
@@ -250,9 +358,10 @@ class _TelonexParquetStore:
           data/
             channel=<channel>/year=<y>/month=<mm>/part-NNNNNN.parquet
 
-    Writer rolls a new part file when the open part crosses `_TARGET_PART_BYTES`
-    or when the incoming batch's schema doesn't match the open writer's schema
-    (new columns appearing mid-stream). Readers query everything via
+    Writer rolls a new part file when the open part crosses the compressed
+    on-disk target or the uncompressed Arrow safety cap. It normalizes common
+    Telonex schema drift before writing, so empty order-book sides and optional
+    columns don't create one tiny file per batch. Readers query everything via
     `read_parquet('<root>/data/channel=X/**/*.parquet', hive_partitioning=1,
     union_by_name=True)` — DuckDB prunes on year/month for free.
     """
@@ -266,6 +375,8 @@ class _TelonexParquetStore:
         self._con = duckdb.connect(str(self._manifest_path))
         self._init_schema()
         self._writers: dict[tuple[str, int, int], _OpenPart] = {}
+        self._channel_schemas: dict[str, pa.Schema] = {}
+        self._closed = False
         # A previous run killed via SIGTERM/SIGKILL may have left half-written
         # Parquet files on disk — no footer, unreadable. Sweep them before any
         # new writes so the channel globs stay clean.
@@ -282,9 +393,13 @@ class _TelonexParquetStore:
     def close(self) -> None:
         """Flush all open writers and close the manifest. Idempotent."""
         with self._lock:
+            if self._closed:
+                return
             for key in list(self._writers.keys()):
                 self._flush_open_part_locked(key)
+            self._remove_orphan_parts()
             self._con.close()
+            self._closed = True
 
     def _init_schema(self) -> None:
         with self._lock:
@@ -401,6 +516,7 @@ class _TelonexParquetStore:
             writer=writer,
             schema=schema,
             bytes_written=0,
+            disk_bytes=0,
             pending=[],
         )
 
@@ -514,31 +630,58 @@ class _TelonexParquetStore:
         table: pa.Table,
         pending: list[tuple[_DownloadResult, int]],
     ) -> int:
-        """Write one Arrow table to a partition, rolling when schema changes.
+        """Write one Arrow table to a partition, rolling when needed.
 
         Caller holds the lock.
         """
+        table = _normalize_telonex_table(table)
+        channel = key[0]
+        channel_schema = self._channel_schemas.get(channel)
+        if channel_schema is None:
+            channel_schema = table.schema
+            self._channel_schemas[channel] = channel_schema
+        else:
+            merged_schema = _merge_promotable_schema(channel_schema, table.schema)
+            if merged_schema is not None:
+                channel_schema = merged_schema
+                self._channel_schemas[channel] = channel_schema
+                aligned = _align_table_to_schema(table, channel_schema)
+                if aligned is not None:
+                    table = aligned
 
         part = self._writers.get(key)
-        if part is not None and not part.schema.equals(table.schema):
-            # Schema changed mid-partition (new column, type promotion, etc.) —
-            # close the current part and start a new one. `union_by_name=True`
-            # on read lets the two files coexist.
-            self._flush_open_part_locked(key)
-            part = None
+        if part is not None:
+            aligned = _align_table_to_schema(table, part.schema)
+            if aligned is not None:
+                table = aligned
+            else:
+                # Parquet writers cannot change schema in-place. True additive
+                # schema evolution rolls once, then future rows align to the
+                # learned channel schema.
+                self._flush_open_part_locked(key)
+                part = None
 
         if part is None:
+            open_schema = self._channel_schemas.get(channel)
+            if open_schema is not None:
+                aligned = _align_table_to_schema(table, open_schema)
+                if aligned is not None:
+                    table = aligned
             part = self._open_part(key, table.schema)
             self._writers[key] = part
 
         total_rows = table.num_rows
         part.writer.write_table(table)
         part.bytes_written += table.nbytes
+        try:
+            part.disk_bytes = part.path.stat().st_size
+        except OSError:
+            part.disk_bytes = 0
         part.pending.extend(pending)
 
         del table
 
-        if part.bytes_written >= _TARGET_PART_BYTES:
+        if part.disk_bytes >= _TARGET_PART_DISK_BYTES or part.bytes_written >= _TARGET_PART_BYTES:
             self._flush_open_part_locked(key)
 
         return total_rows
@@ -723,17 +866,8 @@ def _fetch_markets_dataset(
     payload = b"".join(chunks)
     parquet = pq.ParquetFile(io.BytesIO(payload))
     total_rows = parquet.metadata.num_rows if parquet.metadata is not None else None
-    batches: list[pa.RecordBatch] = []
-    with tqdm(
-        total=total_rows,
-        desc="Loading Telonex markets",
-        unit="market",
-        dynamic_ncols=True,
-        disable=not show_progress,
-    ) as progress:
-        for batch in parquet.iter_batches(batch_size=_MARKETS_BATCH_ROWS):
-            batches.append(batch)
-            progress.update(batch.num_rows)
+    del total_rows
+    batches = list(parquet.iter_batches(batch_size=_MARKETS_BATCH_ROWS))
     table = pa.Table.from_batches(batches, schema=parquet.schema_arrow)
     return table.to_pandas()
 
@@ -788,9 +922,6 @@ def _iter_jobs_from_catalog(
     Drops unused columns upfront so the 5+ GiB catalog shrinks before
     the reusable iterable holds a reference to the slim frame.
     """
-    if show_progress:
-        print("[telonex] Planning Telonex jobs from catalog...", file=sys.stderr)
-
     # Collect only the columns we need: slug, status, and per-channel date bounds.
     needed_cols: list[str] = ["slug"]
     if status_filter is not None:
@@ -813,20 +944,9 @@ def _iter_jobs_from_catalog(
     # upfront so the per-row loop does zero datetime parsing (the main bottleneck).
     window_start_ts = pd.Timestamp(window_start, tz=UTC) if window_start is not None else None
     window_end_ts = pd.Timestamp(window_end, tz=UTC) if window_end is not None else None
-    channel_progress = (
-        tqdm(
-            channels,
-            desc="Planning Telonex channels",
-            unit="channel",
-            dynamic_ncols=True,
-        )
-        if show_progress
-        else channels
-    )
-    for ch in channel_progress:
+    del show_progress
+    for ch in channels:
         from_col, to_col = _CHANNEL_COLUMN_SUFFIX[ch]
-        if show_progress:
-            channel_progress.set_postfix_str(ch, refresh=False)
         for col in (from_col, to_col):
             if col in frame.columns:
                 frame[col] = pd.to_datetime(
@@ -855,19 +975,7 @@ def _iter_jobs_from_catalog(
         raise ValueError("Telonex markets catalog is missing required 'slug' column.")
 
     total_jobs = 0
-    count_progress = (
-        tqdm(
-            channel_col_idxs,
-            desc="Counting Telonex day jobs",
-            unit="channel",
-            dynamic_ncols=True,
-        )
-        if show_progress
-        else channel_col_idxs
-    )
-    for ch, _from_idx, _to_idx in count_progress:
-        if show_progress:
-            count_progress.set_postfix_str(ch, refresh=False)
+    for ch, _from_idx, _to_idx in channel_col_idxs:
         from_col, to_col = _CHANNEL_COLUMN_SUFFIX[ch]
         valid = frame[from_col].notna() & frame[to_col].notna() & (frame[from_col] <= frame[to_col])
         if not valid.any():
@@ -883,12 +991,6 @@ def _iter_jobs_from_catalog(
         markets_considered=len(frame),
         total_jobs=total_jobs,
     )
-    if show_progress:
-        print(
-            f"[telonex] Planned {plan.total_jobs:,} day job(s) across "
-            f"{plan.markets_considered:,} market(s).",
-            file=sys.stderr,
-        )
     return plan
 
 
@@ -1858,8 +1960,6 @@ def download_telonex_days(
             markets = _fetch_markets_dataset(
                 base_url, timeout_secs=max(30, timeout_secs), show_progress=show_progress
             )
-            if show_progress:
-                print(f"Loaded {len(markets):,} markets", file=sys.stderr)
             slug_filter = set(market_slugs) if market_slugs else None
             outcomes = outcomes_for_all or [0, 1]
             catalog_jobs = _iter_jobs_from_catalog(
@@ -1938,7 +2038,8 @@ def download_telonex_days(
             print(
                 f"[telonex] Channels={channels} workers={workers} "
                 f"retries={_DEFAULT_MAX_RETRIES} timeout={timeout_secs}s "
-                f"part-roll-at={_format_bytes(_TARGET_PART_BYTES)}.",
+                f"part-roll-at={_format_bytes(_TARGET_PART_DISK_BYTES)} on disk "
+                f"or {_format_bytes(_TARGET_PART_BYTES)} Arrow.",
                 file=sys.stderr,
             )
 
