@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import re
 import warnings
+from hashlib import sha256
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -11,7 +12,7 @@ from datetime import UTC
 from io import BytesIO
 from pathlib import Path
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 from urllib.request import HTTPRedirectHandler, Request, build_opener, urlopen
 
 import numpy as np
@@ -29,6 +30,7 @@ TELONEX_API_KEY_ENV = "TELONEX_API_KEY"
 TELONEX_API_BASE_URL_ENV = "TELONEX_API_BASE_URL"
 TELONEX_LOCAL_DIR_ENV = "TELONEX_LOCAL_DIR"
 TELONEX_CHANNEL_ENV = "TELONEX_CHANNEL"
+TELONEX_CACHE_ROOT_ENV = "TELONEX_CACHE_ROOT"
 
 _TELONEX_DEFAULT_API_BASE_URL = "https://api.telonex.io"
 _TELONEX_DEFAULT_CHANNEL = "quotes"
@@ -42,6 +44,7 @@ _TELONEX_SOURCE_LOCAL = "local"
 _TELONEX_SOURCE_API = "api"
 _TELONEX_BLOB_DB_FILENAME = "telonex.duckdb"
 _TELONEX_DATA_SUBDIR = "data"
+_TELONEX_CACHE_SUBDIR = "api-days"
 
 
 @dataclass(frozen=True)
@@ -84,6 +87,22 @@ def _env_value(name: str) -> str | None:
 
 def _resolve_channel() -> str:
     return (_env_value(TELONEX_CHANNEL_ENV) or _TELONEX_DEFAULT_CHANNEL).casefold()
+
+
+def _default_cache_root() -> Path:
+    configured = os.getenv("XDG_CACHE_HOME")
+    cache_home = Path(configured).expanduser() if configured else Path.home() / ".cache"
+    return cache_home / "nautilus_trader" / "telonex"
+
+
+def _resolve_api_cache_root() -> Path | None:
+    configured = os.getenv(TELONEX_CACHE_ROOT_ENV)
+    if configured is None:
+        return _default_cache_root()
+    value = configured.strip()
+    if value.casefold() in DISABLED_ENV_VALUES:
+        return None
+    return Path(value).expanduser()
 
 
 def _normalize_api_base_url(value: str | None) -> str:
@@ -170,7 +189,7 @@ def _default_telonex_sources_from_env() -> tuple[TelonexSourceEntry, ...]:
 
 
 def _source_summary(entries: Sequence[TelonexSourceEntry]) -> str:
-    parts: list[str] = []
+    parts: list[str] = ["cache"] if _resolve_api_cache_root() is not None else []
     for entry in entries:
         if entry.kind == _TELONEX_SOURCE_LOCAL:
             parts.append(f"local {entry.target}")
@@ -226,6 +245,10 @@ class RunnerPolymarketTelonexQuoteDataLoader(PolymarketDataLoader):
         callback = getattr(self, "_telonex_download_progress_callback", None)
         if callback is not None:
             callback(url, downloaded_bytes, total_bytes, finished)
+
+    @classmethod
+    def _resolve_api_cache_root(cls) -> Path | None:
+        return _resolve_api_cache_root()
 
     def _config(self) -> TelonexLoaderConfig:
         config = _current_loader_config()
@@ -515,6 +538,101 @@ class RunnerPolymarketTelonexQuoteDataLoader(PolymarketDataLoader):
             f"?{urlencode(params)}"
         )
 
+    @classmethod
+    def _api_cache_path(
+        cls,
+        *,
+        base_url: str,
+        channel: str,
+        date: str,
+        market_slug: str,
+        token_index: int,
+        outcome: str | None,
+    ) -> Path | None:
+        cache_root = cls._resolve_api_cache_root()
+        if cache_root is None:
+            return None
+        normalized_base_url = base_url.rstrip("/")
+        base_url_key = sha256(normalized_base_url.encode("utf-8")).hexdigest()[:16]
+        outcome_segment = (
+            f"outcome={quote(outcome, safe='')}" if outcome else f"outcome_id={token_index}"
+        )
+        return (
+            cache_root
+            / _TELONEX_CACHE_SUBDIR
+            / base_url_key
+            / _TELONEX_EXCHANGE
+            / channel
+            / quote(market_slug, safe="")
+            / outcome_segment
+            / f"{date}.parquet"
+        )
+
+    def _load_api_cache_day(
+        self,
+        *,
+        base_url: str,
+        channel: str,
+        date: str,
+        market_slug: str,
+        token_index: int,
+        outcome: str | None,
+    ) -> pd.DataFrame | None:
+        cache_path = self._api_cache_path(
+            base_url=base_url,
+            channel=channel,
+            date=date,
+            market_slug=market_slug,
+            token_index=token_index,
+            outcome=outcome,
+        )
+        if cache_path is None or not cache_path.exists():
+            return None
+        frame = self._safe_read_parquet(cache_path)
+        if frame is not None:
+            return frame
+        try:
+            cache_path.unlink()
+        except OSError:
+            pass
+        return None
+
+    def _write_api_cache_day(
+        self,
+        *,
+        payload: bytes,
+        base_url: str,
+        channel: str,
+        date: str,
+        market_slug: str,
+        token_index: int,
+        outcome: str | None,
+    ) -> None:
+        cache_path = self._api_cache_path(
+            base_url=base_url,
+            channel=channel,
+            date=date,
+            market_slug=market_slug,
+            token_index=token_index,
+            outcome=outcome,
+        )
+        if cache_path is None:
+            return
+        tmp_path = cache_path.with_name(f"{cache_path.name}.tmp.{os.getpid()}")
+        try:
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
+            tmp_path.write_bytes(payload)
+            os.replace(tmp_path, cache_path)
+        except OSError as exc:
+            try:
+                tmp_path.unlink()
+            except OSError:
+                pass
+            warnings.warn(
+                f"Telonex: failed to write API cache {cache_path} ({exc})",
+                stacklevel=2,
+            )
+
     @staticmethod
     def _resolve_presigned_url(*, url: str, api_key: str) -> str:
         request = Request(
@@ -554,6 +672,29 @@ class RunnerPolymarketTelonexQuoteDataLoader(PolymarketDataLoader):
         outcome: str | None,
         api_key: str | None = None,
     ) -> pd.DataFrame | None:
+        self._telonex_last_api_source = None
+        cached = self._load_api_cache_day(
+            base_url=base_url,
+            channel=channel,
+            date=date,
+            market_slug=market_slug,
+            token_index=token_index,
+            outcome=outcome,
+        )
+        if cached is not None:
+            cache_path = self._api_cache_path(
+                base_url=base_url,
+                channel=channel,
+                date=date,
+                market_slug=market_slug,
+                token_index=token_index,
+                outcome=outcome,
+            )
+            self._telonex_last_api_source = (
+                f"telonex-cache::{cache_path}" if cache_path is not None else "telonex-cache"
+            )
+            return cached
+
         if api_key is None or not api_key.strip():
             api_key = _env_value(TELONEX_API_KEY_ENV)
         if api_key is None:
@@ -567,6 +708,7 @@ class RunnerPolymarketTelonexQuoteDataLoader(PolymarketDataLoader):
             token_index=token_index,
             outcome=outcome,
         )
+        self._telonex_last_api_source = f"telonex-api::{url}"
         try:
             presigned_url = self._resolve_presigned_url(url=url, api_key=api_key)
         except HTTPError as exc:
@@ -596,6 +738,15 @@ class RunnerPolymarketTelonexQuoteDataLoader(PolymarketDataLoader):
             if exc.code == 404:
                 return None
             raise
+        self._write_api_cache_day(
+            payload=payload,
+            base_url=base_url,
+            channel=channel,
+            date=date,
+            market_slug=market_slug,
+            token_index=token_index,
+            outcome=outcome,
+        )
         return pd.read_parquet(BytesIO(payload))
 
     @staticmethod
@@ -614,6 +765,19 @@ class RunnerPolymarketTelonexQuoteDataLoader(PolymarketDataLoader):
         if value.tzinfo is None:
             return value.tz_localize(UTC)
         return value.tz_convert(UTC)
+
+    def _day_window(
+        self, date: str, *, start: pd.Timestamp, end: pd.Timestamp
+    ) -> tuple[pd.Timestamp, pd.Timestamp] | None:
+        day_start = pd.Timestamp(date, tz=UTC)
+        day_end = day_start + pd.Timedelta(days=1) - pd.Timedelta(nanoseconds=1)
+        start_utc = self._normalize_to_utc(start)
+        end_utc = self._normalize_to_utc(end)
+        clipped_start = start_utc if start_utc > day_start else day_start
+        clipped_end = end_utc if end_utc < day_end else day_end
+        if clipped_start > clipped_end:
+            return None
+        return clipped_start, clipped_end
 
     @staticmethod
     def _first_present_column(frame: pd.DataFrame, names: Sequence[str], *, label: str) -> str:
@@ -731,6 +895,73 @@ class RunnerPolymarketTelonexQuoteDataLoader(PolymarketDataLoader):
             )
             return None
 
+    def _try_load_day_from_local(
+        self,
+        *,
+        entry: TelonexSourceEntry,
+        channel: str,
+        date: str,
+        market_slug: str,
+        token_index: int,
+        outcome: str | None,
+        start: pd.Timestamp,
+        end: pd.Timestamp,
+        range_cache: dict[Path, pd.DataFrame | None],
+    ) -> pd.DataFrame | None:
+        assert entry.target is not None
+        root = Path(entry.target).expanduser()
+        blob_root = self._local_blob_root(root)
+        if blob_root is not None:
+            try:
+                blob_frame = self._load_blob_range(
+                    store_root=blob_root,
+                    channel=channel,
+                    market_slug=market_slug,
+                    token_index=token_index,
+                    outcome=outcome,
+                    start=start,
+                    end=end,
+                )
+            except Exception as exc:  # noqa: BLE001 — fall through to local layouts/API
+                warnings.warn(
+                    f"Telonex: local blob read failed at {blob_root} ({exc}); trying next source.",
+                    stacklevel=2,
+                )
+                blob_frame = None
+            if blob_frame is not None:
+                return blob_frame
+
+        try:
+            daily_frame = self._load_local_day(
+                root=root,
+                channel=channel,
+                date=date,
+                market_slug=market_slug,
+                token_index=token_index,
+                outcome=outcome,
+            )
+        except Exception as exc:  # noqa: BLE001 — fall through to consolidated/API
+            warnings.warn(
+                f"Telonex: local daily read failed at {root} ({exc}); trying next source.",
+                stacklevel=2,
+            )
+            daily_frame = None
+        if daily_frame is not None:
+            return daily_frame
+
+        path = self._local_consolidated_path(
+            root=root,
+            channel=channel,
+            market_slug=market_slug,
+            token_index=token_index,
+            outcome=outcome,
+        )
+        if path is None:
+            return None
+        if path not in range_cache:
+            range_cache[path] = self._safe_read_parquet(path)
+        return range_cache[path]
+
     def _try_load_day_from_entry(
         self,
         *,
@@ -782,26 +1013,20 @@ class RunnerPolymarketTelonexQuoteDataLoader(PolymarketDataLoader):
     ) -> list[QuoteTick]:
         config = self._config()
         records: list[QuoteTick] = []
-        for entry in config.ordered_source_entries:
-            if entry.kind != _TELONEX_SOURCE_LOCAL:
-                continue
-            frame = self._try_load_range_from_local(
-                entry=entry,
-                channel=config.channel,
-                market_slug=market_slug,
-                token_index=token_index,
-                outcome=outcome,
-                start=start,
-                end=end,
-            )
-            if frame is not None:
-                return self._quote_ticks_from_frame(frame, start=start, end=end)
-
+        api_entries = [
+            entry for entry in config.ordered_source_entries if entry.kind == _TELONEX_SOURCE_API
+        ]
+        range_cache: dict[Path, pd.DataFrame | None] = {}
         for date in self._date_range(start, end):
+            day_window = self._day_window(date, start=start, end=end)
+            if day_window is None:
+                continue
+            day_start, day_end = day_window
             frame: pd.DataFrame | None = None
-            for entry in config.ordered_source_entries:
-                frame = self._try_load_day_from_entry(
-                    entry=entry,
+            for entry in api_entries:
+                assert entry.target is not None
+                frame = self._load_api_cache_day(
+                    base_url=entry.target,
                     channel=config.channel,
                     date=date,
                     market_slug=market_slug,
@@ -810,15 +1035,44 @@ class RunnerPolymarketTelonexQuoteDataLoader(PolymarketDataLoader):
                 )
                 if frame is not None:
                     break
+            if frame is not None:
+                records.extend(self._quote_ticks_from_frame(frame, start=day_start, end=day_end))
+                continue
+
+            for entry in config.ordered_source_entries:
+                if entry.kind == _TELONEX_SOURCE_LOCAL:
+                    frame = self._try_load_day_from_local(
+                        entry=entry,
+                        channel=config.channel,
+                        date=date,
+                        market_slug=market_slug,
+                        token_index=token_index,
+                        outcome=outcome,
+                        start=day_start,
+                        end=day_end,
+                        range_cache=range_cache,
+                    )
+                else:
+                    frame = self._try_load_day_from_entry(
+                        entry=entry,
+                        channel=config.channel,
+                        date=date,
+                        market_slug=market_slug,
+                        token_index=token_index,
+                        outcome=outcome,
+                    )
+                if frame is not None:
+                    break
             if frame is None:
                 continue
-            records.extend(self._quote_ticks_from_frame(frame, start=start, end=end))
+            records.extend(self._quote_ticks_from_frame(frame, start=day_start, end=day_end))
         records.sort(key=lambda quote: quote.ts_event)
         return records
 
 
 __all__ = [
     "TELONEX_API_BASE_URL_ENV",
+    "TELONEX_CACHE_ROOT_ENV",
     "TELONEX_API_KEY_ENV",
     "TELONEX_CHANNEL_ENV",
     "TELONEX_LOCAL_DIR_ENV",

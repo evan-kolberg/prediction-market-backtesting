@@ -39,6 +39,11 @@ def test_transfer_label_identifies_r2_raw_urls() -> None:
 
 
 def test_transfer_label_identifies_telonex_sources() -> None:
+    cache_label = _transfer_label(
+        "telonex-cache::/Users/test/.cache/nautilus_trader/telonex/api-days/hash/"
+        "polymarket/quotes/slug/outcome_id=0/2026-03-01.parquet"
+    )
+    local_blob_label = _transfer_label("telonex-local::/Volumes/LaCie/telonex_data")
     local_label = _transfer_label(
         "telonex-local::/Volumes/LaCie/telonex_data/polymarket/quotes/slug/0/2026-03-01.parquet"
     )
@@ -46,6 +51,8 @@ def test_transfer_label_identifies_telonex_sources() -> None:
         "telonex-api::https://api.telonex.io/v1/downloads/polymarket/quotes/2026-03-01?slug=slug&outcome_id=0"
     )
 
+    assert cache_label == "telonex cache 2026-03-01.parquet"
+    assert local_blob_label == "telonex local telonex_data"
     assert local_label == "telonex local 2026-03-01.parquet"
     assert api_label == "telonex api 2026-03-01"
 

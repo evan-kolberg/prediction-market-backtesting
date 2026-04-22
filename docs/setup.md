@@ -214,8 +214,11 @@ after the run.
   the historical fallback)
 - PMXT `DATA.sources` entries are explicit and prefix-driven: `local:`,
   `archive:`
-- Telonex timing is daily-file based and reports active `local:`/`api:` loads
-  through the same `@timing_harness`
+- Telonex API-day cache is enabled by default at
+  `~/.cache/nautilus_trader/telonex`; `make clear-telonex-cache` clears only
+  that cache root and refuses configured local data stores
+- Telonex timing is daily-file based and reports active `telonex local`,
+  `telonex cache`, or `telonex api` loads through the same `@timing_harness`
 - normal Nautilus logs are still printed; the timing harness is additive
 
 ## Extension Architecture

@@ -66,7 +66,7 @@ def _transfer_label(source: str) -> str:
         ("cache::", "cache"),
         ("local-raw::", "local raw"),
         ("remote-raw::", "r2 raw"),
-        ("telonex-blob::", "telonex blob"),
+        ("telonex-cache::", "telonex cache"),
         ("telonex-local::", "telonex local"),
         ("telonex-api::", "telonex api"),
     ):
@@ -634,7 +634,27 @@ def install_timing() -> None:
                 heartbeat_thread.start()
 
             try:
-                if dates:
+                has_api_cache = False
+                for date in dates:
+                    for entry in config.ordered_source_entries:
+                        if entry.kind != "api":
+                            continue
+                        assert entry.target is not None
+                        cache_path = self._api_cache_path(
+                            base_url=entry.target,
+                            channel=config.channel,
+                            date=date,
+                            market_slug=market_slug,
+                            token_index=token_index,
+                            outcome=outcome,
+                        )
+                        if cache_path is not None and cache_path.exists():
+                            has_api_cache = True
+                            break
+                    if has_api_cache:
+                        break
+
+                if dates and not has_api_cache:
                     for entry in config.ordered_source_entries:
                         if entry.kind != "local":
                             break
@@ -652,7 +672,7 @@ def install_timing() -> None:
                                 end=end,
                             )
                             if blob_frame is not None:
-                                source_label = f"telonex-blob::{blob_root}"
+                                source_label = f"telonex-local::{blob_root}"
                                 total_bytes = None
                                 started_at = time.perf_counter()
                                 with pbar_lock:
@@ -779,20 +799,108 @@ def install_timing() -> None:
                     day_total_bytes: int | None = None
                     frame = None
                     day_started_at = time.perf_counter()
+                    day_window = self._day_window(date, start=start, end=end)
+                    if day_window is None:
+                        return (date, local_records, day_source_label, 0.0)
+                    day_start, day_end = day_window
 
                     with pbar_lock:
                         _mark_hour_started(date)
                         _refresh_transfer_status()
 
                     for entry in config.ordered_source_entries:
+                        if entry.kind != "api":
+                            continue
+                        assert entry.target is not None
+                        cache_path = self._api_cache_path(
+                            base_url=entry.target,
+                            channel=config.channel,
+                            date=date,
+                            market_slug=market_slug,
+                            token_index=token_index,
+                            outcome=outcome,
+                        )
+                        if cache_path is None or not cache_path.exists():
+                            continue
+                        source_key = f"telonex-cache::{cache_path}"
+                        day_source_label = source_key
+                        try:
+                            day_total_bytes = cache_path.stat().st_size
+                        except OSError:
+                            day_total_bytes = None
+                        _start_transfer(date, source_key)
+                        try:
+                            frame = self._load_api_cache_day(
+                                base_url=entry.target,
+                                channel=config.channel,
+                                date=date,
+                                market_slug=market_slug,
+                                token_index=token_index,
+                                outcome=outcome,
+                            )
+                        finally:
+                            _finish_transfer(source_key)
+                        if frame is not None:
+                            break
+
+                    for entry in config.ordered_source_entries:
+                        if frame is not None:
+                            break
                         source_key: str | None = None
                         if entry.kind == "local":
                             assert entry.target is not None
                             root = Path(entry.target).expanduser()
+                            blob_root = self._local_blob_root(root)
+                            if blob_root is not None:
+                                source_key = f"telonex-local::{blob_root}"
+                                day_source_label = source_key
+                                _start_transfer(date, source_key)
+                                try:
+                                    frame = self._load_blob_range(
+                                        store_root=blob_root,
+                                        channel=config.channel,
+                                        market_slug=market_slug,
+                                        token_index=token_index,
+                                        outcome=outcome,
+                                        start=day_start,
+                                        end=day_end,
+                                    )
+                                finally:
+                                    _finish_transfer(source_key)
+                                if frame is not None:
+                                    break
                             local_path = self._local_path_for_day(
                                 root=root,
                                 channel=config.channel,
                                 date=date,
+                                market_slug=market_slug,
+                                token_index=token_index,
+                                outcome=outcome,
+                            )
+                            if local_path is not None:
+                                source_key = f"telonex-local::{local_path}"
+                                day_source_label = source_key
+                                try:
+                                    day_total_bytes = local_path.stat().st_size
+                                except OSError:
+                                    day_total_bytes = None
+                                _start_transfer(date, source_key)
+                                try:
+                                    frame = self._load_local_day(
+                                        root=root,
+                                        channel=config.channel,
+                                        date=date,
+                                        market_slug=market_slug,
+                                        token_index=token_index,
+                                        outcome=outcome,
+                                    )
+                                finally:
+                                    _finish_transfer(source_key)
+                                if frame is not None:
+                                    break
+                            local_path = self._local_consolidated_path(
+                                root=root,
+                                channel=config.channel,
                                 market_slug=market_slug,
                                 token_index=token_index,
                                 outcome=outcome,
@@ -807,10 +915,9 @@ def install_timing() -> None:
                                 day_total_bytes = None
                             _start_transfer(date, source_key)
                             try:
-                                frame = self._load_local_day(
+                                frame = self._load_local_range(
                                     root=root,
                                     channel=config.channel,
-                                    date=date,
                                     market_slug=market_slug,
                                     token_index=token_index,
                                     outcome=outcome,
@@ -827,7 +934,22 @@ def install_timing() -> None:
                                 token_index=token_index,
                                 outcome=outcome,
                             )
-                            source_key = f"telonex-api::{api_url}"
+                            cache_path = self._api_cache_path(
+                                base_url=entry.target,
+                                channel=config.channel,
+                                date=date,
+                                market_slug=market_slug,
+                                token_index=token_index,
+                                outcome=outcome,
+                            )
+                            if cache_path is not None and cache_path.exists():
+                                source_key = f"telonex-cache::{cache_path}"
+                                try:
+                                    day_total_bytes = cache_path.stat().st_size
+                                except OSError:
+                                    day_total_bytes = None
+                            else:
+                                source_key = f"telonex-api::{api_url}"
                             day_source_label = source_key
                             _start_transfer(date, source_key)
                             try:
@@ -842,13 +964,26 @@ def install_timing() -> None:
                                 )
                             finally:
                                 _finish_transfer(source_key)
+                            actual_source = getattr(self, "_telonex_last_api_source", None)
+                            if actual_source:
+                                day_source_label = actual_source
+                                if actual_source.startswith("telonex-cache::"):
+                                    actual_cache_path = Path(
+                                        actual_source.removeprefix("telonex-cache::")
+                                    )
+                                    try:
+                                        day_total_bytes = actual_cache_path.stat().st_size
+                                    except OSError:
+                                        day_total_bytes = None
                         if frame is not None:
                             break
 
                     if frame is not None:
                         row_count = len(frame)
                         _scan_progress(day_source_label, 1, row_count, 0, day_total_bytes, False)
-                        local_records = self._quote_ticks_from_frame(frame, start=start, end=end)
+                        local_records = self._quote_ticks_from_frame(
+                            frame, start=day_start, end=day_end
+                        )
                         _scan_progress(
                             day_source_label,
                             1,

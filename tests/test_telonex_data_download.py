@@ -790,6 +790,87 @@ def test_downloaded_parquet_is_readable_by_telonex_loader(
     assert frame_dec is None
 
 
+def test_telonex_blob_reader_uses_requested_channel_only(tmp_path: Path) -> None:
+    store = telonex_download._TelonexParquetStore(tmp_path)
+    try:
+        store.ingest_batch(
+            [
+                telonex_download._DownloadResult(
+                    job=telonex_download._Job(
+                        market_slug="channel-test",
+                        outcome_segment="0",
+                        outcome_id=0,
+                        outcome=None,
+                        channel="quotes",
+                        day=date(2026, 1, 19),
+                    ),
+                    status="ok",
+                    table=telonex_download.pa.Table.from_pandas(
+                        pd.DataFrame(
+                            {
+                                "timestamp_us": [1_768_780_800_000_000],
+                                "bid_price": [0.44],
+                                "ask_price": [0.45],
+                                "bid_size": [10.0],
+                                "ask_size": [12.0],
+                            }
+                        ),
+                        preserve_index=False,
+                    ),
+                    payload=None,
+                    bytes_downloaded=100,
+                    error=None,
+                ),
+                telonex_download._DownloadResult(
+                    job=telonex_download._Job(
+                        market_slug="channel-test",
+                        outcome_segment="0",
+                        outcome_id=0,
+                        outcome=None,
+                        channel="trades",
+                        day=date(2026, 1, 19),
+                    ),
+                    status="ok",
+                    table=telonex_download.pa.Table.from_pandas(
+                        pd.DataFrame(
+                            {
+                                "timestamp_us": [1_768_780_900_000_000],
+                                "bid_price": [0.10],
+                                "ask_price": [0.90],
+                                "bid_size": [1.0],
+                                "ask_size": [1.0],
+                            }
+                        ),
+                        preserve_index=False,
+                    ),
+                    payload=None,
+                    bytes_downloaded=100,
+                    error=None,
+                ),
+            ]
+        )
+    finally:
+        store.close()
+
+    from prediction_market_extensions.backtesting.data_sources.telonex import (
+        RunnerPolymarketTelonexQuoteDataLoader,
+    )
+
+    loader = RunnerPolymarketTelonexQuoteDataLoader.__new__(RunnerPolymarketTelonexQuoteDataLoader)
+    frame = loader._load_blob_range(
+        store_root=tmp_path,
+        channel="quotes",
+        market_slug="channel-test",
+        token_index=0,
+        outcome=None,
+        start=pd.Timestamp("2026-01-19", tz="UTC"),
+        end=pd.Timestamp("2026-01-19 23:59:59", tz="UTC"),
+    )
+
+    assert frame is not None
+    assert list(frame["timestamp_us"]) == [1_768_780_800_000_000]
+
+
 def test_download_telonex_days_rolls_part_files_when_threshold_exceeded(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
