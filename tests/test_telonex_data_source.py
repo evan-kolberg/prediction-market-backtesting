@@ -456,8 +456,12 @@ def test_telonex_full_book_loader_uses_cache_before_local(monkeypatch: pytest.Mo
         }
     )
     calls: list[str] = []
+    progress_events: list[tuple[str, str, str, int]] = []
 
     monkeypatch.setattr(loader, "_config", lambda: config)
+    loader._telonex_day_progress_callback = lambda date, event, source, rows: (
+        progress_events.append((date, event, source, rows))
+    )
 
     def fake_cache(**kwargs: object) -> pd.DataFrame:
         calls.append("cache")
@@ -492,6 +496,10 @@ def test_telonex_full_book_loader_uses_cache_before_local(monkeypatch: pytest.Mo
 
     assert len(records) == 1
     assert calls == ["cache"]
+    assert progress_events[0] == ("2026-01-19", "start", "none", 0)
+    assert progress_events[1][0:2] == ("2026-01-19", "complete")
+    assert progress_events[1][2].startswith("telonex-cache::")
+    assert progress_events[1][3] == 1
 
 
 def test_telonex_full_book_loader_falls_back_to_api_when_blob_partition_is_incomplete(

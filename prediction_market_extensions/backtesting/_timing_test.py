@@ -588,6 +588,94 @@ def install_timing() -> None:
         loader_cls._load_local_archive_market_batches = patched_local_archive
 
     def _install_telonex_timing(loader_cls) -> None:  # type: ignore[no-untyped-def]
+        orig_load_order_book_and_quotes = loader_cls.load_order_book_and_quotes
+
+        def _run_with_telonex_day_timing(self, dates, load_fn):  # type: ignore[no-untyped-def]
+            day_started_at: dict[str, float] = {}
+
+            def _day_progress(date: str, event: str, source: str, rows: int) -> None:
+                with pbar_lock:
+                    if event == "start":
+                        day_started_at[date] = time.perf_counter()
+                        _mark_hour_started(date)
+                        _refresh_transfer_status()
+                        return
+                    if event != "complete":
+                        return
+                    elapsed = time.perf_counter() - day_started_at.get(date, time.perf_counter())
+                    bar = pbar_state["bar"]
+                    if bar is not None:
+                        bar.write(
+                            _format_completed_hour_line(
+                                date,
+                                elapsed=elapsed,
+                                rows=rows,
+                                source=source,
+                                timestamp_width=10,
+                            )
+                        )
+                        _mark_hour_completed(date)
+                        _refresh_transfer_status()
+
+            with pbar_lock:
+                stop_event: threading.Event = transfer_state["stop"]  # type: ignore[assignment]
+                stop_event.clear()
+                progress_state["total_hours"] = len(dates)
+                progress_state["started_hours"] = 0
+                progress_state["completed_hours"] = 0
+                transfer_state["item_label"] = "days"
+                hour_keys_by_label.clear()
+                progress_keys["started"].clear()
+                progress_keys["completed"].clear()
+                heartbeat_thread = threading.Thread(
+                    target=_transfer_heartbeat, name="telonex-timing-heartbeat", daemon=True
+                )
+                pbar_state["bar"] = tqdm(
+                    total=_progress_bar_total(len(dates)),
+                    desc=_progress_bar_description(
+                        total_hours=len(dates),
+                        started_hours=0,
+                        completed_hours=0,
+                        item_label="days",
+                    ),
+                    unit="day",
+                    leave=False,
+                    bar_format=("{l_bar}{bar}| [{elapsed}<{remaining}]{postfix}"),
+                )
+                previous_download_callback = getattr(
+                    self, "_telonex_download_progress_callback", None
+                )
+                previous_day_callback = getattr(self, "_telonex_day_progress_callback", None)
+                self._telonex_download_progress_callback = _download_progress
+                self._telonex_day_progress_callback = _day_progress
+                transfer_state["parallel"] = False
+                heartbeat_thread.start()
+
+            try:
+                return load_fn()
+            finally:
+                with pbar_lock:
+                    self._telonex_download_progress_callback = previous_download_callback
+                    self._telonex_day_progress_callback = previous_day_callback
+                    stop_event.set()
+                    downloads: dict[str, dict[str, object]] = transfer_state["downloads"]  # type: ignore[assignment]
+                    downloads.clear()
+                    transfer_state["parallel"] = False
+                    transfer_state["item_label"] = "hours"
+                    progress_state["total_hours"] = 0
+                    progress_state["started_hours"] = 0
+                    progress_state["completed_hours"] = 0
+                    hour_keys_by_label.clear()
+                    progress_keys["started"].clear()
+                    progress_keys["completed"].clear()
+                    bar = pbar_state["bar"]
+                    if bar is not None:
+                        bar.clear(nolock=True)
+                        bar.set_postfix_str("", refresh=False)
+                        bar.close()
+                        pbar_state["bar"] = None
+                heartbeat_thread.join(timeout=1.0)
+
         def timed_load_quotes(
             self,
             start,
@@ -1050,7 +1138,35 @@ def install_timing() -> None:
                         pbar_state["bar"] = None
                 heartbeat_thread.join(timeout=1.0)
 
+        def timed_load_order_book_and_quotes(
+            self,
+            start,
+            end,
+            *,
+            market_slug: str,
+            token_index: int,
+            outcome: str | None,
+            include_order_book: bool = True,
+            include_quotes: bool = True,
+        ):
+            dates = self._date_range(start, end)
+            return _run_with_telonex_day_timing(
+                self,
+                dates,
+                lambda: orig_load_order_book_and_quotes(
+                    self,
+                    start,
+                    end,
+                    market_slug=market_slug,
+                    token_index=token_index,
+                    outcome=outcome,
+                    include_order_book=include_order_book,
+                    include_quotes=include_quotes,
+                ),
+            )
+
         loader_cls.load_quotes = timed_load_quotes
+        loader_cls.load_order_book_and_quotes = timed_load_order_book_and_quotes
 
     if RunnerPolymarketPMXTDataLoader is not None:
         # Patch the repo-layer runner first because it overrides
