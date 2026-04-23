@@ -18,6 +18,7 @@ from nautilus_trader.model.objects import Money
 from nautilus_trader.risk.config import RiskEngineConfig
 from nautilus_trader.trading.strategy import Strategy
 
+from prediction_market_extensions import install_commission_patch
 from prediction_market_extensions.adapters.prediction_market import (
     LoadedReplay,
     ReplayCoverageStats,
@@ -109,6 +110,8 @@ class PredictionMarketBacktest:
         self.replays = self._normalize_replays(self._sims)
         self.strategy_configs = tuple(strategy_configs)
         self.strategy_factory = strategy_factory
+        if initial_cash <= 0:
+            raise ValueError(f"initial_cash must be positive, got {initial_cash}")
         self.initial_cash = float(initial_cash)
         self.probability_window = int(probability_window)
         self.min_trades = int(min_trades)
@@ -154,6 +157,7 @@ class PredictionMarketBacktest:
         return self.run()
 
     async def run_async(self) -> list[dict[str, Any]]:
+        install_commission_patch()
         loaded_sims = await self._load_sims_async()
         if not loaded_sims:
             return []

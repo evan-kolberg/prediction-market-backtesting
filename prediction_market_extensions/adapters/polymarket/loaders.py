@@ -854,11 +854,17 @@ class PolymarketDataLoader:
         make_qty = self._instrument.make_qty
         token_id = self._token_id
 
-        for trade_data in trades_data:
+        for i, trade_data in enumerate(trades_data):
             # Skip trades for other tokens in the same condition
             if trade_data.get("asset") != token_id:
                 continue
-            ts_event = secs_to_nanos(trade_data["timestamp"])
+            # Sub-second tiebreaker: the API timestamp is integer seconds,
+            # so trades within the same second would get identical nanosecond
+            # timestamps.  Add a small deterministic offset based on position
+            # within the response page (capped to <1 s) so ordering is
+            # preserved without shifting the timestamp beyond its second.
+            _tiebreaker_ns = min(i * 1_000, 999_999_999)
+            ts_event = secs_to_nanos(trade_data["timestamp"]) + _tiebreaker_ns
 
             side_str = trade_data["side"]
             if side_str == "BUY":
@@ -868,12 +874,18 @@ class PolymarketDataLoader:
             else:
                 aggressor_side = AggressorSide.NO_AGGRESSOR
 
+            # Multi-token Polymarket transactions produce multiple fills that
+            # share the same transactionHash.  Using only the last 36 chars can
+            # collide, causing NautilusTrader to silently drop the second trade.
+            # Disambiguate by appending the last 4 chars of the asset (token) ID.
+            _hash_suffix = trade_data["transactionHash"][-32:]
+            _asset_suffix = trade_data.get("asset", "")[-4:]
             trade = TradeTick(
                 instrument_id=instrument_id,
                 price=make_price(trade_data["price"]),
                 size=make_qty(trade_data["size"]),
                 aggressor_side=aggressor_side,
-                trade_id=TradeId(trade_data["transactionHash"][-36:]),
+                trade_id=TradeId(f"{_hash_suffix}-{_asset_suffix}"),
                 ts_event=ts_event,
                 ts_init=ts_event,
             )

@@ -59,6 +59,18 @@ class BarBreakoutConfig(StrategyConfig, frozen=True):  # type: ignore[call-arg]
     take_profit: float = 0.02
     stop_loss: float = 0.02
 
+    def __post_init__(self) -> None:
+        if self.window <= 0:
+            raise ValueError(f"window must be > 0, got {self.window}")
+        if self.trade_size <= 0:
+            raise ValueError(f"trade_size must be > 0, got {self.trade_size}")
+        if self.breakout_std <= 0:
+            raise ValueError(f"breakout_std must be > 0, got {self.breakout_std}")
+        if self.take_profit < 0:
+            raise ValueError(f"take_profit must be >= 0, got {self.take_profit}")
+        if self.stop_loss < 0:
+            raise ValueError(f"stop_loss must be >= 0, got {self.stop_loss}")
+
 
 class TradeTickBreakoutConfig(StrategyConfig, frozen=True):  # type: ignore[call-arg]
     instrument_id: InstrumentId
@@ -73,6 +85,18 @@ class TradeTickBreakoutConfig(StrategyConfig, frozen=True):  # type: ignore[call
     take_profit: float = 0.015
     stop_loss: float = 0.02
 
+    def __post_init__(self) -> None:
+        if self.window <= 0:
+            raise ValueError(f"window must be > 0, got {self.window}")
+        if self.trade_size <= 0:
+            raise ValueError(f"trade_size must be > 0, got {self.trade_size}")
+        if self.breakout_std <= 0:
+            raise ValueError(f"breakout_std must be > 0, got {self.breakout_std}")
+        if self.take_profit < 0:
+            raise ValueError(f"take_profit must be >= 0, got {self.take_profit}")
+        if self.stop_loss < 0:
+            raise ValueError(f"stop_loss must be >= 0, got {self.stop_loss}")
+
 
 class QuoteTickBreakoutConfig(StrategyConfig, frozen=True):  # type: ignore[call-arg]
     instrument_id: InstrumentId
@@ -86,6 +110,18 @@ class QuoteTickBreakoutConfig(StrategyConfig, frozen=True):  # type: ignore[call
     max_entry_price: float = 0.92
     take_profit: float = 0.015
     stop_loss: float = 0.02
+
+    def __post_init__(self) -> None:
+        if self.window <= 0:
+            raise ValueError(f"window must be > 0, got {self.window}")
+        if self.trade_size <= 0:
+            raise ValueError(f"trade_size must be > 0, got {self.trade_size}")
+        if self.breakout_std <= 0:
+            raise ValueError(f"breakout_std must be > 0, got {self.breakout_std}")
+        if self.take_profit < 0:
+            raise ValueError(f"take_profit must be >= 0, got {self.take_profit}")
+        if self.stop_loss < 0:
+            raise ValueError(f"stop_loss must be >= 0, got {self.stop_loss}")
 
 
 class _BreakoutBase(LongOnlyPredictionMarketStrategy):

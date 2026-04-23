@@ -16,6 +16,7 @@ from nautilus_trader.model.objects import Currency, Money
 from nautilus_trader.risk.config import RiskEngineConfig
 from nautilus_trader.trading.strategy import Strategy
 
+from prediction_market_extensions import install_commission_patch
 from prediction_market_extensions.adapters.prediction_market import (
     research as prediction_market_research,
 )
@@ -209,6 +210,7 @@ def run_market_backtest(
     requested_start_ns: int | None = None,
     requested_end_ns: int | None = None,
 ) -> dict[str, Any]:
+    install_commission_patch()
     if fill_model is None and apply_default_fill_model:
         fill_model = PredictionMarketTakerFillModel()
 
@@ -253,10 +255,17 @@ def run_market_backtest(
         positions = engine.trader.generate_positions_report()
         pnl = extract_realized_pnl(positions)
         price_points = extract_price_points(data_records, price_attr=price_attr)
+        realized_outcome = infer_realized_outcome(instrument)
+        if realized_outcome is None:
+            import logging
+            logging.getLogger(__name__).warning(
+                "Market %s has no realized outcome; P&L based on mark-to-market, not settlement",
+                instrument.id,
+            )
         user_probabilities, market_probabilities, outcomes = build_brier_inputs(
             points=price_points,
             window=probability_window,
-            realized_outcome=infer_realized_outcome(instrument),
+            realized_outcome=realized_outcome,
         )
         chart_market_prices = build_market_prices(price_points, resample_rule=chart_resample_rule)
 

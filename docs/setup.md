@@ -3,7 +3,6 @@
 ## Prerequisites
 
 - Python 3.12+ (`3.13` recommended)
-- [Rust toolchain](https://rustup.rs/) `>= 1.93.1`
 - [uv](https://docs.astral.sh/uv/getting-started/installation/)
 
 ## Install
@@ -12,11 +11,11 @@
 git clone https://github.com/evan-kolberg/prediction-market-backtesting.git
 cd prediction-market-backtesting
 
-# conda's linker flags conflict with the rust build
+# conda's linker flags can conflict with the venv
 unset CONDA_PREFIX
 
 uv venv --python 3.13
-uv pip install "nautilus_trader[polymarket,visualization]==1.225.0" bokeh plotly numpy py-clob-client duckdb textual nbformat nbclient ipykernel
+uv pip install "nautilus_trader[polymarket,visualization]==1.225.0" bokeh plotly numpy py-clob-client duckdb textual nbformat nbclient ipykernel optuna python-dotenv
 ```
 
 If you want to build the docs locally, also install the MkDocs theme used by

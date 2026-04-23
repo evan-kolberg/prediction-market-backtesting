@@ -38,6 +38,7 @@ from prediction_market_extensions.backtesting._timing_harness import timing_harn
 from prediction_market_extensions.backtesting.data_sources import Kalshi, Native, TradeTick
 
 DETAIL_PLOT_PANELS = (
+    "total_equity",
     "equity",
     "market_pnl",
     "periodic_pnl",

@@ -10,6 +10,7 @@ EXPECTED_EMIT_HTML = True
 EXPECTED_MULTI_RUNNER_EMIT_HTML = False
 EXPECTED_CHART_OUTPUT_PATH = "output"
 EXPECTED_KALSHI_DETAIL_PLOT_PANELS = (
+    "total_equity",
     "equity",
     "market_pnl",
     "periodic_pnl",
