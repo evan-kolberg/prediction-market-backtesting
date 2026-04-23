@@ -190,6 +190,10 @@ Explicitly check:
 ## PR Hygiene
 
 - Use branch -> draft PR -> review -> green CI -> explicit user merge command.
+- Before pushing a PR update to its base branch target (`main`, `v3`, or any
+  other version branch), run `uv run python scripts/generate_codebase_uml.py`.
+  Include the refreshed root `CODEBASE_UML.md` in the PR whenever code structure
+  changed, so agents and reviewers can use an up-to-date project map.
 - Review the PR diff after opening it.
 - Wait for GitHub Actions to pass.
 - Wait for explicit user confirmation before merging to `main`.
