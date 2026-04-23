@@ -1083,7 +1083,8 @@ return this.labels[index] || "";
         nonlocal _cached_total_sharpe, _cached_total_sharpe_window
         if _cached_total_sharpe is None:
             _cached_total_sharpe, _cached_total_sharpe_window = _rolling_sharpe_array(
-                eq["equity"].to_numpy(dtype=float)
+                eq["equity"].to_numpy(dtype=float),
+                datetimes=pd.DatetimeIndex(eq["datetime"]),
             )
         primary_sharpe, window = _cached_total_sharpe, _cached_total_sharpe_window
         if window is None:

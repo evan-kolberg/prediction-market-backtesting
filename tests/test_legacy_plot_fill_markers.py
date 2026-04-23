@@ -9,6 +9,7 @@ import warnings
 from datetime import UTC, datetime
 from types import SimpleNamespace
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -358,3 +359,56 @@ def test_total_aggregate_only_panels_render_for_single_market_results(tmp_path) 
 
     assert layout is not None
     assert output_path.exists()
+
+
+def test_total_rolling_sharpe_uses_equity_timestamps(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    pytest.importorskip("bokeh")
+
+    captured: dict[str, object] = {}
+
+    def _fake_rolling_sharpe_array(
+        values, annualize=True, annualization_factor=None, datetimes=None
+    ):  # type: ignore[no-untyped-def]
+        captured["datetimes"] = datetimes
+        return np.zeros(len(values), dtype=float), 20
+
+    monkeypatch.setattr(plotting, "_rolling_sharpe_array", _fake_rolling_sharpe_array)
+
+    timestamps = pd.date_range("2025-01-01T00:00:00Z", periods=80, freq="h")
+    result = BacktestResult(
+        equity_curve=[
+            PortfolioSnapshot(
+                timestamp=ts.to_pydatetime(),
+                cash=100.0,
+                total_equity=100.0 + idx,
+                unrealized_pnl=float(idx),
+                num_positions=1,
+            )
+            for idx, ts in enumerate(timestamps)
+        ],
+        fills=[],
+        metrics={},
+        strategy_name="total-sharpe-datetimes",
+        platform=Platform.KALSHI,
+        start_time=timestamps[0].to_pydatetime(),
+        end_time=timestamps[-1].to_pydatetime(),
+        initial_cash=100.0,
+        final_equity=179.0,
+        num_markets_traded=1,
+        num_markets_resolved=1,
+        market_prices={},
+        market_pnls={},
+    )
+
+    plotting.plot(
+        result,
+        filename=str(tmp_path / "total_sharpe.html"),
+        open_browser=False,
+        progress=False,
+        plot_panels=(PANEL_TOTAL_ROLLING_SHARPE,),
+    )
+
+    assert isinstance(captured["datetimes"], pd.DatetimeIndex)
+    assert list(captured["datetimes"]) == list(pd.DatetimeIndex(timestamps))

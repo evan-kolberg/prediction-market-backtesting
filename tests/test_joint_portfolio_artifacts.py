@@ -1,0 +1,161 @@
+from __future__ import annotations
+
+from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
+
+import pandas as pd
+
+from prediction_market_extensions.adapters.prediction_market import (
+    LoadedReplay,
+    ReplayCoverageStats,
+    ReplayWindow,
+)
+from prediction_market_extensions.backtesting.prediction_market import artifacts
+from prediction_market_extensions.backtesting.prediction_market.artifacts import (
+    PredictionMarketArtifactBuilder,
+)
+
+
+def _loaded_replay(*, market_id: str, instrument_id: str) -> LoadedReplay:
+    return LoadedReplay(
+        replay=SimpleNamespace(market_slug=market_id),
+        instrument=SimpleNamespace(id=instrument_id),
+        records=(SimpleNamespace(mid_price=0.40), SimpleNamespace(mid_price=0.50)),
+        outcome="Yes",
+        realized_outcome=None,
+        metadata={},
+        requested_window=ReplayWindow(),
+        loaded_window=None,
+        coverage_stats=ReplayCoverageStats(
+            count=2,
+            count_key="quotes",
+            market_key="slug",
+            market_id=market_id,
+            prices=(0.40, 0.50),
+        ),
+    )
+
+
+def test_joint_portfolio_dense_prices_are_keyed_by_instrument_id(monkeypatch) -> None:
+    start = datetime(2026, 3, 14, 17, 57, tzinfo=UTC)
+    price_points = [(start, 0.40), (start + timedelta(minutes=1), 0.50)]
+    captured: dict[str, object] = {}
+
+    def _fake_dense_account_series_from_engine_for_markets(**kwargs):
+        captured["market_prices"] = kwargs["market_prices"]
+        index = pd.DatetimeIndex([point[0] for point in price_points])
+        return (
+            pd.Series([100.0, 101.0], index=index, dtype=float),
+            pd.Series([96.0, 96.0], index=index, dtype=float),
+        )
+
+    monkeypatch.setattr(artifacts, "extract_price_points", lambda *args, **kwargs: price_points)
+    monkeypatch.setattr(artifacts, "downsample_price_points", lambda points, **kwargs: points)
+    monkeypatch.setattr(artifacts, "build_market_prices", lambda points, **kwargs: points)
+    monkeypatch.setattr(
+        artifacts.prediction_market_research,
+        "_dense_account_series_from_engine_for_markets",
+        _fake_dense_account_series_from_engine_for_markets,
+    )
+
+    builder = PredictionMarketArtifactBuilder(
+        name="joint-demo",
+        platform="polymarket",
+        data_type="quote_tick",
+        initial_cash=100.0,
+        probability_window=5,
+        chart_resample_rule=None,
+        emit_html=False,
+        chart_output_path=None,
+        return_chart_layout=False,
+        return_summary_series=True,
+        detail_plot_panels=(),
+        sim_count=2,
+    )
+
+    result = builder.build_joint_portfolio_artifacts(
+        engine=SimpleNamespace(),
+        loaded_sims=(
+            _loaded_replay(market_id="market-a", instrument_id="PM-A-YES.POLYMARKET"),
+            _loaded_replay(market_id="market-b", instrument_id="PM-B-YES.POLYMARKET"),
+        ),
+    )
+
+    assert set(captured["market_prices"]) == {"PM-A-YES.POLYMARKET", "PM-B-YES.POLYMARKET"}
+    assert "market-a" not in captured["market_prices"]
+    assert result["joint_portfolio_equity_series"] == [
+        (pd.Timestamp(start).isoformat(), 100.0),
+        (pd.Timestamp(start + timedelta(minutes=1)).isoformat(), 101.0),
+    ]
+
+
+def test_single_summary_dense_prices_are_keyed_by_instrument_id(monkeypatch) -> None:
+    start = datetime(2026, 3, 14, 17, 57, tzinfo=UTC)
+    price_points = [(start, 0.40), (start + timedelta(minutes=1), 0.50)]
+    captured: dict[str, object] = {}
+
+    def _fake_dense_account_series_from_engine(**kwargs):
+        captured["market_id"] = kwargs["market_id"]
+        index = pd.DatetimeIndex([point[0] for point in price_points])
+        return (
+            pd.Series([100.0, 101.0], index=index, dtype=float),
+            pd.Series([96.0, 96.0], index=index, dtype=float),
+        )
+
+    monkeypatch.setattr(
+        artifacts.prediction_market_research.legacy_plot_adapter,
+        "_load_legacy_modules",
+        lambda: (SimpleNamespace(), SimpleNamespace()),
+    )
+    monkeypatch.setattr(
+        artifacts.prediction_market_research.legacy_plot_adapter,
+        "_convert_fills",
+        lambda *args, **kwargs: [],
+    )
+    monkeypatch.setattr(
+        artifacts.prediction_market_research.legacy_plot_adapter,
+        "_market_prices_with_fill_points",
+        lambda market_prices, fills: market_prices,
+    )
+    monkeypatch.setattr(
+        artifacts.prediction_market_research,
+        "_serialize_fill_events",
+        lambda **kwargs: [],
+    )
+    monkeypatch.setattr(
+        artifacts.prediction_market_research,
+        "_dense_account_series_from_engine",
+        _fake_dense_account_series_from_engine,
+    )
+
+    builder = PredictionMarketArtifactBuilder(
+        name="single-demo",
+        platform="polymarket",
+        data_type="quote_tick",
+        initial_cash=100.0,
+        probability_window=5,
+        chart_resample_rule=None,
+        emit_html=False,
+        chart_output_path=None,
+        return_chart_layout=False,
+        return_summary_series=True,
+        detail_plot_panels=(),
+        sim_count=1,
+    )
+
+    result = builder._build_market_summary_series(
+        engine=SimpleNamespace(),
+        loaded_sim=_loaded_replay(market_id="market-a", instrument_id="PM-A-YES.POLYMARKET"),
+        fills_report=pd.DataFrame(),
+        market_prices=price_points,
+        user_probabilities=pd.Series(dtype=float),
+        market_probabilities=pd.Series(dtype=float),
+        outcomes=pd.Series(dtype=float),
+        include_portfolio_series=True,
+    )
+
+    assert captured["market_id"] == "PM-A-YES.POLYMARKET"
+    assert result["equity_series"] == [
+        (pd.Timestamp(start).isoformat(), 100.0),
+        (pd.Timestamp(start + timedelta(minutes=1)).isoformat(), 101.0),
+    ]
