@@ -263,6 +263,7 @@ def _rolling_sharpe_array(
     sharpe[:] = sharpe_values.to_numpy(dtype=float)
     return sharpe, window
 
+
 def _build_dataframes(
     result: BacktestResult,
     bar: PinnedProgress[None] | None = None,
@@ -1445,7 +1446,9 @@ return this.labels[index] || "";
     def _plot_rolling_sharpe():
         equity_vals = eq["equity"].values.copy()
         n = len(equity_vals)
-        primary_sharpe, window = _rolling_sharpe_array(equity_vals, datetimes=pd.DatetimeIndex(eq["datetime"]))
+        primary_sharpe, window = _rolling_sharpe_array(
+            equity_vals, datetimes=pd.DatetimeIndex(eq["datetime"])
+        )
         if window is None and not overlay_equity:
             return None
 
@@ -2092,4 +2095,3 @@ return this.labels[index] || "";
             bar._teardown()
 
     return layout
-

@@ -87,6 +87,9 @@ STRATEGY_CONFIGS = [
 
 EXECUTION = ExecutionModelConfig(
     queue_position=False,
+    slippage_ticks=1,
+    entry_slippage_pct=0.0,
+    exit_slippage_pct=0.0,
     latency_model=StaticLatencyConfig(
         base_latency_ms=75.0,
         insert_latency_ms=10.0,

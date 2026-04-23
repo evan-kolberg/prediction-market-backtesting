@@ -338,7 +338,7 @@ class PredictionMarketBacktest:
         engine_profile = adapter.engine_profile
         fill_model = None
         if engine_profile.fill_model_mode == "taker":
-            fill_model = PredictionMarketTakerFillModel()
+            fill_model = PredictionMarketTakerFillModel(**self.execution.build_fill_model_kwargs())
         elif engine_profile.fill_model_mode != "passive_book":
             raise AssertionError(f"Unsupported fill model mode {engine_profile.fill_model_mode!r}")
         engine.add_venue(

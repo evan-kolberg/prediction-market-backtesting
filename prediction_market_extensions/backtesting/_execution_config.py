@@ -53,11 +53,29 @@ class StaticLatencyConfig:
 class ExecutionModelConfig:
     queue_position: bool = False
     latency_model: StaticLatencyConfig | None = None
+    slippage_ticks: int = 1
+    entry_slippage_pct: float = 0.0
+    exit_slippage_pct: float = 0.0
+
+    def __post_init__(self) -> None:
+        if self.slippage_ticks < 0:
+            raise ValueError(f"slippage_ticks must be >= 0, got {self.slippage_ticks}")
+        if self.entry_slippage_pct < 0.0:
+            raise ValueError(f"entry_slippage_pct must be >= 0, got {self.entry_slippage_pct}")
+        if self.exit_slippage_pct < 0.0:
+            raise ValueError(f"exit_slippage_pct must be >= 0, got {self.exit_slippage_pct}")
 
     def build_latency_model(self) -> LatencyModel | None:
         if self.latency_model is None:
             return None
         return self.latency_model.build_latency_model()
+
+    def build_fill_model_kwargs(self) -> dict[str, int | float]:
+        return {
+            "slippage_ticks": self.slippage_ticks,
+            "entry_slippage_pct": self.entry_slippage_pct,
+            "exit_slippage_pct": self.exit_slippage_pct,
+        }
 
 
 __all__ = ["ExecutionModelConfig", "StaticLatencyConfig"]
