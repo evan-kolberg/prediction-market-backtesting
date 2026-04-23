@@ -31,6 +31,7 @@ EXPECTED_PUBLIC_RUNNER_PATHS = [
     Path("backtests/kalshi_trade_tick_breakout.py"),
     Path("backtests/kalshi_trade_tick_independent_multi_replay_runner.py"),
     Path("backtests/kalshi_trade_tick_joint_portfolio_runner.py"),
+    Path("backtests/pmxt_quote_tick_joint_portfolio_runner.ipynb"),
     Path("backtests/polymarket_quote_tick_ema_crossover.py"),
     Path("backtests/polymarket_quote_tick_ema_optimizer.py"),
     Path("backtests/polymarket_quote_tick_independent_25_replay_runner.py"),
@@ -40,6 +41,7 @@ EXPECTED_PUBLIC_RUNNER_PATHS = [
     Path("backtests/polymarket_trade_tick_independent_multi_replay_runner.py"),
     Path("backtests/polymarket_trade_tick_joint_portfolio_runner.py"),
     Path("backtests/polymarket_trade_tick_vwap_reversion.py"),
+    Path("backtests/telonex_quote_tick_joint_portfolio_runner.ipynb"),
 ]
 
 PMXT_SINGLE_MARKET_QUOTE_TICK_RUNNERS = [Path("backtests/polymarket_quote_tick_ema_crossover.py")]

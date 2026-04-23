@@ -50,15 +50,7 @@ DETAIL_PLOT_PANELS = (
     "brier_advantage",
 )
 SUMMARY_REPORT_PATH = "output/polymarket_quote_tick_joint_portfolio_runner_joint_portfolio.html"
-SUMMARY_PLOT_PANELS = (
-    "total_equity",
-    "total_drawdown",
-    "total_rolling_sharpe",
-    "total_cash_equity",
-    "total_brier_advantage",
-    "periodic_pnl",
-    "monthly_returns",
-)
+SUMMARY_PLOT_PANELS = DETAIL_PLOT_PANELS
 EMPTY_MESSAGE = "No PMXT joint-portfolio example windows met the quote-tick requirements."
 PARTIAL_MESSAGE = "Completed {completed} of {total} joint-portfolio example replays."
 
@@ -120,8 +112,8 @@ REPLAYS = (
 
 STRATEGY_CONFIGS = [
     {
-        "strategy_path": "strategies:QuoteTickVWAPReversionStrategy",
-        "config_path": "strategies:QuoteTickVWAPReversionConfig",
+        "strategy_path": "strategies:QuoteTickDeepValueHoldStrategy",
+        "config_path": "strategies:QuoteTickDeepValueHoldConfig",
         "config": {
             "trade_size": Decimal(5),
             "vwap_window": 30,
