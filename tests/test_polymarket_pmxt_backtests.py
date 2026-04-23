@@ -8,6 +8,8 @@ from nautilus_trader.model.identifiers import InstrumentId, Symbol, Venue
 from prediction_market_extensions.backtesting._replay_specs import QuoteReplay
 from prediction_market_extensions.backtesting._strategy_configs import build_strategies_from_configs
 from strategies import (
+    QuoteTickDeepValueHoldConfig,
+    QuoteTickDeepValueHoldStrategy,
     QuoteTickEMACrossoverConfig,
     QuoteTickEMACrossoverStrategy,
     QuoteTickVWAPReversionConfig,
@@ -46,6 +48,7 @@ EXPECTED_MULTI_SIM_SUMMARY_PLOT_PANELS = (
     "periodic_pnl",
     "monthly_returns",
 )
+EXPECTED_ALL_SUMMARY_PLOT_PANELS = EXPECTED_DETAIL_PLOT_PANELS
 EXPECTED_25_SIM_SUMMARY_PLOT_PANELS = (
     "total_equity",
     "total_drawdown",
@@ -144,12 +147,12 @@ def test_pmxt_joint_multi_runner_uses_fixed_windows(monkeypatch: pytest.MonkeyPa
     assert len(strategies) == 1
     strategy = strategies[0]
 
-    assert isinstance(strategy, QuoteTickVWAPReversionStrategy)
-    assert isinstance(strategy.config, QuoteTickVWAPReversionConfig)
+    assert isinstance(strategy, QuoteTickDeepValueHoldStrategy)
+    assert isinstance(strategy.config, QuoteTickDeepValueHoldConfig)
     assert module.DATA.sources == EXPECTED_PMXT_SOURCES
     assert len(module.REPLAYS) == 5
     assert module.DETAIL_PLOT_PANELS == EXPECTED_DETAIL_PLOT_PANELS
-    assert module.SUMMARY_PLOT_PANELS == EXPECTED_MULTI_SIM_SUMMARY_PLOT_PANELS
+    assert module.SUMMARY_PLOT_PANELS == EXPECTED_ALL_SUMMARY_PLOT_PANELS
     assert module.REPORT.summary_report is True
     assert module.REPORT.summary_report_path == module.SUMMARY_REPORT_PATH
     assert module.EXPERIMENT.report == module.REPORT

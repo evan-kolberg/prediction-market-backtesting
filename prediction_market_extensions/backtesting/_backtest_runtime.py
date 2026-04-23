@@ -316,13 +316,13 @@ def run_market_backtest(
             )
             summary_market_prices = (
                 prediction_market_research.legacy_plot_adapter._market_prices_with_fill_points(
-                    {market_id: chart_market_prices}, summary_legacy_fills
-                ).get(market_id, chart_market_prices)
+                    {str(instrument.id): chart_market_prices}, summary_legacy_fills
+                ).get(str(instrument.id), chart_market_prices)
             )
             dense_equity_series, dense_cash_series = (
                 prediction_market_research._dense_account_series_from_engine(
                     engine=engine,
-                    market_id=market_id,
+                    market_id=str(instrument.id),
                     market_prices=chart_market_prices,
                     initial_cash=initial_cash,
                 )

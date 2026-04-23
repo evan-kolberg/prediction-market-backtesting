@@ -58,15 +58,7 @@ DETAIL_PLOT_PANELS = (
 SUMMARY_REPORT_PATH = (
     "output/polymarket_telonex_quote_tick_joint_portfolio_runner_joint_portfolio.html"
 )
-SUMMARY_PLOT_PANELS = (
-    "total_equity",
-    "total_drawdown",
-    "total_rolling_sharpe",
-    "total_cash_equity",
-    "total_brier_advantage",
-    "periodic_pnl",
-    "monthly_returns",
-)
+SUMMARY_PLOT_PANELS = DETAIL_PLOT_PANELS
 EMPTY_MESSAGE = "No Telonex joint-portfolio example windows met the quote-tick requirements."
 PARTIAL_MESSAGE = "Completed {completed} of {total} joint-portfolio Telonex example replays."
 

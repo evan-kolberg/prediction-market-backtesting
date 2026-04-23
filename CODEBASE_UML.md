@@ -1,8 +1,8 @@
 # Codebase UML Inventory
 
 This file is generated from Python AST metadata and excludes `tests/`.
-Generated: 2026-04-23T12:01:45+00:00
-Modules: 105 | Classes: 167 | Functions/methods: 1048
+Generated: 2026-04-23T16:58:15+00:00
+Modules: 105 | Classes: 167 | Functions/methods: 1050
 
 ## Backtesting Data Flow
 
@@ -61,11 +61,11 @@ flowchart TD
 
 ### `backtests/polymarket_quote_tick_joint_portfolio_runner.py`
 - Imports: `__future__, decimal, prediction_market_extensions`
-- Function L180: `run() -> None`
+- Function L172: `run() -> None`
 
 ### `backtests/polymarket_telonex_quote_tick_joint_portfolio_runner.py`
 - Imports: `__future__, decimal, dotenv, os, prediction_market_extensions`
-- Function L178: `run() -> None`
+- Function L170: `run() -> None`
 
 ### `backtests/polymarket_trade_tick_independent_multi_replay_runner.py`
 - Imports: `__future__, decimal, prediction_market_extensions`
@@ -751,13 +751,15 @@ flowchart TD
 - Imports: `__future__, pathlib, prediction_market_extensions, typing`
 - Function L18: `load_notebook_metadata(notebook_path: Path, *, project_root: Path) -> dict[str, Any] | None`
 - Function L51: `execute_notebook_runner(notebook_path: Path, *, project_root: Path) -> None`
-- Function L92: `_import_nbclient() -> Any`
-- Function L100: `_import_nbformat() -> Any`
-- Function L108: `_notebook_description(notebook) -> str`
-- Function L124: `_replace_auto_embed_cell(*, notebook, notebook_path: Path, html_artifacts: list[Path], nbformat) -> None`
-- Function L140: `_auto_embed_cell_source(*, notebook_path: Path, html_artifacts: list[Path]) -> str`
-- Function L170: `_relative_html_path(*, notebook_path: Path, html_path: Path) -> str`
-- Function L174: `_write_notebook(*, notebook_path: Path, notebook, nbformat) -> None`
+- Function L95: `_import_nbclient() -> Any`
+- Function L103: `_import_nbformat() -> Any`
+- Function L111: `_notebook_description(notebook) -> str`
+- Function L127: `_auto_embed_html_enabled(notebook) -> bool`
+- Function L133: `_remove_auto_embed_cells(notebook) -> None`
+- Function L139: `_replace_auto_embed_cell(*, notebook, notebook_path: Path, html_artifacts: list[Path], nbformat) -> None`
+- Function L153: `_auto_embed_cell_source(*, notebook_path: Path, html_artifacts: list[Path]) -> str`
+- Function L183: `_relative_html_path(*, notebook_path: Path, html_path: Path) -> str`
+- Function L187: `_write_notebook(*, notebook_path: Path, notebook, nbformat) -> None`
 
 ### `prediction_market_extensions/backtesting/_notebook_support.py`
 - Imports: `__future__, collections, contextlib, dataclasses, importlib, os, pathlib, prediction_market_extensions, sys, typing`

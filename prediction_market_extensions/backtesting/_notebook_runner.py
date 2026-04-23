@@ -76,12 +76,15 @@ def execute_notebook_runner(notebook_path: Path, *, project_root: Path) -> None:
         raise
 
     html_artifacts = find_updated_html_artifacts(project_root / "output", artifact_snapshot)
-    _replace_auto_embed_cell(
-        notebook=notebook,
-        notebook_path=notebook_path,
-        html_artifacts=html_artifacts,
-        nbformat=nbformat,
-    )
+    if _auto_embed_html_enabled(notebook):
+        _replace_auto_embed_cell(
+            notebook=notebook,
+            notebook_path=notebook_path,
+            html_artifacts=html_artifacts,
+            nbformat=nbformat,
+        )
+    else:
+        _remove_auto_embed_cells(notebook)
     _write_notebook(
         notebook_path=notebook_path,
         notebook=notebook,
@@ -121,12 +124,22 @@ def _notebook_description(notebook: Any) -> str:
     return ""
 
 
-def _replace_auto_embed_cell(
-    *, notebook: Any, notebook_path: Path, html_artifacts: list[Path], nbformat: Any
-) -> None:
+def _auto_embed_html_enabled(notebook: Any) -> bool:
+    metadata = getattr(notebook, "metadata", {}) or {}
+    runner_metadata = metadata.get(NOTEBOOK_METADATA_KEY, {}) or {}
+    return runner_metadata.get("auto_embed_html") is not False
+
+
+def _remove_auto_embed_cells(notebook: Any) -> None:
     notebook.cells = [
         cell for cell in notebook.cells if AUTO_EMBED_CELL_MARKER not in str(cell.get("source", ""))
     ]
+
+
+def _replace_auto_embed_cell(
+    *, notebook: Any, notebook_path: Path, html_artifacts: list[Path], nbformat: Any
+) -> None:
+    _remove_auto_embed_cells(notebook)
     if not html_artifacts:
         return
 

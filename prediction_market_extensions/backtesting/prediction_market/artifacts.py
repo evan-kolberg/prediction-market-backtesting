@@ -124,21 +124,21 @@ class PredictionMarketArtifactBuilder:
         if len(loaded_sims) <= 1 or not self.return_summary_series:
             return {}
 
-        market_prices_by_market_id: dict[str, list[tuple[datetime, float]]] = {}
+        market_prices_by_instrument_id: dict[str, list[tuple[datetime, float]]] = {}
         for loaded_sim in loaded_sims:
             price_points = extract_price_points(
                 loaded_sim.records,
                 price_attr="mid_price" if self.data_type == "quote_tick" else "price",
             )
             price_points = downsample_price_points(price_points, max_points=5000)
-            market_prices_by_market_id[loaded_sim.market_id] = build_market_prices(
+            market_prices_by_instrument_id[str(loaded_sim.instrument.id)] = build_market_prices(
                 price_points, resample_rule=self.chart_resample_rule
             )
 
         dense_equity_series, dense_cash_series = (
             prediction_market_research._dense_account_series_from_engine_for_markets(
                 engine=engine,
-                market_prices=market_prices_by_market_id,
+                market_prices=market_prices_by_instrument_id,
                 initial_cash=self.initial_cash,
             )
         )
@@ -315,7 +315,7 @@ class PredictionMarketArtifactBuilder:
             dense_equity_series, dense_cash_series = (
                 prediction_market_research._dense_account_series_from_engine(
                     engine=engine,
-                    market_id=loaded_sim.market_id,
+                    market_id=str(loaded_sim.instrument.id),
                     market_prices=market_prices,
                     initial_cash=self.initial_cash,
                 )

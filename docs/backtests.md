@@ -471,6 +471,11 @@ of the notebook. That cell embeds the primary HTML artifact, usually the
 joint-portfolio or independent summary report when one exists, and links any additional
 HTML artifacts from the same run.
 
+The public fixed-runner notebook examples are:
+
+- [`backtests/pmxt_quote_tick_joint_portfolio_runner.ipynb`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/v3/backtests/pmxt_quote_tick_joint_portfolio_runner.ipynb)
+- [`backtests/telonex_quote_tick_joint_portfolio_runner.ipynb`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/v3/backtests/telonex_quote_tick_joint_portfolio_runner.ipynb)
+
 ## Editing Runner Inputs
 
 The public runner layer no longer depends on shell env vars for experiment
