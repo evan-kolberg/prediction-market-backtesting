@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import warnings
 from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime
 from pathlib import Path
@@ -64,6 +65,32 @@ PolymarketPMXTDataLoader = RunnerPolymarketPMXTDataLoader
 
 
 type StrategyFactory = Callable[[InstrumentId], Strategy]
+
+LARGE_DATA_GAP_NS = 4 * 60 * 60 * 1_000_000_000
+
+
+def _record_ts_event(record: Any) -> int | None:
+    value = getattr(record, "ts_event", None)
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _largest_record_gap_ns(records: Sequence[Any]) -> int | None:
+    previous_ts: int | None = None
+    largest_gap: int | None = None
+    for record in records:
+        ts_event = _record_ts_event(record)
+        if ts_event is None:
+            continue
+        if previous_ts is not None and ts_event > previous_ts:
+            gap = ts_event - previous_ts
+            largest_gap = gap if largest_gap is None else max(largest_gap, gap)
+        previous_ts = ts_event
+    return largest_gap
 
 
 class PredictionMarketBacktest:
@@ -320,6 +347,16 @@ class PredictionMarketBacktest:
             for replay in self.replays:
                 loaded_sim = await adapter.load_replay(replay, request=request)
                 if loaded_sim is not None:
+                    largest_gap_ns = _largest_record_gap_ns(loaded_sim.records)
+                    if largest_gap_ns is not None and largest_gap_ns > LARGE_DATA_GAP_NS:
+                        warnings.warn(
+                            f"Loaded replay {loaded_sim.market_id!r} contains a "
+                            f"{largest_gap_ns / 1_000_000_000 / 3600:.2f} hour data gap. "
+                            "Time-dependent strategy behavior across this window may be "
+                            "less reliable.",
+                            RuntimeWarning,
+                            stacklevel=2,
+                        )
                     loaded_sims.append(loaded_sim)
             return loaded_sims
 

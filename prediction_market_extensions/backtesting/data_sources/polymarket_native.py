@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import warnings
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -232,11 +233,15 @@ class RunnerPolymarketDataLoader(PolymarketDataLoader):
             if response.status != 200:
                 body_text = response.body.decode("utf-8")
                 if "max historical activity offset" in body_text:
-                    raise RuntimeError(
+                    warnings.warn(
                         "Polymarket public trades API hit its historical offset ceiling. "
-                        "Use a lower-activity market or another historical data source. "
-                        f"API response: {body_text}"
+                        "Returning the trades fetched before the ceiling; high-activity "
+                        "markets may be incomplete. Use another historical data source "
+                        f"for full coverage. API response: {body_text}",
+                        RuntimeWarning,
+                        stacklevel=2,
                     )
+                    break
                 raise RuntimeError(
                     f"HTTP request failed with status {response.status}: {body_text}"
                 )
@@ -251,7 +256,7 @@ class RunnerPolymarketDataLoader(PolymarketDataLoader):
                 if (end_ts is None or trade["timestamp"] <= end_ts)
                 and (start_ts is None or trade["timestamp"] >= start_ts)
             )
-            if start_ts is not None and min(trade["timestamp"] for trade in data) < start_ts:
+            if start_ts is not None and max(trade["timestamp"] for trade in data) < start_ts:
                 break
 
             offset += len(data)

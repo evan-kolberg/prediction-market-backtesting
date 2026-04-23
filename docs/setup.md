@@ -212,7 +212,7 @@ after the run.
 - `BACKTEST_ENABLE_TIMING=0` is the explicit quiet opt-out
 - PMXT filtered cache is enabled by default at
   `~/.cache/nautilus_trader/pmxt`
-- public PMXT runners pin `local:/Volumes/LaCie/pmxt_raws` first,
+- public PMXT runners pin `local:/Volumes/LaCie/pmxt_data` first,
   `archive:r2v2.pmxt.dev` + `archive:r2.pmxt.dev` next (v2 tried first, v1 is
   the historical fallback)
 - PMXT `DATA.sources` entries are explicit and prefix-driven: `local:`,

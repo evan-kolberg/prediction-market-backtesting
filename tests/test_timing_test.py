@@ -219,12 +219,22 @@ def test_install_timing_patches_telonex_loader() -> None:
     )
 
     timing_module = importlib.reload(timing_module)
-    original = RunnerPolymarketTelonexQuoteDataLoader.load_quotes
+    original_load_quotes = RunnerPolymarketTelonexQuoteDataLoader.load_quotes
+    original_load_order_book_and_quotes = (
+        RunnerPolymarketTelonexQuoteDataLoader.load_order_book_and_quotes
+    )
 
     try:
         timing_module.install_timing()
 
-        assert RunnerPolymarketTelonexQuoteDataLoader.load_quotes is not original
+        assert RunnerPolymarketTelonexQuoteDataLoader.load_quotes is not original_load_quotes
+        assert (
+            RunnerPolymarketTelonexQuoteDataLoader.load_order_book_and_quotes
+            is not original_load_order_book_and_quotes
+        )
     finally:
         timing_module._installed = False
-        RunnerPolymarketTelonexQuoteDataLoader.load_quotes = original
+        RunnerPolymarketTelonexQuoteDataLoader.load_quotes = original_load_quotes
+        RunnerPolymarketTelonexQuoteDataLoader.load_order_book_and_quotes = (
+            original_load_order_book_and_quotes
+        )

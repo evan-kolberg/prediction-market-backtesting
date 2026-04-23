@@ -217,6 +217,9 @@ class LongOnlyPredictionMarketStrategy(Strategy):
                 self._entry_price = self._entry_cost_sum / self._entry_qty_sum
         else:
             fill_qty = float(event.last_qty)
+            if self._entry_qty_sum > 0:
+                average_cost = self._entry_cost_sum / self._entry_qty_sum
+                self._entry_cost_sum -= average_cost * min(fill_qty, self._entry_qty_sum)
             self._entry_qty_sum -= fill_qty
             if self._entry_qty_sum > 0:
                 self._entry_price = self._entry_cost_sum / self._entry_qty_sum

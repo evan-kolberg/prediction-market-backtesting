@@ -16,7 +16,7 @@ from strategies import (
 
 INSTRUMENT_ID = InstrumentId(Symbol("PM-TEST-YES"), Venue("POLYMARKET"))
 EXPECTED_PMXT_SOURCES = (
-    "local:/Volumes/LaCie/pmxt_raws",
+    "local:/Volumes/LaCie/pmxt_data",
     "archive:r2v2.pmxt.dev",
     "archive:r2.pmxt.dev",
 )

@@ -443,7 +443,19 @@ def test_load_order_book_and_quotes_keeps_snapshot_before_quote(monkeypatch, tmp
                         pa.record_batch(
                             [
                                 pa.array(["book_snapshot"]),
-                                pa.array(['{"token_id":"token-yes-123"}']),
+                                pa.array(
+                                    [
+                                        (
+                                            '{"update_type":"book_snapshot",'
+                                            '"market_id":"condition-123",'
+                                            '"token_id":"token-yes-123",'
+                                            '"side":"YES","best_bid":"0.49",'
+                                            '"best_ask":"0.51","timestamp":1.0,'
+                                            '"bids":[["0.49","10"]],'
+                                            '"asks":[["0.51","10"]]}'
+                                        )
+                                    ]
+                                ),
                             ],
                             names=["update_type", "data"],
                         )
@@ -478,6 +490,103 @@ def test_load_order_book_and_quotes_keeps_snapshot_before_quote(monkeypatch, tmp
     data = loader.load_order_book_and_quotes(hour, hour + pd.Timedelta(hours=1))
 
     assert [type(record).__name__ for record in data] == ["_FakeOrderBookDeltas", "_FakeQuoteTick"]
+
+
+def test_load_order_book_and_quotes_sorts_payloads_before_book_mutation(monkeypatch, tmp_path):
+    loader = _make_loader(tmp_path)
+    loader._instrument = SimpleNamespace(id="POLYMARKET.TEST")
+    hour = pd.Timestamp("2026-03-16T12:00:00Z")
+    processed: list[str] = []
+
+    class _FakeOrderBook:
+        def __init__(self, instrument_id, book_type):  # type: ignore[no-untyped-def]
+            self.instrument_id = instrument_id
+            self.book_type = book_type
+
+    monkeypatch.setattr(pmxt_module, "OrderBook", _FakeOrderBook)
+    loader._archive_hours = lambda _start, _end: [hour]  # type: ignore[method-assign]
+    loader._iter_market_batches = (  # type: ignore[method-assign]
+        lambda hours, *, batch_size: iter(
+            [
+                (
+                    hour,
+                    [
+                        pa.record_batch(
+                            [
+                                pa.array(["price_change", "book_snapshot"]),
+                                pa.array(
+                                    [
+                                        (
+                                            '{"update_type":"price_change",'
+                                            '"market_id":"condition-123",'
+                                            '"token_id":"token-yes-123",'
+                                            '"side":"YES","best_bid":"0.50",'
+                                            '"best_ask":"0.52","timestamp":2.0,'
+                                            '"change_price":"0.52",'
+                                            '"change_size":"5","change_side":"SELL"}'
+                                        ),
+                                        (
+                                            '{"update_type":"book_snapshot",'
+                                            '"market_id":"condition-123",'
+                                            '"token_id":"token-yes-123",'
+                                            '"side":"YES","best_bid":"0.49",'
+                                            '"best_ask":"0.51","timestamp":1.0,'
+                                            '"bids":[["0.49","10"]],'
+                                            '"asks":[["0.51","10"]]}'
+                                        ),
+                                    ]
+                                ),
+                            ],
+                            names=["update_type", "data"],
+                        )
+                    ],
+                )
+            ]
+        )
+    )
+
+    def _process_book_snapshot(  # type: ignore[no-untyped-def]
+        payload_text,
+        *,
+        token_id,
+        instrument,
+        local_book,
+        has_snapshot,
+        events,
+        start_ns,
+        end_ns,
+        include_order_book,
+        include_quotes,
+    ):
+        del payload_text, token_id, instrument, has_snapshot, events, start_ns, end_ns
+        del include_order_book, include_quotes
+        processed.append("book_snapshot")
+        return local_book, True
+
+    def _process_price_change(  # type: ignore[no-untyped-def]
+        payload_text,
+        *,
+        token_id,
+        instrument,
+        local_book,
+        has_snapshot,
+        events,
+        start_ns,
+        end_ns,
+        include_order_book,
+        include_quotes,
+    ):
+        del payload_text, token_id, instrument, has_snapshot, events, start_ns, end_ns
+        del include_order_book, include_quotes
+        processed.append("price_change")
+        return local_book
+
+    monkeypatch.setattr(loader, "_process_book_snapshot", _process_book_snapshot)
+    monkeypatch.setattr(loader, "_process_price_change", _process_price_change)
+
+    loader.load_order_book_and_quotes(hour, hour + pd.Timedelta(hours=1))
+
+    assert processed == ["book_snapshot", "price_change"]
 
 
 def test_iter_market_batches_preserves_hour_order(tmp_path):

@@ -270,6 +270,11 @@ class RunnerPolymarketTelonexQuoteDataLoader(PolymarketDataLoader):
         if callback is not None:
             callback(url, downloaded_bytes, total_bytes, finished)
 
+    def _day_progress(self, date: str, event: str, source: str, rows: int) -> None:
+        callback = getattr(self, "_telonex_day_progress_callback", None)
+        if callback is not None:
+            callback(date, event, source, rows)
+
     @classmethod
     def _resolve_api_cache_root(cls) -> Path | None:
         return _resolve_api_cache_root()
@@ -1380,70 +1385,98 @@ class RunnerPolymarketTelonexQuoteDataLoader(PolymarketDataLoader):
         ]
         range_cache: dict[Path, pd.DataFrame | None] = {}
         for date in self._date_range(start, end):
+            self._day_progress(date, "start", "none", 0)
+            day_source = "none"
+            emitted_day_complete = False
             day_window = self._day_window(date, start=start, end=end)
             if day_window is None:
+                self._day_progress(date, "complete", day_source, 0)
                 continue
-            day_start, day_end = day_window
-            frame: pd.DataFrame | None = None
-            for entry in api_entries:
-                assert entry.target is not None
-                frame = self._load_api_cache_day(
-                    base_url=entry.target,
-                    channel=config.channel,
-                    date=date,
-                    market_slug=market_slug,
-                    token_index=token_index,
-                    outcome=outcome,
-                )
-                if frame is not None:
-                    break
-            if frame is not None:
-                records.extend(
-                    self._book_events_from_frame(
-                        frame,
-                        start=day_start,
-                        end=day_end,
-                        include_order_book=include_order_book,
-                        include_quotes=include_quotes,
-                    )
-                )
-                continue
-
-            for entry in config.ordered_source_entries:
-                if entry.kind == _TELONEX_SOURCE_LOCAL:
-                    frame = self._try_load_day_from_local(
-                        entry=entry,
-                        channel=config.channel,
-                        date=date,
-                        market_slug=market_slug,
-                        token_index=token_index,
-                        outcome=outcome,
-                        start=day_start,
-                        end=day_end,
-                        range_cache=range_cache,
-                    )
-                else:
-                    frame = self._try_load_day_from_entry(
-                        entry=entry,
+            try:
+                day_start, day_end = day_window
+                frame: pd.DataFrame | None = None
+                for entry in api_entries:
+                    assert entry.target is not None
+                    frame = self._load_api_cache_day(
+                        base_url=entry.target,
                         channel=config.channel,
                         date=date,
                         market_slug=market_slug,
                         token_index=token_index,
                         outcome=outcome,
                     )
-                if frame is not None:
-                    break
-            if frame is None:
-                continue
-            records.extend(
-                self._book_events_from_frame(
+                    if frame is not None:
+                        cache_path = self._api_cache_path(
+                            base_url=entry.target,
+                            channel=config.channel,
+                            date=date,
+                            market_slug=market_slug,
+                            token_index=token_index,
+                            outcome=outcome,
+                        )
+                        day_source = (
+                            f"telonex-cache::{cache_path}"
+                            if cache_path is not None
+                            else "telonex-cache"
+                        )
+                        break
+                if frame is None:
+                    for entry in config.ordered_source_entries:
+                        if entry.kind == _TELONEX_SOURCE_LOCAL:
+                            frame = self._try_load_day_from_local(
+                                entry=entry,
+                                channel=config.channel,
+                                date=date,
+                                market_slug=market_slug,
+                                token_index=token_index,
+                                outcome=outcome,
+                                start=day_start,
+                                end=day_end,
+                                range_cache=range_cache,
+                            )
+                            day_source = (
+                                f"telonex-local::{entry.target}"
+                                if frame is not None
+                                else day_source
+                            )
+                        else:
+                            frame = self._try_load_day_from_entry(
+                                entry=entry,
+                                channel=config.channel,
+                                date=date,
+                                market_slug=market_slug,
+                                token_index=token_index,
+                                outcome=outcome,
+                            )
+                            actual_source = getattr(self, "_telonex_last_api_source", None)
+                            day_source = (
+                                actual_source
+                                if frame is not None and actual_source
+                                else (
+                                    f"telonex-api::{entry.target}"
+                                    if frame is not None
+                                    else day_source
+                                )
+                            )
+                        if frame is not None:
+                            break
+                if frame is None:
+                    self._day_progress(date, "complete", day_source, 0)
+                    emitted_day_complete = True
+                    continue
+                day_records = self._book_events_from_frame(
                     frame,
                     start=day_start,
                     end=day_end,
                     include_order_book=include_order_book,
                     include_quotes=include_quotes,
                 )
-            )
+                records.extend(day_records)
+                self._day_progress(date, "complete", day_source, len(day_records))
+                emitted_day_complete = True
+            finally:
+                if not emitted_day_complete:
+                    self._day_progress(date, "complete", day_source, 0)
         records.sort(
             key=lambda record: (
                 int(record.ts_event),
