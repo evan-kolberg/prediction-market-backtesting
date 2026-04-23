@@ -15,6 +15,31 @@ from nautilus_trader.trading.strategy import StrategyConfig
 from strategies.core import LongOnlyPredictionMarketStrategy
 
 
+def _validate_late_favorite_config(
+    *,
+    trade_size: Decimal,
+    entry_price: float,
+    activation_start_time_ns: int,
+    market_close_time_ns: int,
+) -> None:
+    if trade_size <= 0:
+        raise ValueError(f"trade_size must be > 0, got {trade_size}")
+    if not 0.0 <= float(entry_price) <= 1.0:
+        raise ValueError(f"entry_price must be in [0.0, 1.0], got {entry_price}")
+    if int(activation_start_time_ns) < 0:
+        raise ValueError(f"activation_start_time_ns must be >= 0, got {activation_start_time_ns}")
+    if int(market_close_time_ns) < 0:
+        raise ValueError(f"market_close_time_ns must be >= 0, got {market_close_time_ns}")
+    if (
+        int(activation_start_time_ns) > 0
+        and int(market_close_time_ns) > 0
+        and int(activation_start_time_ns) > int(market_close_time_ns)
+    ):
+        raise ValueError(
+            "activation_start_time_ns must be <= market_close_time_ns when both are set"
+        )
+
+
 class TradeTickLateFavoriteLimitHoldConfig(StrategyConfig, frozen=True):  # type: ignore[call-arg]
     instrument_id: InstrumentId
     trade_size: Decimal = Decimal(25)
@@ -23,8 +48,12 @@ class TradeTickLateFavoriteLimitHoldConfig(StrategyConfig, frozen=True):  # type
     entry_price: float = 0.90
 
     def __post_init__(self) -> None:
-        if self.trade_size <= 0:
-            raise ValueError(f"trade_size must be > 0, got {self.trade_size}")
+        _validate_late_favorite_config(
+            trade_size=self.trade_size,
+            entry_price=self.entry_price,
+            activation_start_time_ns=self.activation_start_time_ns,
+            market_close_time_ns=self.market_close_time_ns,
+        )
 
 
 class QuoteTickLateFavoriteLimitHoldConfig(StrategyConfig, frozen=True):  # type: ignore[call-arg]
@@ -35,8 +64,12 @@ class QuoteTickLateFavoriteLimitHoldConfig(StrategyConfig, frozen=True):  # type
     entry_price: float = 0.90
 
     def __post_init__(self) -> None:
-        if self.trade_size <= 0:
-            raise ValueError(f"trade_size must be > 0, got {self.trade_size}")
+        _validate_late_favorite_config(
+            trade_size=self.trade_size,
+            entry_price=self.entry_price,
+            activation_start_time_ns=self.activation_start_time_ns,
+            market_close_time_ns=self.market_close_time_ns,
+        )
 
 
 class _LateFavoriteLimitHoldBase(LongOnlyPredictionMarketStrategy):

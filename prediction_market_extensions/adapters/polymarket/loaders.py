@@ -21,6 +21,7 @@ Provides data loaders for historical Polymarket data from various APIs.
 
 from __future__ import annotations
 
+import warnings
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
@@ -37,6 +38,17 @@ from nautilus_trader.model.identifiers import TradeId
 from nautilus_trader.model.instruments import BinaryOption
 
 from prediction_market_extensions.adapters.polymarket.gamma_markets import infer_gamma_token_winners
+
+
+def _trade_sort_key(trade: dict[str, Any]) -> tuple[int, str, str, str, str, str]:
+    return (
+        int(trade["timestamp"]),
+        str(trade.get("transactionHash", "")),
+        str(trade.get("asset", "")),
+        str(trade.get("side", "")),
+        str(trade.get("price", "")),
+        str(trade.get("size", "")),
+    )
 
 
 class PolymarketDataLoader:
@@ -527,8 +539,7 @@ class PolymarketDataLoader:
         if end_ts is not None:
             token_trades = [t for t in token_trades if t["timestamp"] <= end_ts]
 
-        # Sort chronologically (API returns newest first)
-        token_trades.sort(key=lambda t: t["timestamp"])
+        token_trades.sort(key=_trade_sort_key)
 
         return self.parse_trades(token_trades)
 
@@ -795,11 +806,15 @@ class PolymarketDataLoader:
             if response.status != 200:
                 body_text = response.body.decode("utf-8")
                 if "max historical activity offset" in body_text:
-                    raise RuntimeError(
+                    warnings.warn(
                         "Polymarket public trades API hit its historical offset ceiling. "
-                        "Use a lower-activity market or another historical data source. "
-                        f"API response: {body_text}"
+                        "Returning the trades fetched before the ceiling; high-activity "
+                        "markets may be incomplete. Use another historical data source "
+                        f"for full coverage. API response: {body_text}",
+                        RuntimeWarning,
+                        stacklevel=2,
                     )
+                    break
                 raise RuntimeError(
                     f"HTTP request failed with status {response.status}: {body_text}"
                 )
@@ -816,7 +831,7 @@ class PolymarketDataLoader:
                 and (start_ts is None or trade["timestamp"] >= start_ts)
             )
 
-            if start_ts is not None and min(trade["timestamp"] for trade in data) < start_ts:
+            if start_ts is not None and max(trade["timestamp"] for trade in data) < start_ts:
                 break
 
             offset += len(data)
@@ -854,17 +869,19 @@ class PolymarketDataLoader:
         make_qty = self._instrument.make_qty
         token_id = self._token_id
 
+        timestamp_counts: dict[int, int] = {}
+        tx_asset_counts: dict[tuple[str, str], int] = {}
+
         for i, trade_data in enumerate(trades_data):
             # Skip trades for other tokens in the same condition
             if trade_data.get("asset") != token_id:
                 continue
-            # Sub-second tiebreaker: the API timestamp is integer seconds,
-            # so trades within the same second would get identical nanosecond
-            # timestamps.  Add a small deterministic offset based on position
-            # within the response page (capped to <1 s) so ordering is
-            # preserved without shifting the timestamp beyond its second.
-            _tiebreaker_ns = min(i * 1_000, 999_999_999)
-            ts_event = secs_to_nanos(trade_data["timestamp"]) + _tiebreaker_ns
+
+            base_ts_event = secs_to_nanos(trade_data["timestamp"])
+            occurrence_in_second = timestamp_counts.get(base_ts_event, 0)
+            timestamp_counts[base_ts_event] = occurrence_in_second + 1
+            _tiebreaker_ns = min(occurrence_in_second, 999_999_999)
+            ts_event = base_ts_event + _tiebreaker_ns
 
             side_str = trade_data["side"]
             if side_str == "BUY":
@@ -877,21 +894,27 @@ class PolymarketDataLoader:
             # Multi-token Polymarket transactions produce multiple fills that
             # share the same transactionHash.  Using only the last 36 chars can
             # collide, causing NautilusTrader to silently drop the second trade.
-            # Disambiguate by appending the last 4 chars of the asset (token) ID.
-            _hash_suffix = trade_data["transactionHash"][-32:]
-            _asset_suffix = trade_data.get("asset", "")[-4:]
-        _raw_price = float(trade_data["price"])
-        if not (0.0 <= _raw_price <= 1.0):
-            raise ValueError(
-                f"Polymarket trade price must be in [0.0, 1.0], "
-                f"got {_raw_price!r} (record {i})"
-            )
+            # Disambiguate by appending the token suffix and a same-transaction
+            # sequence number for same-token multi-fill transactions.
+            _transaction_hash = str(trade_data["transactionHash"])
+            _asset = str(trade_data.get("asset", ""))
+            _hash_suffix = _transaction_hash[-24:]
+            _asset_suffix = _asset[-4:]
+            _tx_asset_key = (_transaction_hash, _asset)
+            _tx_asset_sequence = tx_asset_counts.get(_tx_asset_key, 0)
+            tx_asset_counts[_tx_asset_key] = _tx_asset_sequence + 1
+
+            _raw_price = float(trade_data["price"])
+            if not (0.0 <= _raw_price <= 1.0):
+                raise ValueError(
+                    f"Polymarket trade price must be in [0.0, 1.0], got {_raw_price!r} (record {i})"
+                )
             trade = TradeTick(
                 instrument_id=instrument_id,
                 price=make_price(trade_data["price"]),
                 size=make_qty(trade_data["size"]),
                 aggressor_side=aggressor_side,
-                trade_id=TradeId(f"{_hash_suffix}-{_asset_suffix}"),
+                trade_id=TradeId(f"{_hash_suffix}-{_asset_suffix}-{_tx_asset_sequence:06d}"),
                 ts_event=ts_event,
                 ts_init=ts_event,
             )

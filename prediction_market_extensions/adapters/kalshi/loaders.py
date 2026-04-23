@@ -111,6 +111,17 @@ class KalshiDataLoader:
         return cls._trade_timestamp_ns(trade) // 1_000_000_000
 
     @classmethod
+    def _trade_sort_key(cls, trade: dict[str, Any]) -> tuple[int, str, str, str, str, str]:
+        return (
+            cls._trade_timestamp_ns(trade),
+            str(trade.get("trade_id", "")),
+            str(trade.get("created_time", trade.get("ts", ""))),
+            str(trade.get("yes_price_dollars", trade.get("yes_price", trade.get("price", "")))),
+            str(trade.get("count_fp", trade.get("count", ""))),
+            str(trade.get("taker_side", "")),
+        )
+
+    @classmethod
     def _extract_yes_price(cls, trade: dict[str, Any]) -> float:
         if trade.get("yes_price_dollars") is not None:
             return float(trade["yes_price_dollars"])
@@ -351,8 +362,14 @@ class KalshiDataLoader:
         trades: list[TradeTick] = []
         trade_counts: dict[tuple[object, object, object, object], int] = {}
 
+        timestamp_counts: dict[int, int] = {}
+
         for trade in trades_data:
-            ts_event = self._trade_timestamp_ns(trade)
+            base_ts_event = self._trade_timestamp_ns(trade)
+            occurrence_at_timestamp = timestamp_counts.get(base_ts_event, 0)
+            timestamp_counts[base_ts_event] = occurrence_at_timestamp + 1
+            remaining_ns_in_second = 999_999_999 - (base_ts_event % 1_000_000_000)
+            ts_event = base_ts_event + min(occurrence_at_timestamp, remaining_ns_in_second)
             taker_side = trade.get("taker_side", "")
             if taker_side == "yes":
                 aggressor_side = AggressorSide.BUYER
@@ -518,15 +535,17 @@ class KalshiDataLoader:
         """
         min_ts = int(start.timestamp()) if start is not None else None
         max_ts = int(end.timestamp()) if end is not None else None
+        min_ts_ns = pd.Timestamp(start).value if start is not None else None
+        max_ts_ns = pd.Timestamp(end).value if end is not None else None
 
         raw_trades = await self.fetch_trades(min_ts=min_ts, max_ts=max_ts)
 
         # Client-side filter (API may return boundary-inclusive extras)
-        if min_ts is not None:
-            raw_trades = [t for t in raw_trades if self._trade_timestamp_seconds(t) >= min_ts]
-        if max_ts is not None:
-            raw_trades = [t for t in raw_trades if self._trade_timestamp_seconds(t) <= max_ts]
+        if min_ts_ns is not None:
+            raw_trades = [t for t in raw_trades if self._trade_timestamp_ns(t) >= min_ts_ns]
+        if max_ts_ns is not None:
+            raw_trades = [t for t in raw_trades if self._trade_timestamp_ns(t) <= max_ts_ns]
 
-        raw_trades.sort(key=self._trade_timestamp_ns)
+        raw_trades.sort(key=self._trade_sort_key)
 
         return self.parse_trades(raw_trades)
