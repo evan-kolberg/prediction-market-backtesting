@@ -18,6 +18,10 @@ the raw venue data are:
   and are not hardcoded to the older sports-vs-crypto heuristic
 - if a venue reports zero fees for a market, the backtest also applies zero
   fees
+- Kalshi fee waivers are checked at instrument-load time, not per-fill: if a
+  waiver expires during a backtest window, the backtest still charges zero
+  fees for the entire run (NautilusTrader bakes fees into the instrument
+  object rather than evaluating them dynamically per fill)
 
 ## Slippage
 
@@ -32,6 +36,10 @@ the raw venue data are:
   bid price (e.g., 0.03 on a $0.50 bid fills at $0.485)
 - entry and exit percentages let you model the higher cost of exiting a binary
   option position (thinner book, more urgency) versus entering
+- entry vs exit is determined by order side: BUY = entry, SELL = exit; this
+  matches LongOnlyPredictionMarketStrategy (all framework strategies buy YES
+  to open and sell to close); strategies that sell to open a short would need
+  a different mapping
 - when both tick-based and percentage-based slippage are non-zero, they stack
   additively: fill price = ask + tick_shift + pct_shift (for buys) or
   bid - tick_shift - pct_shift (for sells)
