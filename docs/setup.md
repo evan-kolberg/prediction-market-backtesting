@@ -168,8 +168,10 @@ The default destination is `/Volumes/LaCie/telonex_data`, matching the
 `local:/Volumes/LaCie/telonex_data` source in the public Telonex runner.
 The downloader uses a shared async `httpx` pool with `--workers 128`
 in-flight coroutines by default. The hot path decodes day Parquet payloads
-directly into Arrow tables and writes them into consolidated ~1 GiB blob
-parts; it does not create millions of tiny day files. On a fast host, benchmark
+directly into Arrow tables and writes them into consolidated blob parts that
+roll around 512 MiB on disk, 64 GiB of Arrow data, or 10,000 pending manifest
+days; it does not create millions of tiny day files or keep one huge manifest
+batch in RAM until shutdown. On a fast host, benchmark
 `--workers 64`, `128`, and `256` before scaling up; higher worker counts can
 hit socket/file-descriptor pressure or outrun the single consolidated Parquet
 writer. `--parse-workers` controls the bounded Arrow decode pool (default:

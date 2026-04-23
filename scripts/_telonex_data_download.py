@@ -38,6 +38,7 @@ _MANIFEST_FILENAME = "telonex.duckdb"
 _DATA_SUBDIR = "data"
 _TARGET_PART_BYTES = 64 << 30  # uncompressed Arrow safety cap before rolling
 _TARGET_PART_DISK_BYTES = 512 << 20  # compressed on-disk Parquet target before rolling
+_TARGET_PART_PENDING_DAYS = 10_000  # manifest rows held by one open part before rolling
 _PARQUET_COMPRESSION = "zstd"
 _PARQUET_COMPRESSION_LEVEL = 3
 # Keep pending_for_commit bounded so book_snapshot_full Arrow tables don't pin
@@ -681,7 +682,11 @@ class _TelonexParquetStore:
 
         del table
 
-        if part.disk_bytes >= _TARGET_PART_DISK_BYTES or part.bytes_written >= _TARGET_PART_BYTES:
+        if (
+            part.disk_bytes >= _TARGET_PART_DISK_BYTES
+            or part.bytes_written >= _TARGET_PART_BYTES
+            or len(part.pending) >= _TARGET_PART_PENDING_DAYS
+        ):
             self._flush_open_part_locked(key)
 
         return total_rows
@@ -2023,8 +2028,22 @@ def download_telonex_days(
         if show_progress:
             existing_store_size = store.size_bytes()
             completed_before = sum(len(store.completed_keys(ch)) for ch in channels)
-            empty_before = sum(len(store.empty_keys(ch)) for ch in channels)
-            remaining_text = f"remaining={remaining_jobs:,}. " if remaining_jobs is not None else ""
+            empty_before = sum(
+                len(store.empty_keys(ch, recheck_after_days=recheck_empty_after_days))
+                for ch in channels
+            )
+            if all_markets and planned_jobs is not None:
+                # Exact all-market pruning is lazy so startup doesn't materialize
+                # tens of millions of jobs. This estimate is accurate for the
+                # normal full-catalog resume path and avoids printing the
+                # unpruned total as "remaining".
+                skipped_before = min(planned_jobs, completed_before + empty_before)
+                remaining_jobs = max(0, planned_jobs - skipped_before)
+                remaining_text = f"estimated_remaining_after_resume={remaining_jobs:,}. "
+            else:
+                remaining_text = (
+                    f"remaining={remaining_jobs:,}. " if remaining_jobs is not None else ""
+                )
             print(
                 f"[telonex] Resume summary: manifest={db_path} "
                 f"data={store.data_root} total={_format_bytes(existing_store_size)}, "
@@ -2039,7 +2058,8 @@ def download_telonex_days(
                 f"[telonex] Channels={channels} workers={workers} "
                 f"retries={_DEFAULT_MAX_RETRIES} timeout={timeout_secs}s "
                 f"part-roll-at={_format_bytes(_TARGET_PART_DISK_BYTES)} on disk "
-                f"or {_format_bytes(_TARGET_PART_BYTES)} Arrow.",
+                f"or {_format_bytes(_TARGET_PART_BYTES)} Arrow "
+                f"or {_TARGET_PART_PENDING_DAYS:,} pending days.",
                 file=sys.stderr,
             )
 

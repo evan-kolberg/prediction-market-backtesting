@@ -928,6 +928,61 @@ def test_all_markets_progress_only_uses_fetch_and_download_bars(
     assert progress_descs == ["Fetching Telonex markets", "Downloading Telonex days"]
 
 
+def test_all_markets_resume_progress_total_excludes_manifest_hits(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    payloads = {"2026-01-19": _parquet_payload(1_768_780_800_000_000)}
+    monkeypatch.setenv("TELONEX_API_KEY", "test-key")
+    _install_payload_stub(monkeypatch, payloads)
+
+    first = telonex_download.download_telonex_days(
+        destination=tmp_path,
+        market_slugs=["already-downloaded"],
+        outcome_id=0,
+        start_date="2026-01-19",
+        end_date="2026-01-19",
+        show_progress=False,
+        workers=1,
+    )
+    assert first.downloaded_days == 1
+
+    markets = pd.DataFrame(
+        {
+            "slug": ["already-downloaded"],
+            "quotes_from": ["2026-01-19"],
+            "quotes_to": ["2026-01-19"],
+        }
+    )
+    captured_total_jobs: list[int | None] = []
+
+    def fake_fetch_markets_dataset(
+        base_url: str, timeout_secs: int, *, show_progress: bool = False
+    ) -> pd.DataFrame:
+        del base_url, timeout_secs, show_progress
+        return markets
+
+    def fake_run_jobs(jobs, **kwargs):
+        captured_total_jobs.append(kwargs["total_jobs"])
+        kept_jobs = list(jobs)
+        assert len(kept_jobs) == 1
+        assert kept_jobs[0].outcome_id == 1
+        return (0, 0, 0, 0, 0, False, [])
+
+    monkeypatch.setattr(telonex_download, "_fetch_markets_dataset", fake_fetch_markets_dataset)
+    monkeypatch.setattr(telonex_download, "_run_jobs", fake_run_jobs)
+
+    second = telonex_download.download_telonex_days(
+        destination=tmp_path,
+        all_markets=True,
+        channels=["quotes"],
+        show_progress=True,
+        workers=1,
+    )
+
+    assert second.skipped_existing_days == 1
+    assert captured_total_jobs == [1]
+
+
 def test_downloaded_parquet_is_readable_by_telonex_loader(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -1129,6 +1184,45 @@ def test_download_telonex_days_rolls_part_files_when_disk_threshold_exceeded(
 
     parts = sorted((tmp_path / "data").rglob("*.parquet"))
     assert len(parts) == 2
+
+
+def test_download_telonex_days_rolls_part_files_when_pending_manifest_rows_exceeded(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    payloads = {
+        "2026-01-19": _parquet_payload(1_768_780_800_000_000),
+        "2026-01-20": _parquet_payload(1_768_867_200_000_000),
+        "2026-01-21": _parquet_payload(1_768_953_600_000_000),
+    }
+
+    monkeypatch.setenv("TELONEX_API_KEY", "test-key")
+    _install_payload_stub(monkeypatch, payloads)
+    monkeypatch.setattr(telonex_download, "_TARGET_PART_BYTES", 1 << 40)
+    monkeypatch.setattr(telonex_download, "_TARGET_PART_DISK_BYTES", 1 << 40)
+    monkeypatch.setattr(telonex_download, "_TARGET_PART_PENDING_DAYS", 2)
+    monkeypatch.setattr(telonex_download, "_DEFAULT_COMMIT_BATCH_ROWS", 1)
+    monkeypatch.setattr(telonex_download, "_DEFAULT_COMMIT_BATCH_SECS", 0.0)
+
+    telonex_download.download_telonex_days(
+        destination=tmp_path,
+        market_slugs=["pending-roll-test"],
+        outcome_id=0,
+        start_date="2026-01-19",
+        end_date="2026-01-21",
+        show_progress=False,
+        workers=1,
+    )
+
+    parts = sorted((tmp_path / "data").rglob("*.parquet"))
+    assert len(parts) == 2
+
+    con = duckdb.connect(str(tmp_path / "telonex.duckdb"), read_only=True)
+    try:
+        rows = con.execute("SELECT day, parquet_part FROM completed_days ORDER BY day").fetchall()
+    finally:
+        con.close()
+    assert len(rows) == 3
+    assert len({row[1] for row in rows}) == 2
 
 
 def test_store_sweeps_orphan_parquet_on_startup(

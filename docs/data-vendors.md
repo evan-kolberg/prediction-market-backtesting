@@ -301,10 +301,12 @@ downloading `book_snapshot_5` and `book_snapshot_25` alongside
 
 The default `--workers 128` is the in-flight coroutine ceiling in the shared
 async `httpx` pool. The downloader decodes day Parquet payloads directly into
-Arrow tables and writes consolidated ~1 GiB blob parts; it does not create
-millions of tiny day files. On a fast host, benchmark `--workers 64`, `128`,
-and `256` before scaling up because high concurrency can hit socket/file
-descriptor pressure or outrun the single consolidated Parquet writer.
+Arrow tables and writes consolidated blob parts that roll around 512 MiB on
+disk, 64 GiB of Arrow data, or 10,000 pending manifest days; it does not create
+millions of tiny day files or keep one huge manifest batch in RAM until
+shutdown. On a fast host, benchmark `--workers 64`, `128`, and `256` before
+scaling up because high concurrency can hit socket/file descriptor pressure or
+outrun the single consolidated Parquet writer.
 `--parse-workers` controls the bounded Arrow decode pool (default:
 `min(8, cpu_count)`, also configurable with `TELONEX_PARSE_WORKERS`). Transient
 `408/425/429/5xx` responses retry with exponential backoff. Hit `Ctrl-C` once
