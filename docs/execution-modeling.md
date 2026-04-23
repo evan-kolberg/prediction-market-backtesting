@@ -18,10 +18,8 @@ the raw venue data are:
   and are not hardcoded to the older sports-vs-crypto heuristic
 - if a venue reports zero fees for a market, the backtest also applies zero
   fees
-- Kalshi fee waivers are checked at instrument-load time, not per-fill: if a
-  waiver expires during a backtest window, the backtest still charges zero
-  fees for the entire run (NautilusTrader bakes fees into the instrument
-  object rather than evaluating them dynamically per fill)
+- Kalshi fee waivers are checked at fill time against the order timestamp, so a
+  waiver expiring mid-window no longer zeroes fees for the full replay
 
 ## Slippage
 
@@ -36,10 +34,9 @@ the raw venue data are:
   bid price (e.g., 0.03 on a $0.50 bid fills at $0.485)
 - entry and exit percentages let you model the higher cost of exiting a binary
   option position (thinner book, more urgency) versus entering
-- entry vs exit is determined by order side: BUY = entry, SELL = exit; this
-  matches LongOnlyPredictionMarketStrategy (all framework strategies buy YES
-  to open and sell to close); strategies that sell to open a short would need
-  a different mapping
+- entry vs exit is inferred from repo-owned order tags and `reduce_only`
+  first, with order side only as a fallback; this keeps long exits and future
+  short-cover flows on the correct slippage path
 - when both tick-based and percentage-based slippage are non-zero, they stack
   additively: fill price = ask + tick_shift + pct_shift (for buys) or
   bid - tick_shift - pct_shift (for sells)
@@ -53,7 +50,11 @@ the raw venue data are:
       latency_model=StaticLatencyConfig(...),
   )
   ```
-- limit orders keep default Nautilus matching behavior
+- trade-tick market orders no longer assume infinite venue depth: the repo
+  attaches observed visible liquidity when available, and the synthetic book
+  depth falls back to the order quantity instead of a fake unlimited wall
+- limit orders still use Nautilus passive-book heuristics, but the repo now
+  defaults touched-limit fill probability to `0.25` instead of `1.0`
 - PMXT-backed Polymarket L2 backtests do not use the synthetic taker
   fill model; they replay historical `OrderBookDeltas` with `book_type=L2_MBP`
   and `liquidity_consumption=True`
@@ -94,6 +95,11 @@ the raw venue data are:
 - result payloads now distinguish the requested replay window from the loaded
   data window via `planned_start`, `planned_end`, `loaded_start`,
   `loaded_end`, `coverage_ratio`, and `requested_coverage_ratio`
+- when a binary market resolves after the replay window, the result now keeps
+  mark-to-market PnL and emits an explicit warning instead of silently applying
+  post-window settlement
+- when settlement is observable inside the replay window, result payloads use
+  binary settlement PnL and preserve the last-tick mark as `market_exit_pnl`
 - Kalshi public backtests here are trade-tick replay only
 - Polymarket PMXT-backed backtests are full L2 order-book replay
 - Polymarket Telonex-backed backtests use full-depth Telonex book snapshots
@@ -102,6 +108,9 @@ the raw venue data are:
   once fees and one-tick slippage are turned on
 - PMXT and Telonex L2 help with taker and passive-book modeling, but robust
   maker realism still needs L3 or MBO-style data
+- run outputs now also warn that replay sets are curated and that no
+  portfolio-level drawdown or daily-loss circuit breaker is configured by
+  default, so those limitations stay visible in normal runs
 
 ## Vendor L2 Behavior
 
@@ -124,6 +133,9 @@ the raw venue data are:
   the Telonex download endpoint with `TELONEX_API_KEY` from the environment
 - Telonex quote-tick runners use a passive L2 book execution profile with
   `queue_position=True`, `liquidity_consumption=True`, and static latency
+- the Telonex replay adapter now resolves the Polymarket outcome name from the
+  selected instrument metadata when `replay.outcome` is omitted, so vendor
+  comparisons do not silently fall back to `outcome_id=token_index`
 - use Telonex when the full-depth daily Parquet/API source is the desired
   Polymarket input; use PMXT when you specifically want the PMXT hourly archive
 

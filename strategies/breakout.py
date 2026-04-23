@@ -161,11 +161,21 @@ class _BreakoutBase(LongOnlyPredictionMarketStrategy):
         )
 
     def _on_price(
-        self, price: float, *, entry_price: float | None = None, visible_size: float | None = None
+        self,
+        price: float,
+        *,
+        entry_price: float | None = None,
+        visible_size: float | None = None,
+        exit_visible_size: float | None = None,
     ) -> None:
         previous_price = self._last_price
         prior_window = list(self._prices)
         reference_price = price if entry_price is None else entry_price
+        self._remember_market_context(
+            entry_reference_price=reference_price,
+            entry_visible_size=visible_size,
+            exit_visible_size=exit_visible_size,
+        )
 
         if len(prior_window) < int(self.config.window) or self._pending:
             self._append_price(price)
@@ -238,7 +248,7 @@ class TradeTickBreakoutStrategy(_BreakoutBase):
 
     def on_trade_tick(self, tick: TradeTick) -> None:
         price = float(tick.price)
-        self._on_price(price, entry_price=price)
+        self._on_price(price, entry_price=price, visible_size=float(tick.size))
 
 
 class QuoteTickBreakoutStrategy(_BreakoutBase):
@@ -246,8 +256,14 @@ class QuoteTickBreakoutStrategy(_BreakoutBase):
         self.subscribe_quote_ticks(self.config.instrument_id)
 
     def on_quote_tick(self, tick: QuoteTick) -> None:
+        self._remember_market_context(
+            entry_reference_price=float(tick.ask_price),
+            entry_visible_size=float(tick.ask_size),
+            exit_visible_size=float(tick.bid_size),
+        )
         self._on_price(
             (float(tick.bid_price) + float(tick.ask_price)) / 2.0,
             entry_price=float(tick.ask_price),
             visible_size=float(tick.ask_size),
+            exit_visible_size=float(tick.bid_size),
         )

@@ -7,6 +7,7 @@ import multiprocessing
 import pickle
 import tempfile
 import traceback
+import warnings
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
@@ -196,6 +197,13 @@ class ParameterSearchConfig:
 
         if not self.train_windows:
             raise ValueError("train_windows must not be empty.")
+        if self.holdout_windows and len(self.base_replays) == 1:
+            warnings.warn(
+                "Parameter search train/holdout windows are split from a single market replay. "
+                "Treat holdout metrics as time-split validation, not cross-market generalization.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
 
 
 @dataclass(frozen=True)

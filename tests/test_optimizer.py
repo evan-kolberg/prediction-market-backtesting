@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import warnings
 from dataclasses import replace
 from pathlib import Path
 
@@ -111,9 +112,12 @@ def _make_config(
 
 
 def test_parameter_search_config_carries_explicit_optimizer_type(tmp_path: Path) -> None:
-    config = _make_config(tmp_path)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        config = _make_config(tmp_path)
 
     assert config.optimizer_type == OPTIMIZER_TYPE_PARAMETER_SEARCH
+    assert any("time-split validation" in str(warning.message) for warning in caught)
 
 
 def test_sample_parameter_sets_is_deterministic_and_unique(tmp_path: Path) -> None:

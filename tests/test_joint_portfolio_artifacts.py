@@ -94,7 +94,7 @@ def test_single_summary_dense_prices_are_keyed_by_instrument_id(monkeypatch) -> 
     price_points = [(start, 0.40), (start + timedelta(minutes=1), 0.50)]
     captured: dict[str, object] = {}
 
-    def _fake_dense_account_series_from_engine(**kwargs):
+    def _fake_dense_market_account_series_from_fill_events(**kwargs):
         captured["market_id"] = kwargs["market_id"]
         index = pd.DatetimeIndex([point[0] for point in price_points])
         return (
@@ -124,8 +124,8 @@ def test_single_summary_dense_prices_are_keyed_by_instrument_id(monkeypatch) -> 
     )
     monkeypatch.setattr(
         artifacts.prediction_market_research,
-        "_dense_account_series_from_engine",
-        _fake_dense_account_series_from_engine,
+        "_dense_market_account_series_from_fill_events",
+        _fake_dense_market_account_series_from_fill_events,
     )
 
     builder = PredictionMarketArtifactBuilder(
@@ -154,8 +154,51 @@ def test_single_summary_dense_prices_are_keyed_by_instrument_id(monkeypatch) -> 
         include_portfolio_series=True,
     )
 
-    assert captured["market_id"] == "PM-A-YES.POLYMARKET"
+    assert captured["market_id"] == "market-a"
     assert result["equity_series"] == [
         (pd.Timestamp(start).isoformat(), 100.0),
         (pd.Timestamp(start + timedelta(minutes=1)).isoformat(), 101.0),
     ]
+
+
+def test_build_result_marks_open_positions_to_settlement(monkeypatch) -> None:
+    monkeypatch.setattr(artifacts, "extract_realized_pnl", lambda positions: -1.25)
+    monkeypatch.setattr(
+        artifacts.prediction_market_research,
+        "_serialize_fill_events",
+        lambda **kwargs: [
+            {
+                "action": "buy",
+                "price": 0.90,
+                "quantity": 25.0,
+                "commission": 0.0,
+            }
+        ],
+    )
+
+    builder = PredictionMarketArtifactBuilder(
+        name="single-demo",
+        platform="polymarket",
+        data_type="trade_tick",
+        initial_cash=100.0,
+        probability_window=5,
+        chart_resample_rule=None,
+        emit_html=False,
+        chart_output_path=None,
+        return_chart_layout=False,
+        return_summary_series=False,
+        detail_plot_panels=(),
+        sim_count=1,
+    )
+
+    loaded_sim = _loaded_replay(market_id="market-a", instrument_id="PM-A-YES.POLYMARKET")
+    loaded_sim = loaded_sim.__class__(**{**loaded_sim.__dict__, "realized_outcome": 1.0})
+
+    result = builder.build_result(
+        loaded_sim=loaded_sim,
+        fills_report=pd.DataFrame({"instrument_id": ["PM-A-YES.POLYMARKET"]}),
+        positions_report=pd.DataFrame({"instrument_id": ["PM-A-YES.POLYMARKET"]}),
+    )
+
+    assert result["market_exit_pnl"] == -1.25
+    assert result["pnl"] == 2.5

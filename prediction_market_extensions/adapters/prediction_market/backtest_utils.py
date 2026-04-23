@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from datetime import datetime
+import warnings
 
 import pandas as pd
 
@@ -200,6 +201,16 @@ def _probability_frame(points: Sequence[PricePoint]) -> pd.DataFrame:
     if frame.empty:
         return frame
 
+    invalid_probabilities = frame[
+        (frame["market_probability"] < 0.0) | (frame["market_probability"] > 1.0)
+    ]
+    if not invalid_probabilities.empty:
+        warnings.warn(
+            "Probability series contained values outside [0.0, 1.0]; clipping to preserve chart "
+            "construction. Inspect upstream loader data for corruption.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
     frame["market_probability"] = frame["market_probability"].clip(0.0, 1.0)
     return frame
 
@@ -230,7 +241,7 @@ def _resolved_outcome_from_numeric_fields(info: Mapping[object, object]) -> floa
 
         if numeric_value in {0.0, 1.0}:
             return numeric_value
-        if numeric_value in {0.0, 100.0}:
+        if numeric_value == 100.0:
             return numeric_value / 100.0
 
     return None

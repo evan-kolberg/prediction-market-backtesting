@@ -14,8 +14,14 @@ from nautilus_trader.model.data import BookOrder
 from nautilus_trader.model.enums import OrderSide as OrderSideEnum
 from nautilus_trader.model.objects import Quantity
 
+from prediction_market_extensions.adapters.prediction_market.order_tags import (
+    parse_order_intent,
+    parse_visible_liquidity,
+)
+
 _KALSHI_ORDER_TICK = Decimal("0.01")
-_UNLIMITED_BOOK_SIZE = 1_000_000
+_DEFAULT_LIMIT_FILL_PROBABILITY = 0.25
+_MIN_SYNTHETIC_BOOK_SIZE = 1.0
 
 
 def effective_prediction_market_slippage_tick(instrument) -> float:
@@ -33,6 +39,53 @@ def effective_prediction_market_slippage_tick(instrument) -> float:
         return float(_KALSHI_ORDER_TICK)
 
     return float(instrument.price_increment)
+
+
+def _coerce_positive_float(value: object) -> float | None:
+    if value is None:
+        return None
+    if hasattr(value, "as_double"):
+        try:
+            numeric = float(value.as_double())
+        except (TypeError, ValueError):
+            return None
+    else:
+        try:
+            numeric = float(value)
+        except (TypeError, ValueError):
+            return None
+    if numeric <= 0.0:
+        return None
+    return numeric
+
+
+def _order_quantity(order) -> float | None:
+    for attr in ("leaves_qty", "quantity"):
+        numeric = _coerce_positive_float(getattr(order, attr, None))
+        if numeric is not None:
+            return numeric
+    return None
+
+
+def _is_entry_order(order) -> bool:
+    intent = parse_order_intent(getattr(order, "tags", None))
+    if intent == "entry":
+        return True
+    if intent == "exit":
+        return False
+    if getattr(order, "reduce_only", False):
+        return False
+    return order.side == OrderSideEnum.BUY
+
+
+def _synthetic_book_size(order) -> float:
+    observed_visible_liquidity = parse_visible_liquidity(getattr(order, "tags", None))
+    if observed_visible_liquidity is not None:
+        return observed_visible_liquidity
+    quantity = _order_quantity(order)
+    if quantity is not None:
+        return quantity
+    return _MIN_SYNTHETIC_BOOK_SIZE
 
 
 class PredictionMarketTakerFillModel(FillModel):
@@ -57,15 +110,15 @@ class PredictionMarketTakerFillModel(FillModel):
     the reality that exiting a binary-option position is often harder
     (thinner book, more urgency) than entering.
 
-    Entry vs exit is inferred from order side: BUY = entry, SELL = exit.
-    This is correct for all LongOnlyPredictionMarketStrategy subclasses
-    in this framework (which buy YES to open, sell to close). Strategies
-    that sell to open a short position would need to invert the mapping.
+    Entry vs exit is inferred from repo-owned order tags or reduce-only
+    instructions first, with order side only as a fallback. This keeps
+    long exits and future short-cover flows on the correct slippage path.
 
     When both methods are non-zero, they stack: the fill price is shifted
     by N ticks PLUS the percentage.
 
-    Limit orders keep the default exchange matching behavior.
+    Limit orders still use Nautilus' passive-book heuristics, but no longer
+    default to a 100% touch-fill probability.
     """
 
     def __init__(
@@ -74,6 +127,7 @@ class PredictionMarketTakerFillModel(FillModel):
         slippage_ticks: int = 1,
         entry_slippage_pct: float = 0.0,
         exit_slippage_pct: float = 0.0,
+        prob_fill_on_limit: float = _DEFAULT_LIMIT_FILL_PROBABILITY,
     ) -> None:
         if slippage_ticks < 0:
             raise ValueError(f"slippage_ticks must be >= 0, got {slippage_ticks}")
@@ -81,12 +135,17 @@ class PredictionMarketTakerFillModel(FillModel):
             raise ValueError(f"entry_slippage_pct must be >= 0, got {entry_slippage_pct}")
         if exit_slippage_pct < 0.0:
             raise ValueError(f"exit_slippage_pct must be >= 0, got {exit_slippage_pct}")
+        if not 0.0 <= prob_fill_on_limit <= 1.0:
+            raise ValueError(
+                f"prob_fill_on_limit must be within [0.0, 1.0], got {prob_fill_on_limit}"
+            )
         self._slippage_ticks = slippage_ticks
         self._entry_slippage_pct = entry_slippage_pct
         self._exit_slippage_pct = exit_slippage_pct
+        self._prob_fill_on_limit = prob_fill_on_limit
         # The slippage is modeled through a synthetic order book rather than
         # FillModel.is_slipped(), so we disable the built-in L1 slip hook.
-        super().__init__(prob_fill_on_limit=1.0, prob_slippage=0.0)
+        super().__init__(prob_fill_on_limit=prob_fill_on_limit, prob_slippage=0.0)
 
     def get_orderbook_for_fill_simulation(self, instrument, order, best_bid, best_ask):
         if order.order_type == OrderType.LIMIT:
@@ -95,10 +154,7 @@ class PredictionMarketTakerFillModel(FillModel):
         tick = effective_prediction_market_slippage_tick(instrument)
         tick_shift = tick * self._slippage_ticks
 
-        # Determine percentage shift based on order side:
-        # BUY = entry (taking liquidity from the ask side)
-        # SELL = exit (taking liquidity from the bid side)
-        is_entry = order.side == OrderSideEnum.BUY
+        is_entry = _is_entry_order(order)
         pct = self._entry_slippage_pct if is_entry else self._exit_slippage_pct
 
         # Compute total adverse shift: tick-based + percentage-based
@@ -113,17 +169,21 @@ class PredictionMarketTakerFillModel(FillModel):
 
         slipped_bid = instrument.make_price(slipped_bid)
         slipped_ask = instrument.make_price(slipped_ask)
+        synthetic_book_size = Quantity(
+            _synthetic_book_size(order),
+            instrument.size_precision,
+        )
 
         book = OrderBook(instrument_id=instrument.id, book_type=BookType.L2_MBP)
 
-        # Build a symmetric synthetic book at the slipped prices.
-        # The matching engine will consume the relevant side depending
-        # on order side. Each side has unlimited size to guarantee fill.
+        # Build a symmetric synthetic book at the slipped prices with finite
+        # depth. When trade/quote-tick strategies attach visible liquidity, the
+        # engine can now produce partial fills instead of guaranteed full fills.
         book.add(
             BookOrder(
                 side=OrderSide.BUY,
                 price=slipped_bid,
-                size=Quantity(_UNLIMITED_BOOK_SIZE, instrument.size_precision),
+                size=synthetic_book_size,
                 order_id=1,
             ),
             0,
@@ -133,7 +193,7 @@ class PredictionMarketTakerFillModel(FillModel):
             BookOrder(
                 side=OrderSide.SELL,
                 price=slipped_ask,
-                size=Quantity(_UNLIMITED_BOOK_SIZE, instrument.size_precision),
+                size=synthetic_book_size,
                 order_id=2,
             ),
             0,

@@ -20,6 +20,7 @@ from __future__ import annotations
 from decimal import Decimal
 
 from nautilus_trader.backtest.models import FeeModel
+from nautilus_trader.core.rust.model import OrderType
 from nautilus_trader.model.objects import Money
 
 from prediction_market_extensions.adapters.polymarket.parsing import calculate_commission
@@ -67,6 +68,13 @@ class PolymarketFeeModel(FeeModel):
             Commission in the instrument's quote currency, rounded to 5 decimal places.
 
         """
+        if order.order_type == OrderType.LIMIT:
+            # The fee callback does not expose realized maker/taker liquidity.
+            # Repo-owned Polymarket limit-order backtests use passive-posting
+            # strategies, so treat their fills as maker-side and keep fees at
+            # zero to match the documented venue model.
+            return Money(Decimal(0), instrument.quote_currency)
+
         # instrument.taker_fee is stored as bps/10_000 (decimal fraction)
         taker_fee_dec = instrument.taker_fee
         fee_rate_bps = taker_fee_dec * Decimal(10_000)

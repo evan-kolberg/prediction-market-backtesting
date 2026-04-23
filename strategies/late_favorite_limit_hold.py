@@ -93,7 +93,13 @@ class _LateFavoriteLimitHoldBase(LongOnlyPredictionMarketStrategy):
         order_price: float,
         ts_event_ns: int,
         visible_size: float | None = None,
+        exit_visible_size: float | None = None,
     ) -> None:
+        self._remember_market_context(
+            entry_reference_price=order_price,
+            entry_visible_size=visible_size,
+            exit_visible_size=exit_visible_size,
+        )
         if self._pending or self._in_position() or self._entered_once:
             return
 
@@ -131,6 +137,10 @@ class _LateFavoriteLimitHoldBase(LongOnlyPredictionMarketStrategy):
     def on_order_expired(self, event) -> None:  # type: ignore[no-untyped-def]
         super().on_order_expired(event)
 
+    def on_order_accepted(self, event) -> None:  # type: ignore[no-untyped-def]
+        self._pending = False
+        self._entered_once = True
+
     def on_stop(self) -> None:
         # Leave filled positions open so the runner can mark them to settlement.
         self.cancel_all_orders(self.config.instrument_id)
@@ -164,4 +174,5 @@ class QuoteTickLateFavoriteLimitHoldStrategy(_LateFavoriteLimitHoldBase):
             order_price=float(tick.ask_price),
             ts_event_ns=int(tick.ts_event),
             visible_size=float(tick.ask_size),
+            exit_visible_size=float(tick.bid_size),
         )

@@ -78,30 +78,56 @@ class _EMACrossoverBase(LongOnlyPredictionMarketStrategy):
         super().__init__(config)
         self._fast_ema: float | None = None
         self._slow_ema: float | None = None
+        self._seed_prices: list[float] = []
         self._warmup: int = 0
         self._warmup_needed = max(int(self.config.fast_period), int(self.config.slow_period))
         self._alpha_fast = 2.0 / (float(self.config.fast_period) + 1.0)
         self._alpha_slow = 2.0 / (float(self.config.slow_period) + 1.0)
 
     def _on_price(
-        self, price: float, *, entry_price: float | None = None, visible_size: float | None = None
+        self,
+        price: float,
+        *,
+        entry_price: float | None = None,
+        visible_size: float | None = None,
+        exit_visible_size: float | None = None,
     ) -> None:
+        reference_price = price if entry_price is None else entry_price
+        self._remember_market_context(
+            entry_reference_price=reference_price,
+            entry_visible_size=visible_size,
+            exit_visible_size=exit_visible_size,
+        )
+
+        self._seed_prices.append(price)
+        initialized_fast = False
+        initialized_slow = False
+        if self._fast_ema is None and len(self._seed_prices) >= int(self.config.fast_period):
+            window = self._seed_prices[-int(self.config.fast_period) :]
+            self._fast_ema = sum(window) / len(window)
+            initialized_fast = True
+        if self._slow_ema is None and len(self._seed_prices) >= int(self.config.slow_period):
+            window = self._seed_prices[-int(self.config.slow_period) :]
+            self._slow_ema = sum(window) / len(window)
+            initialized_slow = True
+
         if self._fast_ema is None or self._slow_ema is None:
-            self._fast_ema = price
-            self._slow_ema = price
-            self._warmup = 1
+            self._warmup = len(self._seed_prices)
             return
+        if initialized_fast or initialized_slow:
+            self._warmup = len(self._seed_prices)
+            if self._warmup <= self._warmup_needed:
+                return
 
         self._fast_ema = self._alpha_fast * price + (1.0 - self._alpha_fast) * self._fast_ema
         self._slow_ema = self._alpha_slow * price + (1.0 - self._alpha_slow) * self._slow_ema
-        self._warmup += 1
+        self._warmup = len(self._seed_prices)
 
         if self._warmup < self._warmup_needed or self._pending:
             return
 
         assert self._fast_ema is not None
         assert self._slow_ema is not None
-        reference_price = price if entry_price is None else entry_price
 
         if not self._in_position():
             if self._fast_ema >= self._slow_ema + self.config.entry_buffer:
@@ -120,6 +146,7 @@ class _EMACrossoverBase(LongOnlyPredictionMarketStrategy):
         super().on_reset()
         self._fast_ema = None
         self._slow_ema = None
+        self._seed_prices.clear()
         self._warmup = 0
 
 
@@ -138,7 +165,7 @@ class TradeTickEMACrossoverStrategy(_EMACrossoverBase):
 
     def on_trade_tick(self, tick: TradeTick) -> None:
         price = float(tick.price)
-        self._on_price(price, entry_price=price)
+        self._on_price(price, entry_price=price, visible_size=float(tick.size))
 
 
 class QuoteTickEMACrossoverStrategy(_EMACrossoverBase):
@@ -146,8 +173,14 @@ class QuoteTickEMACrossoverStrategy(_EMACrossoverBase):
         self.subscribe_quote_ticks(self.config.instrument_id)
 
     def on_quote_tick(self, tick: QuoteTick) -> None:
+        self._remember_market_context(
+            entry_reference_price=float(tick.ask_price),
+            entry_visible_size=float(tick.ask_size),
+            exit_visible_size=float(tick.bid_size),
+        )
         self._on_price(
             (float(tick.bid_price) + float(tick.ask_price)) / 2.0,
             entry_price=float(tick.ask_price),
             visible_size=float(tick.ask_size),
+            exit_visible_size=float(tick.bid_size),
         )

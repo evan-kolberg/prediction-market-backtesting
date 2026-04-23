@@ -13,6 +13,10 @@ from prediction_market_extensions.adapters.prediction_market.fill_model import (
     PredictionMarketTakerFillModel,
     effective_prediction_market_slippage_tick,
 )
+from prediction_market_extensions.adapters.prediction_market.order_tags import (
+    format_order_intent_tag,
+    format_visible_liquidity_tag,
+)
 from prediction_market_extensions.backtesting._execution_config import ExecutionModelConfig
 
 
@@ -26,8 +30,21 @@ class _StubInstrument:
         return Price.from_str(f"{value:.4f}")
 
 
-def _make_order(side: OrderSideEnum, order_type=OrderType.MARKET):
-    return types.SimpleNamespace(side=side, order_type=order_type)
+def _make_order(
+    side: OrderSideEnum,
+    order_type=OrderType.MARKET,
+    *,
+    quantity: float = 10.0,
+    reduce_only: bool = False,
+    tags: list[str] | None = None,
+):
+    return types.SimpleNamespace(
+        side=side,
+        order_type=order_type,
+        quantity=quantity,
+        reduce_only=reduce_only,
+        tags=tags,
+    )
 
 
 def test_default_slippage_ticks_is_one() -> None:
@@ -35,6 +52,7 @@ def test_default_slippage_ticks_is_one() -> None:
     assert model._slippage_ticks == 1
     assert model._entry_slippage_pct == 0.0
     assert model._exit_slippage_pct == 0.0
+    assert model._prob_fill_on_limit == 0.25
 
 
 def test_negative_slippage_ticks_raises() -> None:
@@ -50,6 +68,11 @@ def test_negative_entry_pct_raises() -> None:
 def test_negative_exit_pct_raises() -> None:
     with pytest.raises(ValueError, match="exit_slippage_pct must be >= 0"):
         PredictionMarketTakerFillModel(exit_slippage_pct=-0.01)
+
+
+def test_invalid_limit_fill_probability_raises() -> None:
+    with pytest.raises(ValueError, match="prob_fill_on_limit must be within"):
+        PredictionMarketTakerFillModel(prob_fill_on_limit=1.5)
 
 
 def test_zero_slippage_ticks_valid() -> None:
@@ -75,6 +98,7 @@ def test_tick_slippage_shifts_buy_adverse() -> None:
     )
     assert book is not None
     assert float(book.best_ask_price()) == pytest.approx(0.52)
+    assert float(book.best_ask_size()) == pytest.approx(10.0)
 
 
 def test_tick_slippage_shifts_sell_adverse() -> None:
@@ -129,6 +153,45 @@ def test_sell_uses_exit_pct_not_entry_pct() -> None:
     assert float(book.best_bid_price()) == pytest.approx(0.485)
 
 
+def test_reduce_only_sell_uses_exit_slippage_even_when_tagged_entry_side() -> None:
+    model = PredictionMarketTakerFillModel(
+        slippage_ticks=0,
+        entry_slippage_pct=0.10,
+        exit_slippage_pct=0.03,
+    )
+    instrument = _StubInstrument("KALSHI", 0.01)
+    book = model.get_orderbook_for_fill_simulation(
+        instrument,
+        _make_order(
+            OrderSideEnum.SELL,
+            reduce_only=True,
+            tags=[format_order_intent_tag("exit")],
+        ),
+        best_bid=0.50,
+        best_ask=0.50,
+    )
+    assert book is not None
+    assert float(book.best_bid_price()) == pytest.approx(0.485)
+
+
+def test_visible_liquidity_tag_caps_synthetic_depth() -> None:
+    model = PredictionMarketTakerFillModel(slippage_ticks=1)
+    instrument = _StubInstrument("KALSHI", 0.01)
+    book = model.get_orderbook_for_fill_simulation(
+        instrument,
+        _make_order(
+            OrderSideEnum.BUY,
+            quantity=25.0,
+            tags=[format_visible_liquidity_tag(7.0)],
+        ),
+        best_bid=0.50,
+        best_ask=0.51,
+    )
+    assert book is not None
+    assert float(book.best_ask_size()) == pytest.approx(7.0)
+    assert float(book.best_bid_size()) == pytest.approx(7.0)
+
+
 def test_slippage_clamped_at_one_for_buy() -> None:
     model = PredictionMarketTakerFillModel(slippage_ticks=0, entry_slippage_pct=1.0)
     instrument = _StubInstrument("KALSHI", 0.01)
@@ -163,6 +226,7 @@ def test_execution_config_defaults() -> None:
     assert config.slippage_ticks == 1
     assert config.entry_slippage_pct == 0.0
     assert config.exit_slippage_pct == 0.0
+    assert config.prob_fill_on_limit == 0.25
 
 
 def test_execution_config_validation_negative_ticks() -> None:
@@ -180,17 +244,24 @@ def test_execution_config_validation_negative_exit_pct() -> None:
         ExecutionModelConfig(exit_slippage_pct=-0.01)
 
 
+def test_execution_config_validation_invalid_limit_fill_probability() -> None:
+    with pytest.raises(ValueError, match="prob_fill_on_limit must be within"):
+        ExecutionModelConfig(prob_fill_on_limit=-0.1)
+
+
 def test_build_fill_model_kwargs() -> None:
     config = ExecutionModelConfig(
         slippage_ticks=2,
         entry_slippage_pct=0.03,
         exit_slippage_pct=0.05,
+        prob_fill_on_limit=0.4,
     )
     kwargs = config.build_fill_model_kwargs()
     assert kwargs == {
         "slippage_ticks": 2,
         "entry_slippage_pct": 0.03,
         "exit_slippage_pct": 0.05,
+        "prob_fill_on_limit": 0.4,
     }
 
 
@@ -199,11 +270,13 @@ def test_fill_model_from_config_kwargs() -> None:
         slippage_ticks=2,
         entry_slippage_pct=0.03,
         exit_slippage_pct=0.05,
+        prob_fill_on_limit=0.4,
     )
     model = PredictionMarketTakerFillModel(**config.build_fill_model_kwargs())
     assert model._slippage_ticks == 2
     assert model._entry_slippage_pct == 0.03
     assert model._exit_slippage_pct == 0.05
+    assert model._prob_fill_on_limit == 0.4
 
 
 def test_large_tick_shift_produces_wide_book() -> None:

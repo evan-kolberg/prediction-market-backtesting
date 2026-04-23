@@ -34,6 +34,9 @@ from prediction_market_extensions.analysis.legacy_plot_adapter import (
     build_legacy_backtest_layout,
     save_legacy_backtest_layout,
 )
+from prediction_market_extensions.backtesting._result_policies import (
+    apply_binary_settlement_pnl,
+)
 
 
 def _record_timestamp_ns(record: object) -> int | None:
@@ -140,8 +143,6 @@ def apply_backtest_run_state(
 def print_backtest_result_warnings(*, results: Sequence[dict[str, Any]], market_key: str) -> None:
     warning_lines: list[str] = []
     for result in results:
-        if not bool(result.get("terminated_early")):
-            continue
         market_label = str(
             result.get(market_key)
             or result.get("slug")
@@ -149,6 +150,12 @@ def print_backtest_result_warnings(*, results: Sequence[dict[str, Any]], market_
             or result.get("instrument_id")
             or "backtest"
         )
+        extra_warnings = result.get("warnings")
+        if isinstance(extra_warnings, Sequence) and not isinstance(extra_warnings, str):
+            for warning in extra_warnings:
+                warning_lines.append(f"WARNING: {market_label}: {warning}")
+        if not bool(result.get("terminated_early")):
+            continue
         stop_reason = str(result.get("stop_reason") or "unknown")
         simulated_through = str(result.get("simulated_through") or "unknown")
         coverage_ratio = result.get("coverage_ratio")
@@ -263,6 +270,10 @@ def run_market_backtest(
         pnl = extract_realized_pnl(positions)
         price_points = extract_price_points(data_records, price_attr=price_attr)
         realized_outcome = infer_realized_outcome(instrument)
+        fill_events = prediction_market_research._serialize_fill_events(
+            market_id=market_id,
+            fills_report=fills,
+        )
         if realized_outcome is None:
             import logging
 
@@ -320,10 +331,10 @@ def run_market_backtest(
                 ).get(str(instrument.id), chart_market_prices)
             )
             dense_equity_series, dense_cash_series = (
-                prediction_market_research._dense_account_series_from_engine(
-                    engine=engine,
-                    market_id=str(instrument.id),
+                prediction_market_research._dense_market_account_series_from_fill_events(
+                    market_id=market_id,
                     market_prices=chart_market_prices,
+                    fill_events=fill_events,
                     initial_cash=initial_cash,
                 )
             )
@@ -355,9 +366,7 @@ def run_market_backtest(
                 )
             if not outcomes.empty:
                 summary_outcome_series = prediction_market_research._series_to_iso_pairs(outcomes)
-            summary_fill_events = prediction_market_research._serialize_fill_events(
-                market_id=market_id, fills_report=fills
-            )
+            summary_fill_events = fill_events
 
         result = {
             market_key: market_id,
@@ -365,7 +374,15 @@ def run_market_backtest(
             "fills": len(fills),
             "pnl": pnl,
             "instrument_id": str(instrument.id),
+            "realized_outcome": realized_outcome,
+            "fill_events": fill_events,
+            "settlement_observable_ns": getattr(instrument, "expiration_ns", None),
+            "settlement_observable_time": _iso_from_nanos(
+                getattr(instrument, "expiration_ns", None)
+            ),
         }
+        result = apply_backtest_run_state(result=result, run_state=run_state)
+        result = apply_binary_settlement_pnl(result)
         if chart_path is not None:
             result["chart_path"] = chart_path
         if return_chart_layout and chart_layout is not None:
@@ -380,7 +397,7 @@ def run_market_backtest(
             result["market_probability_series"] = summary_market_probability_series or []
             result["outcome_series"] = summary_outcome_series or []
             result["fill_events"] = summary_fill_events or []
-        return apply_backtest_run_state(result=result, run_state=run_state)
+        return result
     finally:
         engine.reset()
         engine.dispose()

@@ -64,6 +64,9 @@ from prediction_market_extensions.analysis.legacy_plot_adapter import (
     build_legacy_backtest_layout,
     save_legacy_backtest_layout,
 )
+from prediction_market_extensions.backtesting._result_policies import (
+    apply_binary_settlement_pnl,
+)
 
 
 def _extract_account_pnl_series(engine: BacktestEngine) -> pd.Series:
@@ -655,10 +658,12 @@ def run_market_backtest(
     positions = engine.trader.generate_positions_report()
     pnl = extract_realized_pnl(positions)
     price_points = extract_price_points(data, price_attr=price_attr)
+    realized_outcome = infer_realized_outcome(instrument)
+    fill_events = _serialize_fill_events(market_id=market_id, fills_report=fills)
     user_probabilities, market_probabilities, outcomes = build_brier_inputs(
         points=price_points,
         window=probability_window,
-        realized_outcome=infer_realized_outcome(instrument),
+        realized_outcome=realized_outcome,
     )
     chart_market_prices = build_market_prices(price_points, resample_rule=chart_resample_rule)
 
@@ -698,10 +703,10 @@ def run_market_backtest(
         summary_market_prices = legacy_plot_adapter._market_prices_with_fill_points(
             {str(instrument.id): chart_market_prices}, summary_legacy_fills
         ).get(str(instrument.id), chart_market_prices)
-        dense_equity_series, dense_cash_series = _dense_account_series_from_engine(
-            engine=engine,
-            market_id=str(instrument.id),
+        dense_equity_series, dense_cash_series = _dense_market_account_series_from_fill_events(
+            market_id=market_id,
             market_prices=chart_market_prices,
+            fill_events=fill_events,
             initial_cash=initial_cash,
         )
         summary_price_series = _series_to_iso_pairs(_pairs_to_series(summary_market_prices))
@@ -722,7 +727,7 @@ def run_market_backtest(
             summary_market_probability_series = _series_to_iso_pairs(market_probabilities)
         if not outcomes.empty:
             summary_outcome_series = _series_to_iso_pairs(outcomes)
-        summary_fill_events = _serialize_fill_events(market_id=market_id, fills_report=fills)
+        summary_fill_events = fill_events
 
     engine.reset()
     engine.dispose()
@@ -732,7 +737,19 @@ def run_market_backtest(
         count_key: int(data_count) if data_count is not None else len(data),
         "fills": len(fills),
         "pnl": pnl,
+        "realized_outcome": realized_outcome,
+        "fill_events": fill_events,
+        "settlement_observable_ns": getattr(instrument, "expiration_ns", None),
+        "settlement_observable_time": (
+            pd.Timestamp(
+                getattr(instrument, "expiration_ns", None), unit="ns", tz="UTC"
+            ).isoformat()
+            if isinstance(getattr(instrument, "expiration_ns", None), int)
+            and getattr(instrument, "expiration_ns", None) > 0
+            else None
+        ),
     }
+    result = apply_binary_settlement_pnl(result)
     if chart_path is not None:
         result["chart_path"] = chart_path
     if return_chart_layout and chart_layout is not None:

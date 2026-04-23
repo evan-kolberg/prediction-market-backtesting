@@ -134,6 +134,8 @@ def test_run_experiment_applies_result_policy_for_independent_multi_replay(
     results = experiments.run_experiment(experiment)
 
     assert [result["pnl"] for result in results] == [11.0, 12.0]
+    assert "Replay selection is explicitly curated" in results[0]["warnings"][0]
+    assert "No portfolio-level drawdown" in results[0]["warnings"][1]
     assert captured["name"] == "demo"
     assert captured["report"] == experiment.report
     assert captured["results"] == results
@@ -165,7 +167,10 @@ def test_run_experiment_uses_joint_portfolio_path_by_default(
 
     results = experiments.run_experiment(experiment)
 
-    assert results == [{"slug": "demo-a", "trades": 10, "fills": 1, "pnl": 1.0}]
+    assert results[0]["slug"] == "demo-a"
+    assert results[0]["pnl"] == 1.0
+    assert "Replay selection is explicitly curated" in results[0]["warnings"][0]
+    assert "No portfolio-level drawdown" in results[0]["warnings"][1]
     assert captured["backtest"].replays[0].market_slug == "demo-market-a"
 
 

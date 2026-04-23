@@ -52,8 +52,18 @@ class _DeepValueHoldBase(LongOnlyPredictionMarketStrategy):
         self._entered_once: bool = False
 
     def _on_price(
-        self, price: float, *, entry_price: float | None = None, visible_size: float | None = None
+        self,
+        price: float,
+        *,
+        entry_price: float | None = None,
+        visible_size: float | None = None,
+        exit_visible_size: float | None = None,
     ) -> None:
+        self._remember_market_context(
+            entry_reference_price=price if entry_price is None else entry_price,
+            entry_visible_size=visible_size,
+            exit_visible_size=exit_visible_size,
+        )
         if self._pending:
             return
 
@@ -85,7 +95,7 @@ class TradeTickDeepValueHoldStrategy(_DeepValueHoldBase):
 
     def on_trade_tick(self, tick: TradeTick) -> None:
         price = float(tick.price)
-        self._on_price(price, entry_price=price)
+        self._on_price(price, entry_price=price, visible_size=float(tick.size))
 
 
 class QuoteTickDeepValueHoldStrategy(_DeepValueHoldBase):
@@ -93,8 +103,14 @@ class QuoteTickDeepValueHoldStrategy(_DeepValueHoldBase):
         self.subscribe_quote_ticks(self.config.instrument_id)
 
     def on_quote_tick(self, tick: QuoteTick) -> None:
+        self._remember_market_context(
+            entry_reference_price=float(tick.ask_price),
+            entry_visible_size=float(tick.ask_size),
+            exit_visible_size=float(tick.bid_size),
+        )
         self._on_price(
             (float(tick.bid_price) + float(tick.ask_price)) / 2.0,
             entry_price=float(tick.ask_price),
             visible_size=float(tick.ask_size),
+            exit_visible_size=float(tick.bid_size),
         )

@@ -90,34 +90,49 @@ class _PanicFadeBase(LongOnlyPredictionMarketStrategy):
         self._holding_periods: int = 0
 
     def _on_price(
-        self, price: float, *, entry_price: float | None = None, visible_size: float | None = None
+        self,
+        price: float,
+        *,
+        entry_price: float | None = None,
+        visible_size: float | None = None,
+        exit_visible_size: float | None = None,
     ) -> None:
-        self._prices.append(price)
+        reference_price = price if entry_price is None else entry_price
+        self._remember_market_context(
+            entry_reference_price=reference_price,
+            entry_visible_size=visible_size,
+            exit_visible_size=exit_visible_size,
+        )
         if self._pending:
+            self._prices.append(price)
             return
 
         if not self._in_position():
             if len(self._prices) < int(self.config.drop_window):
+                self._prices.append(price)
                 return
             peak = max(self._prices)
             drop = peak - price
             if price <= float(self.config.panic_price) and drop >= float(self.config.min_drop):
                 self._submit_entry(
-                    reference_price=price if entry_price is None else entry_price,
+                    reference_price=reference_price,
                     visible_size=visible_size,
                 )
+            self._prices.append(price)
             return
 
         self._holding_periods += 1
         if self._risk_exit(
             price=price, take_profit=self.config.take_profit, stop_loss=self.config.stop_loss
         ):
+            self._prices.append(price)
             return
 
         if price >= float(self.config.rebound_exit) or self._holding_periods >= int(
             self.config.max_holding_periods
         ):
             self._submit_exit()
+        self._prices.append(price)
 
     def on_order_filled(self, event) -> None:  # type: ignore[no-untyped-def]
         super().on_order_filled(event)
@@ -145,7 +160,7 @@ class TradeTickPanicFadeStrategy(_PanicFadeBase):
 
     def on_trade_tick(self, tick: TradeTick) -> None:
         price = float(tick.price)
-        self._on_price(price, entry_price=price)
+        self._on_price(price, entry_price=price, visible_size=float(tick.size))
 
 
 class QuoteTickPanicFadeStrategy(_PanicFadeBase):
@@ -153,8 +168,14 @@ class QuoteTickPanicFadeStrategy(_PanicFadeBase):
         self.subscribe_quote_ticks(self.config.instrument_id)
 
     def on_quote_tick(self, tick: QuoteTick) -> None:
+        self._remember_market_context(
+            entry_reference_price=float(tick.ask_price),
+            entry_visible_size=float(tick.ask_size),
+            exit_visible_size=float(tick.bid_size),
+        )
         self._on_price(
             (float(tick.bid_price) + float(tick.ask_price)) / 2.0,
             entry_price=float(tick.ask_price),
             visible_size=float(tick.ask_size),
+            exit_visible_size=float(tick.bid_size),
         )

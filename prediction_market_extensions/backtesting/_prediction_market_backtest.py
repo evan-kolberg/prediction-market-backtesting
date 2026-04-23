@@ -38,6 +38,9 @@ from prediction_market_extensions.backtesting._replay_specs import (
     ReplaySpec,
     coerce_legacy_market_sim_config,
 )
+from prediction_market_extensions.backtesting._result_policies import (
+    apply_repo_research_disclosures,
+)
 from prediction_market_extensions.backtesting._strategy_configs import (
     StrategyConfigSpec,
     build_importable_strategy_configs,
@@ -217,7 +220,7 @@ class PredictionMarketBacktest:
             joint_portfolio_artifacts = self._build_joint_portfolio_artifacts(
                 engine=engine, loaded_sims=loaded_sims
             )
-            return [
+            results = [
                 self._build_result(
                     loaded_sim=loaded_sim,
                     fills_report=fills_report,
@@ -236,6 +239,7 @@ class PredictionMarketBacktest:
                 )
                 for result_index, loaded_sim in enumerate(loaded_sims)
             ]
+            return apply_repo_research_disclosures(results)
         finally:
             engine.reset()
             engine.dispose()
