@@ -10,6 +10,9 @@ import pytest
 
 from prediction_market_extensions.adapters.kalshi.loaders import KalshiDataLoader
 from prediction_market_extensions.adapters.kalshi.providers import market_dict_to_instrument
+from prediction_market_extensions.adapters.polymarket.gamma_markets import (
+    infer_gamma_token_winners,
+)
 from prediction_market_extensions.adapters.polymarket.loaders import PolymarketDataLoader
 from nautilus_trader.adapters.polymarket.common.parsing import parse_polymarket_instrument
 from prediction_market_extensions.adapters.prediction_market import (
@@ -126,6 +129,34 @@ def test_polymarket_parse_trades_validates_price_inside_loop() -> None:
         loader.parse_trades(
             [_polymarket_trade(timestamp=100, transaction_hash="0x" + "d" * 64, price="1.20")]
         )
+
+
+def test_gamma_winner_inference_ignores_active_99_cent_markets() -> None:
+    winners, is_50_50 = infer_gamma_token_winners(
+        {
+            "outcomes": '["Yes", "No"]',
+            "outcomePrices": '["0.995", "0.005"]',
+            "closed": False,
+            "umaResolutionStatus": "",
+        }
+    )
+
+    assert winners == {}
+    assert is_50_50 is False
+
+
+def test_gamma_winner_inference_allows_closed_resolved_prices() -> None:
+    winners, is_50_50 = infer_gamma_token_winners(
+        {
+            "outcomes": '["Yes", "No"]',
+            "outcomePrices": '["0.995", "0.005"]',
+            "closed": True,
+            "umaResolutionStatus": "resolved",
+        }
+    )
+
+    assert winners == {"yes": True, "no": False}
+    assert is_50_50 is False
 
 
 class _Response:

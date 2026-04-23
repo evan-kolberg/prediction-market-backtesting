@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from decimal import ROUND_DOWN, Decimal
+from types import SimpleNamespace
 
+from nautilus_trader.model.enums import OrderSide
 from nautilus_trader.model.identifiers import InstrumentId, Symbol, Venue
 
 from strategies import QuoteTickVWAPReversionConfig
@@ -86,3 +88,16 @@ def test_entry_quantity_leaves_cash_headroom_before_min_quantity_boundary() -> N
     quantity = strategy._entry_quantity(reference_price=0.2, visible_size=100.0)
 
     assert quantity is None
+
+
+def test_partial_exit_preserves_remaining_entry_cost_basis() -> None:
+    strategy = _EntryQuantityHarness(
+        trade_size=Decimal(100), free_balance=Decimal(100), min_quantity=None
+    )
+
+    strategy.on_order_filled(SimpleNamespace(order_side=OrderSide.BUY, last_px=0.50, last_qty=100))
+    strategy.on_order_filled(SimpleNamespace(order_side=OrderSide.SELL, last_px=0.60, last_qty=40))
+
+    assert strategy._entry_qty_sum == 60.0
+    assert strategy._entry_cost_sum == 30.0
+    assert strategy._entry_price == 0.50

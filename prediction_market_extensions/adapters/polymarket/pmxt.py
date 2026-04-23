@@ -884,6 +884,18 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
             priority = 2
         return (ts_event, priority, ts_init)
 
+    def _payload_sort_key(self, update_type: str, payload_text: str) -> tuple[int, int]:
+        if update_type == "book_snapshot":
+            timestamp = self._decode_book_snapshot(payload_text).timestamp
+            priority = 0
+        elif update_type == "price_change":
+            timestamp = self._decode_price_change(payload_text).timestamp
+            priority = 1
+        else:
+            timestamp = 0.0
+            priority = 2
+        return (int(timestamp * 1_000_000_000), priority)
+
     def _process_book_snapshot(
         self,
         payload_text: str,
@@ -1005,38 +1017,43 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
             if not batches:
                 continue
 
+            hour_payloads: list[tuple[str, str]] = []
             for batch in batches:
                 update_types = batch.column("update_type").to_pylist()
                 payload_texts = batch.column("data").to_pylist()
-                for update_type, payload_text in zip(update_types, payload_texts, strict=False):
-                    if update_type == "book_snapshot":
-                        local_book, has_snapshot = self._process_book_snapshot(
-                            payload_text,
-                            token_id=token_id,
-                            instrument=instrument,
-                            local_book=local_book,
-                            has_snapshot=has_snapshot,
-                            events=events,
-                            start_ns=start_ns,
-                            end_ns=end_ns,
-                            include_order_book=include_order_book,
-                            include_quotes=include_quotes,
-                        )
-                        continue
+                hour_payloads.extend(zip(update_types, payload_texts, strict=False))
 
-                    if update_type == "price_change":
-                        local_book = self._process_price_change(
-                            payload_text,
-                            token_id=token_id,
-                            instrument=instrument,
-                            local_book=local_book,
-                            has_snapshot=has_snapshot,
-                            events=events,
-                            start_ns=start_ns,
-                            end_ns=end_ns,
-                            include_order_book=include_order_book,
-                            include_quotes=include_quotes,
-                        )
+            for update_type, payload_text in sorted(
+                hour_payloads, key=lambda item: self._payload_sort_key(*item)
+            ):
+                if update_type == "book_snapshot":
+                    local_book, has_snapshot = self._process_book_snapshot(
+                        payload_text,
+                        token_id=token_id,
+                        instrument=instrument,
+                        local_book=local_book,
+                        has_snapshot=has_snapshot,
+                        events=events,
+                        start_ns=start_ns,
+                        end_ns=end_ns,
+                        include_order_book=include_order_book,
+                        include_quotes=include_quotes,
+                    )
+                    continue
+
+                if update_type == "price_change":
+                    local_book = self._process_price_change(
+                        payload_text,
+                        token_id=token_id,
+                        instrument=instrument,
+                        local_book=local_book,
+                        has_snapshot=has_snapshot,
+                        events=events,
+                        start_ns=start_ns,
+                        end_ns=end_ns,
+                        include_order_book=include_order_book,
+                        include_quotes=include_quotes,
+                    )
 
         events.sort(key=self._event_sort_key)
         return events

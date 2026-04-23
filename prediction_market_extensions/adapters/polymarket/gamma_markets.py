@@ -179,6 +179,41 @@ def _decode_gamma_list(raw: Any) -> list[Any]:
     return []
 
 
+def _truthy_gamma_value(raw: Any) -> bool:
+    if isinstance(raw, bool):
+        return raw
+    if isinstance(raw, int | float):
+        return bool(raw)
+    if isinstance(raw, str):
+        return raw.strip().casefold() in {"1", "true", "yes", "y"}
+    return False
+
+
+def _gamma_market_allows_price_winner_inference(gamma_market: dict[str, Any]) -> bool:
+    closed_or_archived = (
+        _truthy_gamma_value(gamma_market.get("closed"))
+        or _truthy_gamma_value(gamma_market.get("archived"))
+        or bool(gamma_market.get("closedTime"))
+        or bool(gamma_market.get("closed_time"))
+    )
+    if not closed_or_archived:
+        return False
+
+    status = (
+        str(
+            gamma_market.get("umaResolutionStatus")
+            or gamma_market.get("uma_resolution_status")
+            or ""
+        )
+        .strip()
+        .casefold()
+    )
+    if not status:
+        return True
+
+    return status in {"resolved", "settled", "finalized"}
+
+
 def infer_gamma_token_winners(gamma_market: dict[str, Any]) -> tuple[dict[str, bool], bool]:
     """
     Infer resolved token winners from Gamma outcome prices when available.
@@ -197,6 +232,9 @@ def infer_gamma_token_winners(gamma_market: dict[str, Any]) -> tuple[dict[str, b
 
     if all(abs(price - 0.5) <= 1e-6 for price in prices):
         return {}, True
+
+    if not _gamma_market_allows_price_winner_inference(gamma_market):
+        return {}, False
 
     winner_index = max(range(len(prices)), key=prices.__getitem__)
     if prices[winner_index] < 0.99:
