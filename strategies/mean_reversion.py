@@ -1,19 +1,19 @@
 # -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2026 Nautech Systems Pty Ltd. All rights reserved.
-#  https://nautechsystems.io
+# Copyright (C) 2015-2026 Nautech Systems Pty Ltd. All rights reserved.
+# https://nautechsystems.io
 #
-#  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
-#  You may not use this file except in compliance with the License.
-#  You may obtain a copy of the License at https://www.gnu.org/licenses/lgpl-3.0.en.html
+# Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
+# You may not use this file except in compliance with the License.
+# You may obtain a copy of the License at https://www.gnu.org/licenses/lgpl-3.0.en.html
 #
-#  Unless required by applicable law or agreed to in writing, software distributed under the
-#  License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
-#  KIND, either express or implied. See the License for the specific language governing
-#  permissions and limitations under the License.
+# Unless required by applicable law or agreed to in writing, software distributed under the
+# License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied. See the License for the specific language governing
+# permissions and limitations under the License.
 # -------------------------------------------------------------------------------------------------
-#  Derived from NautilusTrader prediction-market example code.
-#  Modified by Evan Kolberg in this repository on 2026-03-11 and 2026-03-16.
-#  See the repository NOTICE file for provenance and licensing scope.
+# Derived from NautilusTrader prediction-market example code.
+# Modified by Evan Kolberg in this repository on 2026-03-11 and 2026-03-16.
+# See the repository NOTICE file for provenance and licensing scope.
 #
 
 from __future__ import annotations
@@ -33,6 +33,7 @@ class _MeanReversionConfig(Protocol):
     instrument_id: InstrumentId
     trade_size: Decimal
     entry_threshold: float
+    exit_threshold: float
     take_profit: float
     stop_loss: float
 
@@ -43,8 +44,23 @@ class BarMeanReversionConfig(StrategyConfig, frozen=True):  # type: ignore[call-
     trade_size: Decimal = Decimal(1)
     window: int = 20
     entry_threshold: float = 0.0
+    exit_threshold: float = 0.0
     take_profit: float = 0.0
     stop_loss: float = 0.0
+
+    def __post_init__(self) -> None:
+        if self.window <= 0:
+            raise ValueError(f"window must be > 0, got {self.window}")
+        if self.trade_size <= 0:
+            raise ValueError(f"trade_size must be > 0, got {self.trade_size}")
+        if self.entry_threshold < 0:
+            raise ValueError(f"entry_threshold must be >= 0, got {self.entry_threshold}")
+        if self.exit_threshold < 0:
+            raise ValueError(f"exit_threshold must be >= 0, got {self.exit_threshold}")
+        if self.take_profit < 0:
+            raise ValueError(f"take_profit must be >= 0, got {self.take_profit}")
+        if self.stop_loss < 0:
+            raise ValueError(f"stop_loss must be >= 0, got {self.stop_loss}")
 
 
 class TradeTickMeanReversionConfig(StrategyConfig, frozen=True):  # type: ignore[call-arg]
@@ -52,8 +68,23 @@ class TradeTickMeanReversionConfig(StrategyConfig, frozen=True):  # type: ignore
     trade_size: Decimal = Decimal(1)
     vwap_window: int = 20
     entry_threshold: float = 0.0
+    exit_threshold: float = 0.0
     take_profit: float = 0.0
     stop_loss: float = 0.0
+
+    def __post_init__(self) -> None:
+        if self.vwap_window <= 0:
+            raise ValueError(f"vwap_window must be > 0, got {self.vwap_window}")
+        if self.trade_size <= 0:
+            raise ValueError(f"trade_size must be > 0, got {self.trade_size}")
+        if self.entry_threshold < 0:
+            raise ValueError(f"entry_threshold must be >= 0, got {self.entry_threshold}")
+        if self.exit_threshold < 0:
+            raise ValueError(f"exit_threshold must be >= 0, got {self.exit_threshold}")
+        if self.take_profit < 0:
+            raise ValueError(f"take_profit must be >= 0, got {self.take_profit}")
+        if self.stop_loss < 0:
+            raise ValueError(f"stop_loss must be >= 0, got {self.stop_loss}")
 
 
 class QuoteTickMeanReversionConfig(StrategyConfig, frozen=True):  # type: ignore[call-arg]
@@ -61,8 +92,23 @@ class QuoteTickMeanReversionConfig(StrategyConfig, frozen=True):  # type: ignore
     trade_size: Decimal = Decimal(1)
     window: int = 20
     entry_threshold: float = 0.0
+    exit_threshold: float = 0.0
     take_profit: float = 0.0
     stop_loss: float = 0.0
+
+    def __post_init__(self) -> None:
+        if self.window <= 0:
+            raise ValueError(f"window must be > 0, got {self.window}")
+        if self.trade_size <= 0:
+            raise ValueError(f"trade_size must be > 0, got {self.trade_size}")
+        if self.entry_threshold < 0:
+            raise ValueError(f"entry_threshold must be >= 0, got {self.entry_threshold}")
+        if self.exit_threshold < 0:
+            raise ValueError(f"exit_threshold must be >= 0, got {self.exit_threshold}")
+        if self.take_profit < 0:
+            raise ValueError(f"take_profit must be >= 0, got {self.take_profit}")
+        if self.stop_loss < 0:
+            raise ValueError(f"stop_loss must be >= 0, got {self.stop_loss}")
 
 
 class _MeanReversionBase(LongOnlyPredictionMarketStrategy):
@@ -99,6 +145,9 @@ class _MeanReversionBase(LongOnlyPredictionMarketStrategy):
             price=price, take_profit=self.config.take_profit, stop_loss=self.config.stop_loss
         ):
             return
+
+        if price >= rolling_avg - self.config.exit_threshold:
+            self._submit_exit()
 
     def on_reset(self) -> None:
         super().on_reset()

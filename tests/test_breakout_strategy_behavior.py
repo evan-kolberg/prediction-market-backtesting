@@ -31,13 +31,15 @@ class _BreakoutHarness(QuoteTickBreakoutStrategy):
         self.exits += 1
         self._pending = True
 
-    def fill_entry(self, price: float) -> None:
+    def fill_entry(self, price: float, qty: float = 1.0) -> None:
         self._position = True
-        self.on_order_filled(SimpleNamespace(order_side=OrderSide.BUY, last_px=price))
+        self.on_order_filled(SimpleNamespace(order_side=OrderSide.BUY, last_px=price, last_qty=qty))
 
-    def fill_exit(self, price: float) -> None:
+    def fill_exit(self, price: float, qty: float = 1.0) -> None:
         self._position = False
-        self.on_order_filled(SimpleNamespace(order_side=OrderSide.SELL, last_px=price))
+        self.on_order_filled(
+            SimpleNamespace(order_side=OrderSide.SELL, last_px=price, last_qty=qty)
+        )
 
 
 def test_quote_breakout_requires_move_beyond_noise_before_entering() -> None:

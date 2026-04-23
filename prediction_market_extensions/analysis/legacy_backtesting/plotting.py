@@ -218,7 +218,30 @@ def _drawdown_array(values: np.ndarray) -> np.ndarray:
     return drawdown
 
 
-def _rolling_sharpe_array(values: np.ndarray) -> tuple[np.ndarray, int | None]:
+def _estimate_ticks_per_year(datetimes: pd.DatetimeIndex | None = None) -> float:
+    """Estimate return-observations-per-year from median inter-tick spacing.
+
+    Falls back to ~1.18M ticks/year (1 tick/sec on 252 trading days with
+    6.5-hour sessions) when no timestamps are available, which avoids the
+    wildly overstated Sharpe that results from using sqrt(252) on
+    tick-frequency returns.
+    """
+    if datetimes is not None and len(datetimes) >= 2:
+        intervals = pd.Series(datetimes).diff().dropna()
+        median_interval = intervals.median()
+        if pd.notna(median_interval) and median_interval > pd.Timedelta(0):
+            seconds_per_year = 365.25 * 24 * 3600
+            ticks_per_year = seconds_per_year / median_interval.total_seconds()
+            return max(1.0, ticks_per_year)
+    return 252.0 * 78.0 * 60.0  # ~1.18M ticks/year
+
+
+def _rolling_sharpe_array(
+    values: np.ndarray,
+    annualize: bool = True,
+    annualization_factor: float | None = None,
+    datetimes: pd.DatetimeIndex | None = None,
+) -> tuple[np.ndarray, int | None]:
     sharpe = np.full(len(values), np.nan, dtype=float)
     valid_count = int(np.count_nonzero(~np.isnan(values)))
     if valid_count < 60:
@@ -231,7 +254,12 @@ def _rolling_sharpe_array(values: np.ndarray) -> tuple[np.ndarray, int | None]:
     rolling_std = returns.rolling(window, min_periods=window).std()
     with np.errstate(divide="ignore", invalid="ignore"):
         sharpe_values = rolling_mean / rolling_std
-    sharpe_values = sharpe_values.replace([np.inf, -np.inf], np.nan)
+        sharpe_values = sharpe_values.replace([np.inf, -np.inf], np.nan)
+    if annualize:
+        if annualization_factor is None:
+            annualization_factor = _estimate_ticks_per_year(datetimes)
+        if annualization_factor > 0:
+            sharpe_values = sharpe_values * float(annualization_factor) ** 0.5
     sharpe[:] = sharpe_values.to_numpy(dtype=float)
     return sharpe, window
 
@@ -1418,7 +1446,9 @@ return this.labels[index] || "";
     def _plot_rolling_sharpe():
         equity_vals = eq["equity"].values.copy()
         n = len(equity_vals)
-        primary_sharpe, window = _rolling_sharpe_array(equity_vals)
+        primary_sharpe, window = _rolling_sharpe_array(
+            equity_vals, datetimes=pd.DatetimeIndex(eq["datetime"])
+        )
         if window is None and not overlay_equity:
             return None
 
@@ -1467,7 +1497,7 @@ return this.labels[index] || "";
         overlay_windows: list[int] = []
         for market_id, series in overlay_equity.items():
             aligned = _align_overlay_series(series, eq["datetime"])
-            sharpe_values, overlay_window = _rolling_sharpe_array(aligned)
+            sharpe_values, overlay_window = _rolling_sharpe_array(aligned, annualize=False)
             if overlay_window is not None:
                 overlay_windows.append(overlay_window)
             overlay_sharpe[market_id] = sharpe_values

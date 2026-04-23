@@ -1065,8 +1065,9 @@ def create_rolling_sharpe(
     rolling_std = returns.rolling(window=window).std()
 
     # Avoid division by zero
+    annualization_factor = _estimate_ticks_per_year(returns)
     rolling_sharpe = (rolling_mean / rolling_std.replace(0, float("nan"))) * (
-        TRADING_DAYS_PER_YEAR**0.5
+        annualization_factor**0.5
     )
 
     fig = go.Figure()
@@ -1989,6 +1990,20 @@ def _render_distribution(
     )
 
 
+def _estimate_ticks_per_year(returns: pd.Series) -> float:
+    """Estimate return-observations-per-year from median inter-return spacing.
+    Falls back to ~1.18M ticks/year when no datetime index is available.
+    """
+    if isinstance(returns.index, pd.DatetimeIndex) and len(returns.index) >= 2:
+        intervals = pd.Series(returns.index).diff().dropna()
+        median_interval = intervals.median()
+        if pd.notna(median_interval) and median_interval > pd.Timedelta(0):
+            seconds_per_year = 365.25 * 24 * 3600
+            ticks_per_year = seconds_per_year / median_interval.total_seconds()
+            return max(1.0, ticks_per_year)
+    return 252.0 * 78.0 * 60.0  # ~1.18M ticks/year
+
+
 def _render_rolling_sharpe(
     fig: go.Figure,
     row: int,
@@ -2000,14 +2015,20 @@ def _render_rolling_sharpe(
 ) -> None:
     """
     Render rolling Sharpe ratio.
+
+    Annualization uses the actual timestamp spacing of the returns series
+    when a DatetimeIndex is available, falling back to a conservative
+    tick-frequency default. This avoids the wildly overstated Sharpe that
+    results from applying sqrt(252) to tick-level returns.
     """
     if returns.empty or len(returns) < window:
         return
 
+    annualization_factor = _estimate_ticks_per_year(returns)
     rolling_mean = returns.rolling(window=window).mean()
     rolling_std = returns.rolling(window=window).std()
     rolling_sharpe = (rolling_mean / rolling_std.replace(0, float("nan"))) * (
-        TRADING_DAYS_PER_YEAR**0.5
+        annualization_factor**0.5
     )
 
     fig.add_trace(

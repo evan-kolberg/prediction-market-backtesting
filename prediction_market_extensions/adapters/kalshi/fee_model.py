@@ -17,7 +17,7 @@
 
 from __future__ import annotations
 
-import math
+from decimal import ROUND_CEILING
 from decimal import Decimal
 
 from nautilus_trader.backtest.config import FeeModelConfig
@@ -125,12 +125,16 @@ class KalshiProportionalFeeModel(FeeModel):
             nearest cent.
 
         """
-        p = float(fill_px)
-        qty = float(fill_qty)
+        p = Decimal(str(fill_px))
+        qty = Decimal(str(fill_qty))
 
-        if self._fee_rate <= 0 or p <= 0.0 or p >= 1.0:
+        # Use instrument-level taker_fee when available (covers fee waivers),
+        # otherwise fall back to the model's default fee rate.
+        fee_rate = instrument.taker_fee if instrument.taker_fee > 0 else self._fee_rate
+
+        if fee_rate <= 0 or p <= 0 or p >= 1:
             return Money(Decimal(0), instrument.quote_currency)
 
-        raw = float(self._fee_rate) * qty * p * (1.0 - p)
-        cents_up = math.ceil(raw * 100) / 100
-        return Money(Decimal(str(cents_up)), instrument.quote_currency)
+        raw = fee_rate * qty * p * (1 - p)
+        commission = raw.quantize(Decimal("0.01"), rounding=ROUND_CEILING)
+        return Money(commission, instrument.quote_currency)

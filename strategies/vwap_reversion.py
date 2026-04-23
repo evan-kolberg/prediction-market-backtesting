@@ -38,6 +38,22 @@ class TradeTickVWAPReversionConfig(StrategyConfig, frozen=True):  # type: ignore
     take_profit: float = 0.015
     stop_loss: float = 0.02
 
+    def __post_init__(self) -> None:
+        if self.vwap_window <= 0:
+            raise ValueError(f"vwap_window must be > 0, got {self.vwap_window}")
+        if self.trade_size <= 0:
+            raise ValueError(f"trade_size must be > 0, got {self.trade_size}")
+        if self.entry_threshold < 0:
+            raise ValueError(f"entry_threshold must be >= 0, got {self.entry_threshold}")
+        if self.exit_threshold < 0:
+            raise ValueError(f"exit_threshold must be >= 0, got {self.exit_threshold}")
+        if self.min_tick_size < 0:
+            raise ValueError(f"min_tick_size must be >= 0, got {self.min_tick_size}")
+        if self.take_profit < 0:
+            raise ValueError(f"take_profit must be >= 0, got {self.take_profit}")
+        if self.stop_loss < 0:
+            raise ValueError(f"stop_loss must be >= 0, got {self.stop_loss}")
+
 
 class QuoteTickVWAPReversionConfig(StrategyConfig, frozen=True):  # type: ignore[call-arg]
     instrument_id: InstrumentId
@@ -48,6 +64,22 @@ class QuoteTickVWAPReversionConfig(StrategyConfig, frozen=True):  # type: ignore
     min_tick_size: float = 0.0
     take_profit: float = 0.015
     stop_loss: float = 0.02
+
+    def __post_init__(self) -> None:
+        if self.vwap_window <= 0:
+            raise ValueError(f"vwap_window must be > 0, got {self.vwap_window}")
+        if self.trade_size <= 0:
+            raise ValueError(f"trade_size must be > 0, got {self.trade_size}")
+        if self.entry_threshold < 0:
+            raise ValueError(f"entry_threshold must be >= 0, got {self.entry_threshold}")
+        if self.exit_threshold < 0:
+            raise ValueError(f"exit_threshold must be >= 0, got {self.exit_threshold}")
+        if self.min_tick_size < 0:
+            raise ValueError(f"min_tick_size must be >= 0, got {self.min_tick_size}")
+        if self.take_profit < 0:
+            raise ValueError(f"take_profit must be >= 0, got {self.take_profit}")
+        if self.stop_loss < 0:
+            raise ValueError(f"stop_loss must be >= 0, got {self.stop_loss}")
 
 
 class _VWAPReversionBase(LongOnlyPredictionMarketStrategy):
@@ -70,6 +102,14 @@ class _VWAPReversionBase(LongOnlyPredictionMarketStrategy):
         self._window.append((price, size))
         self._weighted_sum += price * size
         self._size_sum += size
+
+        # Periodically recompute from scratch to prevent float drift.
+        if len(self._window) >= self._window.maxlen and len(self._window) % 256 == 0:
+            self._recompute_sums()
+
+    def _recompute_sums(self) -> None:
+        self._weighted_sum = sum(p * s for p, s in self._window)
+        self._size_sum = sum(s for _, s in self._window)
 
     def _on_price_size(
         self,

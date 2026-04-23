@@ -18,15 +18,43 @@ the raw venue data are:
   and are not hardcoded to the older sports-vs-crypto heuristic
 - if a venue reports zero fees for a market, the backtest also applies zero
   fees
+- Kalshi fee waivers are checked at instrument-load time, not per-fill: if a
+  waiver expires during a backtest window, the backtest still charges zero
+  fees for the entire run (NautilusTrader bakes fees into the instrument
+  object rather than evaluating them dynamically per fill)
 
 ## Slippage
 
 - shared prediction-market backtests default to a custom taker fill model
-- non-limit orders get a deterministic one-tick adverse fill
-- Polymarket uses the market's own tick size in trade-tick mode
-- Kalshi uses one cent as the effective order tick for taker slippage
+- market orders get a deterministic adverse fill shifted from the last trade print
+- `slippage_ticks` (default 1): shifts the synthetic book by N ticks adverse
+  - Polymarket 1 tick = instrument `price_increment`
+  - Kalshi 1 tick = $0.01
+- `entry_slippage_pct` (default 0.0): shifts BUY fills by a percentage of the
+  ask price (e.g., 0.02 on a $0.50 ask fills at $0.51)
+- `exit_slippage_pct` (default 0.0): shifts SELL fills by a percentage of the
+  bid price (e.g., 0.03 on a $0.50 bid fills at $0.485)
+- entry and exit percentages let you model the higher cost of exiting a binary
+  option position (thinner book, more urgency) versus entering
+- entry vs exit is determined by order side: BUY = entry, SELL = exit; this
+  matches LongOnlyPredictionMarketStrategy (all framework strategies buy YES
+  to open and sell to close); strategies that sell to open a short would need
+  a different mapping
+- when both tick-based and percentage-based slippage are non-zero, they stack
+  additively: fill price = ask + tick_shift + pct_shift (for buys) or
+  bid - tick_shift - pct_shift (for sells)
+- configure these on the `ExecutionModelConfig` in your runner:
+  ```python
+  EXECUTION = ExecutionModelConfig(
+      queue_position=False,
+      slippage_ticks=1,
+      entry_slippage_pct=0.02,
+      exit_slippage_pct=0.03,
+      latency_model=StaticLatencyConfig(...),
+  )
+  ```
 - limit orders keep default Nautilus matching behavior
-- PMXT-backed Polymarket L2 backtests do not use the synthetic one-tick taker
+- PMXT-backed Polymarket L2 backtests do not use the synthetic taker
   fill model; they replay historical `OrderBookDeltas` with `book_type=L2_MBP`
   and `liquidity_consumption=True`
 - Telonex-backed Polymarket quote backtests request the `book_snapshot_full`

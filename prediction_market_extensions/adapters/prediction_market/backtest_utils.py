@@ -265,8 +265,11 @@ def infer_realized_outcome(source: object | None) -> float | None:
     if not isinstance(info, Mapping):
         return None
 
+    # Ambiguous markets (all prices ~0.5) have no meaningful resolved
+    # outcome. Returning 0.5 would systematically deflate Brier scores
+    # because (p - 0.5)^2 always favors forecasts near 0.5.
     if info.get("is_50_50_outcome") is True:
-        return 0.5
+        return None
 
     outcome_name = str(getattr(source, "outcome", "")).strip().casefold()
     resolvers = (

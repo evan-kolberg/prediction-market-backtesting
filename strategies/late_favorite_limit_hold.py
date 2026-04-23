@@ -22,6 +22,10 @@ class TradeTickLateFavoriteLimitHoldConfig(StrategyConfig, frozen=True):  # type
     market_close_time_ns: int = 0
     entry_price: float = 0.90
 
+    def __post_init__(self) -> None:
+        if self.trade_size <= 0:
+            raise ValueError(f"trade_size must be > 0, got {self.trade_size}")
+
 
 class QuoteTickLateFavoriteLimitHoldConfig(StrategyConfig, frozen=True):  # type: ignore[call-arg]
     instrument_id: InstrumentId
@@ -29,6 +33,10 @@ class QuoteTickLateFavoriteLimitHoldConfig(StrategyConfig, frozen=True):  # type
     activation_start_time_ns: int = 0
     market_close_time_ns: int = 0
     entry_price: float = 0.90
+
+    def __post_init__(self) -> None:
+        if self.trade_size <= 0:
+            raise ValueError(f"trade_size must be > 0, got {self.trade_size}")
 
 
 class _LateFavoriteLimitHoldBase(LongOnlyPredictionMarketStrategy):
@@ -86,6 +94,9 @@ class _LateFavoriteLimitHoldBase(LongOnlyPredictionMarketStrategy):
         super().on_order_filled(event)
         if event.order_side == OrderSide.BUY:
             self._entered_once = True
+
+    def on_order_expired(self, event) -> None:  # type: ignore[no-untyped-def]
+        self._pending = False
 
     def on_stop(self) -> None:
         # Leave filled positions open so the runner can mark them to settlement.

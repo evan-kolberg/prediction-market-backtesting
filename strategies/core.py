@@ -1,19 +1,19 @@
 # -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2026 Nautech Systems Pty Ltd. All rights reserved.
-#  https://nautechsystems.io
+# Copyright (C) 2015-2026 Nautech Systems Pty Ltd. All rights reserved.
+# https://nautechsystems.io
 #
-#  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
-#  You may not use this file except in compliance with the License.
-#  You may obtain a copy of the License at https://www.gnu.org/licenses/lgpl-3.0.en.html
+# Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
+# You may not use this file except in compliance with the License.
+# You may obtain a copy of the License at https://www.gnu.org/licenses/lgpl-3.0.en.html
 #
-#  Unless required by applicable law or agreed to in writing, software distributed under the
-#  License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
-#  KIND, either express or implied. See the License for the specific language governing
-#  permissions and limitations under the License.
+# Unless required by applicable law or agreed to in writing, software distributed under the
+# License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied. See the License for the specific language governing
+# permissions and limitations under the License.
 # -------------------------------------------------------------------------------------------------
-#  Derived from NautilusTrader prediction-market example code.
-#  Modified by Evan Kolberg in this repository on 2026-03-11.
-#  See the repository NOTICE file for provenance and licensing scope.
+# Derived from NautilusTrader prediction-market example code.
+# Modified by Evan Kolberg in this repository on 2026-03-11.
+# See the repository NOTICE file for provenance and licensing scope.
 #
 
 from __future__ import annotations
@@ -106,6 +106,8 @@ class LongOnlyPredictionMarketStrategy(Strategy):
         self._instrument = None
         self._pending: bool = False
         self._entry_price: float | None = None
+        self._entry_qty_sum: float = 0.0
+        self._entry_cost_sum: float = 0.0
 
     def _subscribe(self) -> None:
         raise NotImplementedError
@@ -207,15 +209,30 @@ class LongOnlyPredictionMarketStrategy(Strategy):
 
     def on_order_filled(self, event) -> None:  # type: ignore[no-untyped-def]
         if event.order_side == OrderSide.BUY:
-            self._entry_price = float(event.last_px)
+            fill_px = float(event.last_px)
+            fill_qty = float(event.last_qty)
+            self._entry_cost_sum += fill_px * fill_qty
+            self._entry_qty_sum += fill_qty
+            if self._entry_qty_sum > 0:
+                self._entry_price = self._entry_cost_sum / self._entry_qty_sum
         else:
-            self._entry_price = None
+            fill_qty = float(event.last_qty)
+            self._entry_qty_sum -= fill_qty
+            if self._entry_qty_sum > 0:
+                self._entry_price = self._entry_cost_sum / self._entry_qty_sum
+            else:
+                self._entry_price = None
+                self._entry_qty_sum = 0.0
+                self._entry_cost_sum = 0.0
         self._pending = False
 
     def on_order_rejected(self, event) -> None:  # type: ignore[no-untyped-def]
         self._pending = False
 
     def on_order_canceled(self, event) -> None:  # type: ignore[no-untyped-def]
+        self._pending = False
+
+    def on_order_expired(self, event) -> None:  # type: ignore[no-untyped-def]
         self._pending = False
 
     def on_stop(self) -> None:
@@ -225,4 +242,6 @@ class LongOnlyPredictionMarketStrategy(Strategy):
     def on_reset(self) -> None:
         self._pending = False
         self._entry_price = None
+        self._entry_qty_sum = 0.0
+        self._entry_cost_sum = 0.0
         self._instrument = None
