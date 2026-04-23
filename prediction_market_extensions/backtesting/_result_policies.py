@@ -83,6 +83,14 @@ def apply_binary_settlement_pnl(
         result.get(settlement_observable_ns_key) or result.get(settlement_observable_time_key)
     )
     simulated_through_ns = _timestamp_ns(result.get(simulated_through_key))
+    if settlement_observable_ns is not None and simulated_through_ns is None:
+        append_result_warning(
+            result,
+            "Settlement outcome metadata exists but simulated_through is missing; keeping "
+            "mark-to-market PnL because settlement observability cannot be verified.",
+        )
+        result["settlement_pnl_applied"] = False
+        return result
     if (
         settlement_observable_ns is not None
         and simulated_through_ns is not None
@@ -108,7 +116,7 @@ def apply_binary_settlement_pnl(
         result["settlement_pnl_applied"] = False
         return result
 
-    result[market_exit_pnl_key] = float(result[pnl_key])
+    result[market_exit_pnl_key] = float(result.get(pnl_key, 0.0))
     result[pnl_key] = float(settlement_pnl)
     result["settlement_pnl_applied"] = True
     return result

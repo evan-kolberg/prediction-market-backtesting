@@ -13,6 +13,7 @@ import time
 from collections.abc import Callable, Iterator
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import contextmanager, suppress
+from decimal import Decimal
 from datetime import UTC
 from pathlib import Path
 from typing import ClassVar
@@ -842,11 +843,20 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
 
     @staticmethod
     def _to_book_snapshot(payload: _PMXTBookSnapshotPayload) -> PolymarketBookSnapshot:
+        bids = sorted(
+            (PolymarketBookLevel(price=price, size=size) for price, size in payload.bids),
+            key=lambda level: float(level.price),
+        )
+        asks = sorted(
+            (PolymarketBookLevel(price=price, size=size) for price, size in payload.asks),
+            key=lambda level: float(level.price),
+            reverse=True,
+        )
         return PolymarketBookSnapshot(
             market=payload.market_id,
             asset_id=payload.token_id,
-            bids=[PolymarketBookLevel(price=price, size=size) for price, size in payload.bids],
-            asks=[PolymarketBookLevel(price=price, size=size) for price, size in payload.asks],
+            bids=bids,
+            asks=asks,
             timestamp=PolymarketPMXTDataLoader._timestamp_to_ms_string(payload.timestamp),
         )
 
@@ -894,7 +904,7 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
         else:
             timestamp = 0.0
             priority = 2
-        return (int(timestamp * 1_000_000_000), priority)
+        return (self._timestamp_to_ns(timestamp), priority)
 
     def _process_book_snapshot(
         self,
@@ -916,7 +926,7 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
 
         snapshot = self._to_book_snapshot(payload)
         deltas = snapshot.parse_to_snapshot(
-            instrument=instrument, ts_init=int(payload.timestamp * 1_000_000_000)
+            instrument=instrument, ts_init=self._timestamp_to_ns(payload.timestamp)
         )
         if deltas is None:
             return local_book, has_snapshot
@@ -960,7 +970,7 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
 
         quotes = self._to_price_change(payload)
         deltas = quotes.parse_to_deltas(
-            instrument=instrument, ts_init=int(payload.timestamp * 1_000_000_000)
+            instrument=instrument, ts_init=self._timestamp_to_ns(payload.timestamp)
         )
         local_book.apply_deltas(deltas)
 
@@ -1012,6 +1022,7 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
         has_snapshot = False
         events: list[OrderBookDeltas | QuoteTick] = []
         hours = self._archive_hours(start_ts, end_ts)
+        last_payload_key: tuple[int, int] | None = None
 
         for _hour, batches in self._iter_market_batches(hours, batch_size=batch_size):
             if not batches:
@@ -1026,6 +1037,9 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
             for update_type, payload_text in sorted(
                 hour_payloads, key=lambda item: self._payload_sort_key(*item)
             ):
+                payload_key = self._payload_sort_key(update_type, payload_text)
+                if last_payload_key is not None and payload_key < last_payload_key:
+                    continue
                 if update_type == "book_snapshot":
                     local_book, has_snapshot = self._process_book_snapshot(
                         payload_text,
@@ -1039,6 +1053,7 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
                         include_order_book=include_order_book,
                         include_quotes=include_quotes,
                     )
+                    last_payload_key = payload_key
                     continue
 
                 if update_type == "price_change":
@@ -1054,6 +1069,11 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
                         include_order_book=include_order_book,
                         include_quotes=include_quotes,
                     )
+                    last_payload_key = payload_key
 
         events.sort(key=self._event_sort_key)
         return events
+
+    @staticmethod
+    def _timestamp_to_ns(value: object) -> int:
+        return int((Decimal(str(value)) * Decimal("1000000000")).to_integral_value())

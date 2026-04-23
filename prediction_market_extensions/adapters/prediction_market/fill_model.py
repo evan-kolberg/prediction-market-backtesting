@@ -21,7 +21,8 @@ from prediction_market_extensions.adapters.prediction_market.order_tags import (
 
 _KALSHI_ORDER_TICK = Decimal("0.01")
 _DEFAULT_LIMIT_FILL_PROBABILITY = 0.25
-_MIN_SYNTHETIC_BOOK_SIZE = 1.0
+_DEFAULT_MIN_SYNTHETIC_BOOK_SIZE = 10.0
+_DEFAULT_SYNTHETIC_BOOK_DEPTH_MULTIPLIER = 1.0
 
 
 def effective_prediction_market_slippage_tick(instrument) -> float:
@@ -78,14 +79,19 @@ def _is_entry_order(order) -> bool:
     return order.side == OrderSideEnum.BUY
 
 
-def _synthetic_book_size(order) -> float:
+def _synthetic_book_size(
+    order, *, min_synthetic_book_size: float, synthetic_book_depth_multiplier: float
+) -> float:
     observed_visible_liquidity = parse_visible_liquidity(getattr(order, "tags", None))
-    if observed_visible_liquidity is not None:
-        return observed_visible_liquidity
     quantity = _order_quantity(order)
+    if observed_visible_liquidity is not None:
+        return max(
+            observed_visible_liquidity * synthetic_book_depth_multiplier,
+            0.0,
+        )
     if quantity is not None:
-        return quantity
-    return _MIN_SYNTHETIC_BOOK_SIZE
+        return max(min_synthetic_book_size, quantity)
+    return min_synthetic_book_size
 
 
 class PredictionMarketTakerFillModel(FillModel):
@@ -128,6 +134,8 @@ class PredictionMarketTakerFillModel(FillModel):
         entry_slippage_pct: float = 0.0,
         exit_slippage_pct: float = 0.0,
         prob_fill_on_limit: float = _DEFAULT_LIMIT_FILL_PROBABILITY,
+        min_synthetic_book_size: float = _DEFAULT_MIN_SYNTHETIC_BOOK_SIZE,
+        synthetic_book_depth_multiplier: float = _DEFAULT_SYNTHETIC_BOOK_DEPTH_MULTIPLIER,
     ) -> None:
         if slippage_ticks < 0:
             raise ValueError(f"slippage_ticks must be >= 0, got {slippage_ticks}")
@@ -139,10 +147,21 @@ class PredictionMarketTakerFillModel(FillModel):
             raise ValueError(
                 f"prob_fill_on_limit must be within [0.0, 1.0], got {prob_fill_on_limit}"
             )
+        if min_synthetic_book_size <= 0.0:
+            raise ValueError(
+                f"min_synthetic_book_size must be > 0.0, got {min_synthetic_book_size}"
+            )
+        if synthetic_book_depth_multiplier <= 0.0:
+            raise ValueError(
+                "synthetic_book_depth_multiplier must be > 0.0, got "
+                f"{synthetic_book_depth_multiplier}"
+            )
         self._slippage_ticks = slippage_ticks
         self._entry_slippage_pct = entry_slippage_pct
         self._exit_slippage_pct = exit_slippage_pct
         self._prob_fill_on_limit = prob_fill_on_limit
+        self._min_synthetic_book_size = min_synthetic_book_size
+        self._synthetic_book_depth_multiplier = synthetic_book_depth_multiplier
         # The slippage is modeled through a synthetic order book rather than
         # FillModel.is_slipped(), so we disable the built-in L1 slip hook.
         super().__init__(prob_fill_on_limit=prob_fill_on_limit, prob_slippage=0.0)
@@ -170,7 +189,11 @@ class PredictionMarketTakerFillModel(FillModel):
         slipped_bid = instrument.make_price(slipped_bid)
         slipped_ask = instrument.make_price(slipped_ask)
         synthetic_book_size = Quantity(
-            _synthetic_book_size(order),
+            _synthetic_book_size(
+                order,
+                min_synthetic_book_size=self._min_synthetic_book_size,
+                synthetic_book_depth_multiplier=self._synthetic_book_depth_multiplier,
+            ),
             instrument.size_precision,
         )
 

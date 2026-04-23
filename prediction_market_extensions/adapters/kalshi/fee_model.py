@@ -129,10 +129,11 @@ class KalshiProportionalFeeModel(FeeModel):
                         else:
                             waiver_expiration = waiver_expiration.astimezone(UTC)
                         if order_timestamp <= waiver_expiration:
-                            return Decimal(0)
+                            return Decimal("0")
 
-        if instrument.taker_fee > 0:
-            return instrument.taker_fee
+        instrument_taker_fee = getattr(instrument, "taker_fee", None)
+        if instrument_taker_fee is not None and instrument_taker_fee > 0:
+            return instrument_taker_fee
         return default_fee_rate
 
     def get_commission(self, order, fill_qty, fill_px, instrument) -> Money:
@@ -164,8 +165,8 @@ class KalshiProportionalFeeModel(FeeModel):
         fee_rate = self._fee_rate_for_fill(order, instrument, self._fee_rate)
 
         if fee_rate <= 0 or p <= 0 or p >= 1:
-            return Money(Decimal(0), instrument.quote_currency)
+            return Money(Decimal("0"), instrument.quote_currency)
 
-        raw = fee_rate * qty * p * (1 - p)
+        raw = fee_rate * qty * p * (Decimal("1") - p)
         commission = raw.quantize(Decimal("0.01"), rounding=ROUND_CEILING)
         return Money(commission, instrument.quote_currency)

@@ -116,7 +116,7 @@ def test_trade_tick_mean_reversion_uses_prior_window_and_trade_size() -> None:
 
     strategy.on_trade_tick(SimpleNamespace(price=0.86, size=2.0))
 
-    assert strategy.entry_calls == [(0.86, 2.0)]
+    assert strategy.entry_calls == [(0.86, None)]
 
 
 def test_trade_tick_vwap_reversion_uses_prior_window_and_trade_size() -> None:
@@ -126,7 +126,7 @@ def test_trade_tick_vwap_reversion_uses_prior_window_and_trade_size() -> None:
 
     strategy.on_trade_tick(SimpleNamespace(price=0.86, size=2.0))
 
-    assert strategy.entry_calls == [(0.86, 2.0)]
+    assert strategy.entry_calls == [(0.86, None)]
 
 
 def test_trade_tick_panic_fade_uses_prior_window_and_trade_size() -> None:
@@ -135,4 +135,4 @@ def test_trade_tick_panic_fade_uses_prior_window_and_trade_size() -> None:
 
     strategy.on_trade_tick(SimpleNamespace(price=0.91, size=2.0))
 
-    assert strategy.entry_calls == [(0.91, 2.0)]
+    assert strategy.entry_calls == [(0.91, None)]

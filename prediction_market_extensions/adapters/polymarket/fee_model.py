@@ -73,14 +73,16 @@ class PolymarketFeeModel(FeeModel):
             # Repo-owned Polymarket limit-order backtests use passive-posting
             # strategies, so treat their fills as maker-side and keep fees at
             # zero to match the documented venue model.
-            return Money(Decimal(0), instrument.quote_currency)
+            return Money(Decimal("0"), instrument.quote_currency)
 
         # instrument.taker_fee is stored as bps/10_000 (decimal fraction)
         taker_fee_dec = instrument.taker_fee
+        if taker_fee_dec is None:
+            return Money(Decimal("0"), instrument.quote_currency)
         fee_rate_bps = taker_fee_dec * Decimal(10_000)
 
         if fee_rate_bps <= 0:
-            return Money(Decimal(0), instrument.quote_currency)
+            return Money(Decimal("0"), instrument.quote_currency)
 
         commission = calculate_commission(
             quantity=Decimal(str(fill_qty)), price=Decimal(str(fill_px)), fee_rate_bps=fee_rate_bps

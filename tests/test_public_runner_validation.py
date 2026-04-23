@@ -87,4 +87,4 @@ def test_public_polymarket_trade_runner_reconciles_size_clipping_and_slippage() 
     assert result["terminated_early"] is False
     assert result["pnl"] == pytest.approx(_ledger_realized_pnl(fill_events))
     assert [event["price"] for event in fill_events] == [0.51, 0.50]
-    assert fill_events[0]["quantity"] == 10.0
+    assert fill_events[0]["quantity"] == 100.0

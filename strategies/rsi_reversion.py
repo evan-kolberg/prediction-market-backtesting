@@ -25,6 +25,13 @@ from nautilus_trader.model.data import Bar, BarType, QuoteTick, TradeTick
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.trading.strategy import StrategyConfig
 
+from strategies._validation import (
+    require_finite_nonnegative_float,
+    require_less,
+    require_positive_decimal,
+    require_positive_int,
+    require_rsi,
+)
 from strategies.core import LongOnlyPredictionMarketStrategy
 
 
@@ -48,6 +55,15 @@ class BarRSIReversionConfig(StrategyConfig, frozen=True):  # type: ignore[call-a
     take_profit: float = 0.03
     stop_loss: float = 0.02
 
+    def __post_init__(self) -> None:
+        require_positive_decimal("trade_size", self.trade_size)
+        require_positive_int("period", self.period)
+        require_rsi("entry_rsi", self.entry_rsi)
+        require_rsi("exit_rsi", self.exit_rsi)
+        require_less("entry_rsi", self.entry_rsi, "exit_rsi", self.exit_rsi)
+        require_finite_nonnegative_float("take_profit", self.take_profit)
+        require_finite_nonnegative_float("stop_loss", self.stop_loss)
+
 
 class TradeTickRSIReversionConfig(StrategyConfig, frozen=True):  # type: ignore[call-arg]
     instrument_id: InstrumentId
@@ -58,6 +74,15 @@ class TradeTickRSIReversionConfig(StrategyConfig, frozen=True):  # type: ignore[
     take_profit: float = 0.02
     stop_loss: float = 0.015
 
+    def __post_init__(self) -> None:
+        require_positive_decimal("trade_size", self.trade_size)
+        require_positive_int("period", self.period)
+        require_rsi("entry_rsi", self.entry_rsi)
+        require_rsi("exit_rsi", self.exit_rsi)
+        require_less("entry_rsi", self.entry_rsi, "exit_rsi", self.exit_rsi)
+        require_finite_nonnegative_float("take_profit", self.take_profit)
+        require_finite_nonnegative_float("stop_loss", self.stop_loss)
+
 
 class QuoteTickRSIReversionConfig(StrategyConfig, frozen=True):  # type: ignore[call-arg]
     instrument_id: InstrumentId
@@ -67,6 +92,15 @@ class QuoteTickRSIReversionConfig(StrategyConfig, frozen=True):  # type: ignore[
     exit_rsi: float = 52.0
     take_profit: float = 0.02
     stop_loss: float = 0.015
+
+    def __post_init__(self) -> None:
+        require_positive_decimal("trade_size", self.trade_size)
+        require_positive_int("period", self.period)
+        require_rsi("entry_rsi", self.entry_rsi)
+        require_rsi("exit_rsi", self.exit_rsi)
+        require_less("entry_rsi", self.entry_rsi, "exit_rsi", self.exit_rsi)
+        require_finite_nonnegative_float("take_profit", self.take_profit)
+        require_finite_nonnegative_float("stop_loss", self.stop_loss)
 
 
 class _RSIReversionBase(LongOnlyPredictionMarketStrategy):
@@ -172,7 +206,7 @@ class TradeTickRSIReversionStrategy(_RSIReversionBase):
 
     def on_trade_tick(self, tick: TradeTick) -> None:
         price = float(tick.price)
-        self._on_price(price, entry_price=price, visible_size=float(tick.size))
+        self._on_price(price, entry_price=price, visible_size=None)
 
 
 class QuoteTickRSIReversionStrategy(_RSIReversionBase):

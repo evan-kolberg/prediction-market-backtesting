@@ -27,6 +27,12 @@ from nautilus_trader.model.enums import OrderSide
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.trading.strategy import StrategyConfig
 
+from strategies._validation import (
+    require_finite_nonnegative_float,
+    require_positive_decimal,
+    require_positive_int,
+    require_probability,
+)
 from strategies.core import LongOnlyPredictionMarketStrategy
 
 
@@ -54,6 +60,16 @@ class BarPanicFadeConfig(StrategyConfig, frozen=True):  # type: ignore[call-arg]
     take_profit: float = 0.06
     stop_loss: float = 0.03
 
+    def __post_init__(self) -> None:
+        require_positive_decimal("trade_size", self.trade_size)
+        require_positive_int("drop_window", self.drop_window)
+        require_finite_nonnegative_float("min_drop", self.min_drop)
+        require_probability("panic_price", self.panic_price)
+        require_probability("rebound_exit", self.rebound_exit)
+        require_positive_int("max_holding_periods", self.max_holding_periods)
+        require_finite_nonnegative_float("take_profit", self.take_profit)
+        require_finite_nonnegative_float("stop_loss", self.stop_loss)
+
 
 class TradeTickPanicFadeConfig(StrategyConfig, frozen=True):  # type: ignore[call-arg]
     instrument_id: InstrumentId
@@ -66,6 +82,16 @@ class TradeTickPanicFadeConfig(StrategyConfig, frozen=True):  # type: ignore[cal
     take_profit: float = 0.04
     stop_loss: float = 0.03
 
+    def __post_init__(self) -> None:
+        require_positive_decimal("trade_size", self.trade_size)
+        require_positive_int("drop_window", self.drop_window)
+        require_finite_nonnegative_float("min_drop", self.min_drop)
+        require_probability("panic_price", self.panic_price)
+        require_probability("rebound_exit", self.rebound_exit)
+        require_positive_int("max_holding_periods", self.max_holding_periods)
+        require_finite_nonnegative_float("take_profit", self.take_profit)
+        require_finite_nonnegative_float("stop_loss", self.stop_loss)
+
 
 class QuoteTickPanicFadeConfig(StrategyConfig, frozen=True):  # type: ignore[call-arg]
     instrument_id: InstrumentId
@@ -77,6 +103,16 @@ class QuoteTickPanicFadeConfig(StrategyConfig, frozen=True):  # type: ignore[cal
     max_holding_periods: int = 500
     take_profit: float = 0.04
     stop_loss: float = 0.03
+
+    def __post_init__(self) -> None:
+        require_positive_decimal("trade_size", self.trade_size)
+        require_positive_int("drop_window", self.drop_window)
+        require_finite_nonnegative_float("min_drop", self.min_drop)
+        require_probability("panic_price", self.panic_price)
+        require_probability("rebound_exit", self.rebound_exit)
+        require_positive_int("max_holding_periods", self.max_holding_periods)
+        require_finite_nonnegative_float("take_profit", self.take_profit)
+        require_finite_nonnegative_float("stop_loss", self.stop_loss)
 
 
 class _PanicFadeBase(LongOnlyPredictionMarketStrategy):
@@ -160,7 +196,7 @@ class TradeTickPanicFadeStrategy(_PanicFadeBase):
 
     def on_trade_tick(self, tick: TradeTick) -> None:
         price = float(tick.price)
-        self._on_price(price, entry_price=price, visible_size=float(tick.size))
+        self._on_price(price, entry_price=price, visible_size=None)
 
 
 class QuoteTickPanicFadeStrategy(_PanicFadeBase):

@@ -25,6 +25,7 @@ from nautilus_trader.model.enums import OrderSide
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.trading.strategy import StrategyConfig
 
+from strategies._validation import require_positive_decimal, require_probability
 from strategies.core import LongOnlyPredictionMarketStrategy
 
 
@@ -34,12 +35,20 @@ class TradeTickDeepValueHoldConfig(StrategyConfig, frozen=True):  # type: ignore
     entry_price_max: float = 0.25
     single_entry: bool = True
 
+    def __post_init__(self) -> None:
+        require_positive_decimal("trade_size", self.trade_size)
+        require_probability("entry_price_max", self.entry_price_max)
+
 
 class QuoteTickDeepValueHoldConfig(StrategyConfig, frozen=True):  # type: ignore[call-arg]
     instrument_id: InstrumentId
     trade_size: Decimal = Decimal(1)
     entry_price_max: float = 0.25
     single_entry: bool = True
+
+    def __post_init__(self) -> None:
+        require_positive_decimal("trade_size", self.trade_size)
+        require_probability("entry_price_max", self.entry_price_max)
 
 
 class _DeepValueHoldBase(LongOnlyPredictionMarketStrategy):
@@ -95,7 +104,7 @@ class TradeTickDeepValueHoldStrategy(_DeepValueHoldBase):
 
     def on_trade_tick(self, tick: TradeTick) -> None:
         price = float(tick.price)
-        self._on_price(price, entry_price=price, visible_size=float(tick.size))
+        self._on_price(price, entry_price=price, visible_size=None)
 
 
 class QuoteTickDeepValueHoldStrategy(_DeepValueHoldBase):

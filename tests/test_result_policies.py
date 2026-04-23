@@ -18,3 +18,18 @@ def test_settlement_pnl_is_not_applied_when_resolution_occurs_after_replay() -> 
     assert result["settlement_pnl_applied"] is False
     assert "warnings" in result
     assert "mark-to-market PnL" in result["warnings"][0]
+
+
+def test_settlement_pnl_is_not_applied_when_simulated_through_is_missing() -> None:
+    result = apply_binary_settlement_pnl(
+        {
+            "pnl": 1.25,
+            "realized_outcome": 1.0,
+            "fill_events": [{"action": "buy", "price": 0.90, "quantity": 25.0, "commission": 0.0}],
+            "settlement_observable_time": "2026-04-10T00:00:00+00:00",
+        }
+    )
+
+    assert result["pnl"] == 1.25
+    assert result["settlement_pnl_applied"] is False
+    assert "simulated_through is missing" in result["warnings"][0]

@@ -281,10 +281,12 @@ def run_market_backtest(
                 "Market %s has no realized outcome; P&L based on mark-to-market, not settlement",
                 instrument.id,
             )
+        result_warnings: list[str] = []
         user_probabilities, market_probabilities, outcomes = build_brier_inputs(
             points=price_points,
             window=probability_window,
             realized_outcome=realized_outcome,
+            warnings_out=result_warnings,
         )
         chart_market_prices = build_market_prices(price_points, resample_rule=chart_resample_rule)
 
@@ -376,6 +378,7 @@ def run_market_backtest(
             "instrument_id": str(instrument.id),
             "realized_outcome": realized_outcome,
             "fill_events": fill_events,
+            "warnings": result_warnings,
             "settlement_observable_ns": getattr(instrument, "expiration_ns", None),
             "settlement_observable_time": _iso_from_nanos(
                 getattr(instrument, "expiration_ns", None)

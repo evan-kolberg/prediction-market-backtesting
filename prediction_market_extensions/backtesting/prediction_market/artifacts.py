@@ -197,12 +197,16 @@ class PredictionMarketArtifactBuilder:
             price_points = downsample_price_points(price_points, max_points=5000)
 
         market_prices = build_market_prices(price_points, resample_rule=self.chart_resample_rule)
+        artifact_warnings: list[str] = []
         user_probabilities, market_probabilities, outcomes = build_brier_inputs(
             price_points,
             window=self.probability_window,
             realized_outcome=loaded_sim.realized_outcome,
+            warnings_out=artifact_warnings,
         )
         artifacts: dict[str, Any] = {}
+        if artifact_warnings:
+            artifacts["warnings"] = artifact_warnings
 
         chart_layout = None
         chart_title = f"{self.name}:{loaded_sim.market_id} legacy chart"

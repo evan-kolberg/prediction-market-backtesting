@@ -76,39 +76,39 @@ DATA = MarketDataConfig(
 
 REPLAYS = (
     QuoteReplay(
-        market_slug="will-tesla-release-optimus-by-june-30-2026",
+        market_slug="human-moon-landing-in-2026",
         token_index=0,
         start_time="2026-03-01T00:00:00Z",
         end_time="2026-04-11T23:59:59Z",
-        metadata={"sim_label": "tesla-optimus-june-2026"},
+        metadata={"sim_label": "moon-landing-2026"},
     ),
     QuoteReplay(
-        market_slug="will-stripe-not-ipo-by-june-30-2026",
+        market_slug="new-coronavirus-pandemic-in-2026",
         token_index=0,
         start_time="2026-03-01T00:00:00Z",
         end_time="2026-04-11T23:59:59Z",
-        metadata={"sim_label": "stripe-no-ipo-june-2026"},
+        metadata={"sim_label": "coronavirus-pandemic-2026"},
     ),
     QuoteReplay(
-        market_slug="will-trump-pardon-ghislaine-maxwell",
+        market_slug="will-openais-market-cap-be-between-750b-and-1t-at-market-close-on-ipo-day",
         token_index=0,
         start_time="2026-03-01T00:00:00Z",
         end_time="2026-04-11T23:59:59Z",
-        metadata={"sim_label": "trump-pardon-maxwell"},
+        metadata={"sim_label": "openai-ipo-market-cap-750b-1t"},
     ),
     QuoteReplay(
-        market_slug="will-kylian-mbapp-win-the-2026-ballon-dor",
+        market_slug="okx-ipo-in-2026",
         token_index=0,
         start_time="2026-03-01T00:00:00Z",
         end_time="2026-04-11T23:59:59Z",
-        metadata={"sim_label": "mbappe-ballon-dor-2026"},
+        metadata={"sim_label": "okx-ipo-2026"},
     ),
     QuoteReplay(
-        market_slug="will-databricks-market-cap-be-between-100b-and-125b-at-market-close-on-ipo-day",
+        market_slug="nothing-ever-happens-2026",
         token_index=0,
         start_time="2026-03-01T00:00:00Z",
         end_time="2026-04-11T23:59:59Z",
-        metadata={"sim_label": "databricks-ipo-100b-125b"},
+        metadata={"sim_label": "nothing-ever-happens-2026"},
     ),
 )
 

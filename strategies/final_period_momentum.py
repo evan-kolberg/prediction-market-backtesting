@@ -13,6 +13,12 @@ from nautilus_trader.model.enums import OrderSide
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.trading.strategy import StrategyConfig
 
+from strategies._validation import (
+    require_nonnegative_int,
+    require_positive_decimal,
+    require_positive_int,
+    require_probability,
+)
 from strategies.core import LongOnlyPredictionMarketStrategy
 
 
@@ -36,6 +42,14 @@ class BarFinalPeriodMomentumConfig(StrategyConfig, frozen=True):  # type: ignore
     take_profit_price: float = 0.92
     stop_loss_price: float = 0.50
 
+    def __post_init__(self) -> None:
+        require_positive_decimal("trade_size", self.trade_size)
+        require_nonnegative_int("market_close_time_ns", self.market_close_time_ns)
+        require_positive_int("final_period_minutes", self.final_period_minutes)
+        require_probability("entry_price", self.entry_price)
+        require_probability("take_profit_price", self.take_profit_price)
+        require_probability("stop_loss_price", self.stop_loss_price)
+
 
 class TradeTickFinalPeriodMomentumConfig(StrategyConfig, frozen=True):  # type: ignore[call-arg]
     instrument_id: InstrumentId
@@ -46,6 +60,14 @@ class TradeTickFinalPeriodMomentumConfig(StrategyConfig, frozen=True):  # type: 
     take_profit_price: float = 0.92
     stop_loss_price: float = 0.50
 
+    def __post_init__(self) -> None:
+        require_positive_decimal("trade_size", self.trade_size)
+        require_nonnegative_int("market_close_time_ns", self.market_close_time_ns)
+        require_positive_int("final_period_minutes", self.final_period_minutes)
+        require_probability("entry_price", self.entry_price)
+        require_probability("take_profit_price", self.take_profit_price)
+        require_probability("stop_loss_price", self.stop_loss_price)
+
 
 class QuoteTickFinalPeriodMomentumConfig(StrategyConfig, frozen=True):  # type: ignore[call-arg]
     instrument_id: InstrumentId
@@ -55,6 +77,14 @@ class QuoteTickFinalPeriodMomentumConfig(StrategyConfig, frozen=True):  # type: 
     entry_price: float = 0.80
     take_profit_price: float = 0.92
     stop_loss_price: float = 0.50
+
+    def __post_init__(self) -> None:
+        require_positive_decimal("trade_size", self.trade_size)
+        require_nonnegative_int("market_close_time_ns", self.market_close_time_ns)
+        require_positive_int("final_period_minutes", self.final_period_minutes)
+        require_probability("entry_price", self.entry_price)
+        require_probability("take_profit_price", self.take_profit_price)
+        require_probability("stop_loss_price", self.stop_loss_price)
 
 
 class _FinalPeriodMomentumBase(LongOnlyPredictionMarketStrategy):
@@ -161,7 +191,7 @@ class TradeTickFinalPeriodMomentumStrategy(_FinalPeriodMomentumBase):
             price=price,
             ts_event_ns=int(tick.ts_event),
             entry_price=price,
-            visible_size=float(tick.size),
+            visible_size=None,
         )
 
 

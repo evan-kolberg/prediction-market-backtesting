@@ -40,6 +40,20 @@ def test_compute_binary_settlement_pnl_handles_open_short_positions() -> None:
     assert pnl == -3.0
 
 
+def test_compute_binary_settlement_pnl_returns_none_without_fills() -> None:
+    assert compute_binary_settlement_pnl([], 1.0) is None
+
+
+def test_compute_binary_settlement_pnl_marks_no_contracts_to_inverse_outcome() -> None:
+    fill_events = [
+        {"action": "buy", "side": "no", "price": 0.30, "quantity": 10, "commission": 0.0}
+    ]
+
+    pnl = compute_binary_settlement_pnl(fill_events, 0.0)
+
+    assert pnl == 7.0
+
+
 class _QuoteStub:
     ts_event = 123
     bid_price = 0.41

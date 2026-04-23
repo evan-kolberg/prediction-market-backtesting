@@ -50,11 +50,19 @@ the raw venue data are:
       latency_model=StaticLatencyConfig(...),
   )
   ```
-- trade-tick market orders no longer assume infinite venue depth: the repo
-  attaches observed visible liquidity when available, and the synthetic book
-  depth falls back to the order quantity instead of a fake unlimited wall
+- trade-tick market orders no longer use the last trade print size as a proxy
+  for resting book depth
+- when no visible book depth exists, the synthetic taker book now uses a
+  finite fallback depth based on order size plus a configurable floor
+  (`min_synthetic_book_size`, default `10`)
+- when real visible depth exists (for example quote-tick top-of-book size), the
+  repo preserves that observed liquidity instead of inflating it with the
+  fallback floor
 - limit orders still use Nautilus passive-book heuristics, but the repo now
   defaults touched-limit fill probability to `0.25` instead of `1.0`
+- `entry_slippage_pct` and `exit_slippage_pct` are validated to stay within
+  `[0.0, 1.0]` so runner configs cannot silently manufacture impossible
+  prediction-market fills
 - PMXT-backed Polymarket L2 backtests do not use the synthetic taker
   fill model; they replay historical `OrderBookDeltas` with `book_type=L2_MBP`
   and `liquidity_consumption=True`
@@ -100,6 +108,12 @@ the raw venue data are:
   post-window settlement
 - when settlement is observable inside the replay window, result payloads use
   binary settlement PnL and preserve the last-tick mark as `market_exit_pnl`
+- if settlement metadata exists but `simulated_through` is missing, the result
+  now keeps mark-to-market PnL and emits an explicit warning instead of
+  guessing that post-window settlement was observable
+- empty fill sets no longer overwrite `pnl` with a synthetic settlement value
+- NO-side fill events now preserve their actual side through report
+  serialization so reconstructed equity curves do not silently flip sign
 - Kalshi public backtests here are trade-tick replay only
 - Polymarket PMXT-backed backtests are full L2 order-book replay
 - Polymarket Telonex-backed backtests use full-depth Telonex book snapshots
@@ -123,6 +137,13 @@ the raw venue data are:
 - local PMXT filtered cache is enabled by default and grows with the number of
   unique `(condition_id, token_id, hour)` tuples you replay
 - `BACKTEST_ENABLE_TIMING=0` is the opt-out if you want a quieter PMXT run
+- PMXT payload timestamps are converted to nanoseconds with decimal-string
+  arithmetic instead of float64 multiplication, so sub-microsecond ordering is
+  no longer rounded away during replay construction
+- PMXT book snapshots now normalize bids/asks into the ordering expected by the
+  Nautilus Polymarket schema before deriving `QuoteTick`s
+- stale cross-hour PMXT payloads are ignored if their timestamp/order would
+  move the replayed book backwards in time
 
 ### Telonex
 
@@ -136,6 +157,8 @@ the raw venue data are:
 - the Telonex replay adapter now resolves the Polymarket outcome name from the
   selected instrument metadata when `replay.outcome` is omitted, so vendor
   comparisons do not silently fall back to `outcome_id=token_index`
+- Telonex timestamp-ms inputs preserve fractional milliseconds when present,
+  and generated delta sequences are now monotonic within each snapshot diff
 - use Telonex when the full-depth daily Parquet/API source is the desired
   Polymarket input; use PMXT when you specifically want the PMXT hourly archive
 

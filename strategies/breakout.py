@@ -28,11 +28,19 @@ from nautilus_trader.model.enums import OrderSide
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.trading.strategy import StrategyConfig
 
+from strategies._validation import (
+    require_finite_nonnegative_float,
+    require_nonnegative_int,
+    require_positive_decimal,
+    require_positive_int,
+    require_probability,
+)
 from strategies.core import LongOnlyPredictionMarketStrategy
 
 
 class _BreakoutConfig(Protocol):
     instrument_id: InstrumentId
+    bar_type: BarType
     trade_size: Decimal
     window: int
     breakout_std: float
@@ -60,16 +68,18 @@ class BarBreakoutConfig(StrategyConfig, frozen=True):  # type: ignore[call-arg]
     stop_loss: float = 0.02
 
     def __post_init__(self) -> None:
-        if self.window <= 0:
-            raise ValueError(f"window must be > 0, got {self.window}")
-        if self.trade_size <= 0:
-            raise ValueError(f"trade_size must be > 0, got {self.trade_size}")
+        require_positive_int("window", self.window)
+        require_positive_decimal("trade_size", self.trade_size)
+        require_finite_nonnegative_float("breakout_std", self.breakout_std)
         if self.breakout_std <= 0:
             raise ValueError(f"breakout_std must be > 0, got {self.breakout_std}")
-        if self.take_profit < 0:
-            raise ValueError(f"take_profit must be >= 0, got {self.take_profit}")
-        if self.stop_loss < 0:
-            raise ValueError(f"stop_loss must be >= 0, got {self.stop_loss}")
+        require_finite_nonnegative_float("breakout_buffer", self.breakout_buffer)
+        require_finite_nonnegative_float("mean_reversion_buffer", self.mean_reversion_buffer)
+        require_nonnegative_int("min_holding_periods", self.min_holding_periods)
+        require_nonnegative_int("reentry_cooldown", self.reentry_cooldown)
+        require_probability("max_entry_price", self.max_entry_price)
+        require_finite_nonnegative_float("take_profit", self.take_profit)
+        require_finite_nonnegative_float("stop_loss", self.stop_loss)
 
 
 class TradeTickBreakoutConfig(StrategyConfig, frozen=True):  # type: ignore[call-arg]
@@ -86,16 +96,18 @@ class TradeTickBreakoutConfig(StrategyConfig, frozen=True):  # type: ignore[call
     stop_loss: float = 0.02
 
     def __post_init__(self) -> None:
-        if self.window <= 0:
-            raise ValueError(f"window must be > 0, got {self.window}")
-        if self.trade_size <= 0:
-            raise ValueError(f"trade_size must be > 0, got {self.trade_size}")
+        require_positive_int("window", self.window)
+        require_positive_decimal("trade_size", self.trade_size)
+        require_finite_nonnegative_float("breakout_std", self.breakout_std)
         if self.breakout_std <= 0:
             raise ValueError(f"breakout_std must be > 0, got {self.breakout_std}")
-        if self.take_profit < 0:
-            raise ValueError(f"take_profit must be >= 0, got {self.take_profit}")
-        if self.stop_loss < 0:
-            raise ValueError(f"stop_loss must be >= 0, got {self.stop_loss}")
+        require_finite_nonnegative_float("breakout_buffer", self.breakout_buffer)
+        require_finite_nonnegative_float("mean_reversion_buffer", self.mean_reversion_buffer)
+        require_nonnegative_int("min_holding_periods", self.min_holding_periods)
+        require_nonnegative_int("reentry_cooldown", self.reentry_cooldown)
+        require_probability("max_entry_price", self.max_entry_price)
+        require_finite_nonnegative_float("take_profit", self.take_profit)
+        require_finite_nonnegative_float("stop_loss", self.stop_loss)
 
 
 class QuoteTickBreakoutConfig(StrategyConfig, frozen=True):  # type: ignore[call-arg]
@@ -112,16 +124,18 @@ class QuoteTickBreakoutConfig(StrategyConfig, frozen=True):  # type: ignore[call
     stop_loss: float = 0.02
 
     def __post_init__(self) -> None:
-        if self.window <= 0:
-            raise ValueError(f"window must be > 0, got {self.window}")
-        if self.trade_size <= 0:
-            raise ValueError(f"trade_size must be > 0, got {self.trade_size}")
+        require_positive_int("window", self.window)
+        require_positive_decimal("trade_size", self.trade_size)
+        require_finite_nonnegative_float("breakout_std", self.breakout_std)
         if self.breakout_std <= 0:
             raise ValueError(f"breakout_std must be > 0, got {self.breakout_std}")
-        if self.take_profit < 0:
-            raise ValueError(f"take_profit must be >= 0, got {self.take_profit}")
-        if self.stop_loss < 0:
-            raise ValueError(f"stop_loss must be >= 0, got {self.stop_loss}")
+        require_finite_nonnegative_float("breakout_buffer", self.breakout_buffer)
+        require_finite_nonnegative_float("mean_reversion_buffer", self.mean_reversion_buffer)
+        require_nonnegative_int("min_holding_periods", self.min_holding_periods)
+        require_nonnegative_int("reentry_cooldown", self.reentry_cooldown)
+        require_probability("max_entry_price", self.max_entry_price)
+        require_finite_nonnegative_float("take_profit", self.take_profit)
+        require_finite_nonnegative_float("stop_loss", self.stop_loss)
 
 
 class _BreakoutBase(LongOnlyPredictionMarketStrategy):
@@ -248,7 +262,7 @@ class TradeTickBreakoutStrategy(_BreakoutBase):
 
     def on_trade_tick(self, tick: TradeTick) -> None:
         price = float(tick.price)
-        self._on_price(price, entry_price=price, visible_size=float(tick.size))
+        self._on_price(price, entry_price=price, visible_size=None)
 
 
 class QuoteTickBreakoutStrategy(_BreakoutBase):

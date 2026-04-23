@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import threading
 import time
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager, suppress
@@ -89,6 +90,7 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
 
     def __init__(self, *args, **kwargs) -> None:  # type: ignore[no-untyped-def]
         super().__init__(*args, **kwargs)
+        self._pmxt_source_lock = threading.RLock()
         self._pmxt_remote_base_urls = self._resolve_remote_base_urls()
         self._pmxt_remote_base_url = (
             self._pmxt_remote_base_urls[0] if self._pmxt_remote_base_urls else None
@@ -256,21 +258,26 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
         Temporarily bind the loader's active raw_root / remote_base_url
         to match the entry under evaluation. Restores the prior values afterwards.
         """
-        prior_raw_root = self._pmxt_raw_root
-        prior_remote_url = self._pmxt_remote_base_url
-        prior_remote_urls = getattr(self, "_pmxt_remote_base_urls", ())
-        try:
-            if kind == _PMXT_SOURCE_STAGE_RAW_LOCAL:
-                self._pmxt_raw_root = Path(target).expanduser()
-            elif kind == _PMXT_SOURCE_STAGE_RAW_REMOTE:
-                self._pmxt_remote_base_url = target
-                self._pmxt_remote_base_urls = (target,)
-            yield
-        finally:
-            self._pmxt_raw_root = prior_raw_root
-            self._pmxt_remote_base_url = prior_remote_url
-            if hasattr(self, "_pmxt_remote_base_urls"):
-                self._pmxt_remote_base_urls = prior_remote_urls
+        lock = getattr(self, "_pmxt_source_lock", None)
+        if lock is None:
+            lock = threading.RLock()
+            self._pmxt_source_lock = lock
+        with lock:
+            prior_raw_root = self._pmxt_raw_root
+            prior_remote_url = self._pmxt_remote_base_url
+            prior_remote_urls = getattr(self, "_pmxt_remote_base_urls", ())
+            try:
+                if kind == _PMXT_SOURCE_STAGE_RAW_LOCAL:
+                    self._pmxt_raw_root = Path(target).expanduser()
+                elif kind == _PMXT_SOURCE_STAGE_RAW_REMOTE:
+                    self._pmxt_remote_base_url = target
+                    self._pmxt_remote_base_urls = (target,)
+                yield
+            finally:
+                self._pmxt_raw_root = prior_raw_root
+                self._pmxt_remote_base_url = prior_remote_url
+                if hasattr(self, "_pmxt_remote_base_urls"):
+                    self._pmxt_remote_base_urls = prior_remote_urls
 
     def _load_entry_batches(self, kind: str, hour, *, batch_size: int):  # type: ignore[no-untyped-def]
         if kind == _PMXT_SOURCE_STAGE_RAW_LOCAL:

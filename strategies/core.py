@@ -48,8 +48,8 @@ def _decimal_or_none(value: object) -> Decimal | None:
 
 
 def _estimate_entry_unit_cost(*, reference_price: Decimal, taker_fee: Decimal) -> Decimal:
-    clamped_price = min(max(reference_price, Decimal(0)), Decimal(1))
-    return clamped_price + (taker_fee * clamped_price * (Decimal(1) - clamped_price))
+    clamped_price = min(max(reference_price, Decimal("0")), Decimal("1"))
+    return clamped_price + (taker_fee * clamped_price * (Decimal("1") - clamped_price))
 
 
 def _cap_entry_size_to_free_balance(
@@ -60,12 +60,12 @@ def _cap_entry_size_to_free_balance(
     free_balance: Decimal | None,
 ) -> Decimal:
     if desired_size <= 0:
-        return Decimal(0)
+        return Decimal("0")
     if reference_price is None or reference_price <= 0 or free_balance is None:
         return desired_size
 
     unit_cost = _estimate_entry_unit_cost(
-        reference_price=reference_price, taker_fee=max(taker_fee, Decimal(0))
+        reference_price=reference_price, taker_fee=max(taker_fee, Decimal("0"))
     )
     if unit_cost <= 0:
         return desired_size
@@ -73,32 +73,32 @@ def _cap_entry_size_to_free_balance(
     # Leave a small cash buffer so marketable entries do not spend exactly to
     # the displayed top-of-book estimate on thin books.
     affordable_size = (free_balance * ENTRY_AFFORDABILITY_BUFFER) / unit_cost
-    return max(Decimal(0), min(desired_size, affordable_size))
+    return max(Decimal("0"), min(desired_size, affordable_size))
 
 
 def _cap_entry_size_to_visible_liquidity(
     *, desired_size: Decimal, visible_size: Decimal | None
 ) -> Decimal:
     if desired_size <= 0:
-        return Decimal(0)
+        return Decimal("0")
     if visible_size is None:
         return desired_size
     if visible_size <= 0:
-        return Decimal(0)
+        return Decimal("0")
     return min(desired_size, visible_size)
 
 
 def _effective_entry_reference_price(
     *, reference_price: Decimal | None, visible_size: Decimal | None
 ) -> Decimal:
-    if reference_price is not None and visible_size is not None and visible_size > 0:
+    if reference_price is not None and reference_price > 0:
         return reference_price
 
     # Without a visible ask, a market buy can clear anywhere up to 1.0 in a
     # binary prediction market. Size against that worst-case cash usage rather
     # than the last print to avoid manufacturing affordable size from stale
     # trade-only signals.
-    return Decimal(1)
+    return Decimal("1")
 
 
 class LongOnlyPredictionMarketStrategy(Strategy):
@@ -111,11 +111,28 @@ class LongOnlyPredictionMarketStrategy(Strategy):
         self._instrument = None
         self._pending: bool = False
         self._entry_price: float | None = None
-        self._entry_qty_sum: Decimal = Decimal(0)
-        self._entry_cost_sum: Decimal = Decimal(0)
+        self._entry_qty_sum: Decimal = Decimal("0")
+        self._entry_cost_sum: Decimal = Decimal("0")
         self._last_entry_reference_price: float | None = None
         self._last_entry_visible_size: float | None = None
         self._last_exit_visible_size: float | None = None
+        self._entry_warning_emitted: bool = False
+
+    def _warn_entry_unfillable(
+        self,
+        *,
+        desired_size: Decimal,
+        reference_price: float | None,
+        reason: str,
+    ) -> None:
+        if self._entry_warning_emitted:
+            return
+        self._entry_warning_emitted = True
+        self.log.warning(
+            "Unable to submit BUY for "
+            f"{self.config.instrument_id}: {reason} "
+            f"(trade_size={desired_size}, reference_price={reference_price})."
+        )
 
     def _subscribe(self) -> None:
         raise NotImplementedError
@@ -178,23 +195,43 @@ class LongOnlyPredictionMarketStrategy(Strategy):
             reference_price=_effective_entry_reference_price(
                 reference_price=_decimal_or_none(reference_price), visible_size=visible_size_decimal
             ),
-            taker_fee=_decimal_or_none(self._instrument.taker_fee) or Decimal(0),
+            taker_fee=_decimal_or_none(self._instrument.taker_fee) or Decimal("0"),
             free_balance=self._free_quote_balance(),
         )
         if capped_size <= 0:
+            self._warn_entry_unfillable(
+                desired_size=desired_size,
+                reference_price=reference_price,
+                reason="size collapsed to zero after balance/liquidity caps",
+            )
             return None
 
         try:
             quantity = self._instrument.make_qty(float(capped_size), round_down=True)
         except ValueError:
+            self._warn_entry_unfillable(
+                desired_size=desired_size,
+                reference_price=reference_price,
+                reason="instrument rejected rounded quantity",
+            )
             return None
 
         lot_size = self._instrument.lot_size
         if lot_size is not None and quantity.as_double() + 1e-12 < lot_size.as_double():
+            self._warn_entry_unfillable(
+                desired_size=desired_size,
+                reference_price=reference_price,
+                reason="rounded quantity is below lot_size",
+            )
             return None
 
         min_quantity = getattr(self._instrument, "min_quantity", None)
         if min_quantity is not None and quantity.as_double() + 1e-12 < min_quantity.as_double():
+            self._warn_entry_unfillable(
+                desired_size=desired_size,
+                reference_price=reference_price,
+                reason="rounded quantity is below min_quantity",
+            )
             return None
 
         if quantity.as_double() + 1e-12 < float(desired_size):
@@ -281,16 +318,16 @@ class LongOnlyPredictionMarketStrategy(Strategy):
         return float(
             _estimate_entry_unit_cost(
                 reference_price=Decimal(str(self._entry_price)),
-                taker_fee=max(fee_rate, Decimal(0)),
+                taker_fee=max(fee_rate, Decimal("0")),
             )
         )
 
     def _exit_price_after_fees(self, price: float) -> float:
         if self._instrument is None:
             return price
-        fee_rate = _decimal_or_none(self._instrument.taker_fee) or Decimal(0)
-        clamped_price = min(max(Decimal(str(price)), Decimal(0)), Decimal(1))
-        fee = max(fee_rate, Decimal(0)) * clamped_price * (Decimal(1) - clamped_price)
+        fee_rate = _decimal_or_none(self._instrument.taker_fee) or Decimal("0")
+        clamped_price = min(max(Decimal(str(price)), Decimal("0")), Decimal("1"))
+        fee = max(fee_rate, Decimal("0")) * clamped_price * (Decimal("1") - clamped_price)
         return float(clamped_price - fee)
 
     def _risk_exit(self, *, price: float, take_profit: float, stop_loss: float) -> bool:
@@ -331,8 +368,8 @@ class LongOnlyPredictionMarketStrategy(Strategy):
                 self._entry_price = float(self._entry_cost_sum / self._entry_qty_sum)
             else:
                 self._entry_price = None
-                self._entry_qty_sum = Decimal(0)
-                self._entry_cost_sum = Decimal(0)
+                self._entry_qty_sum = Decimal("0")
+                self._entry_cost_sum = Decimal("0")
         self._pending = False
 
     def on_order_rejected(self, event) -> None:  # type: ignore[no-untyped-def]
@@ -351,9 +388,10 @@ class LongOnlyPredictionMarketStrategy(Strategy):
     def on_reset(self) -> None:
         self._pending = False
         self._entry_price = None
-        self._entry_qty_sum = Decimal(0)
-        self._entry_cost_sum = Decimal(0)
+        self._entry_qty_sum = Decimal("0")
+        self._entry_cost_sum = Decimal("0")
         self._last_entry_reference_price = None
         self._last_entry_visible_size = None
         self._last_exit_visible_size = None
+        self._entry_warning_emitted = False
         self._instrument = None

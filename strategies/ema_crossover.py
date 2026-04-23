@@ -25,6 +25,12 @@ from nautilus_trader.model.data import Bar, BarType, QuoteTick, TradeTick
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.trading.strategy import StrategyConfig
 
+from strategies._validation import (
+    require_finite_nonnegative_float,
+    require_less,
+    require_positive_decimal,
+    require_positive_int,
+)
 from strategies.core import LongOnlyPredictionMarketStrategy
 
 
@@ -48,6 +54,15 @@ class BarEMACrossoverConfig(StrategyConfig, frozen=True):  # type: ignore[call-a
     take_profit: float = 0.0
     stop_loss: float = 0.0
 
+    def __post_init__(self) -> None:
+        require_positive_decimal("trade_size", self.trade_size)
+        require_positive_int("fast_period", self.fast_period)
+        require_positive_int("slow_period", self.slow_period)
+        require_less("fast_period", self.fast_period, "slow_period", self.slow_period)
+        require_finite_nonnegative_float("entry_buffer", self.entry_buffer)
+        require_finite_nonnegative_float("take_profit", self.take_profit)
+        require_finite_nonnegative_float("stop_loss", self.stop_loss)
+
 
 class TradeTickEMACrossoverConfig(StrategyConfig, frozen=True):  # type: ignore[call-arg]
     instrument_id: InstrumentId
@@ -58,6 +73,15 @@ class TradeTickEMACrossoverConfig(StrategyConfig, frozen=True):  # type: ignore[
     take_profit: float = 0.0
     stop_loss: float = 0.0
 
+    def __post_init__(self) -> None:
+        require_positive_decimal("trade_size", self.trade_size)
+        require_positive_int("fast_period", self.fast_period)
+        require_positive_int("slow_period", self.slow_period)
+        require_less("fast_period", self.fast_period, "slow_period", self.slow_period)
+        require_finite_nonnegative_float("entry_buffer", self.entry_buffer)
+        require_finite_nonnegative_float("take_profit", self.take_profit)
+        require_finite_nonnegative_float("stop_loss", self.stop_loss)
+
 
 class QuoteTickEMACrossoverConfig(StrategyConfig, frozen=True):  # type: ignore[call-arg]
     instrument_id: InstrumentId
@@ -67,6 +91,15 @@ class QuoteTickEMACrossoverConfig(StrategyConfig, frozen=True):  # type: ignore[
     entry_buffer: float = 0.0
     take_profit: float = 0.0
     stop_loss: float = 0.0
+
+    def __post_init__(self) -> None:
+        require_positive_decimal("trade_size", self.trade_size)
+        require_positive_int("fast_period", self.fast_period)
+        require_positive_int("slow_period", self.slow_period)
+        require_less("fast_period", self.fast_period, "slow_period", self.slow_period)
+        require_finite_nonnegative_float("entry_buffer", self.entry_buffer)
+        require_finite_nonnegative_float("take_profit", self.take_profit)
+        require_finite_nonnegative_float("stop_loss", self.stop_loss)
 
 
 class _EMACrossoverBase(LongOnlyPredictionMarketStrategy):
@@ -165,7 +198,7 @@ class TradeTickEMACrossoverStrategy(_EMACrossoverBase):
 
     def on_trade_tick(self, tick: TradeTick) -> None:
         price = float(tick.price)
-        self._on_price(price, entry_price=price, visible_size=float(tick.size))
+        self._on_price(price, entry_price=price, visible_size=None)
 
 
 class QuoteTickEMACrossoverStrategy(_EMACrossoverBase):

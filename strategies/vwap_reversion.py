@@ -173,7 +173,7 @@ class TradeTickVWAPReversionStrategy(_VWAPReversionBase):
             price=price,
             size=float(tick.size),
             entry_price=price,
-            visible_size=float(tick.size),
+            visible_size=None,
         )
 
 

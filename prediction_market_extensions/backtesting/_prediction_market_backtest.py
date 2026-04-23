@@ -191,6 +191,15 @@ class PredictionMarketBacktest:
         loaded_sims = await self._load_sims_async()
         if not loaded_sims:
             return []
+        seen_instrument_ids: set[str] = set()
+        for loaded_sim in loaded_sims:
+            instrument_id = str(loaded_sim.instrument.id)
+            if instrument_id in seen_instrument_ids:
+                raise ValueError(
+                    "Duplicate instruments are not allowed in a joint-portfolio run: "
+                    f"{instrument_id}"
+                )
+            seen_instrument_ids.add(instrument_id)
 
         engine = self._build_engine()
         try:

@@ -32,6 +32,8 @@ from strategies.core import LongOnlyPredictionMarketStrategy
 class _MeanReversionConfig(Protocol):
     instrument_id: InstrumentId
     trade_size: Decimal
+    window: int
+    vwap_window: int
     entry_threshold: float
     exit_threshold: float
     take_profit: float
@@ -188,7 +190,7 @@ class TradeTickMeanReversionStrategy(_MeanReversionBase):
 
     def on_trade_tick(self, tick: TradeTick) -> None:
         price = float(tick.price)
-        self._on_price(price, entry_price=price, visible_size=float(tick.size))
+        self._on_price(price, entry_price=price, visible_size=None)
 
 
 class QuoteTickMeanReversionStrategy(_MeanReversionBase):
