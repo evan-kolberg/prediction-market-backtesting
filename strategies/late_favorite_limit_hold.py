@@ -96,7 +96,7 @@ class _LateFavoriteLimitHoldBase(LongOnlyPredictionMarketStrategy):
             self._entered_once = True
 
     def on_order_expired(self, event) -> None:  # type: ignore[no-untyped-def]
-        self._pending = False
+        super().on_order_expired(event)
 
     def on_stop(self) -> None:
         # Leave filled positions open so the runner can mark them to settlement.
