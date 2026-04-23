@@ -216,9 +216,14 @@ class LongOnlyPredictionMarketStrategy(Strategy):
             if self._entry_qty_sum > 0:
                 self._entry_price = self._entry_cost_sum / self._entry_qty_sum
         else:
-            self._entry_price = None
-            self._entry_qty_sum = 0.0
-            self._entry_cost_sum = 0.0
+            fill_qty = float(event.last_qty)
+            self._entry_qty_sum -= fill_qty
+            if self._entry_qty_sum > 0:
+                self._entry_price = self._entry_cost_sum / self._entry_qty_sum
+            else:
+                self._entry_price = None
+                self._entry_qty_sum = 0.0
+                self._entry_cost_sum = 0.0
         self._pending = False
 
     def on_order_rejected(self, event) -> None:  # type: ignore[no-untyped-def]
