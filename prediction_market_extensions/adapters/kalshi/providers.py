@@ -107,20 +107,6 @@ def _market_dict_to_instrument(market: dict) -> BinaryOption:
         dt = datetime.fromisoformat(s)
         return dt_to_unix_nanos(dt)
 
-    # Check if this market has a fee waiver that is still active
-    fee_waiver = market.get("fee_waiver_expiration_time")
-    if fee_waiver:
-        try:
-            waiver_dt = datetime.fromisoformat(fee_waiver)
-            if waiver_dt > datetime.now(waiver_dt.tzinfo):
-                taker_fee = decimal.Decimal(0)
-            else:
-                taker_fee = KALSHI_TAKER_FEE_RATE
-        except (ValueError, TypeError):
-            taker_fee = KALSHI_TAKER_FEE_RATE
-    else:
-        taker_fee = KALSHI_TAKER_FEE_RATE
-
     return BinaryOption(
         instrument_id=instrument_id,
         raw_symbol=Symbol(ticker),
@@ -133,7 +119,7 @@ def _market_dict_to_instrument(market: dict) -> BinaryOption:
         price_increment=Price.from_str("0.0001"),
         size_increment=Quantity.from_str("0.01"),
         maker_fee=KALSHI_MAKER_FEE_RATE,
-        taker_fee=taker_fee,
+        taker_fee=KALSHI_TAKER_FEE_RATE,
         outcome="Yes",
         description=market.get("title"),
         ts_event=0,

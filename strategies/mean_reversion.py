@@ -32,6 +32,8 @@ from strategies.core import LongOnlyPredictionMarketStrategy
 class _MeanReversionConfig(Protocol):
     instrument_id: InstrumentId
     trade_size: Decimal
+    window: int
+    vwap_window: int
     entry_threshold: float
     exit_threshold: float
     take_profit: float
@@ -126,28 +128,45 @@ class _MeanReversionBase(LongOnlyPredictionMarketStrategy):
         return int(getattr(self.config, self._window_field))
 
     def _on_price(
-        self, price: float, *, entry_price: float | None = None, visible_size: float | None = None
+        self,
+        price: float,
+        *,
+        entry_price: float | None = None,
+        visible_size: float | None = None,
+        exit_visible_size: float | None = None,
     ) -> None:
-        self._prices.append(price)
-        if len(self._prices) < self._window() or self._pending:
+        reference_price = price if entry_price is None else entry_price
+        self._remember_market_context(
+            entry_reference_price=reference_price,
+            entry_visible_size=visible_size,
+            exit_visible_size=exit_visible_size,
+        )
+        if len(self._prices) < self._window():
+            self._prices.append(price)
+            return
+        if self._pending:
+            self._prices.append(price)
             return
 
         rolling_avg = sum(self._prices) / len(self._prices)
         if not self._in_position():
             if price <= rolling_avg - self.config.entry_threshold:
                 self._submit_entry(
-                    reference_price=price if entry_price is None else entry_price,
+                    reference_price=reference_price,
                     visible_size=visible_size,
                 )
+            self._prices.append(price)
             return
 
         if self._risk_exit(
             price=price, take_profit=self.config.take_profit, stop_loss=self.config.stop_loss
         ):
+            self._prices.append(price)
             return
 
         if price >= rolling_avg - self.config.exit_threshold:
             self._submit_exit()
+        self._prices.append(price)
 
     def on_reset(self) -> None:
         super().on_reset()
@@ -171,7 +190,7 @@ class TradeTickMeanReversionStrategy(_MeanReversionBase):
 
     def on_trade_tick(self, tick: TradeTick) -> None:
         price = float(tick.price)
-        self._on_price(price, entry_price=price)
+        self._on_price(price, entry_price=price, visible_size=None)
 
 
 class QuoteTickMeanReversionStrategy(_MeanReversionBase):
@@ -179,8 +198,14 @@ class QuoteTickMeanReversionStrategy(_MeanReversionBase):
         self.subscribe_quote_ticks(self.config.instrument_id)
 
     def on_quote_tick(self, tick: QuoteTick) -> None:
+        self._remember_market_context(
+            entry_reference_price=float(tick.ask_price),
+            entry_visible_size=float(tick.ask_size),
+            exit_visible_size=float(tick.bid_size),
+        )
         self._on_price(
             (float(tick.bid_price) + float(tick.ask_price)) / 2.0,
             entry_price=float(tick.ask_price),
             visible_size=float(tick.ask_size),
+            exit_visible_size=float(tick.bid_size),
         )

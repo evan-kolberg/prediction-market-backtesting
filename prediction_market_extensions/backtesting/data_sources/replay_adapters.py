@@ -607,13 +607,14 @@ class PolymarketTelonexQuoteReplayAdapter(_BaseReplayAdapter):
             loader = await loader_cls.from_market_slug(
                 replay.market_slug, token_index=replay.token_index
             )
+            selected_outcome = str(loader.instrument.outcome or replay.outcome or "")
             records = tuple(
                 loader.load_order_book_and_quotes(
                     start,
                     end,
                     market_slug=replay.market_slug,
                     token_index=replay.token_index,
-                    outcome=replay.outcome,
+                    outcome=selected_outcome or None,
                 )
             )
         except Exception as exc:
@@ -653,7 +654,7 @@ class PolymarketTelonexQuoteReplayAdapter(_BaseReplayAdapter):
             market_key="slug",
             market_id=replay.market_slug,
             prices=prices_tuple,
-            outcome=str(loader.instrument.outcome or replay.outcome or ""),
+            outcome=selected_outcome,
             realized_outcome=infer_realized_outcome(loader.instrument),
             metadata=dict(replay.metadata or {}),
             requested_window=_requested_window(start, end),

@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from datetime import datetime
+import warnings
 
 import pandas as pd
 
@@ -46,10 +47,19 @@ def _parse_numeric(value: object, default: float = 0.0) -> float:
     return default
 
 
+def _parse_required_numeric(value: object) -> float | None:
+    if value is None:
+        return None
+    parsed = _parse_numeric(value, default=float("nan"))
+    return parsed if pd.notna(parsed) else None
+
+
 def extract_realized_pnl(pos_report: pd.DataFrame) -> float:
     """
     Parse and sum ``realized_pnl`` values from a positions report DataFrame.
     """
+    if pos_report.empty:
+        return 0.0
     total = 0.0
     for _, row in pos_report.iterrows():
         total += _parse_numeric(row.get("realized_pnl", 0.0), default=0.0)
@@ -200,6 +210,19 @@ def _probability_frame(points: Sequence[PricePoint]) -> pd.DataFrame:
     if frame.empty:
         return frame
 
+    invalid_probabilities = frame[
+        (frame["market_probability"] < 0.0) | (frame["market_probability"] > 1.0)
+    ]
+    if not invalid_probabilities.empty:
+        invalid_count = int(len(invalid_probabilities))
+        first_invalid_ts = invalid_probabilities.index[0]
+        warnings.warn(
+            "Probability series contained values outside [0.0, 1.0]; clipping to preserve chart "
+            "construction. Inspect upstream loader data for corruption. "
+            f"Invalid rows={invalid_count}, first_invalid_ts={first_invalid_ts.isoformat()}",
+            RuntimeWarning,
+            stacklevel=2,
+        )
     frame["market_probability"] = frame["market_probability"].clip(0.0, 1.0)
     return frame
 
@@ -230,7 +253,7 @@ def _resolved_outcome_from_numeric_fields(info: Mapping[object, object]) -> floa
 
         if numeric_value in {0.0, 1.0}:
             return numeric_value
-        if numeric_value in {0.0, 100.0}:
+        if numeric_value == 100.0:
             return numeric_value / 100.0
 
     return None
@@ -293,18 +316,26 @@ def compute_binary_settlement_pnl(
     """
     if resolved_outcome is None:
         return None
+    if not fill_events:
+        return None
 
     cash = 0.0
     open_qty = 0.0
     commissions = 0.0
+    contract_side = "yes"
+    saw_fill = False
 
     for event in fill_events:
         action = str(event.get("action") or "").strip().lower()
-        price = _parse_numeric(event.get("price"), default=0.0)
+        price = _parse_required_numeric(event.get("price"))
         quantity = _parse_numeric(event.get("quantity"), default=0.0)
         commission = _parse_numeric(event.get("commission"), default=0.0)
-        if quantity <= 0.0:
+        if quantity <= 0.0 or price is None:
             continue
+        event_side = str(event.get("side") or "").strip().casefold()
+        if event_side in {"yes", "no"}:
+            contract_side = event_side
+        saw_fill = True
 
         commissions += commission
         if action == "buy":
@@ -314,20 +345,39 @@ def compute_binary_settlement_pnl(
             cash += price * quantity
             open_qty -= quantity
 
-    return cash + (float(resolved_outcome) * open_qty) - commissions
+    if not saw_fill:
+        return None
+    settlement_value = (
+        float(resolved_outcome) if contract_side == "yes" else 1.0 - float(resolved_outcome)
+    )
+    return cash + (settlement_value * open_qty) - commissions
 
 
 def build_brier_inputs(
-    points: Sequence[PricePoint], window: int, realized_outcome: float | None = None
+    points: Sequence[PricePoint],
+    window: int,
+    realized_outcome: float | None = None,
+    warnings_out: list[str] | None = None,
 ) -> tuple[pd.Series, pd.Series, pd.Series]:
     """
     Build user/market/outcome probability series for cumulative Brier advantage.
     """
     empty = pd.Series(dtype=float)
-    if not points or window <= 0:
+    if not points:
         return empty, empty, empty
+    if window <= 0:
+        raise ValueError(f"window must be > 0, got {window}")
 
-    frame = _probability_frame(points)
+    if warnings_out is None:
+        frame = _probability_frame(points)
+    else:
+        with warnings.catch_warnings(record=True) as caught_warnings:
+            warnings.simplefilter("always", RuntimeWarning)
+            frame = _probability_frame(points)
+        for caught_warning in caught_warnings:
+            message = str(caught_warning.message)
+            if message not in warnings_out:
+                warnings_out.append(message)
     if frame.empty:
         return empty, empty, empty
 

@@ -61,15 +61,15 @@ def test_public_kalshi_runner_reconciles_fills_fees_and_taker_slippage() -> None
     result = _run_validation_case("kalshi-baseline")
 
     fill_events = result["fill_events"]
-    assert result["fills"] == len(fill_events) == 4
+    assert result["fills"] == len(fill_events) == 2
     assert result["terminated_early"] is False
     assert result["realized_outcome"] == 1.0
     assert result["pnl"] == pytest.approx(_ledger_realized_pnl(fill_events))
 
     # Kalshi trade ticks expose 4-decimal prices, but taker execution must be
     # modeled with the real one-cent order tick.
-    assert [event["price"] for event in fill_events] == [0.56, 0.59, 0.61, 0.50]
-    assert [event["commission"] for event in fill_events] == [0.02, 0.02, 0.02, 0.02]
+    assert [event["price"] for event in fill_events] == [0.56, 0.59]
+    assert [event["commission"] for event in fill_events] == [0.02, 0.02]
 
 
 def test_public_kalshi_runner_first_decision_is_invariant_to_future_ticks() -> None:
@@ -87,4 +87,4 @@ def test_public_polymarket_trade_runner_reconciles_size_clipping_and_slippage() 
     assert result["terminated_early"] is False
     assert result["pnl"] == pytest.approx(_ledger_realized_pnl(fill_events))
     assert [event["price"] for event in fill_events] == [0.51, 0.50]
-    assert fill_events[0]["quantity"] == 97.0
+    assert fill_events[0]["quantity"] == 100.0

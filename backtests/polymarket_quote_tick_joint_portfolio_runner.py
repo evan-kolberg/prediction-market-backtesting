@@ -116,12 +116,8 @@ STRATEGY_CONFIGS = [
         "config_path": "strategies:QuoteTickDeepValueHoldConfig",
         "config": {
             "trade_size": Decimal(5),
-            "vwap_window": 30,
-            "entry_threshold": 0.0015,
-            "exit_threshold": 0.0003,
-            "min_tick_size": 0.0,
-            "take_profit": 0.004,
-            "stop_loss": 0.004,
+            "entry_price_max": 0.15,
+            "single_entry": True,
         },
     }
 ]

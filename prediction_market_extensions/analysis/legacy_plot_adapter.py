@@ -383,10 +383,10 @@ def _replay_fill_position_deltas(
             pos_changes[market_id] = np.zeros(n_bars, dtype=float)
 
         ts64 = pd.Timestamp(fill.timestamp).to_datetime64()
-        bar_idx = int(np.searchsorted(dense_dts, ts64, side="right") - 1)
+        bar_idx = int(np.searchsorted(dense_dts, ts64, side="left"))
         bar_idx = max(0, min(n_bars - 1, bar_idx))
         pos_changes[market_id][bar_idx] += delta
-        fill_price_map[market_id] = float(fill.price)
+        fill_price_map.setdefault(market_id, float(fill.price))
 
     return pos_changes, fill_price_map
 
@@ -609,8 +609,8 @@ def _build_metrics(snapshots: list[Any], initial_cash: float) -> dict[str, float
         return {}
 
     equity = pd.Series([float(snapshot.total_equity) for snapshot in snapshots])
-    running_max = equity.cummax().replace(0, pd.NA)
-    drawdown = (running_max - equity) / running_max
+    running_max = equity.cummax()
+    drawdown = ((running_max - equity) / running_max.where(running_max > 0.0, pd.NA)).fillna(0.0)
 
     final_equity = float(equity.iloc[-1])
     total_return = (final_equity - initial_cash) / initial_cash if initial_cash else 0.0

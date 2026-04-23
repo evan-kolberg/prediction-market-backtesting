@@ -7,6 +7,7 @@ import multiprocessing
 import pickle
 import tempfile
 import traceback
+import warnings
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
@@ -196,6 +197,13 @@ class ParameterSearchConfig:
 
         if not self.train_windows:
             raise ValueError("train_windows must not be empty.")
+        if self.holdout_windows and len(self.base_replays) == 1:
+            warnings.warn(
+                "Parameter search train/holdout windows are split from a single market replay. "
+                "Treat holdout metrics as time-split validation, not cross-market generalization.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
 
 
 @dataclass(frozen=True)
@@ -618,7 +626,13 @@ def _joint_portfolio_drawdown(equity_series_list: Sequence[object]) -> float:
 
     joint = None
     for frame in frames:
-        reindexed = frame.reindex(combined_index).ffill().bfill()
+        reindexed = frame.reindex(combined_index).ffill()
+        if reindexed.empty:
+            continue
+        first_valid = reindexed.first_valid_index()
+        if first_valid is not None:
+            reindexed.loc[reindexed.index < first_valid] = 0.0
+        reindexed = reindexed.fillna(0.0)
         joint = reindexed if joint is None else joint + reindexed
     if joint is None or joint.empty:
         return 0.0

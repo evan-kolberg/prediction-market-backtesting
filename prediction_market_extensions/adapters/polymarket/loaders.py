@@ -831,8 +831,8 @@ class PolymarketDataLoader:
                 and (start_ts is None or trade["timestamp"] >= start_ts)
             )
 
-            if start_ts is not None and max(trade["timestamp"] for trade in data) < start_ts:
-                break
+            # Do not early-terminate on page timestamps: the public API does
+            # not guarantee a stable sort order across pages.
 
             offset += len(data)
 
@@ -883,12 +883,18 @@ class PolymarketDataLoader:
             _tiebreaker_ns = min(occurrence_in_second, 999_999_999)
             ts_event = base_ts_event + _tiebreaker_ns
 
-            side_str = trade_data["side"]
+            side_str = str(trade_data.get("side", "")).strip().upper()
             if side_str == "BUY":
                 aggressor_side = AggressorSide.BUYER
             elif side_str == "SELL":
                 aggressor_side = AggressorSide.SELLER
             else:
+                warnings.warn(
+                    f"Polymarket trade {i} had unexpected side {trade_data.get('side')!r}; "
+                    "recording NO_AGGRESSOR for audit visibility.",
+                    RuntimeWarning,
+                    stacklevel=2,
+                )
                 aggressor_side = AggressorSide.NO_AGGRESSOR
 
             # Multi-token Polymarket transactions produce multiple fills that
@@ -905,10 +911,14 @@ class PolymarketDataLoader:
             tx_asset_counts[_tx_asset_key] = _tx_asset_sequence + 1
 
             _raw_price = float(trade_data["price"])
-            if not (0.0 <= _raw_price <= 1.0):
-                raise ValueError(
-                    f"Polymarket trade price must be in [0.0, 1.0], got {_raw_price!r} (record {i})"
+            if not (0.0 < _raw_price < 1.0):
+                warnings.warn(
+                    "Skipping Polymarket trade with out-of-range or untradable price "
+                    f"{_raw_price!r} at record {i}.",
+                    RuntimeWarning,
+                    stacklevel=2,
                 )
+                continue
             trade = TradeTick(
                 instrument_id=instrument_id,
                 price=make_price(trade_data["price"]),

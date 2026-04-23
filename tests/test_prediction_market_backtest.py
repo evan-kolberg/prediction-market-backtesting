@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+import asyncio
+from types import SimpleNamespace
+
+import pytest
+
 from prediction_market_extensions.backtesting._prediction_market_backtest import (
     PredictionMarketBacktest,
 )
@@ -42,3 +47,19 @@ def test_strategy_summary_label_reports_factory() -> None:
     backtest = _build_backtest(strategy_factory=lambda instrument_id: instrument_id)
 
     assert backtest._strategy_summary_label() == "a strategy factory"
+
+
+def test_run_async_rejects_duplicate_instruments(monkeypatch) -> None:
+    backtest = _build_backtest(strategy_factory=lambda instrument_id: instrument_id)
+    duplicate = SimpleNamespace(
+        instrument=SimpleNamespace(id="POLYMARKET.DUPLICATE"),
+        requested_window=SimpleNamespace(start_ns=None, end_ns=None),
+    )
+
+    async def _fake_load_sims_async():
+        return [duplicate, duplicate]
+
+    monkeypatch.setattr(backtest, "_load_sims_async", _fake_load_sims_async)
+
+    with pytest.raises(ValueError, match="Duplicate instruments"):
+        asyncio.run(backtest.run_async())

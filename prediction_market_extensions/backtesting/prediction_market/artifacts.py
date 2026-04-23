@@ -25,6 +25,9 @@ from prediction_market_extensions.analysis.legacy_plot_adapter import (
     save_legacy_backtest_layout,
 )
 from prediction_market_extensions.backtesting._backtest_runtime import apply_backtest_run_state
+from prediction_market_extensions.backtesting._result_policies import (
+    apply_binary_settlement_pnl,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
@@ -66,8 +69,13 @@ class PredictionMarketArtifactBuilder:
         instrument_positions = self._filter_report_rows(
             positions_report, instrument_id=instrument_id
         )
+        fill_events = prediction_market_research._serialize_fill_events(
+            market_id=loaded_sim.market_id,
+            fills_report=instrument_fills,
+        )
 
         pnl = extract_realized_pnl(instrument_positions)
+        settlement_observable_ns = getattr(loaded_sim.instrument, "expiration_ns", None)
         result: dict[str, Any] = {
             loaded_sim.market_key: loaded_sim.market_id,
             loaded_sim.count_key: loaded_sim.count,
@@ -77,8 +85,12 @@ class PredictionMarketArtifactBuilder:
             "outcome": loaded_sim.outcome,
             "realized_outcome": loaded_sim.realized_outcome,
             "token_index": getattr(loaded_sim.spec, "token_index", 0),
-            "fill_events": prediction_market_research._serialize_fill_events(
-                market_id=loaded_sim.market_id, fills_report=instrument_fills
+            "fill_events": fill_events,
+            "settlement_observable_ns": settlement_observable_ns,
+            "settlement_observable_time": (
+                pd.Timestamp(settlement_observable_ns, unit="ns", tz="UTC").isoformat()
+                if isinstance(settlement_observable_ns, int) and settlement_observable_ns > 0
+                else None
             ),
         }
         market_slug = getattr(loaded_sim.spec, "market_slug", None)
@@ -96,7 +108,8 @@ class PredictionMarketArtifactBuilder:
         if joint_portfolio_artifacts:
             result.update(joint_portfolio_artifacts)
         result.update(dict(loaded_sim.metadata))
-        return apply_backtest_run_state(result=result, run_state=run_state or {})
+        result = apply_backtest_run_state(result=result, run_state=run_state or {})
+        return apply_binary_settlement_pnl(result)
 
     def build_market_artifacts(
         self,
@@ -184,12 +197,16 @@ class PredictionMarketArtifactBuilder:
             price_points = downsample_price_points(price_points, max_points=5000)
 
         market_prices = build_market_prices(price_points, resample_rule=self.chart_resample_rule)
+        artifact_warnings: list[str] = []
         user_probabilities, market_probabilities, outcomes = build_brier_inputs(
             price_points,
             window=self.probability_window,
             realized_outcome=loaded_sim.realized_outcome,
+            warnings_out=artifact_warnings,
         )
         artifacts: dict[str, Any] = {}
+        if artifact_warnings:
+            artifacts["warnings"] = artifact_warnings
 
         chart_layout = None
         chart_title = f"{self.name}:{loaded_sim.market_id} legacy chart"
@@ -311,24 +328,14 @@ class PredictionMarketArtifactBuilder:
         if not include_portfolio_series:
             return series_artifacts
 
-        if self.sim_count == 1:
-            dense_equity_series, dense_cash_series = (
-                prediction_market_research._dense_account_series_from_engine(
-                    engine=engine,
-                    market_id=str(loaded_sim.instrument.id),
-                    market_prices=market_prices,
-                    initial_cash=self.initial_cash,
-                )
+        dense_equity_series, dense_cash_series = (
+            prediction_market_research._dense_market_account_series_from_fill_events(
+                market_id=loaded_sim.market_id,
+                market_prices=market_prices,
+                fill_events=fill_events,
+                initial_cash=self.initial_cash,
             )
-        else:
-            dense_equity_series, dense_cash_series = (
-                prediction_market_research._dense_market_account_series_from_fill_events(
-                    market_id=loaded_sim.market_id,
-                    market_prices=market_prices,
-                    fill_events=fill_events,
-                    initial_cash=self.initial_cash,
-                )
-            )
+        )
         pnl_series = (
             dense_equity_series - float(dense_equity_series.iloc[0])
             if not dense_equity_series.empty

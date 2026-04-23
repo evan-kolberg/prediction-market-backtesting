@@ -119,16 +119,32 @@ def test_polymarket_parse_trades_disambiguates_same_token_multifills() -> None:
     assert [trade.ts_event for trade in trades] == [100_000_000_000, 100_000_000_001]
 
 
-def test_polymarket_parse_trades_validates_price_inside_loop() -> None:
+def test_polymarket_parse_trades_skips_invalid_price_inside_loop() -> None:
     loader = PolymarketDataLoader.__new__(PolymarketDataLoader)
     loader._instrument = _polymarket_instrument()
     loader._token_id = "2" * 64
     loader._condition_id = "0x" + "1" * 64
 
-    with pytest.raises(ValueError, match="price must be in"):
-        loader.parse_trades(
+    with pytest.warns(RuntimeWarning, match="out-of-range or untradable price"):
+        trades = loader.parse_trades(
             [_polymarket_trade(timestamp=100, transaction_hash="0x" + "d" * 64, price="1.20")]
         )
+
+    assert trades == []
+
+
+def test_polymarket_parse_trades_warns_on_unexpected_side() -> None:
+    loader = PolymarketDataLoader.__new__(PolymarketDataLoader)
+    loader._instrument = _polymarket_instrument()
+    loader._token_id = "2" * 64
+    loader._condition_id = "0x" + "1" * 64
+
+    with pytest.warns(RuntimeWarning, match="unexpected side"):
+        trades = loader.parse_trades(
+            [_polymarket_trade(timestamp=100, transaction_hash="0x" + "e" * 64, side="OTHER")]
+        )
+
+    assert len(trades) == 1
 
 
 def test_gamma_winner_inference_ignores_active_99_cent_markets() -> None:
@@ -239,6 +255,16 @@ def test_kalshi_parse_trades_adds_intra_second_tiebreaker() -> None:
 
     assert [trade.ts_event for trade in trades] == [100_000_000_000, 100_000_000_001]
     assert len({str(trade.trade_id) for trade in trades}) == 2
+
+
+def test_kalshi_parse_trades_skips_missing_price_payloads() -> None:
+    loader = KalshiDataLoader.__new__(KalshiDataLoader)
+    loader._instrument = _kalshi_instrument()
+
+    with pytest.warns(RuntimeWarning, match="missing a yes-price field"):
+        trades = loader.parse_trades([{"ts": 100, "count": 1, "taker_side": "yes"}])
+
+    assert trades == []
 
 
 def test_kalshi_load_trades_filters_with_subsecond_precision(monkeypatch) -> None:

@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import hashlib
 from typing import Any, ClassVar
+import warnings
 
 import msgspec
 import pandas as pd
@@ -129,7 +130,7 @@ class KalshiDataLoader:
             return cls._normalize_price(trade["yes_price"])
         if trade.get("price") is not None:
             return cls._normalize_price(trade["price"])
-        raise KeyError(f"Kalshi trade payload missing a yes-price field: {trade}")
+        raise ValueError(f"Kalshi trade payload missing a yes-price field: {trade}")
 
     @staticmethod
     def _extract_quantity(
@@ -376,6 +377,13 @@ class KalshiDataLoader:
             elif taker_side == "no":
                 aggressor_side = AggressorSide.SELLER
             else:
+                if taker_side not in {"", None}:
+                    warnings.warn(
+                        f"Kalshi trade had unexpected taker_side {taker_side!r}; "
+                        "recording NO_AGGRESSOR for audit visibility.",
+                        RuntimeWarning,
+                        stacklevel=2,
+                    )
                 aggressor_side = AggressorSide.NO_AGGRESSOR
 
             key = (
@@ -393,13 +401,22 @@ class KalshiDataLoader:
             else:
                 trade_id = self._fallback_trade_id(ticker, trade, occurrence)
 
+            try:
+                price = self._extract_yes_price(trade)
+                size = self._extract_quantity(trade, fp_key="count_fp", raw_key="count")
+            except (KeyError, ValueError) as exc:
+                warnings.warn(
+                    f"Skipping malformed Kalshi trade payload: {exc}",
+                    RuntimeWarning,
+                    stacklevel=2,
+                )
+                continue
+
             trades.append(
                 TradeTick(
                     instrument_id=instrument_id,
-                    price=make_price(self._extract_yes_price(trade)),
-                    size=make_qty(
-                        self._extract_quantity(trade, fp_key="count_fp", raw_key="count")
-                    ),
+                    price=make_price(price),
+                    size=make_qty(size),
                     aggressor_side=aggressor_side,
                     trade_id=trade_id,
                     ts_event=ts_event,

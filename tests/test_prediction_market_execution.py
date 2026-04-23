@@ -134,3 +134,20 @@ def test_result_warnings_distinguish_loaded_and_requested_coverage(capsys):
     output = capsys.readouterr().out
     assert "50.0% of the loaded-data window" in output
     assert "25.0% of the requested window" in output
+
+
+def test_result_warnings_include_explicit_result_warning_messages(capsys):
+    print_backtest_result_warnings(
+        results=[
+            {
+                "terminated_early": False,
+                "slug": "demo-market",
+                "warnings": ["Settlement outcome exists after the replay window."],
+            }
+        ],
+        market_key="slug",
+    )
+
+    output = capsys.readouterr().out
+    assert "demo-market" in output
+    assert "Settlement outcome exists after the replay window." in output

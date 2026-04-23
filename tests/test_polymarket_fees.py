@@ -2,8 +2,13 @@ from __future__ import annotations
 
 import asyncio
 from decimal import Decimal
+from types import SimpleNamespace
+
+from nautilus_trader.core.rust.model import OrderType
+from nautilus_trader.model.objects import Currency
 
 from prediction_market_extensions.adapters.polymarket.loaders import PolymarketDataLoader
+from prediction_market_extensions.adapters.polymarket.fee_model import PolymarketFeeModel
 from prediction_market_extensions.adapters.polymarket.parsing import (
     calculate_commission,
     infer_fee_exponent,
@@ -57,3 +62,17 @@ def test_fee_rate_enrichment_keeps_maker_fee_zero(monkeypatch) -> None:
 
     assert enriched["maker_base_fee"] == "0"
     assert enriched["taker_base_fee"] == "35"
+
+
+def test_limit_orders_use_zero_polymarket_maker_fee() -> None:
+    commission = PolymarketFeeModel().get_commission(
+        SimpleNamespace(order_type=OrderType.LIMIT),
+        fill_qty=10,
+        fill_px=0.55,
+        instrument=SimpleNamespace(
+            taker_fee=Decimal("0.0035"),
+            quote_currency=Currency.from_str("USD"),
+        ),
+    )
+
+    assert commission.as_double() == 0.0

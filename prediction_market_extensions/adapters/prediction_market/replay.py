@@ -39,6 +39,16 @@ class ReplayWindow:
     start_ns: int | None = None
     end_ns: int | None = None
 
+    def __post_init__(self) -> None:
+        if (
+            self.start_ns is not None
+            and self.end_ns is not None
+            and int(self.start_ns) > int(self.end_ns)
+        ):
+            raise ValueError(
+                f"ReplayWindow start_ns must be <= end_ns, got {self.start_ns} > {self.end_ns}"
+            )
+
 
 @dataclass(frozen=True)
 class ReplayCoverageStats:

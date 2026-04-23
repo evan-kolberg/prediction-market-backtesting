@@ -98,6 +98,38 @@ def test_partial_exit_preserves_remaining_entry_cost_basis() -> None:
     strategy.on_order_filled(SimpleNamespace(order_side=OrderSide.BUY, last_px=0.50, last_qty=100))
     strategy.on_order_filled(SimpleNamespace(order_side=OrderSide.SELL, last_px=0.60, last_qty=40))
 
-    assert strategy._entry_qty_sum == 60.0
-    assert strategy._entry_cost_sum == 30.0
+    assert strategy._entry_qty_sum == Decimal("60")
+    assert strategy._entry_cost_sum == Decimal("30")
     assert strategy._entry_price == 0.50
+
+
+class _StopExitHarness(LongOnlyPredictionMarketStrategy):
+    def __init__(self) -> None:
+        super().__init__(
+            QuoteTickVWAPReversionConfig(instrument_id=INSTRUMENT_ID, trade_size=Decimal(5))
+        )
+        self.canceled_instrument_ids: list[InstrumentId] = []
+        self.closed_instrument_ids: list[InstrumentId] = []
+        self.exit_submitted = False
+
+    def _subscribe(self) -> None:
+        return None
+
+    def cancel_all_orders(self, instrument_id) -> None:  # type: ignore[no-untyped-def]
+        self.canceled_instrument_ids.append(instrument_id)
+
+    def close_all_positions(self, instrument_id) -> None:  # type: ignore[no-untyped-def]
+        self.closed_instrument_ids.append(instrument_id)
+
+    def _submit_exit(self) -> None:
+        self.exit_submitted = True
+
+
+def test_on_stop_uses_tagged_reduce_only_exit_instead_of_close_all_positions() -> None:
+    strategy = _StopExitHarness()
+
+    strategy.on_stop()
+
+    assert strategy.canceled_instrument_ids == [INSTRUMENT_ID]
+    assert strategy.closed_instrument_ids == []
+    assert strategy.exit_submitted is True

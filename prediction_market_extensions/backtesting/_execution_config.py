@@ -56,6 +56,9 @@ class ExecutionModelConfig:
     slippage_ticks: int = 1
     entry_slippage_pct: float = 0.0
     exit_slippage_pct: float = 0.0
+    prob_fill_on_limit: float = 0.25
+    min_synthetic_book_size: float = 10.0
+    synthetic_book_depth_multiplier: float = 1.0
 
     def __post_init__(self) -> None:
         if self.slippage_ticks < 0:
@@ -64,6 +67,23 @@ class ExecutionModelConfig:
             raise ValueError(f"entry_slippage_pct must be >= 0, got {self.entry_slippage_pct}")
         if self.exit_slippage_pct < 0.0:
             raise ValueError(f"exit_slippage_pct must be >= 0, got {self.exit_slippage_pct}")
+        if self.entry_slippage_pct > 1.0:
+            raise ValueError(f"entry_slippage_pct must be <= 1.0, got {self.entry_slippage_pct}")
+        if self.exit_slippage_pct > 1.0:
+            raise ValueError(f"exit_slippage_pct must be <= 1.0, got {self.exit_slippage_pct}")
+        if not 0.0 <= self.prob_fill_on_limit <= 1.0:
+            raise ValueError(
+                f"prob_fill_on_limit must be within [0.0, 1.0], got {self.prob_fill_on_limit}"
+            )
+        if self.min_synthetic_book_size <= 0.0:
+            raise ValueError(
+                f"min_synthetic_book_size must be > 0.0, got {self.min_synthetic_book_size}"
+            )
+        if self.synthetic_book_depth_multiplier <= 0.0:
+            raise ValueError(
+                "synthetic_book_depth_multiplier must be > 0.0, got "
+                f"{self.synthetic_book_depth_multiplier}"
+            )
 
     def build_latency_model(self) -> LatencyModel | None:
         if self.latency_model is None:
@@ -71,11 +91,17 @@ class ExecutionModelConfig:
         return self.latency_model.build_latency_model()
 
     def build_fill_model_kwargs(self) -> dict[str, int | float]:
-        return {
+        kwargs: dict[str, int | float] = {
             "slippage_ticks": self.slippage_ticks,
             "entry_slippage_pct": self.entry_slippage_pct,
             "exit_slippage_pct": self.exit_slippage_pct,
+            "prob_fill_on_limit": self.prob_fill_on_limit,
         }
+        if self.min_synthetic_book_size != type(self).min_synthetic_book_size:
+            kwargs["min_synthetic_book_size"] = self.min_synthetic_book_size
+        if self.synthetic_book_depth_multiplier != type(self).synthetic_book_depth_multiplier:
+            kwargs["synthetic_book_depth_multiplier"] = self.synthetic_book_depth_multiplier
+        return kwargs
 
 
 __all__ = ["ExecutionModelConfig", "StaticLatencyConfig"]

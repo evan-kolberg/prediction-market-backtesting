@@ -13,6 +13,11 @@ from nautilus_trader.model.enums import OrderSide
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.trading.strategy import StrategyConfig
 
+from strategies._validation import (
+    require_nonnegative_int,
+    require_positive_decimal,
+    require_probability,
+)
 from strategies.core import LongOnlyPredictionMarketStrategy
 
 
@@ -36,6 +41,14 @@ class BarThresholdMomentumConfig(StrategyConfig, frozen=True):  # type: ignore[c
     take_profit_price: float = 0.92
     stop_loss_price: float = 0.50
 
+    def __post_init__(self) -> None:
+        require_positive_decimal("trade_size", self.trade_size)
+        require_nonnegative_int("activation_start_time_ns", self.activation_start_time_ns)
+        require_nonnegative_int("market_close_time_ns", self.market_close_time_ns)
+        require_probability("entry_price", self.entry_price)
+        require_probability("take_profit_price", self.take_profit_price)
+        require_probability("stop_loss_price", self.stop_loss_price)
+
 
 class TradeTickThresholdMomentumConfig(StrategyConfig, frozen=True):  # type: ignore[call-arg]
     instrument_id: InstrumentId
@@ -46,6 +59,14 @@ class TradeTickThresholdMomentumConfig(StrategyConfig, frozen=True):  # type: ig
     take_profit_price: float = 0.92
     stop_loss_price: float = 0.50
 
+    def __post_init__(self) -> None:
+        require_positive_decimal("trade_size", self.trade_size)
+        require_nonnegative_int("activation_start_time_ns", self.activation_start_time_ns)
+        require_nonnegative_int("market_close_time_ns", self.market_close_time_ns)
+        require_probability("entry_price", self.entry_price)
+        require_probability("take_profit_price", self.take_profit_price)
+        require_probability("stop_loss_price", self.stop_loss_price)
+
 
 class QuoteTickThresholdMomentumConfig(StrategyConfig, frozen=True):  # type: ignore[call-arg]
     instrument_id: InstrumentId
@@ -55,6 +76,14 @@ class QuoteTickThresholdMomentumConfig(StrategyConfig, frozen=True):  # type: ig
     entry_price: float = 0.80
     take_profit_price: float = 0.92
     stop_loss_price: float = 0.50
+
+    def __post_init__(self) -> None:
+        require_positive_decimal("trade_size", self.trade_size)
+        require_nonnegative_int("activation_start_time_ns", self.activation_start_time_ns)
+        require_nonnegative_int("market_close_time_ns", self.market_close_time_ns)
+        require_probability("entry_price", self.entry_price)
+        require_probability("take_profit_price", self.take_profit_price)
+        require_probability("stop_loss_price", self.stop_loss_price)
 
 
 class _ThresholdMomentumBase(LongOnlyPredictionMarketStrategy):
@@ -90,10 +119,16 @@ class _ThresholdMomentumBase(LongOnlyPredictionMarketStrategy):
         ts_event_ns: int,
         entry_price: float | None = None,
         visible_size: float | None = None,
+        exit_visible_size: float | None = None,
     ) -> None:
         previous_price = self._last_price
         self._last_price = price
         reference_price = price if entry_price is None else entry_price
+        self._remember_market_context(
+            entry_reference_price=reference_price,
+            entry_visible_size=visible_size,
+            exit_visible_size=exit_visible_size,
+        )
 
         if self._pending:
             return
@@ -152,6 +187,7 @@ class TradeTickThresholdMomentumStrategy(_ThresholdMomentumBase):
             price=price,
             ts_event_ns=int(tick.ts_event),
             entry_price=price,
+            visible_size=None,
         )
 
 
@@ -160,9 +196,15 @@ class QuoteTickThresholdMomentumStrategy(_ThresholdMomentumBase):
         self.subscribe_quote_ticks(self.config.instrument_id)
 
     def on_quote_tick(self, tick: QuoteTick) -> None:
+        self._remember_market_context(
+            entry_reference_price=float(tick.ask_price),
+            entry_visible_size=float(tick.ask_size),
+            exit_visible_size=float(tick.bid_size),
+        )
         self._on_price(
             price=(float(tick.bid_price) + float(tick.ask_price)) / 2.0,
             ts_event_ns=int(tick.ts_event),
             entry_price=float(tick.ask_price),
             visible_size=float(tick.ask_size),
+            exit_visible_size=float(tick.bid_size),
         )

@@ -16,7 +16,10 @@ from prediction_market_extensions.backtesting._prediction_market_backtest import
     finalize_market_results,
 )
 from prediction_market_extensions.backtesting._replay_specs import ReplaySpec
-from prediction_market_extensions.backtesting._result_policies import ResultPolicy
+from prediction_market_extensions.backtesting._result_policies import (
+    ResultPolicy,
+    apply_repo_research_disclosures,
+)
 from prediction_market_extensions.backtesting._strategy_configs import StrategyConfigSpec
 from prediction_market_extensions.backtesting.optimizers import (
     ParameterSearchConfig,
@@ -223,6 +226,8 @@ async def run_replay_experiment_async(experiment: ReplayExperiment) -> list[dict
         if transformed is not None:
             results = transformed
 
+    apply_repo_research_disclosures(results)
+
     if experiment.partial_message and len(results) < len(experiment.replays):
         print(
             experiment.partial_message.format(completed=len(results), total=len(experiment.replays))
@@ -290,6 +295,8 @@ def _finalize_replay_results(
         transformed = experiment.result_policy.apply(results)
         if transformed is not None:
             results = transformed
+
+    apply_repo_research_disclosures(results)
 
     if experiment.report is not None:
         finalize_market_results(

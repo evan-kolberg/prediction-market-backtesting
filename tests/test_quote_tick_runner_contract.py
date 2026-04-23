@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+from decimal import Decimal
 from pathlib import Path
 
 from prediction_market_extensions.backtesting._replay_specs import QuoteReplay
@@ -176,6 +177,11 @@ def test_quote_tick_joint_runner_uses_explicit_summary_plot_contract() -> None:
         assert replay.token_index == 0
         assert replay.start_time == module._LONG_WINDOW_START
         assert replay.end_time == module._LONG_WINDOW_END
+    assert module.STRATEGY_CONFIGS[0]["config"] == {
+        "trade_size": Decimal(5),
+        "entry_price_max": 0.15,
+        "single_entry": True,
+    }
 
 
 def test_quote_tick_25_sim_runner_uses_explicit_summary_plot_contract() -> None:

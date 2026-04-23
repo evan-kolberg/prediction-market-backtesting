@@ -118,33 +118,43 @@ class _VWAPReversionBase(LongOnlyPredictionMarketStrategy):
         size: float,
         entry_price: float | None = None,
         visible_size: float | None = None,
+        exit_visible_size: float | None = None,
     ) -> None:
+        reference_price = price if entry_price is None else entry_price
+        self._remember_market_context(
+            entry_reference_price=reference_price,
+            entry_visible_size=visible_size,
+            exit_visible_size=exit_visible_size,
+        )
         if self._pending:
             return
 
         if size < float(self.config.min_tick_size):
             return
 
-        self._append_point(price=price, size=size)
         if len(self._window) < int(self.config.vwap_window) or self._size_sum <= 0.0:
+            self._append_point(price=price, size=size)
             return
 
         vwap = self._weighted_sum / self._size_sum
         if not self._in_position():
             if price <= vwap - float(self.config.entry_threshold):
                 self._submit_entry(
-                    reference_price=price if entry_price is None else entry_price,
+                    reference_price=reference_price,
                     visible_size=visible_size,
                 )
+            self._append_point(price=price, size=size)
             return
 
         if self._risk_exit(
             price=price, take_profit=self.config.take_profit, stop_loss=self.config.stop_loss
         ):
+            self._append_point(price=price, size=size)
             return
 
         if price >= vwap - float(self.config.exit_threshold):
             self._submit_exit()
+        self._append_point(price=price, size=size)
 
     def on_reset(self) -> None:
         super().on_reset()
@@ -163,6 +173,7 @@ class TradeTickVWAPReversionStrategy(_VWAPReversionBase):
             price=price,
             size=float(tick.size),
             entry_price=price,
+            visible_size=None,
         )
 
 
@@ -175,9 +186,15 @@ class QuoteTickVWAPReversionStrategy(_VWAPReversionBase):
         self.subscribe_quote_ticks(self.config.instrument_id)
 
     def on_quote_tick(self, tick: QuoteTick) -> None:
+        self._remember_market_context(
+            entry_reference_price=float(tick.ask_price),
+            entry_visible_size=float(tick.ask_size),
+            exit_visible_size=float(tick.bid_size),
+        )
         self._on_price_size(
             price=(float(tick.bid_price) + float(tick.ask_price)) / 2.0,
             size=(float(tick.bid_size) + float(tick.ask_size)) / 2.0,
             entry_price=float(tick.ask_price),
             visible_size=float(tick.ask_size),
+            exit_visible_size=float(tick.bid_size),
         )

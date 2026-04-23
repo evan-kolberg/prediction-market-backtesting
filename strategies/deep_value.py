@@ -25,6 +25,7 @@ from nautilus_trader.model.enums import OrderSide
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.trading.strategy import StrategyConfig
 
+from strategies._validation import require_positive_decimal, require_probability
 from strategies.core import LongOnlyPredictionMarketStrategy
 
 
@@ -34,12 +35,20 @@ class TradeTickDeepValueHoldConfig(StrategyConfig, frozen=True):  # type: ignore
     entry_price_max: float = 0.25
     single_entry: bool = True
 
+    def __post_init__(self) -> None:
+        require_positive_decimal("trade_size", self.trade_size)
+        require_probability("entry_price_max", self.entry_price_max)
+
 
 class QuoteTickDeepValueHoldConfig(StrategyConfig, frozen=True):  # type: ignore[call-arg]
     instrument_id: InstrumentId
     trade_size: Decimal = Decimal(1)
     entry_price_max: float = 0.25
     single_entry: bool = True
+
+    def __post_init__(self) -> None:
+        require_positive_decimal("trade_size", self.trade_size)
+        require_probability("entry_price_max", self.entry_price_max)
 
 
 class _DeepValueHoldBase(LongOnlyPredictionMarketStrategy):
@@ -52,8 +61,18 @@ class _DeepValueHoldBase(LongOnlyPredictionMarketStrategy):
         self._entered_once: bool = False
 
     def _on_price(
-        self, price: float, *, entry_price: float | None = None, visible_size: float | None = None
+        self,
+        price: float,
+        *,
+        entry_price: float | None = None,
+        visible_size: float | None = None,
+        exit_visible_size: float | None = None,
     ) -> None:
+        self._remember_market_context(
+            entry_reference_price=price if entry_price is None else entry_price,
+            entry_visible_size=visible_size,
+            exit_visible_size=exit_visible_size,
+        )
         if self._pending:
             return
 
@@ -85,7 +104,7 @@ class TradeTickDeepValueHoldStrategy(_DeepValueHoldBase):
 
     def on_trade_tick(self, tick: TradeTick) -> None:
         price = float(tick.price)
-        self._on_price(price, entry_price=price)
+        self._on_price(price, entry_price=price, visible_size=None)
 
 
 class QuoteTickDeepValueHoldStrategy(_DeepValueHoldBase):
@@ -93,8 +112,14 @@ class QuoteTickDeepValueHoldStrategy(_DeepValueHoldBase):
         self.subscribe_quote_ticks(self.config.instrument_id)
 
     def on_quote_tick(self, tick: QuoteTick) -> None:
+        self._remember_market_context(
+            entry_reference_price=float(tick.ask_price),
+            entry_visible_size=float(tick.ask_size),
+            exit_visible_size=float(tick.bid_size),
+        )
         self._on_price(
             (float(tick.bid_price) + float(tick.ask_price)) / 2.0,
             entry_price=float(tick.ask_price),
             visible_size=float(tick.ask_size),
+            exit_visible_size=float(tick.bid_size),
         )

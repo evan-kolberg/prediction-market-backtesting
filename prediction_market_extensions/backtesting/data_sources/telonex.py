@@ -852,7 +852,8 @@ class RunnerPolymarketTelonexQuoteDataLoader(PolymarketDataLoader):
         if column_name == "timestamp_us":
             return column.to_numpy(dtype="int64") * 1_000
         if column_name == "timestamp_ms":
-            return column.to_numpy(dtype="int64") * 1_000_000
+            numeric = pd.to_numeric(column, errors="coerce")
+            return (numeric.astype("float64") * 1_000_000).to_numpy(dtype="int64")
         if pd.api.types.is_numeric_dtype(column):
             return (column.astype("float64") * 1_000_000_000).to_numpy(dtype="int64")
         parsed = pd.to_datetime(column, utc=True, errors="coerce")
@@ -1042,7 +1043,7 @@ class RunnerPolymarketTelonexQuoteDataLoader(PolymarketDataLoader):
                     action=BookAction.UPDATE if qty > 0 else BookAction.DELETE,
                     order=order,
                     flags=RecordFlag.F_LAST if idx == len(changes) - 1 else 0,
-                    sequence=0,
+                    sequence=idx + 1,
                     ts_event=ts_event,
                     ts_init=ts_event,
                 )

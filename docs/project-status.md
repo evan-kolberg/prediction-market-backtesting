@@ -19,6 +19,12 @@ No repo-level open issues are tracked here right now.
 
 ## Recently Fixed
 
+- [x] prediction-market backtests now use settlement-aware result assembly,
+  finite synthetic taker depth, lower default touched-limit fill probability,
+  fill-time Kalshi fee waivers, zero-fee Polymarket maker modeling, safer
+  trade-tick liquidity caps, and corrected Telonex outcome selection; docs,
+  UML, tests, and public runner configs were updated alongside the execution
+  honesty fixes [PR#118](https://github.com/evan-kolberg/prediction-market-backtesting/pull/118)
 - [x] Telonex source loading now falls through to the next source when one
   fails (so a missing `local:` mirror cleanly hands off to `api:`) instead of
   aborting the whole replay [PR#105](https://github.com/evan-kolberg/prediction-market-backtesting/pull/105)

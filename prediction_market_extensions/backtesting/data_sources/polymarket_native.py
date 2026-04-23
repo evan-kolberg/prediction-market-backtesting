@@ -256,8 +256,8 @@ class RunnerPolymarketDataLoader(PolymarketDataLoader):
                 if (end_ts is None or trade["timestamp"] <= end_ts)
                 and (start_ts is None or trade["timestamp"] >= start_ts)
             )
-            if start_ts is not None and max(trade["timestamp"] for trade in data) < start_ts:
-                break
+            # Do not early-terminate on page timestamps: the public API does
+            # not guarantee a stable sort order across pages.
 
             offset += len(data)
             if len(data) < page_limit:

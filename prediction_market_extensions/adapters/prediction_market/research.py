@@ -64,6 +64,9 @@ from prediction_market_extensions.analysis.legacy_plot_adapter import (
     build_legacy_backtest_layout,
     save_legacy_backtest_layout,
 )
+from prediction_market_extensions.backtesting._result_policies import (
+    apply_binary_settlement_pnl,
+)
 
 
 def _extract_account_pnl_series(engine: BacktestEngine) -> pd.Series:
@@ -163,7 +166,7 @@ def _dense_market_account_series_from_fill_events(
     cash_changes = pd.Series(0.0, index=dense_dt, dtype=float)
     for fill in fills:
         fill_ts = pd.Timestamp(fill.timestamp).to_datetime64()
-        bar_idx = int(dense_dt.searchsorted(fill_ts, side="right") - 1)
+        bar_idx = int(dense_dt.searchsorted(fill_ts, side="left"))
         bar_idx = max(0, min(len(dense_dt) - 1, bar_idx))
         action = str(fill.action.value).lower()
         gross = float(fill.price) * float(fill.quantity)
@@ -283,6 +286,18 @@ def _serialize_fill_events(*, market_id: str, fills_report: pd.DataFrame) -> lis
     if frame.index.name and frame.index.name not in frame.columns:
         frame = frame.reset_index()
 
+    market_id_upper = str(market_id).upper()
+    inferred_side = (
+        "no"
+        if (
+            market_id_upper.endswith("NO")
+            or "-NO" in market_id_upper
+            or ".NO." in market_id_upper
+            or "_NO" in market_id_upper
+        )
+        else "yes"
+    )
+
     events: list[dict[str, Any]] = []
     for idx, (_, row) in enumerate(frame.iterrows(), start=1):
         quantity = _parse_float_like(
@@ -298,6 +313,24 @@ def _serialize_fill_events(*, market_id: str, fills_report: pd.DataFrame) -> lis
             continue
         assert isinstance(timestamp, pd.Timestamp)
 
+        side_source = str(
+            row.get("instrument_side")
+            or row.get("instrument_id")
+            or row.get("symbol")
+            or row.get("market_id")
+            or market_id
+        )
+        normalized_side = (
+            "no"
+            if (
+                side_source.upper().endswith("NO")
+                or "-NO" in side_source.upper()
+                or ".NO." in side_source.upper()
+                or "_NO" in side_source.upper()
+            )
+            else inferred_side
+        )
+
         events.append(
             {
                 "order_id": str(
@@ -308,7 +341,7 @@ def _serialize_fill_events(*, market_id: str, fills_report: pd.DataFrame) -> lis
                 ),
                 "market_id": market_id,
                 "action": str(row.get("side") or row.get("order_side") or "BUY").strip().lower(),
-                "side": "yes",
+                "side": normalized_side,
                 "price": _parse_float_like(row.get("avg_px", row.get("last_px", row.get("price")))),
                 "quantity": quantity,
                 "timestamp": timestamp.isoformat(),
@@ -339,6 +372,13 @@ def _deserialize_fill_events(
             continue
 
         action = str(event.get("action") or "buy").strip().lower()
+        event_side = str(event.get("side") or "").strip().lower()
+        if event_side == "no":
+            fill_side = models_module.Side.NO
+        elif event_side == "yes":
+            fill_side = models_module.Side.YES
+        else:
+            fill_side = market_side
         fills.append(
             models_module.Fill(
                 order_id=str(event.get("order_id") or f"fill-{idx}"),
@@ -346,7 +386,7 @@ def _deserialize_fill_events(
                 action=models_module.OrderAction.BUY
                 if action == "buy"
                 else models_module.OrderAction.SELL,
-                side=market_side,
+                side=fill_side,
                 price=float(event.get("price") or 0.0),
                 quantity=quantity,
                 timestamp=_to_legacy_datetime(timestamp),
@@ -655,10 +695,14 @@ def run_market_backtest(
     positions = engine.trader.generate_positions_report()
     pnl = extract_realized_pnl(positions)
     price_points = extract_price_points(data, price_attr=price_attr)
+    realized_outcome = infer_realized_outcome(instrument)
+    fill_events = _serialize_fill_events(market_id=market_id, fills_report=fills)
+    result_warnings: list[str] = []
     user_probabilities, market_probabilities, outcomes = build_brier_inputs(
         points=price_points,
         window=probability_window,
-        realized_outcome=infer_realized_outcome(instrument),
+        realized_outcome=realized_outcome,
+        warnings_out=result_warnings,
     )
     chart_market_prices = build_market_prices(price_points, resample_rule=chart_resample_rule)
 
@@ -698,10 +742,10 @@ def run_market_backtest(
         summary_market_prices = legacy_plot_adapter._market_prices_with_fill_points(
             {str(instrument.id): chart_market_prices}, summary_legacy_fills
         ).get(str(instrument.id), chart_market_prices)
-        dense_equity_series, dense_cash_series = _dense_account_series_from_engine(
-            engine=engine,
-            market_id=str(instrument.id),
+        dense_equity_series, dense_cash_series = _dense_market_account_series_from_fill_events(
+            market_id=market_id,
             market_prices=chart_market_prices,
+            fill_events=fill_events,
             initial_cash=initial_cash,
         )
         summary_price_series = _series_to_iso_pairs(_pairs_to_series(summary_market_prices))
@@ -722,7 +766,7 @@ def run_market_backtest(
             summary_market_probability_series = _series_to_iso_pairs(market_probabilities)
         if not outcomes.empty:
             summary_outcome_series = _series_to_iso_pairs(outcomes)
-        summary_fill_events = _serialize_fill_events(market_id=market_id, fills_report=fills)
+        summary_fill_events = fill_events
 
     engine.reset()
     engine.dispose()
@@ -732,7 +776,20 @@ def run_market_backtest(
         count_key: int(data_count) if data_count is not None else len(data),
         "fills": len(fills),
         "pnl": pnl,
+        "realized_outcome": realized_outcome,
+        "fill_events": fill_events,
+        "warnings": result_warnings,
+        "settlement_observable_ns": getattr(instrument, "expiration_ns", None),
+        "settlement_observable_time": (
+            pd.Timestamp(
+                getattr(instrument, "expiration_ns", None), unit="ns", tz="UTC"
+            ).isoformat()
+            if isinstance(getattr(instrument, "expiration_ns", None), int)
+            and getattr(instrument, "expiration_ns", None) > 0
+            else None
+        ),
     }
+    result = apply_binary_settlement_pnl(result)
     if chart_path is not None:
         result["chart_path"] = chart_path
     if return_chart_layout and chart_layout is not None:
@@ -986,9 +1043,11 @@ def save_aggregate_backtest_report(
 
     final_equity = float(aggregate_equity.iloc[-1])
     equity_values = pd.Series([snapshot.total_equity for snapshot in equity_curve], dtype=float)
-    running_peak = equity_values.cummax().mask(lambda values: values == 0.0)
-    drawdowns = ((equity_values - running_peak) / running_peak).fillna(0.0)
-    max_drawdown = float(drawdowns.min()) if not drawdowns.empty else 0.0
+    running_peak = equity_values.cummax()
+    drawdowns = (
+        (running_peak - equity_values) / running_peak.where(running_peak > 0.0, pd.NA)
+    ).fillna(0.0)
+    max_drawdown = float(drawdowns.max()) if not drawdowns.empty else 0.0
     metrics = {
         "final_pnl": final_equity - initial_cash,
         "total_return": 0.0 if initial_cash == 0 else (final_equity - initial_cash) / initial_cash,
@@ -1219,9 +1278,11 @@ def save_joint_portfolio_backtest_report(
     ]
 
     equity_values = pd.Series([snapshot.total_equity for snapshot in equity_curve], dtype=float)
-    running_peak = equity_values.cummax().mask(lambda values: values == 0.0)
-    drawdowns = ((equity_values - running_peak) / running_peak).fillna(0.0)
-    max_drawdown = float(drawdowns.min()) if not drawdowns.empty else 0.0
+    running_peak = equity_values.cummax()
+    drawdowns = (
+        (running_peak - equity_values) / running_peak.where(running_peak > 0.0, pd.NA)
+    ).fillna(0.0)
+    max_drawdown = float(drawdowns.max()) if not drawdowns.empty else 0.0
     metrics = {
         "final_pnl": final_equity - initial_cash,
         "total_return": 0.0 if initial_cash == 0 else (final_equity - initial_cash) / initial_cash,

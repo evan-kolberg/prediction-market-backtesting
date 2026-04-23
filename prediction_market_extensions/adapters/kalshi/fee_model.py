@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from decimal import ROUND_CEILING
 from decimal import Decimal
+from datetime import UTC, datetime
 
 from nautilus_trader.backtest.config import FeeModelConfig
 from nautilus_trader.backtest.models import FeeModel
@@ -102,6 +103,39 @@ class KalshiProportionalFeeModel(FeeModel):
             fee_rate = Decimal(config.fee_rate)
         self._fee_rate = fee_rate
 
+    @staticmethod
+    def _fee_rate_for_fill(order, instrument, default_fee_rate: Decimal) -> Decimal:
+        info = getattr(instrument, "info", None)
+        if isinstance(info, dict):
+            raw_expiration = info.get("fee_waiver_expiration_time")
+            if raw_expiration:
+                try:
+                    waiver_expiration = datetime.fromisoformat(str(raw_expiration))
+                except ValueError:
+                    waiver_expiration = None
+                if waiver_expiration is not None:
+                    order_timestamp_ns = getattr(order, "ts_init", None)
+                    try:
+                        order_timestamp = (
+                            datetime.fromtimestamp(int(order_timestamp_ns) / 1_000_000_000, UTC)
+                            if order_timestamp_ns is not None
+                            else None
+                        )
+                    except (OSError, OverflowError, TypeError, ValueError):
+                        order_timestamp = None
+                    if order_timestamp is not None:
+                        if waiver_expiration.tzinfo is None:
+                            waiver_expiration = waiver_expiration.replace(tzinfo=UTC)
+                        else:
+                            waiver_expiration = waiver_expiration.astimezone(UTC)
+                        if order_timestamp <= waiver_expiration:
+                            return Decimal("0")
+
+        instrument_taker_fee = getattr(instrument, "taker_fee", None)
+        if instrument_taker_fee is not None and instrument_taker_fee > 0:
+            return instrument_taker_fee
+        return default_fee_rate
+
     def get_commission(self, order, fill_qty, fill_px, instrument) -> Money:
         """
         Return the Kalshi commission for a fill.
@@ -128,13 +162,11 @@ class KalshiProportionalFeeModel(FeeModel):
         p = Decimal(str(fill_px))
         qty = Decimal(str(fill_qty))
 
-        # Use instrument-level taker_fee when available (covers fee waivers),
-        # otherwise fall back to the model's default fee rate.
-        fee_rate = instrument.taker_fee if instrument.taker_fee > 0 else self._fee_rate
+        fee_rate = self._fee_rate_for_fill(order, instrument, self._fee_rate)
 
         if fee_rate <= 0 or p <= 0 or p >= 1:
-            return Money(Decimal(0), instrument.quote_currency)
+            return Money(Decimal("0"), instrument.quote_currency)
 
-        raw = fee_rate * qty * p * (1 - p)
+        raw = fee_rate * qty * p * (Decimal("1") - p)
         commission = raw.quantize(Decimal("0.01"), rounding=ROUND_CEILING)
         return Money(commission, instrument.quote_currency)
