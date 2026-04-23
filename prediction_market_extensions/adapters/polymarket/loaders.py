@@ -880,6 +880,12 @@ class PolymarketDataLoader:
             # Disambiguate by appending the last 4 chars of the asset (token) ID.
             _hash_suffix = trade_data["transactionHash"][-32:]
             _asset_suffix = trade_data.get("asset", "")[-4:]
+        _raw_price = float(trade_data["price"])
+        if not (0.0 <= _raw_price <= 1.0):
+            raise ValueError(
+                f"Polymarket trade price must be in [0.0, 1.0], "
+                f"got {_raw_price!r} (record {i})"
+            )
             trade = TradeTick(
                 instrument_id=instrument_id,
                 price=make_price(trade_data["price"]),
