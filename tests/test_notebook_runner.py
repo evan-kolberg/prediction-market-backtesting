@@ -128,6 +128,5 @@ def test_execute_notebook_runner_can_skip_auto_embed_cell(tmp_path: Path) -> Non
     executed = nbformat.read(notebook_path, as_version=4)
 
     assert not any(
-        notebook_runner.AUTO_EMBED_CELL_MARKER in cell.get("source", "")
-        for cell in executed.cells
+        notebook_runner.AUTO_EMBED_CELL_MARKER in cell.get("source", "") for cell in executed.cells
     )

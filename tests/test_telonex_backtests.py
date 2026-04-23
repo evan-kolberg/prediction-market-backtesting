@@ -34,15 +34,7 @@ EXPECTED_DETAIL_PLOT_PANELS = (
     "total_brier_advantage",
     "brier_advantage",
 )
-EXPECTED_SUMMARY_PLOT_PANELS = (
-    "total_equity",
-    "total_drawdown",
-    "total_rolling_sharpe",
-    "total_cash_equity",
-    "total_brier_advantage",
-    "periodic_pnl",
-    "monthly_returns",
-)
+EXPECTED_SUMMARY_PLOT_PANELS = (*EXPECTED_DETAIL_PLOT_PANELS,)
 
 
 def test_telonex_joint_portfolio_runner_uses_local_first_sources(

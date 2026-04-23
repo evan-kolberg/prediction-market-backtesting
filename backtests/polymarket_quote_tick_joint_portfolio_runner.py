@@ -112,8 +112,8 @@ REPLAYS = (
 
 STRATEGY_CONFIGS = [
     {
-        "strategy_path": "strategies:QuoteTickDeepValueHoldStrategy",
-        "config_path": "strategies:QuoteTickDeepValueHoldConfig",
+        "strategy_path": "strategies:QuoteTickVWAPReversionStrategy",
+        "config_path": "strategies:QuoteTickVWAPReversionConfig",
         "config": {
             "trade_size": Decimal(5),
             "vwap_window": 30,

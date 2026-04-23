@@ -45,6 +45,7 @@ EXPECTED_MULTI_SIM_SUMMARY_PLOT_PANELS = (
     "periodic_pnl",
     "monthly_returns",
 )
+EXPECTED_ALL_SUMMARY_PLOT_PANELS = EXPECTED_DETAIL_PLOT_PANELS
 EXPECTED_25_SIM_SUMMARY_PLOT_PANELS = (
     "total_equity",
     "total_drawdown",
@@ -155,7 +156,7 @@ def test_quote_tick_joint_runner_uses_explicit_summary_plot_contract() -> None:
 
     assert module.DATA.sources == EXPECTED_PMXT_SOURCES
     assert module.DETAIL_PLOT_PANELS == EXPECTED_DETAIL_PLOT_PANELS
-    assert module.SUMMARY_PLOT_PANELS == EXPECTED_MULTI_SIM_SUMMARY_PLOT_PANELS
+    assert module.SUMMARY_PLOT_PANELS == EXPECTED_ALL_SUMMARY_PLOT_PANELS
     assert module.REPORT.summary_report is True
     assert module.REPORT.summary_report_path == module.SUMMARY_REPORT_PATH
     assert module.REPORT.summary_plot_panels == module.SUMMARY_PLOT_PANELS

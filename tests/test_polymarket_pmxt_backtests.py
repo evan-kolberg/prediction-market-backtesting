@@ -46,6 +46,7 @@ EXPECTED_MULTI_SIM_SUMMARY_PLOT_PANELS = (
     "periodic_pnl",
     "monthly_returns",
 )
+EXPECTED_ALL_SUMMARY_PLOT_PANELS = EXPECTED_DETAIL_PLOT_PANELS
 EXPECTED_25_SIM_SUMMARY_PLOT_PANELS = (
     "total_equity",
     "total_drawdown",
@@ -149,7 +150,7 @@ def test_pmxt_joint_multi_runner_uses_fixed_windows(monkeypatch: pytest.MonkeyPa
     assert module.DATA.sources == EXPECTED_PMXT_SOURCES
     assert len(module.REPLAYS) == 5
     assert module.DETAIL_PLOT_PANELS == EXPECTED_DETAIL_PLOT_PANELS
-    assert module.SUMMARY_PLOT_PANELS == EXPECTED_MULTI_SIM_SUMMARY_PLOT_PANELS
+    assert module.SUMMARY_PLOT_PANELS == EXPECTED_ALL_SUMMARY_PLOT_PANELS
     assert module.REPORT.summary_report is True
     assert module.REPORT.summary_report_path == module.SUMMARY_REPORT_PATH
     assert module.EXPERIMENT.report == module.REPORT
