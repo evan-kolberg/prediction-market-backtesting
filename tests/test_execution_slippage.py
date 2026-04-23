@@ -204,3 +204,16 @@ def test_fill_model_from_config_kwargs() -> None:
     assert model._slippage_ticks == 2
     assert model._entry_slippage_pct == 0.03
     assert model._exit_slippage_pct == 0.05
+
+
+def test_large_tick_shift_produces_wide_book() -> None:
+    """Large slippage_ticks widens the synthetic spread without inverting."""
+    model = PredictionMarketTakerFillModel(slippage_ticks=5)
+    instrument = _StubInstrument("KALSHI", 0.01)
+    book = model.get_orderbook_for_fill_simulation(
+        instrument, _make_order(OrderSideEnum.BUY), best_bid=0.50, best_ask=0.51
+    )
+    assert book is not None
+    assert float(book.best_ask_price()) == pytest.approx(0.56)
+    assert float(book.best_bid_price()) == pytest.approx(0.45)
+    assert float(book.best_bid_price()) < float(book.best_ask_price())

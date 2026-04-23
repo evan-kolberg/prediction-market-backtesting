@@ -46,16 +46,21 @@ class PredictionMarketTakerFillModel(FillModel):
     Slippage can be configured two ways (composable):
 
     **Tick-based** (``slippage_ticks``):
-      Shifts the synthetic book by N venue ticks adverse. Default is 1.
-      Kalshi 1 tick = $0.01; Polymarket 1 tick = instrument price_increment.
+    Shifts the synthetic book by N venue ticks adverse. Default is 1.
+    Kalshi 1 tick = $0.01; Polymarket 1 tick = instrument price_increment.
 
     **Percentage-based** (``entry_slippage_pct``, ``exit_slippage_pct``):
-      Shifts the synthetic book by a percentage of the current price.
-      For example, ``entry_slippage_pct=0.02`` on a BUY at $0.50 shifts
-      the fill price to $0.51 (2% of $0.50). Set to 0.0 to disable.
-      Entry and exit can have different slippage percentages, reflecting
-      the reality that exiting a binary-option position is often harder
-      (thinner book, more urgency) than entering.
+    Shifts the synthetic book by a percentage of the current price.
+    For example, ``entry_slippage_pct=0.02`` on a BUY at $0.50 shifts
+    the fill price to $0.51 (2% of $0.50). Set to 0.0 to disable.
+    Entry and exit can have different slippage percentages, reflecting
+    the reality that exiting a binary-option position is often harder
+    (thinner book, more urgency) than entering.
+
+    Entry vs exit is inferred from order side: BUY = entry, SELL = exit.
+    This is correct for all LongOnlyPredictionMarketStrategy subclasses
+    in this framework (which buy YES to open, sell to close). Strategies
+    that sell to open a short position would need to invert the mapping.
 
     When both methods are non-zero, they stack: the fill price is shifted
     by N ticks PLUS the percentage.

@@ -53,6 +53,10 @@ class BarMeanReversionConfig(StrategyConfig, frozen=True):  # type: ignore[call-
             raise ValueError(f"window must be > 0, got {self.window}")
         if self.trade_size <= 0:
             raise ValueError(f"trade_size must be > 0, got {self.trade_size}")
+        if self.entry_threshold < 0:
+            raise ValueError(f"entry_threshold must be >= 0, got {self.entry_threshold}")
+        if self.exit_threshold < 0:
+            raise ValueError(f"exit_threshold must be >= 0, got {self.exit_threshold}")
         if self.take_profit < 0:
             raise ValueError(f"take_profit must be >= 0, got {self.take_profit}")
         if self.stop_loss < 0:
@@ -73,6 +77,10 @@ class TradeTickMeanReversionConfig(StrategyConfig, frozen=True):  # type: ignore
             raise ValueError(f"vwap_window must be > 0, got {self.vwap_window}")
         if self.trade_size <= 0:
             raise ValueError(f"trade_size must be > 0, got {self.trade_size}")
+        if self.entry_threshold < 0:
+            raise ValueError(f"entry_threshold must be >= 0, got {self.entry_threshold}")
+        if self.exit_threshold < 0:
+            raise ValueError(f"exit_threshold must be >= 0, got {self.exit_threshold}")
         if self.take_profit < 0:
             raise ValueError(f"take_profit must be >= 0, got {self.take_profit}")
         if self.stop_loss < 0:
@@ -93,6 +101,10 @@ class QuoteTickMeanReversionConfig(StrategyConfig, frozen=True):  # type: ignore
             raise ValueError(f"window must be > 0, got {self.window}")
         if self.trade_size <= 0:
             raise ValueError(f"trade_size must be > 0, got {self.trade_size}")
+        if self.entry_threshold < 0:
+            raise ValueError(f"entry_threshold must be >= 0, got {self.entry_threshold}")
+        if self.exit_threshold < 0:
+            raise ValueError(f"exit_threshold must be >= 0, got {self.exit_threshold}")
         if self.take_profit < 0:
             raise ValueError(f"take_profit must be >= 0, got {self.take_profit}")
         if self.stop_loss < 0:

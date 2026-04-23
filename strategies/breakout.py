@@ -172,7 +172,9 @@ class _BreakoutBase(LongOnlyPredictionMarketStrategy):
             return
 
         mean = sum(prior_window) / len(prior_window)
-        variance = sum((value - mean) ** 2 for value in prior_window) / len(prior_window)
+        variance = sum((value - mean) ** 2 for value in prior_window) / max(
+            1, len(prior_window) - 1
+        )
         std = sqrt(variance)
         breakout_level = mean + float(self.config.breakout_std) * std + self._breakout_buffer()
         exit_level = mean - self._mean_reversion_buffer()
