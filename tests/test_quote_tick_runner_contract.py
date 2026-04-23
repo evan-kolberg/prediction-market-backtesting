@@ -7,7 +7,7 @@ from prediction_market_extensions.backtesting._replay_specs import QuoteReplay
 from prediction_market_extensions.backtesting.optimizers import ParameterSearchWindow
 
 EXPECTED_PMXT_SOURCES = (
-    "local:/Volumes/LaCie/pmxt_raws",
+    "local:/Volumes/LaCie/pmxt_data",
     "archive:r2v2.pmxt.dev",
     "archive:r2.pmxt.dev",
 )

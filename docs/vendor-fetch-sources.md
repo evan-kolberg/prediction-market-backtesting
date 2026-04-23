@@ -35,7 +35,7 @@ uv run python main.py
 Running: polymarket_quote_tick_joint_portfolio_runner
 Running: polymarket_quote_tick_ema_crossover
 
-PMXT source: explicit priority (cache -> local /Volumes/LaCie/pmxt_raws -> archive https://r2v2.pmxt.dev -> archive https://r2.pmxt.dev)
+PMXT source: explicit priority (cache -> local /Volumes/LaCie/pmxt_data -> archive https://r2v2.pmxt.dev -> archive https://r2.pmxt.dev)
 Loading PMXT Polymarket market will-ludvig-aberg-win-the-2026-masters-tournament (token_index=0, window_start=2026-04-05T00:00:00+00:00, window_end=2026-04-07T23:59:59+00:00)...
   2026-04-05T00:00:00+00:00      ...          ... rows  cache 2026-04-05T00
   2026-04-05T01:00:00+00:00      ...          ... rows  cache 2026-04-05T01

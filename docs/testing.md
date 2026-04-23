@@ -34,7 +34,7 @@ PMXT quote-tick runner, one PMXT joint-portfolio basket runner, one Telonex
 joint-portfolio basket runner, and one PMXT independent basket runner.
 
 Quote-tick PMXT runners use the source path pinned in `DATA.sources` inside the
-file. Public PMXT runners now pin `local:/Volumes/LaCie/pmxt_raws` first,
+file. Public PMXT runners now pin `local:/Volumes/LaCie/pmxt_data` first,
 `archive:r2v2.pmxt.dev` + `archive:r2.pmxt.dev` second (tried in that order so
 the newer v2 subdomain is preferred, with v1 covering older history). If the
 local mirror path is absent, the loader falls through to archives.
