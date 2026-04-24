@@ -608,3 +608,64 @@ def test_telonex_local_path_matches_daily_download_script_layout(tmp_path) -> No
 def test_telonex_rejects_unprefixed_sources() -> None:
     with pytest.raises(ValueError, match="Use one of: local:, api:"):
         resolve_telonex_loader_config(sources=["https://api.telonex.io"])
+
+
+def test_telonex_blob_range_query_is_memoized_across_days(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Per-day callers must share one DuckDB query for a single (slug, month).
+
+    Before this regression test, _load_blob_range opened a fresh in-memory
+    DuckDB connection and re-executed the same query for every backtest day.
+    For a 30-day range that meant 30 redundant queries against the same
+    Hive-partitioned parquet files — the dominant cost the user observed as
+    "telonex cache slower than the API".
+    """
+    module = importlib.reload(telonex_module)
+    loader_cls = module.RunnerPolymarketTelonexQuoteDataLoader
+    loader = loader_cls.__new__(loader_cls)
+    loader._ensure_blob_scan_caches()
+    monkeypatch.setattr(
+        loader,
+        "_readable_blob_part_paths",
+        lambda **kwargs: ([str(tmp_path / "stub.parquet")], False),
+    )
+    store_root = tmp_path
+    (store_root / "data" / "channel=book_snapshot_full").mkdir(parents=True)
+
+    cached_frame = pd.DataFrame({"timestamp_us": [1], "bids": [[]], "asks": [[]]})
+    duckdb_calls: list[tuple[object, ...]] = []
+
+    class _FakeConn:
+        def execute(self, _query: str, params: list[object]) -> _FakeConn:
+            duckdb_calls.append(tuple(params))
+            return self
+
+        def fetch_df(self) -> pd.DataFrame:
+            return cached_frame
+
+        def close(self) -> None:
+            return None
+
+    fake_duckdb = SimpleNamespace(connect=lambda _dsn: _FakeConn(), Error=Exception)
+
+    import sys as _sys
+
+    monkeypatch.setitem(_sys.modules, "duckdb", fake_duckdb)
+
+    days = pd.date_range("2026-03-01", "2026-03-05", freq="D", tz="UTC")
+    for day in days:
+        result = loader._load_blob_range(
+            store_root=store_root,
+            channel="book_snapshot_full",
+            market_slug="memo-test",
+            token_index=0,
+            outcome=None,
+            start=day,
+            end=day + pd.Timedelta(hours=23, minutes=59),
+        )
+        assert result is cached_frame
+
+    assert len(duckdb_calls) == 1, (
+        f"expected one DuckDB query for the whole month, got {len(duckdb_calls)}"
+    )

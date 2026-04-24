@@ -262,6 +262,16 @@ class RunnerPolymarketTelonexQuoteDataLoader(PolymarketDataLoader):
             self._telonex_unreadable_blob_parts_warned: set[Path] = set()
         if not hasattr(self, "_telonex_incomplete_blob_partitions_warned"):
             self._telonex_incomplete_blob_partitions_warned: set[Path] = set()
+        # Memoize blob-range frames keyed by (store_root, channel, market, token,
+        # outcome, start_ym, end_ym). The DuckDB query already prunes by
+        # year/month, so two callers with start/end inside the same month
+        # window hit the same data — hammering DuckDB once per backtest day was
+        # the dominant cost on this path and the reason "cache" felt slower
+        # than the API. None is cached too so we don't retry empty stores.
+        if not hasattr(self, "_telonex_blob_range_frames"):
+            self._telonex_blob_range_frames: dict[
+                tuple[str, str, str, int, str | None, int, int], pd.DataFrame | None
+            ] = {}
 
     def _download_progress(
         self, url: str, downloaded_bytes: int, total_bytes: int | None, finished: bool
@@ -399,35 +409,57 @@ class RunnerPolymarketTelonexQuoteDataLoader(PolymarketDataLoader):
         end: pd.Timestamp,
     ) -> pd.DataFrame | None:
         """Query the Hive-partitioned Parquet layout for a single (market,
-        outcome) slice. Returns None when the channel has no data on disk."""
+        outcome) slice. Returns None when the channel has no data on disk.
+
+        Memoized by (store_root, channel, market, token, outcome, start_ym,
+        end_ym). The downstream day filter is narrower than the DuckDB query,
+        so per-day callers safely share one read.
+        """
         try:
             import duckdb
         except ImportError:
             return None
 
+        self._ensure_blob_scan_caches()
+
+        start_utc = self._normalize_to_utc(start)
+        end_utc = self._normalize_to_utc(end)
+        start_ym = start_utc.year * 100 + start_utc.month
+        end_ym = end_utc.year * 100 + end_utc.month
+        cache_key = (
+            str(store_root),
+            channel,
+            market_slug,
+            token_index,
+            outcome,
+            start_ym,
+            end_ym,
+        )
+        if cache_key in self._telonex_blob_range_frames:
+            # Downstream consumers only `.to_numpy()` slices off the frame,
+            # never mutate it, so returning the cached reference is safe.
+            return self._telonex_blob_range_frames[cache_key]
+
         channel_dir = store_root / _TELONEX_DATA_SUBDIR / f"channel={channel}"
         if not channel_dir.exists():
+            self._telonex_blob_range_frames[cache_key] = None
             return None
         # Glob every part file under this channel, regardless of year/month
         # partition depth. Empty-but-existing channel dirs yield no matches,
         # in which case DuckDB will raise — guard with a cheap pre-check.
         part_paths, incomplete_parts = self._readable_blob_part_paths(
             channel_dir=channel_dir,
-            start=self._normalize_to_utc(start),
-            end=self._normalize_to_utc(end),
+            start=start_utc,
+            end=end_utc,
         )
         if incomplete_parts:
             return None
         if not part_paths:
+            self._telonex_blob_range_frames[cache_key] = None
             return None
 
         segments = self._outcome_segment_candidates(token_index=token_index, outcome=outcome)
         placeholders = ", ".join(["?"] * len(segments))
-
-        start_utc = self._normalize_to_utc(start)
-        end_utc = self._normalize_to_utc(end)
-        start_ym = start_utc.year * 100 + start_utc.month
-        end_ym = end_utc.year * 100 + end_utc.month
 
         # DuckDB's hive_partitioning exposes year/month as VARCHAR by default —
         # cast to INTEGER before arithmetic so range pruning works.
@@ -449,17 +481,20 @@ class RunnerPolymarketTelonexQuoteDataLoader(PolymarketDataLoader):
                     f"{token_index} ({channel}) — DuckDB failed: {exc}",
                     stacklevel=2,
                 )
+                self._telonex_blob_range_frames[cache_key] = None
                 return None
         finally:
             con.close()
 
         if frame is None or frame.empty:
+            self._telonex_blob_range_frames[cache_key] = None
             return None
         drop_cols = [
             c for c in ("market_slug", "outcome_segment", "year", "month") if c in frame.columns
         ]
         if drop_cols:
             frame = frame.drop(columns=drop_cols)
+        self._telonex_blob_range_frames[cache_key] = frame
         return frame
 
     @classmethod
