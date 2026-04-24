@@ -38,6 +38,10 @@ from nautilus_trader.model.identifiers import TradeId
 from nautilus_trader.model.instruments import BinaryOption
 
 from prediction_market_extensions.adapters.polymarket.gamma_markets import infer_gamma_token_winners
+from prediction_market_extensions.adapters.prediction_market.info_sanitization import (
+    extract_resolution_metadata,
+    sanitize_info_for_simulation,
+)
 
 
 def _trade_sort_key(trade: dict[str, Any]) -> tuple[int, str, str, str, str, str]:
@@ -85,11 +89,23 @@ class PolymarketDataLoader:
         token_id: str | None = None,
         condition_id: str | None = None,
         http_client: nautilus_pyo3.HttpClient | None = None,
+        resolution_metadata: dict[str, Any] | None = None,
     ) -> None:
         self._instrument = instrument
         self._token_id = token_id
         self._condition_id = condition_id
         self._http_client = http_client or self._create_http_client()
+        self._resolution_metadata: dict[str, Any] = dict(resolution_metadata or {})
+
+    @property
+    def resolution_metadata(self) -> dict[str, Any]:
+        """Resolution-bearing fields stripped from `instrument.info`.
+
+        Strategies must not see resolution data during simulation, so it lives
+        on the loader instead. Replay adapters and analytics read this to
+        populate Brier scoring and settlement PnL.
+        """
+        return dict(self._resolution_metadata)
 
     @staticmethod
     def _create_http_client() -> nautilus_pyo3.HttpClient:
@@ -290,12 +306,19 @@ class PolymarketDataLoader:
             market_details, token_id, client
         )
 
+        resolution_metadata = extract_resolution_metadata(market_details)
         instrument = parse_polymarket_instrument(
-            market_info=market_details, token_id=token_id, outcome=outcome
+            market_info=sanitize_info_for_simulation(market_details),
+            token_id=token_id,
+            outcome=outcome,
         )
 
         return cls(
-            instrument=instrument, token_id=token_id, condition_id=condition_id, http_client=client
+            instrument=instrument,
+            token_id=token_id,
+            condition_id=condition_id,
+            http_client=client,
+            resolution_metadata=resolution_metadata,
         )
 
     @classmethod
@@ -360,8 +383,11 @@ class PolymarketDataLoader:
                 market_details, token_id, client
             )
 
+            resolution_metadata = extract_resolution_metadata(market_details)
             instrument = parse_polymarket_instrument(
-                market_info=market_details, token_id=token_id, outcome=outcome
+                market_info=sanitize_info_for_simulation(market_details),
+                token_id=token_id,
+                outcome=outcome,
             )
 
             loaders.append(
@@ -370,6 +396,7 @@ class PolymarketDataLoader:
                     token_id=token_id,
                     condition_id=condition_id,
                     http_client=client,
+                    resolution_metadata=resolution_metadata,
                 )
             )
 

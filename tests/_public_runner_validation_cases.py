@@ -13,6 +13,9 @@ from nautilus_trader.model.enums import AggressorSide
 from nautilus_trader.model.identifiers import TradeId
 
 from prediction_market_extensions.adapters.kalshi.providers import market_dict_to_instrument
+from prediction_market_extensions.adapters.prediction_market.info_sanitization import (
+    extract_resolution_metadata,
+)
 from prediction_market_extensions.backtesting import _prediction_market_backtest as backtest_module
 from prediction_market_extensions.backtesting._experiments import run_experiment
 
@@ -66,6 +69,7 @@ def _run_kalshi_breakout_case(*, prices: Sequence[float]) -> dict[str, Any]:
         "close_time": "2026-12-31T00:00:00+00:00",
         "result": "yes",
     }
+    resolution = extract_resolution_metadata(market)
     instrument = market_dict_to_instrument(market)
     trades = _make_trade_ticks(
         instrument=instrument,
@@ -78,6 +82,7 @@ def _run_kalshi_breakout_case(*, prices: Sequence[float]) -> dict[str, Any]:
     class Loader:
         def __init__(self) -> None:
             self.instrument = instrument
+            self.resolution_metadata = resolution
 
         async def load_trades(self, start, end):  # type: ignore[no-untyped-def]
             return trades
@@ -118,6 +123,7 @@ def _run_polymarket_trade_case() -> dict[str, Any]:
         "taker_base_fee": "0",
         "result": "yes",
     }
+    resolution = extract_resolution_metadata(market_info)
     instrument = parse_polymarket_instrument(
         market_info=market_info,
         token_id="2" * 64,
@@ -136,6 +142,7 @@ def _run_polymarket_trade_case() -> dict[str, Any]:
     class Loader:
         def __init__(self) -> None:
             self.instrument = instrument
+            self.resolution_metadata = resolution
 
         async def load_trades(self, start, end):  # type: ignore[no-untyped-def]
             return trades

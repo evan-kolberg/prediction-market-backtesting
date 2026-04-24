@@ -277,9 +277,44 @@ def _resolved_outcome_from_tokens(info: Mapping[object, object], outcome_name: s
     return None
 
 
+def infer_realized_outcome_from_metadata(
+    metadata: Mapping[object, object] | None, outcome_name: str
+) -> float | None:
+    """Resolve a binary outcome from a venue metadata mapping.
+
+    Used when the resolution slice has been split off the instrument (post
+    info sanitization) but the outcome name still travels with the instrument.
+    """
+    if not metadata:
+        return None
+
+    # Ambiguous markets (all prices ~0.5) have no meaningful resolved
+    # outcome. Returning 0.5 would systematically deflate Brier scores
+    # because (p - 0.5)^2 always favors forecasts near 0.5.
+    if metadata.get("is_50_50_outcome") is True:
+        return None
+
+    folded_outcome = outcome_name.strip().casefold()
+    resolvers = (
+        lambda: _resolved_outcome_from_result(metadata, folded_outcome),
+        lambda: _resolved_outcome_from_numeric_fields(metadata),
+        lambda: _resolved_outcome_from_tokens(metadata, folded_outcome),
+    )
+    for resolver in resolvers:
+        resolved = resolver()
+        if resolved is not None:
+            return resolved
+
+    return None
+
+
 def infer_realized_outcome(source: object | None) -> float | None:
     """
     Infer a realized binary outcome from instrument metadata when available.
+
+    For loaders that pre-strip resolution data from `instrument.info`, prefer
+    `infer_realized_outcome_from_metadata` against `loader.resolution_metadata`.
+    This shim still works for legacy callers passing the instrument directly.
     """
     if source is None:
         return None
@@ -288,24 +323,8 @@ def infer_realized_outcome(source: object | None) -> float | None:
     if not isinstance(info, Mapping):
         return None
 
-    # Ambiguous markets (all prices ~0.5) have no meaningful resolved
-    # outcome. Returning 0.5 would systematically deflate Brier scores
-    # because (p - 0.5)^2 always favors forecasts near 0.5.
-    if info.get("is_50_50_outcome") is True:
-        return None
-
-    outcome_name = str(getattr(source, "outcome", "")).strip().casefold()
-    resolvers = (
-        lambda: _resolved_outcome_from_result(info, outcome_name),
-        lambda: _resolved_outcome_from_numeric_fields(info),
-        lambda: _resolved_outcome_from_tokens(info, outcome_name),
-    )
-    for resolver in resolvers:
-        resolved = resolver()
-        if resolved is not None:
-            return resolved
-
-    return None
+    outcome_name = str(getattr(source, "outcome", ""))
+    return infer_realized_outcome_from_metadata(info, outcome_name)
 
 
 def compute_binary_settlement_pnl(

@@ -30,6 +30,9 @@ from nautilus_trader.model.instruments import BinaryOption
 from nautilus_trader.model.objects import Currency, Price, Quantity
 
 from prediction_market_extensions.adapters.kalshi.config import KalshiDataClientConfig
+from prediction_market_extensions.adapters.prediction_market.info_sanitization import (
+    sanitize_info_for_simulation,
+)
 
 _log = logging.getLogger(__name__)
 
@@ -124,7 +127,7 @@ def _market_dict_to_instrument(market: dict) -> BinaryOption:
         description=market.get("title"),
         ts_event=0,
         ts_init=0,
-        info=market,
+        info=sanitize_info_for_simulation(market),
     )
 
 

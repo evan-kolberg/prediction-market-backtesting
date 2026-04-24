@@ -27,6 +27,7 @@ from prediction_market_extensions.adapters.prediction_market import (
 )
 from prediction_market_extensions.adapters.prediction_market.backtest_utils import (
     infer_realized_outcome,
+    infer_realized_outcome_from_metadata,
 )
 from prediction_market_extensions.backtesting._backtest_runtime import _record_timestamp_ns
 from prediction_market_extensions.backtesting._replay_specs import QuoteReplay, TradeReplay
@@ -63,6 +64,20 @@ def _resolve_backtest_compat_symbol(name: str, default: Any) -> Any:
     except Exception:
         return default
     return getattr(module, name, default)
+
+
+def _loader_realized_outcome(loader: Any) -> float | None:
+    """Resolve the loader's realized outcome without re-reading instrument.info.
+
+    Loaders that pre-strip resolution data expose `resolution_metadata` so the
+    instrument cache stays free of look-ahead. Older loaders fall back to the
+    instrument-based path.
+    """
+    metadata = getattr(loader, "resolution_metadata", None)
+    if metadata:
+        outcome_name = str(getattr(loader.instrument, "outcome", "") or "")
+        return infer_realized_outcome_from_metadata(metadata, outcome_name)
+    return infer_realized_outcome(loader.instrument)
 
 
 def _normalize_timestamp(value: object | None, *, default_now: bool = False) -> pd.Timestamp:
@@ -295,7 +310,7 @@ class KalshiTradeTickReplayAdapter(_BaseReplayAdapter):
             market_id=replay.market_ticker,
             prices=prices,
             outcome=str(replay.outcome or ""),
-            realized_outcome=infer_realized_outcome(loader.instrument),
+            realized_outcome=_loader_realized_outcome(loader),
             metadata=dict(replay.metadata or {}),
             requested_window=_requested_window(start, end),
         )
@@ -403,7 +418,7 @@ class PolymarketTradeTickReplayAdapter(_BaseReplayAdapter):
             market_id=replay.market_slug,
             prices=prices,
             outcome=str(loader.instrument.outcome or replay.outcome or ""),
-            realized_outcome=infer_realized_outcome(loader.instrument),
+            realized_outcome=_loader_realized_outcome(loader),
             metadata=dict(replay.metadata or {}),
             requested_window=_requested_window(start, end),
         )
@@ -523,7 +538,7 @@ class PolymarketPMXTQuoteReplayAdapter(_BaseReplayAdapter):
             market_id=replay.market_slug,
             prices=prices_tuple,
             outcome=str(loader.instrument.outcome or replay.outcome or ""),
-            realized_outcome=infer_realized_outcome(loader.instrument),
+            realized_outcome=_loader_realized_outcome(loader),
             metadata=dict(replay.metadata or {}),
             requested_window=_requested_window(start, end),
         )
@@ -655,7 +670,7 @@ class PolymarketTelonexQuoteReplayAdapter(_BaseReplayAdapter):
             market_id=replay.market_slug,
             prices=prices_tuple,
             outcome=selected_outcome,
-            realized_outcome=infer_realized_outcome(loader.instrument),
+            realized_outcome=_loader_realized_outcome(loader),
             metadata=dict(replay.metadata or {}),
             requested_window=_requested_window(start, end),
         )
