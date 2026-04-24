@@ -3,9 +3,7 @@
 # Modified in this repository on 2026-03-11 and 2026-04-05.
 # See the repository NOTICE file for provenance and licensing scope.
 
-"""
-VWAP-reversion strategy on one Polymarket market.
-"""
+"""VWAP-reversion strategy on a single Polymarket market."""
 
 # ruff: noqa: E402
 

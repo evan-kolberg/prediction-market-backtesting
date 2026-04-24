@@ -9,7 +9,7 @@ from typing import Any
 
 import pandas as pd
 from nautilus_trader.backtest.config import BacktestEngineConfig
-from nautilus_trader.backtest.engine import BacktestEngine
+from nautilus_trader.backtest.engine import BacktestEngine, BacktestResult
 from nautilus_trader.common.component import is_backtest_force_stop
 from nautilus_trader.config import LoggingConfig
 from nautilus_trader.config import StrategyFactory as NautilusStrategyFactory
@@ -238,6 +238,7 @@ class PredictionMarketBacktest:
                     joint_portfolio_artifacts=joint_portfolio_artifacts
                     if result_index == 0
                     else None,
+                    engine_result=engine_result,
                     run_state=build_backtest_run_state(
                         data=loaded_sim.records,
                         backtest_end_ns=engine_result.backtest_end,
@@ -280,6 +281,7 @@ class PredictionMarketBacktest:
         positions_report: pd.DataFrame,
         market_artifacts: Mapping[str, Any] | None = None,
         joint_portfolio_artifacts: Mapping[str, Any] | None = None,
+        engine_result: BacktestResult | None = None,
         run_state: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         return self._create_artifact_builder().build_result(
@@ -288,6 +290,7 @@ class PredictionMarketBacktest:
             positions_report=positions_report,
             market_artifacts=market_artifacts,
             joint_portfolio_artifacts=joint_portfolio_artifacts,
+            engine_result=engine_result,
             run_state=run_state,
         )
 

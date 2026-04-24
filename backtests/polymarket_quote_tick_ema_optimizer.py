@@ -3,9 +3,7 @@
 # Modified in this repository on 2026-04-05.
 # See the repository NOTICE file for provenance and licensing scope.
 
-"""
-Research-only EMA parameter search on one Polymarket market using PMXT historical L2 data.
-"""
+"""Research-only EMA parameter search on a single Polymarket market using PMXT historical L2 data."""
 
 # ruff: noqa: E402
 

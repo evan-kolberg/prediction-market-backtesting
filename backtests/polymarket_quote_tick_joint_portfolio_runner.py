@@ -65,10 +65,9 @@ DATA = MarketDataConfig(
     ),
 )
 
-# Long-dated example markets. PMXT quote-tick collection started in
-# late February 2026, so every replay uses 2026-03-01 → 2026-04-11 — ~6
-# weeks of quote history per market. Use this to time a single
-# joint-portfolio run end-to-end before scaling the TPE notebook trial count.
+# PMXT quote-tick collection started in late February 2026, so every replay
+# uses 2026-03-01 → 2026-04-11 (~6 weeks). Anchor here to time a single
+# end-to-end run before scaling notebook trial counts.
 _LONG_WINDOW_START = "2026-03-01T00:00:00Z"
 _LONG_WINDOW_END = "2026-04-11T23:59:59Z"
 

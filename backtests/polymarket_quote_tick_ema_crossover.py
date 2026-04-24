@@ -3,9 +3,7 @@
 # Modified in this repository on 2026-03-11, 2026-03-15, 2026-03-16, 2026-03-31, and 2026-04-05.
 # See the repository NOTICE file for provenance and licensing scope.
 
-"""
-EMA crossover momentum on one Polymarket market using PMXT historical L2 data.
-"""
+"""EMA crossover momentum on a single Polymarket market using PMXT historical L2 data."""
 
 # ruff: noqa: E402
 

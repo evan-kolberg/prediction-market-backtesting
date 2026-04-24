@@ -3,11 +3,9 @@
 # Modified in this repository on 2026-03-11 and 2026-04-05.
 # See the repository NOTICE file for provenance and licensing scope.
 
-"""
-Breakout strategy on one Kalshi market.
+"""Breakout strategy on a single Kalshi market using native trade ticks.
 
-Defaults to KXLAYOFFSYINFO-26-494000
-and replays 2026-03-15T00:00:00Z through 2026-04-08T23:59:59Z.
+Defaults to KXLAYOFFSYINFO-26-494000 over 2026-03-15..2026-04-08.
 """
 
 # ruff: noqa: E402

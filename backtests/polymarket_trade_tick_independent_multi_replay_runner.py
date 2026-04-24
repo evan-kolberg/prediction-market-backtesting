@@ -73,7 +73,7 @@ DATA = MarketDataConfig(
     ),
 )
 
-# Pin each replay window to the market close so the fixed basket stays
+# Pin replay windows to the market close so the fixed basket stays
 # reproducible and under the public trades API offset ceiling.
 FIXED_LOOKBACK_DAYS = 7
 

@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
-from nautilus_trader.backtest.engine import BacktestEngine
+from nautilus_trader.backtest.engine import BacktestEngine, BacktestResult
 
 from prediction_market_extensions.adapters.prediction_market import LoadedReplay
 from prediction_market_extensions.adapters.prediction_market import (
@@ -62,6 +62,7 @@ class PredictionMarketArtifactBuilder:
         positions_report: pd.DataFrame,
         market_artifacts: Mapping[str, Any] | None = None,
         joint_portfolio_artifacts: Mapping[str, Any] | None = None,
+        engine_result: BacktestResult | None = None,
         run_state: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         instrument_id = str(loaded_sim.instrument.id)
@@ -86,6 +87,12 @@ class PredictionMarketArtifactBuilder:
             "realized_outcome": loaded_sim.realized_outcome,
             "token_index": getattr(loaded_sim.spec, "token_index", 0),
             "fill_events": fill_events,
+            "stats_pnls": dict(engine_result.stats_pnls)
+            if engine_result and hasattr(engine_result, "stats_pnls")
+            else {},
+            "stats_returns": dict(engine_result.stats_returns)
+            if engine_result and hasattr(engine_result, "stats_returns")
+            else {},
             "settlement_observable_ns": settlement_observable_ns,
             "settlement_observable_time": (
                 pd.Timestamp(settlement_observable_ns, unit="ns", tz="UTC").isoformat()

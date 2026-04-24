@@ -51,11 +51,9 @@ def test_kalshi_trade_tick_runner_uses_unified_summary(monkeypatch, capsys):
     )
 
     out = capsys.readouterr().out
-    assert "Market" in out
-    assert "Trades" in out
-    assert "Fills" in out
-    assert "PnL (USD)" in out
     assert "KALSHI-TEST" in out
+    assert "Fills" in out or "fills" in out
+    assert "TOTAL" in out
 
 
 def test_polymarket_trade_tick_runner_uses_unified_summary(monkeypatch, capsys):
@@ -106,8 +104,6 @@ def test_polymarket_trade_tick_runner_uses_unified_summary(monkeypatch, capsys):
     )
 
     out = capsys.readouterr().out
-    assert "Market" in out
-    assert "Trades" in out
-    assert "Fills" in out
-    assert "PnL (USDC)" in out
     assert "demo-market" in out
+    assert "Fills" in out or "fills" in out
+    assert "TOTAL" in out

@@ -3,7 +3,7 @@
 # Modified in this repository on 2026-03-29, 2026-03-31, 2026-04-03, 2026-04-04, and 2026-04-05.
 # See the repository NOTICE file for provenance and licensing scope.
 
-"""Independent PMXT quote-tick backtests using fixed historical replays."""
+"""Independent PMXT quote-tick backtests using a fixed historical replay basket."""
 
 # ruff: noqa: E402
 

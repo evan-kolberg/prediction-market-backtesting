@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+import math
 import os
 import re
 from collections.abc import Mapping, Sequence
@@ -1344,6 +1345,23 @@ def save_joint_portfolio_backtest_report(
     return save_legacy_backtest_layout(layout, output_abs, title)
 
 
+def _is_nan_like(value: Any) -> bool:
+    if value is None:
+        return True
+    try:
+        return math.isnan(float(value))
+    except (TypeError, ValueError):
+        return False
+
+
+def _format_stat_value(value: Any) -> str:
+    if _is_nan_like(value):
+        return "nan"
+    if isinstance(value, float):
+        return f"{value:.6f}"
+    return str(value)
+
+
 def print_backtest_summary(
     *,
     results: list[dict[str, Any]],
@@ -1353,25 +1371,39 @@ def print_backtest_summary(
     pnl_label: str,
     empty_message: str = "No markets had sufficient data.",
 ) -> None:
-    """
-    Print a normalized backtest summary table.
+    """Print a per-market readout of raw Nautilus stats.
+
+    The previous formatted table elided everything that wasn't fills/PnL.
+    Emitting `stats_pnls` and `stats_returns` from the engine result keeps the
+    ranking machinery (and human review) honest about Sharpe, expectancy, win
+    rate, and per-instrument break-down — which is the data Nautilus already
+    computes but the framework was hiding.
     """
     if not results:
         print(empty_message)
         return
 
-    col_w = max(len(str(result[market_key])) for result in results) + 2
-    header = f"{'Market':<{col_w}} {count_label:>8} {'Fills':>6} {pnl_label:>12}"
-    sep = "─" * len(header)
-
-    print(f"\n{sep}\n{header}\n{sep}")
     for result in results:
-        print(
-            f"{result[market_key]:<{col_w}} {result[count_key]:>8} {result['fills']:>6} {result['pnl']:>+12.4f}"
-        )
+        label = str(result.get(market_key, "?"))
+        fills = int(result.get("fills", 0))
+        pnl = float(result.get("pnl", 0.0))
+        count = int(result.get(count_key, 0))
+        print(f"\n{label}  {count_label}={count}  fills={fills}  {pnl_label}={pnl:+.6f}")
 
-    total_pnl = sum(float(result["pnl"]) for result in results)
-    total_fills = sum(int(result["fills"]) for result in results)
-    print(sep)
-    print(f"{'TOTAL':<{col_w}} {'':>8} {total_fills:>6} {total_pnl:>+12.4f}")
-    print(sep)
+        stats_pnls = result.get("stats_pnls") or {}
+        if stats_pnls:
+            for instrument_id, instrument_stats in stats_pnls.items():
+                if len(stats_pnls) > 1:
+                    print(f"  [{instrument_id}]")
+                for stat_name, stat_val in instrument_stats.items():
+                    print(f"    {stat_name}: {_format_stat_value(stat_val)}")
+        else:
+            print("  (no engine stats_pnls available)")
+
+        stats_returns = result.get("stats_returns") or {}
+        for stat_name, stat_val in stats_returns.items():
+            print(f"    {stat_name}: {_format_stat_value(stat_val)}")
+
+    total_pnl = sum(float(r.get("pnl", 0.0)) for r in results)
+    total_fills = sum(int(r.get("fills", 0)) for r in results)
+    print(f"\nTOTAL  fills={total_fills}  {pnl_label}={total_pnl:+.6f}")
