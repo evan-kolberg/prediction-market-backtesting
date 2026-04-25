@@ -65,11 +65,7 @@ def test_joint_portfolio_dense_prices_are_keyed_by_instrument_id(monkeypatch) ->
         initial_cash=100.0,
         probability_window=5,
         chart_resample_rule=None,
-        emit_html=False,
-        chart_output_path=None,
-        return_chart_layout=False,
         return_summary_series=True,
-        detail_plot_panels=(),
         sim_count=2,
     )
 
@@ -135,11 +131,7 @@ def test_single_summary_dense_prices_are_keyed_by_instrument_id(monkeypatch) -> 
         initial_cash=100.0,
         probability_window=5,
         chart_resample_rule=None,
-        emit_html=False,
-        chart_output_path=None,
-        return_chart_layout=False,
         return_summary_series=True,
-        detail_plot_panels=(),
         sim_count=1,
     )
 
@@ -183,11 +175,7 @@ def test_build_result_marks_open_positions_to_settlement(monkeypatch) -> None:
         initial_cash=100.0,
         probability_window=5,
         chart_resample_rule=None,
-        emit_html=False,
-        chart_output_path=None,
-        return_chart_layout=False,
         return_summary_series=False,
-        detail_plot_panels=(),
         sim_count=1,
     )
 

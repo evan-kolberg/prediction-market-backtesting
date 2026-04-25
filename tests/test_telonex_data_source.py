@@ -548,7 +548,7 @@ def test_telonex_full_book_loader_falls_back_to_api_when_blob_partition_is_incom
         ],
     )
 
-    with pytest.warns(UserWarning, match="trying next source"):
+    with pytest.warns(UserWarning, match="pyarrow failed|trying next source"):
         records = loader.load_order_book_and_quotes(
             pd.Timestamp("2026-01-19", tz="UTC"),
             pd.Timestamp("2026-01-19 23:59:59", tz="UTC"),
@@ -613,47 +613,63 @@ def test_telonex_rejects_unprefixed_sources() -> None:
 def test_telonex_blob_range_query_is_memoized_across_days(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """Per-day callers must share one DuckDB query for a single (slug, month).
+    """Per-day callers must share one pyarrow.dataset scan for a single (slug, month).
 
     Before this regression test, _load_blob_range opened a fresh in-memory
     DuckDB connection and re-executed the same query for every backtest day.
     For a 30-day range that meant 30 redundant queries against the same
     Hive-partitioned parquet files — the dominant cost the user observed as
-    "telonex cache slower than the API".
+    "telonex cache slower than the API".  The pyarrow.dataset rewrite preserves
+    the same memoization guarantee: one read per (store, channel, slug, token,
+    outcome, start_ym, end_ym).
     """
     module = importlib.reload(telonex_module)
     loader_cls = module.RunnerPolymarketTelonexQuoteDataLoader
     loader = loader_cls.__new__(loader_cls)
     loader._ensure_blob_scan_caches()
-    monkeypatch.setattr(
-        loader,
-        "_readable_blob_part_paths",
-        lambda **kwargs: ([str(tmp_path / "stub.parquet")], False),
-    )
     store_root = tmp_path
-    (store_root / "data" / "channel=book_snapshot_full").mkdir(parents=True)
+    channel_dir = store_root / "data" / "channel=book_snapshot_full"
+    month_dir = channel_dir / "year=2026" / "month=03"
+    month_dir.mkdir(parents=True)
+    (store_root / "telonex.duckdb").write_bytes(b"not-used")
 
     cached_frame = pd.DataFrame({"timestamp_us": [1], "bids": [[]], "asks": [[]]})
-    duckdb_calls: list[tuple[object, ...]] = []
+    scan_count = 0
+    real_load_blob_range = loader._load_blob_range
 
-    class _FakeConn:
-        def execute(self, _query: str, params: list[object]) -> _FakeConn:
-            duckdb_calls.append(tuple(params))
-            return self
+    def counting_load_blob_range(**kwargs):
+        nonlocal scan_count
+        cache_key = (
+            str(kwargs["store_root"]),
+            kwargs["channel"],
+            kwargs["market_slug"],
+            kwargs["token_index"],
+            kwargs["outcome"],
+            kwargs["start"].year * 100 + kwargs["start"].month,
+            kwargs["end"].year * 100 + kwargs["end"].month,
+        )
+        if cache_key in loader._telonex_blob_range_frames:
+            scan_count += 0  # cache hit
+        else:
+            scan_count += 1  # actual read
+        return real_load_blob_range(**kwargs)
 
-        def fetch_df(self) -> pd.DataFrame:
-            return cached_frame
+    # Write a tiny valid parquet file so pyarrow.dataset can read it.
+    import pyarrow as pa
 
-        def close(self) -> None:
-            return None
-
-    fake_duckdb = SimpleNamespace(connect=lambda _dsn: _FakeConn(), Error=Exception)
-
-    import sys as _sys
-
-    monkeypatch.setitem(_sys.modules, "duckdb", fake_duckdb)
+    table = pa.table(
+        {
+            "market_slug": ["memo-test"],
+            "outcome_segment": ["0"],
+            "timestamp_us": [1],
+            "bids": [["[]"]],
+            "asks": [["[]"]],
+        }
+    )
+    pa.parquet.write_table(table, month_dir / "part-000001.parquet")
 
     days = pd.date_range("2026-03-01", "2026-03-05", freq="D", tz="UTC")
+    results = []
     for day in days:
         result = loader._load_blob_range(
             store_root=store_root,
@@ -664,8 +680,13 @@ def test_telonex_blob_range_query_is_memoized_across_days(
             start=day,
             end=day + pd.Timedelta(hours=23, minutes=59),
         )
-        assert result is cached_frame
+        results.append(result)
 
-    assert len(duckdb_calls) == 1, (
-        f"expected one DuckDB query for the whole month, got {len(duckdb_calls)}"
-    )
+    # All 5 days should return the same cached frame object.
+    non_none = [r for r in results if r is not None]
+    assert len(non_none) == 5
+    for frame in non_none[1:]:
+        assert frame is non_none[0], "per-day callers must share the same frame"
+
+    # The internal cache should have exactly one entry for this month.
+    assert len(loader._telonex_blob_range_frames) == 1

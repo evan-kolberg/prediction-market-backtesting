@@ -3,7 +3,7 @@
 # Modified in this repository on 2026-04-09.
 # See the repository NOTICE file for provenance and licensing scope.
 
-"""Joint-portfolio PMXT quote-tick backtest using fixed historical replays."""
+"""Joint-portfolio PMXT book backtest using fixed historical replays."""
 
 # ruff: noqa: E402
 
@@ -28,11 +28,12 @@ from prediction_market_extensions.backtesting._experiments import (
 )
 from prediction_market_extensions.backtesting._prediction_market_backtest import MarketReportConfig
 from prediction_market_extensions.backtesting._prediction_market_runner import MarketDataConfig
-from prediction_market_extensions.backtesting._replay_specs import QuoteReplay
+from prediction_market_extensions.backtesting._replay_specs import BookReplay
 from prediction_market_extensions.backtesting._timing_harness import timing_harness
-from prediction_market_extensions.backtesting.data_sources import PMXT, Polymarket, QuoteTick
+from prediction_market_extensions.backtesting.data_sources import Book, PMXT, Polymarket
 
-DETAIL_PLOT_PANELS = (
+SUMMARY_REPORT_PATH = "output/polymarket_book_joint_portfolio_runner_joint_portfolio.html"
+SUMMARY_PLOT_PANELS = (
     "total_equity",
     "equity",
     "market_pnl",
@@ -49,14 +50,12 @@ DETAIL_PLOT_PANELS = (
     "total_brier_advantage",
     "brier_advantage",
 )
-SUMMARY_REPORT_PATH = "output/polymarket_quote_tick_joint_portfolio_runner_joint_portfolio.html"
-SUMMARY_PLOT_PANELS = DETAIL_PLOT_PANELS
-EMPTY_MESSAGE = "No PMXT joint-portfolio example windows met the quote-tick requirements."
+EMPTY_MESSAGE = "No PMXT joint-portfolio example windows met the book requirements."
 PARTIAL_MESSAGE = "Completed {completed} of {total} joint-portfolio example replays."
 
 DATA = MarketDataConfig(
     platform=Polymarket,
-    data_type=QuoteTick,
+    data_type=Book,
     vendor=PMXT,
     sources=(
         "local:/Volumes/LaCie/pmxt_data",
@@ -65,42 +64,42 @@ DATA = MarketDataConfig(
     ),
 )
 
-# PMXT quote-tick collection started in late February 2026, so every replay
-# uses 2026-03-01 → 2026-04-11 (~6 weeks). Anchor here to time a single
+# PMXT book collection started in late February 2026, so every replay
+# uses 2026-03-01 -> 2026-04-11 (~6 weeks). Anchor here to time a single
 # end-to-end run before scaling notebook trial counts.
 _LONG_WINDOW_START = "2026-03-01T00:00:00Z"
 _LONG_WINDOW_END = "2026-04-11T23:59:59Z"
 
 REPLAYS = (
-    QuoteReplay(
+    BookReplay(
         market_slug="human-moon-landing-in-2026",
         token_index=0,
         start_time=_LONG_WINDOW_START,
         end_time=_LONG_WINDOW_END,
         metadata={"sim_label": "moon-landing-2026"},
     ),
-    QuoteReplay(
+    BookReplay(
         market_slug="new-coronavirus-pandemic-in-2026",
         token_index=0,
         start_time=_LONG_WINDOW_START,
         end_time=_LONG_WINDOW_END,
         metadata={"sim_label": "coronavirus-pandemic-2026"},
     ),
-    QuoteReplay(
+    BookReplay(
         market_slug="will-openais-market-cap-be-between-750b-and-1t-at-market-close-on-ipo-day",
         token_index=0,
         start_time=_LONG_WINDOW_START,
         end_time=_LONG_WINDOW_END,
         metadata={"sim_label": "openai-ipo-market-cap-750b-1t"},
     ),
-    QuoteReplay(
+    BookReplay(
         market_slug="okx-ipo-in-2026",
         token_index=0,
         start_time=_LONG_WINDOW_START,
         end_time=_LONG_WINDOW_END,
         metadata={"sim_label": "okx-ipo-2026"},
     ),
-    QuoteReplay(
+    BookReplay(
         market_slug="nothing-ever-happens-2026",
         token_index=0,
         start_time=_LONG_WINDOW_START,
@@ -111,8 +110,8 @@ REPLAYS = (
 
 STRATEGY_CONFIGS = [
     {
-        "strategy_path": "strategies:QuoteTickDeepValueHoldStrategy",
-        "config_path": "strategies:QuoteTickDeepValueHoldConfig",
+        "strategy_path": "strategies:BookDeepValueHoldStrategy",
+        "config_path": "strategies:BookDeepValueHoldConfig",
         "config": {
             "trade_size": Decimal(5),
             "entry_price_max": 0.15,
@@ -142,22 +141,19 @@ REPORT = MarketReportConfig(
 )
 
 EXPERIMENT = build_replay_experiment(
-    name="polymarket_quote_tick_joint_portfolio_runner",
-    description="Joint-portfolio PMXT quote-tick backtest using varied historical replays",
+    name="polymarket_book_joint_portfolio_runner",
+    description="Joint-portfolio PMXT book backtest using varied historical replays",
     data=DATA,
     replays=REPLAYS,
     strategy_configs=STRATEGY_CONFIGS,
     initial_cash=100.0,
     probability_window=30,
-    min_quotes=500,
+    min_book_events=500,
     min_price_range=0.005,
     execution=EXECUTION,
     report=REPORT,
     empty_message=EMPTY_MESSAGE,
     partial_message=PARTIAL_MESSAGE,
-    emit_html=False,
-    chart_output_path="output",
-    detail_plot_panels=DETAIL_PLOT_PANELS,
     return_summary_series=True,
     multi_replay_mode="joint_portfolio",
 )

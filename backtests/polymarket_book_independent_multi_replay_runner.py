@@ -3,7 +3,7 @@
 # Modified in this repository on 2026-03-29, 2026-03-31, 2026-04-03, 2026-04-04, and 2026-04-05.
 # See the repository NOTICE file for provenance and licensing scope.
 
-"""Independent PMXT quote-tick backtests using a fixed historical replay basket."""
+"""Independent PMXT book backtests using a fixed historical replay basket."""
 
 # ruff: noqa: E402
 
@@ -28,9 +28,9 @@ from prediction_market_extensions.backtesting._experiments import (
 )
 from prediction_market_extensions.backtesting._prediction_market_backtest import MarketReportConfig
 from prediction_market_extensions.backtesting._prediction_market_runner import MarketDataConfig
-from prediction_market_extensions.backtesting._replay_specs import QuoteReplay
+from prediction_market_extensions.backtesting._replay_specs import BookReplay
 from prediction_market_extensions.backtesting._timing_harness import timing_harness
-from prediction_market_extensions.backtesting.data_sources import PMXT, Polymarket, QuoteTick
+from prediction_market_extensions.backtesting.data_sources import Book, PMXT, Polymarket
 
 DETAIL_PLOT_PANELS = (
     "total_equity",
@@ -50,7 +50,7 @@ DETAIL_PLOT_PANELS = (
     "brier_advantage",
 )
 SUMMARY_REPORT_PATH = (
-    "output/polymarket_quote_tick_independent_multi_replay_runner_independent_aggregate.html"
+    "output/polymarket_book_independent_multi_replay_runner_independent_aggregate.html"
 )
 SUMMARY_PLOT_PANELS = (
     "total_equity",
@@ -61,12 +61,12 @@ SUMMARY_PLOT_PANELS = (
     "periodic_pnl",
     "monthly_returns",
 )
-EMPTY_MESSAGE = "No PMXT independent-replay example windows met the quote-tick requirements."
+EMPTY_MESSAGE = "No PMXT independent-replay example windows met the book requirements."
 PARTIAL_MESSAGE = "Completed {completed} of {total} independent example replays."
 
 DATA = MarketDataConfig(
     platform=Polymarket,
-    data_type=QuoteTick,
+    data_type=Book,
     vendor=PMXT,
     sources=(
         "local:/Volumes/LaCie/pmxt_data",
@@ -76,56 +76,56 @@ DATA = MarketDataConfig(
 )
 
 REPLAYS = (
-    QuoteReplay(
+    BookReplay(
         market_slug="will-openai-launch-a-new-consumer-hardware-product-by-march-31-2026",
         token_index=0,
         start_time="2026-03-23T00:00:00Z",
         end_time="2026-03-24T23:59:59Z",
         metadata={"sim_label": "openai-launch-mar-23-24"},
     ),
-    QuoteReplay(
+    BookReplay(
         market_slug="will-ludvig-aberg-win-the-2026-masters-tournament",
         token_index=0,
         start_time="2026-04-05T00:00:00Z",
         end_time="2026-04-07T23:59:59Z",
         metadata={"sim_label": "aberg-masters-full-window"},
     ),
-    QuoteReplay(
+    BookReplay(
         market_slug="will-the-tennessee-titans-draft-a-quarterback-in-the-first-round-of-the-2026-nfl-draft",
         token_index=0,
         start_time="2026-04-06T00:00:00Z",
         end_time="2026-04-07T23:59:59Z",
         metadata={"sim_label": "titans-draft-two-day-window"},
     ),
-    QuoteReplay(
+    BookReplay(
         market_slug="will-fc-heidenheim-be-relegated-from-the-bundesliga-after-the-202526-season-382",
         token_index=0,
         start_time="2026-04-07T12:00:00Z",
         end_time="2026-04-07T23:59:59Z",
         metadata={"sim_label": "heidenheim-late-session"},
     ),
-    QuoteReplay(
+    BookReplay(
         market_slug="will-the-south-african-reserve-bank-decrease-the-repo-rate-after-the-may-meeting",
         token_index=0,
         start_time="2026-04-06T12:00:00Z",
         end_time="2026-04-07T23:59:59Z",
         metadata={"sim_label": "sarb-rate-watch-window"},
     ),
-    QuoteReplay(
+    BookReplay(
         market_slug="will-nana-araba-wilmot-win-top-chef-season-23",
         token_index=0,
         start_time="2026-04-06T06:00:00Z",
         end_time="2026-04-07T18:00:00Z",
         metadata={"sim_label": "top-chef-finale-runup"},
     ),
-    QuoteReplay(
+    BookReplay(
         market_slug="will-drake-release-an-album-in-2026",
         token_index=0,
         start_time="2026-04-05T12:00:00Z",
         end_time="2026-04-07T23:59:59Z",
         metadata={"sim_label": "drake-weekend-window"},
     ),
-    QuoteReplay(
+    BookReplay(
         market_slug="will-ethan-agarwal-get-the-first-or-second-most-votes-in-the-2026-california-governor-primary-election",
         token_index=0,
         start_time="2026-04-07T00:00:00Z",
@@ -136,8 +136,8 @@ REPLAYS = (
 
 STRATEGY_CONFIGS = [
     {
-        "strategy_path": "strategies:QuoteTickVWAPReversionStrategy",
-        "config_path": "strategies:QuoteTickVWAPReversionConfig",
+        "strategy_path": "strategies:BookVWAPReversionStrategy",
+        "config_path": "strategies:BookVWAPReversionConfig",
         "config": {
             "trade_size": Decimal(5),
             "vwap_window": 30,
@@ -171,20 +171,19 @@ EXECUTION = ExecutionModelConfig(
 )
 
 EXPERIMENT = build_replay_experiment(
-    name="polymarket_quote_tick_independent_multi_replay_runner",
-    description="Independent PMXT quote-tick backtests using varied historical replays",
+    name="polymarket_book_independent_multi_replay_runner",
+    description="Independent PMXT book backtests using varied historical replays",
     data=DATA,
     replays=REPLAYS,
     strategy_configs=STRATEGY_CONFIGS,
     initial_cash=100.0,
     probability_window=30,
-    min_quotes=500,
+    min_book_events=500,
     min_price_range=0.005,
     execution=EXECUTION,
     report=REPORT,
     empty_message=EMPTY_MESSAGE,
     partial_message=PARTIAL_MESSAGE,
-    emit_html=False,
     chart_output_path="output",
     detail_plot_panels=DETAIL_PLOT_PANELS,
     return_summary_series=True,

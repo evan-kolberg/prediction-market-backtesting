@@ -1,9 +1,9 @@
 # Derived from NautilusTrader prediction-market example code.
 # Distributed under the GNU Lesser General Public License Version 3.0 or later.
-# Modified in this repository on 2026-03-11 and 2026-04-05.
+# Modified in this repository on 2026-03-11, 2026-03-15, 2026-03-16, 2026-03-31, and 2026-04-05.
 # See the repository NOTICE file for provenance and licensing scope.
 
-"""VWAP-reversion strategy on a single Polymarket market."""
+"""EMA crossover momentum on a single Polymarket market using PMXT historical L2 data."""
 
 # ruff: noqa: E402
 
@@ -18,19 +18,19 @@ else:
 
 ensure_repo_root(__file__)
 
-from prediction_market_extensions.backtesting._experiments import (
-    build_replay_experiment,
-    run_experiment,
-)
 from prediction_market_extensions.backtesting._execution_config import (
     ExecutionModelConfig,
     StaticLatencyConfig,
 )
+from prediction_market_extensions.backtesting._experiments import (
+    build_replay_experiment,
+    run_experiment,
+)
 from prediction_market_extensions.backtesting._prediction_market_backtest import MarketReportConfig
 from prediction_market_extensions.backtesting._prediction_market_runner import MarketDataConfig
-from prediction_market_extensions.backtesting._replay_specs import TradeReplay
+from prediction_market_extensions.backtesting._replay_specs import BookReplay
 from prediction_market_extensions.backtesting._timing_harness import timing_harness
-from prediction_market_extensions.backtesting.data_sources import Native, Polymarket, TradeTick
+from prediction_market_extensions.backtesting.data_sources import Book, PMXT, Polymarket
 
 DETAIL_PLOT_PANELS = (
     "total_equity",
@@ -52,44 +52,48 @@ DETAIL_PLOT_PANELS = (
 
 DATA = MarketDataConfig(
     platform=Polymarket,
-    data_type=TradeTick,
-    vendor=Native,
+    data_type=Book,
+    vendor=PMXT,
     sources=(
-        "gamma:https://gamma-api.polymarket.com",
-        "trades:https://data-api.polymarket.com",
-        "clob:https://clob.polymarket.com",
+        "local:/Volumes/LaCie/pmxt_data",
+        "archive:r2v2.pmxt.dev",
+        "archive:r2.pmxt.dev",
     ),
 )
 
 REPLAYS = (
-    TradeReplay(
-        market_slug="will-openai-launch-a-new-consumer-hardware-product-by-march-31-2026",
-        start_time="2026-02-21T16:00:00Z",
-        end_time="2026-03-31T23:59:59Z",
+    BookReplay(
+        market_slug="will-ludvig-aberg-win-the-2026-masters-tournament",
+        token_index=0,
+        start_time="2026-04-05T00:00:00Z",
+        end_time="2026-04-07T23:59:59Z",
     ),
 )
 
 STRATEGY_CONFIGS = [
     {
-        "strategy_path": "strategies:TradeTickVWAPReversionStrategy",
-        "config_path": "strategies:TradeTickVWAPReversionConfig",
+        "strategy_path": "strategies:BookEMACrossoverStrategy",
+        "config_path": "strategies:BookEMACrossoverConfig",
         "config": {
-            "trade_size": Decimal(100),
-            "vwap_window": 30,
-            "entry_threshold": 0.0015,
-            "exit_threshold": 0.0003,
-            "min_tick_size": 0.0,
-            "take_profit": 0.004,
-            "stop_loss": 0.004,
+            "trade_size": Decimal(5),
+            "fast_period": 64,
+            "slow_period": 256,
+            "entry_buffer": 0.0005,
+            "take_profit": 0.01,
+            "stop_loss": 0.01,
         },
     }
 ]
 
+REPORT = MarketReportConfig(
+    count_key="quotes",
+    count_label="Quotes",
+    pnl_label="PnL (USDC)",
+)
+
+
 EXECUTION = ExecutionModelConfig(
-    queue_position=False,
-    slippage_ticks=1,
-    entry_slippage_pct=0.0,
-    exit_slippage_pct=0.0,
+    queue_position=True,
     latency_model=StaticLatencyConfig(
         base_latency_ms=75.0,
         insert_latency_ms=10.0,
@@ -98,27 +102,19 @@ EXECUTION = ExecutionModelConfig(
     ),
 )
 
-REPORT = MarketReportConfig(
-    count_key="trades",
-    count_label="Trades",
-    pnl_label="PnL (USDC)",
-)
-
-
 EXPERIMENT = build_replay_experiment(
-    name="polymarket_trade_tick_vwap_reversion",
-    description="VWAP dislocation mean-reversion on a single Polymarket market",
+    name="polymarket_book_ema_crossover",
+    description="EMA crossover momentum on a single Polymarket market using PMXT L2 data",
     data=DATA,
     replays=REPLAYS,
     strategy_configs=STRATEGY_CONFIGS,
     initial_cash=100.0,
-    probability_window=30,
-    min_trades=300,
+    probability_window=256,
+    min_book_events=500,
     min_price_range=0.005,
     execution=EXECUTION,
     report=REPORT,
-    empty_message="No Polymarket VWAP-reversion sims met the trade-tick requirements.",
-    emit_html=True,
+    empty_message="No PMXT EMA crossover sims met the book requirements.",
     chart_output_path="output",
     detail_plot_panels=DETAIL_PLOT_PANELS,
 )

@@ -253,7 +253,7 @@ def configured_telonex_data_source(
         _CURRENT_TELONEX_LOADER_CONFIG.reset(token)
 
 
-class RunnerPolymarketTelonexQuoteDataLoader(PolymarketDataLoader):
+class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
     def __init__(self, *args, **kwargs) -> None:  # type: ignore[no-untyped-def]
         super().__init__(*args, **kwargs)
         self._ensure_blob_scan_caches()
@@ -1631,7 +1631,7 @@ __all__ = [
     "TELONEX_CHANNEL_ENV",
     "TELONEX_FULL_BOOK_CHANNEL",
     "TELONEX_LOCAL_DIR_ENV",
-    "RunnerPolymarketTelonexQuoteDataLoader",
+    "RunnerPolymarketTelonexBookDataLoader",
     "TelonexDataSourceSelection",
     "TelonexLoaderConfig",
     "configured_telonex_data_source",

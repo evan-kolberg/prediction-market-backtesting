@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import gc
 import io
 import os
 import random
@@ -47,6 +48,8 @@ _PARQUET_COMPRESSION_LEVEL = 3
 # high enough to avoid tiny row groups during high-throughput downloads.
 _DEFAULT_COMMIT_BATCH_ROWS = 50_000
 _DEFAULT_COMMIT_BATCH_SECS = 10.0
+_MAX_PENDING_COMMIT_ITEMS = 64
+_MEMORY_LOG_INTERVAL_SECS = 3600.0
 _DEFAULT_MAX_RETRIES = 4
 _RETRY_BACKOFF_BASE_SECS = 2.0
 _TRANSIENT_HTTP_CODES = frozenset({408, 425, 429, 500, 502, 503, 504})
@@ -107,6 +110,34 @@ def _format_bytes(size: int | None) -> str:
     if value < 1024 * 1024 * 1024:
         return f"{value / (1024 * 1024):.2f} MiB"
     return f"{value / (1024 * 1024 * 1024):.2f} GiB"
+
+
+def _get_rss_mb() -> float | None:
+    """Get current process RSS in MiB, or None if unavailable."""
+    try:
+        with open("/proc/self/status") as f:
+            for line in f:
+                if line.startswith("VmRSS:"):
+                    return int(line.split()[1]) / 1024  # KiB → MiB
+    except (OSError, ValueError, IndexError):
+        pass
+    try:
+        import resource
+
+        usage = resource.getrusage(resource.RUSAGE_SELF)
+        if sys.platform == "darwin":
+            return usage.ru_maxrss / (1024 * 1024)
+        return usage.ru_maxrss / 1024  # KiB on Linux
+    except (ImportError, OSError):
+        return None
+
+
+def _release_arrow_memory() -> None:
+    """Release freed Arrow memory back to the OS allocator."""
+    try:
+        pa.default_memory_pool().release_unused()
+    except AttributeError:
+        pass  # older PyArrow without release_unused
 
 
 def _parse_date_bound(value: str | None) -> date | None:
@@ -390,6 +421,12 @@ class _TelonexParquetStore:
     @property
     def data_root(self) -> Path:
         return self._data_root
+
+    @property
+    def open_writer_count(self) -> int:
+        """Number of open Parquet part writers (diagnostic)."""
+        with self._lock:
+            return len(self._writers)
 
     def close(self) -> None:
         """Flush all open writers and close the manifest. Idempotent."""
@@ -1365,6 +1402,11 @@ def _run_jobs(
     parse_pool = ThreadPoolExecutor(
         max_workers=parse_worker_count, thread_name_prefix="telonex-parse"
     )
+    # Semaphore limits in-flight parse tasks (including those queued in the
+    # ThreadPoolExecutor's unbounded internal queue).  Without this, 128
+    # concurrent downloads could all submit parse tasks at once, pinning
+    # ~6 GiB of raw payloads in the executor queue for book_snapshot_full.
+    parse_semaphore = asyncio.Semaphore(parse_worker_count * 4)
 
     progress = (
         tqdm(
@@ -1582,9 +1624,12 @@ def _run_jobs(
         # Decode parquet on the dedicated small pool (see `parse_pool`). Keep
         # the result as Arrow so the writer can append columns and concatenate
         # without paying pandas materialization/conversion costs per day-file.
+        # The semaphore bounds in-flight parse tasks so the executor's internal
+        # queue doesn't pin unbounded raw-payload copies in RAM.
         loop = asyncio.get_running_loop()
         try:
-            table = await loop.run_in_executor(parse_pool, pq.read_table, io.BytesIO(payload))
+            async with parse_semaphore:
+                table = await loop.run_in_executor(parse_pool, pq.read_table, io.BytesIO(payload))
         except Exception as exc:
             with state_lock:
                 failed_days += 1
@@ -1601,12 +1646,14 @@ def _run_jobs(
                 error=str(exc),
             )
 
+        bytes_dl = len(payload)
+        del payload  # release raw bytes immediately; Result holds only Arrow table
         return _DownloadResult(
             job=job,
             status="ok",
             table=table,
             payload=None,
-            bytes_downloaded=len(payload),
+            bytes_downloaded=bytes_dl,
             error=None,
         )
 

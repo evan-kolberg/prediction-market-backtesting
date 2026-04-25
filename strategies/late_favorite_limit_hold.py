@@ -7,8 +7,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from nautilus_trader.model.data import QuoteTick, TradeTick
-from nautilus_trader.model.enums import OrderSide, TimeInForce
+from nautilus_trader.model.enums import BookType, OrderSide, TimeInForce
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.trading.strategy import StrategyConfig
 
@@ -40,23 +39,7 @@ def _validate_late_favorite_config(
         )
 
 
-class TradeTickLateFavoriteLimitHoldConfig(StrategyConfig, frozen=True):  # type: ignore[call-arg]
-    instrument_id: InstrumentId
-    trade_size: Decimal = Decimal(25)
-    activation_start_time_ns: int = 0
-    market_close_time_ns: int = 0
-    entry_price: float = 0.90
-
-    def __post_init__(self) -> None:
-        _validate_late_favorite_config(
-            trade_size=self.trade_size,
-            entry_price=self.entry_price,
-            activation_start_time_ns=self.activation_start_time_ns,
-            market_close_time_ns=self.market_close_time_ns,
-        )
-
-
-class QuoteTickLateFavoriteLimitHoldConfig(StrategyConfig, frozen=True):  # type: ignore[call-arg]
+class BookLateFavoriteLimitHoldConfig(StrategyConfig, frozen=True):  # type: ignore[call-arg]
     instrument_id: InstrumentId
     trade_size: Decimal = Decimal(25)
     activation_start_time_ns: int = 0
@@ -80,9 +63,7 @@ class _LateFavoriteLimitHoldBase(LongOnlyPredictionMarketStrategy):
     remaining position to settlement after the backtest completes.
     """
 
-    def __init__(
-        self, config: TradeTickLateFavoriteLimitHoldConfig | QuoteTickLateFavoriteLimitHoldConfig
-    ) -> None:
+    def __init__(self, config: BookLateFavoriteLimitHoldConfig) -> None:
         super().__init__(config)
         self._entered_once = False
 
@@ -150,29 +131,23 @@ class _LateFavoriteLimitHoldBase(LongOnlyPredictionMarketStrategy):
         self._entered_once = False
 
 
-class TradeTickLateFavoriteLimitHoldStrategy(_LateFavoriteLimitHoldBase):
+class BookLateFavoriteLimitHoldStrategy(_LateFavoriteLimitHoldBase):
     def _subscribe(self) -> None:
-        self.subscribe_trade_ticks(self.config.instrument_id)
-
-    def on_trade_tick(self, tick: TradeTick) -> None:
-        price = float(tick.price)
-        self._on_price(
-            signal_price=price,
-            order_price=price,
-            ts_event_ns=int(tick.ts_event),
+        self.subscribe_order_book_deltas(
+            instrument_id=self.config.instrument_id,
+            book_type=BookType.L2_MBP,
         )
 
-
-class QuoteTickLateFavoriteLimitHoldStrategy(_LateFavoriteLimitHoldBase):
-    def _subscribe(self) -> None:
-        self.subscribe_quote_ticks(self.config.instrument_id)
-
-    def on_quote_tick(self, tick: QuoteTick) -> None:
-        signal_price = (float(tick.bid_price) + float(tick.ask_price)) / 2.0
+    def on_order_book(self, order_book) -> None:  # type: ignore[no-untyped-def]
+        bid = order_book.best_bid_price()
+        ask = order_book.best_ask_price()
+        if bid is None or ask is None:
+            return
+        mid = (float(bid) + float(ask)) / 2.0
+        ask_size = order_book.best_ask_size()
         self._on_price(
-            signal_price=signal_price,
-            order_price=float(tick.ask_price),
-            ts_event_ns=int(tick.ts_event),
-            visible_size=float(tick.ask_size),
-            exit_visible_size=float(tick.bid_size),
+            signal_price=mid,
+            order_price=float(ask),
+            ts_event_ns=int(order_book.ts_event),
+            visible_size=float(ask_size) if ask_size is not None else None,
         )

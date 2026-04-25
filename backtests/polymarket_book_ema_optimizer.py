@@ -27,9 +27,9 @@ from prediction_market_extensions.backtesting._experiments import (
     run_experiment,
 )
 from prediction_market_extensions.backtesting._prediction_market_runner import MarketDataConfig
-from prediction_market_extensions.backtesting._replay_specs import QuoteReplay
+from prediction_market_extensions.backtesting._replay_specs import BookReplay
 from prediction_market_extensions.backtesting._timing_harness import timing_harness
-from prediction_market_extensions.backtesting.data_sources import PMXT, Polymarket, QuoteTick
+from prediction_market_extensions.backtesting.data_sources import Book, PMXT, Polymarket
 from prediction_market_extensions.backtesting.optimizers import (
     ParameterSearchConfig,
     ParameterSearchWindow,
@@ -37,7 +37,7 @@ from prediction_market_extensions.backtesting.optimizers import (
 
 DATA = MarketDataConfig(
     platform=Polymarket,
-    data_type=QuoteTick,
+    data_type=Book,
     vendor=PMXT,
     sources=(
         "local:/Volumes/LaCie/pmxt_data",
@@ -46,7 +46,7 @@ DATA = MarketDataConfig(
     ),
 )
 
-BASE_REPLAY = QuoteReplay(
+BASE_REPLAY = BookReplay(
     market_slug="will-ludvig-aberg-win-the-2026-masters-tournament", token_index=0
 )
 
@@ -77,8 +77,8 @@ HOLDOUT_WINDOWS = (
 )
 
 STRATEGY_SPEC = {
-    "strategy_path": "strategies:QuoteTickEMACrossoverStrategy",
-    "config_path": "strategies:QuoteTickEMACrossoverConfig",
+    "strategy_path": "strategies:BookEMACrossoverStrategy",
+    "config_path": "strategies:BookEMACrossoverConfig",
     "config": {
         "trade_size": Decimal(5),
         "fast_period": "__SEARCH__:fast_period",
@@ -108,7 +108,7 @@ EXECUTION = ExecutionModelConfig(
 )
 
 PARAMETER_SEARCH = ParameterSearchConfig(
-    name="polymarket_quote_tick_ema_optimizer",
+    name="polymarket_book_ema_optimizer",
     data=DATA,
     base_replay=BASE_REPLAY,
     strategy_spec=STRATEGY_SPEC,
@@ -120,11 +120,10 @@ PARAMETER_SEARCH = ParameterSearchConfig(
     holdout_top_k=5,
     initial_cash=100.0,
     probability_window=256,
-    min_quotes=500,
+    min_book_events=500,
     min_price_range=0.005,
     min_fills_per_window=1,
     execution=EXECUTION,
-    emit_html=True,
     chart_output_path="output",
 )
 
@@ -134,7 +133,7 @@ OPTIMIZER = PARAMETER_SEARCH
 OPTIMIZATION = PARAMETER_SEARCH
 
 EXPERIMENT = ParameterSearchExperiment(
-    name="polymarket_quote_tick_ema_optimizer",
+    name="polymarket_book_ema_optimizer",
     description=(
         "Random-search EMA optimizer with explicit train and holdout windows on PMXT L2 data"
     ),

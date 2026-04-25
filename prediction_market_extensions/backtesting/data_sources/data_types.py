@@ -14,21 +14,13 @@ class MarketDataType:
         return self.name
 
 
-TradeTick = MarketDataType("trade_tick")
-QuoteTick = MarketDataType("quote_tick")
-Bar = MarketDataType("bar")
+Book = MarketDataType("book")
 
-TRADE_TICK_DATA = TradeTick
-QUOTE_TICK_DATA = QuoteTick
-BAR_DATA = Bar
+BOOK_DATA = Book
 
 
 __all__ = [
-    "BAR_DATA",
-    "QUOTE_TICK_DATA",
-    "TRADE_TICK_DATA",
-    "Bar",
+    "BOOK_DATA",
+    "Book",
     "MarketDataType",
-    "QuoteTick",
-    "TradeTick",
 ]

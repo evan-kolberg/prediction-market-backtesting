@@ -17,8 +17,6 @@
 
 from __future__ import annotations
 
-import math
-import os
 import re
 from collections.abc import Mapping, Sequence
 from datetime import datetime
@@ -62,7 +60,6 @@ from prediction_market_extensions.analysis.legacy_backtesting.models import (
     normalize_plot_panels,
 )
 from prediction_market_extensions.analysis.legacy_plot_adapter import (
-    build_legacy_backtest_layout,
     save_legacy_backtest_layout,
 )
 from prediction_market_extensions.backtesting._result_policies import (
@@ -646,10 +643,7 @@ def run_market_backtest(
     chart_resample_rule: str | None = None,
     market_key: str = "market",
     open_browser: bool = False,
-    emit_html: bool = True,
-    return_chart_layout: bool = False,
     return_summary_series: bool = False,
-    chart_output_path: str | Path | None = None,
     book_type: BookType = BookType.L1_MBP,
     liquidity_consumption: bool = False,
     queue_position: bool = False,
@@ -707,27 +701,6 @@ def run_market_backtest(
     )
     chart_market_prices = build_market_prices(price_points, resample_rule=chart_resample_rule)
 
-    chart_path = str(chart_output_path or f"output/{output_prefix}_{market_id}_legacy.html")
-    chart_layout = None
-    chart_title = f"{strategy_name} legacy chart"
-    if emit_html or return_chart_layout:
-        os.makedirs("output", exist_ok=True)
-        chart_layout, chart_title = build_legacy_backtest_layout(
-            engine=engine,
-            output_path=chart_path,
-            strategy_name=strategy_name,
-            platform=platform,
-            initial_cash=initial_cash,
-            market_prices={str(instrument.id): chart_market_prices},
-            user_probabilities=user_probabilities,
-            market_probabilities=market_probabilities,
-            outcomes=outcomes,
-            open_browser=open_browser,
-        )
-        if emit_html:
-            chart_path = save_legacy_backtest_layout(chart_layout, chart_path, chart_title)
-    else:
-        chart_path = None
 
     summary_price_series = None
     summary_pnl_series = None
@@ -791,11 +764,6 @@ def run_market_backtest(
         ),
     }
     result = apply_binary_settlement_pnl(result)
-    if chart_path is not None:
-        result["chart_path"] = chart_path
-    if return_chart_layout and chart_layout is not None:
-        result["chart_layout"] = chart_layout
-        result["chart_title"] = chart_title
     if return_summary_series:
         result["price_series"] = summary_price_series or []
         result["pnl_series"] = summary_pnl_series or []
@@ -1345,23 +1313,6 @@ def save_joint_portfolio_backtest_report(
     return save_legacy_backtest_layout(layout, output_abs, title)
 
 
-def _is_nan_like(value: Any) -> bool:
-    if value is None:
-        return True
-    try:
-        return math.isnan(float(value))
-    except (TypeError, ValueError):
-        return False
-
-
-def _format_stat_value(value: Any) -> str:
-    if _is_nan_like(value):
-        return "nan"
-    if isinstance(value, float):
-        return f"{value:.6f}"
-    return str(value)
-
-
 def print_backtest_summary(
     *,
     results: list[dict[str, Any]],
@@ -1371,39 +1322,25 @@ def print_backtest_summary(
     pnl_label: str,
     empty_message: str = "No markets had sufficient data.",
 ) -> None:
-    """Print a per-market readout of raw Nautilus stats.
-
-    The previous formatted table elided everything that wasn't fills/PnL.
-    Emitting `stats_pnls` and `stats_returns` from the engine result keeps the
-    ranking machinery (and human review) honest about Sharpe, expectancy, win
-    rate, and per-instrument break-down — which is the data Nautilus already
-    computes but the framework was hiding.
+    """
+    Print a normalized backtest summary table.
     """
     if not results:
         print(empty_message)
         return
 
+    col_w = max(len(str(result[market_key])) for result in results) + 2
+    header = f"{'Market':<{col_w}} {count_label:>8} {'Fills':>6} {pnl_label:>12}"
+    sep = "─" * len(header)
+
+    print(f"\n{sep}\n{header}\n{sep}")
     for result in results:
-        label = str(result.get(market_key, "?"))
-        fills = int(result.get("fills", 0))
-        pnl = float(result.get("pnl", 0.0))
-        count = int(result.get(count_key, 0))
-        print(f"\n{label}  {count_label}={count}  fills={fills}  {pnl_label}={pnl:+.6f}")
+        print(
+            f"{result[market_key]:<{col_w}} {result[count_key]:>8} {result['fills']:>6} {result['pnl']:>+12.4f}"
+        )
 
-        stats_pnls = result.get("stats_pnls") or {}
-        if stats_pnls:
-            for instrument_id, instrument_stats in stats_pnls.items():
-                if len(stats_pnls) > 1:
-                    print(f"  [{instrument_id}]")
-                for stat_name, stat_val in instrument_stats.items():
-                    print(f"    {stat_name}: {_format_stat_value(stat_val)}")
-        else:
-            print("  (no engine stats_pnls available)")
-
-        stats_returns = result.get("stats_returns") or {}
-        for stat_name, stat_val in stats_returns.items():
-            print(f"    {stat_name}: {_format_stat_value(stat_val)}")
-
-    total_pnl = sum(float(r.get("pnl", 0.0)) for r in results)
-    total_fills = sum(int(r.get("fills", 0)) for r in results)
-    print(f"\nTOTAL  fills={total_fills}  {pnl_label}={total_pnl:+.6f}")
+    total_pnl = sum(float(result["pnl"]) for result in results)
+    total_fills = sum(int(result["fills"]) for result in results)
+    print(sep)
+    print(f"{'TOTAL':<{col_w}} {'':>8} {total_fills:>6} {total_pnl:>+12.4f}")
+    print(sep)

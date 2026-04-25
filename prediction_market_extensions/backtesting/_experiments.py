@@ -4,7 +4,6 @@ import asyncio
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import datetime
-from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
 import pandas as pd
@@ -54,11 +53,7 @@ class ReplayExperiment:
     nautilus_log_level: str = "INFO"
     execution: ExecutionModelConfig | None = None
     chart_resample_rule: str | None = None
-    emit_html: bool = True
-    chart_output_path: str | Path | None = None
-    return_chart_layout: bool = False
     return_summary_series: bool = False
-    detail_plot_panels: Sequence[str] | None = None
     multi_replay_mode: MultiReplayMode = "joint_portfolio"
     report: MarketReportConfig | None = None
     empty_message: str | None = None
@@ -99,11 +94,7 @@ def build_backtest_for_experiment(experiment: ReplayExperiment) -> PredictionMar
         nautilus_log_level=experiment.nautilus_log_level,
         execution=experiment.execution,
         chart_resample_rule=experiment.chart_resample_rule,
-        emit_html=experiment.emit_html,
-        chart_output_path=experiment.chart_output_path,
-        return_chart_layout=experiment.return_chart_layout,
         return_summary_series=experiment.return_summary_series,
-        detail_plot_panels=experiment.detail_plot_panels,
     )
 
 
@@ -127,11 +118,7 @@ def build_replay_experiment(
     nautilus_log_level: str = "INFO",
     execution: ExecutionModelConfig | None = None,
     chart_resample_rule: str | None = None,
-    emit_html: bool = True,
-    chart_output_path: str | Path | None = None,
-    return_chart_layout: bool = False,
     return_summary_series: bool = False,
-    detail_plot_panels: Sequence[str] | None = None,
     multi_replay_mode: MultiReplayMode = "joint_portfolio",
     report: MarketReportConfig | None = None,
     empty_message: str | None = None,
@@ -157,11 +144,7 @@ def build_replay_experiment(
         nautilus_log_level=nautilus_log_level,
         execution=execution,
         chart_resample_rule=chart_resample_rule,
-        emit_html=emit_html,
-        chart_output_path=chart_output_path,
-        return_chart_layout=return_chart_layout,
         return_summary_series=return_summary_series,
-        detail_plot_panels=detail_plot_panels,
         multi_replay_mode=multi_replay_mode,
         report=report,
         empty_message=empty_message,
@@ -198,11 +181,7 @@ def replay_experiment_from_backtest(
         nautilus_log_level=backtest.nautilus_log_level,
         execution=backtest.execution,
         chart_resample_rule=backtest.chart_resample_rule,
-        emit_html=backtest.emit_html,
-        chart_output_path=backtest.chart_output_path,
-        return_chart_layout=backtest.return_chart_layout,
         return_summary_series=backtest.return_summary_series,
-        detail_plot_panels=backtest.detail_plot_panels,
         multi_replay_mode="joint_portfolio",
         report=report,
         empty_message=empty_message,

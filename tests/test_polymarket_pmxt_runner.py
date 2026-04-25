@@ -45,8 +45,6 @@ def test_pmxt_runner_uses_l2_execution_settings(monkeypatch):
             probability_window=5,
             initial_cash=100.0,
             emit_summary=False,
-            emit_html=False,
-            chart_output_path="output/pmxt_test_chart.html",
             strategy_factory=lambda instrument_id: SimpleNamespace(instrument_id=instrument_id),
         )
     )
@@ -56,8 +54,6 @@ def test_pmxt_runner_uses_l2_execution_settings(monkeypatch):
     assert backtest.data.platform == "polymarket"
     assert backtest.data.data_type == "quote_tick"
     assert backtest.data.vendor == "pmxt"
-    assert backtest.emit_html is False
-    assert backtest.chart_output_path == "output/pmxt_test_chart.html"
     assert backtest.execution.queue_position is False
     assert backtest.execution.build_latency_model() is None
 
@@ -91,7 +87,6 @@ def test_pmxt_runner_forwards_queue_position_and_latency(monkeypatch):
             probability_window=5,
             initial_cash=100.0,
             emit_summary=False,
-            emit_html=False,
             strategy_factory=lambda instrument_id: SimpleNamespace(instrument_id=instrument_id),
             execution=ExecutionModelConfig(
                 queue_position=True,
@@ -145,7 +140,6 @@ def test_pmxt_runner_respects_explicit_start_and_end_times(monkeypatch):
             probability_window=5,
             initial_cash=100.0,
             emit_summary=False,
-            emit_html=False,
             strategy_factory=lambda instrument_id: SimpleNamespace(instrument_id=instrument_id),
         )
     )
@@ -186,7 +180,6 @@ def test_pmxt_runner_forwards_nautilus_log_level(monkeypatch):
             probability_window=5,
             initial_cash=100.0,
             emit_summary=False,
-            emit_html=False,
             nautilus_log_level="INFO",
             strategy_factory=lambda instrument_id: SimpleNamespace(instrument_id=instrument_id),
         )

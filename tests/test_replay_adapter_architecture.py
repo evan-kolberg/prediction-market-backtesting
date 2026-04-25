@@ -101,7 +101,6 @@ def test_new_adapter_registers_without_core_executor_changes(monkeypatch) -> Non
             initial_cash=100.0,
             probability_window=5,
             min_trades=1,
-            emit_html=False,
         )
         backtest = build_backtest_for_experiment(experiment)
 

@@ -9,7 +9,7 @@ from typing import Any
 
 import pandas as pd
 from nautilus_trader.backtest.config import BacktestEngineConfig
-from nautilus_trader.backtest.engine import BacktestEngine, BacktestResult
+from nautilus_trader.backtest.engine import BacktestEngine
 from nautilus_trader.common.component import is_backtest_force_stop
 from nautilus_trader.config import LoggingConfig
 from nautilus_trader.config import StrategyFactory as NautilusStrategyFactory
@@ -29,7 +29,6 @@ from prediction_market_extensions.adapters.prediction_market import (
 from prediction_market_extensions.adapters.prediction_market.fill_model import (
     PredictionMarketTakerFillModel,
 )
-from prediction_market_extensions.analysis.legacy_plot_adapter import DEFAULT_DETAIL_PLOT_PANELS
 from prediction_market_extensions.backtesting._backtest_runtime import build_backtest_run_state
 from prediction_market_extensions.backtesting._execution_config import ExecutionModelConfig
 from prediction_market_extensions.backtesting._market_data_config import MarketDataConfig
@@ -118,11 +117,7 @@ class PredictionMarketBacktest:
         nautilus_log_level: str = "INFO",
         execution: ExecutionModelConfig | None = None,
         chart_resample_rule: str | None = None,
-        emit_html: bool = True,
-        chart_output_path: str | Path | None = None,
-        return_chart_layout: bool = False,
         return_summary_series: bool = False,
-        detail_plot_panels: Sequence[str] | None = None,
     ) -> None:
         if strategy_factory is not None and strategy_configs:
             raise ValueError("Use strategy_factory or strategy_configs, not both.")
@@ -154,13 +149,7 @@ class PredictionMarketBacktest:
         self.nautilus_log_level = nautilus_log_level
         self.execution = execution if execution is not None else ExecutionModelConfig()
         self.chart_resample_rule = chart_resample_rule
-        self.emit_html = emit_html
-        self.chart_output_path = chart_output_path
-        self.return_chart_layout = return_chart_layout
         self.return_summary_series = return_summary_series
-        self.detail_plot_panels = tuple(
-            DEFAULT_DETAIL_PLOT_PANELS if detail_plot_panels is None else detail_plot_panels
-        )
 
     @property
     def sims(self) -> tuple[ReplaySpec | MarketSimConfig, ...]:
@@ -238,7 +227,6 @@ class PredictionMarketBacktest:
                     joint_portfolio_artifacts=joint_portfolio_artifacts
                     if result_index == 0
                     else None,
-                    engine_result=engine_result,
                     run_state=build_backtest_run_state(
                         data=loaded_sim.records,
                         backtest_end_ns=engine_result.backtest_end,
@@ -265,11 +253,7 @@ class PredictionMarketBacktest:
             initial_cash=self.initial_cash,
             probability_window=self.probability_window,
             chart_resample_rule=self.chart_resample_rule,
-            emit_html=self.emit_html,
-            chart_output_path=self.chart_output_path,
-            return_chart_layout=self.return_chart_layout,
             return_summary_series=self.return_summary_series,
-            detail_plot_panels=self.detail_plot_panels,
             sim_count=len(self.sims),
         )
 
@@ -281,7 +265,6 @@ class PredictionMarketBacktest:
         positions_report: pd.DataFrame,
         market_artifacts: Mapping[str, Any] | None = None,
         joint_portfolio_artifacts: Mapping[str, Any] | None = None,
-        engine_result: BacktestResult | None = None,
         run_state: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         return self._create_artifact_builder().build_result(
@@ -290,7 +273,6 @@ class PredictionMarketBacktest:
             positions_report=positions_report,
             market_artifacts=market_artifacts,
             joint_portfolio_artifacts=joint_portfolio_artifacts,
-            engine_result=engine_result,
             run_state=run_state,
         )
 
@@ -311,9 +293,6 @@ class PredictionMarketBacktest:
         return self._create_artifact_builder().build_joint_portfolio_artifacts(
             engine=engine, loaded_sims=loaded_sims
         )
-
-    def _resolve_chart_output_path(self, *, market_id: str) -> Path:
-        return self._create_artifact_builder().resolve_chart_output_path(market_id=market_id)
 
     def _normalize_replays(
         self, replays: Sequence[ReplaySpec | MarketSimConfig]

@@ -105,7 +105,6 @@ def test_kalshi_trade_tick_wrapper_matches_direct_backtest(monkeypatch) -> None:
         strategy_factory=lambda instrument_id: SimpleNamespace(instrument_id=instrument_id),
         initial_cash=100.0,
         probability_window=5,
-        emit_html=False,
     ).run()[0]
 
     wrapper = asyncio.run(
@@ -123,7 +122,6 @@ def test_kalshi_trade_tick_wrapper_matches_direct_backtest(monkeypatch) -> None:
             end_time="2026-04-05T00:00:00Z",
             strategy_factory=lambda instrument_id: SimpleNamespace(instrument_id=instrument_id),
             emit_summary=False,
-            emit_html=False,
         )
     )
 
@@ -165,7 +163,6 @@ def test_polymarket_trade_tick_wrapper_matches_direct_backtest(monkeypatch) -> N
         strategy_factory=lambda instrument_id: SimpleNamespace(instrument_id=instrument_id),
         initial_cash=100.0,
         probability_window=5,
-        emit_html=False,
     ).run()[0]
 
     wrapper = asyncio.run(
@@ -187,7 +184,6 @@ def test_polymarket_trade_tick_wrapper_matches_direct_backtest(monkeypatch) -> N
             probability_window=5,
             strategy_factory=lambda instrument_id: SimpleNamespace(instrument_id=instrument_id),
             emit_summary=False,
-            emit_html=False,
         )
     )
 
@@ -239,7 +235,6 @@ def test_pmxt_quote_tick_wrapper_matches_direct_backtest(monkeypatch) -> None:
         strategy_factory=lambda instrument_id: SimpleNamespace(instrument_id=instrument_id),
         initial_cash=100.0,
         probability_window=5,
-        emit_html=False,
     ).run()[0]
 
     wrapper = asyncio.run(
@@ -261,7 +256,6 @@ def test_pmxt_quote_tick_wrapper_matches_direct_backtest(monkeypatch) -> None:
             start_time="2026-02-21T16:00:00Z",
             end_time="2026-02-21T17:00:00Z",
             emit_summary=False,
-            emit_html=False,
         )
     )
 

@@ -160,20 +160,12 @@ def test_public_runner_modules_expose_metadata_contract(
         experiment = globals_dict["EXPERIMENT"]
         assert isinstance(getattr(experiment, "name", None), str) and experiment.name
         assert isinstance(getattr(experiment, "description", None), str) and experiment.description
-        optimization = getattr(experiment, "optimization", None)
-        target = optimization if optimization is not None else experiment
-        assert isinstance(getattr(target, "emit_html", None), bool)
-        assert isinstance(getattr(target, "chart_output_path", None), str)
-        assert target.chart_output_path
+
     parameter_search = globals_dict.get(
         "PARAMETER_SEARCH", globals_dict.get("OPTIMIZER", globals_dict.get("OPTIMIZATION"))
     )
     if parameter_search is not None:
-        assert isinstance(getattr(parameter_search, "emit_html", None), bool)
-        assert isinstance(getattr(parameter_search, "chart_output_path", None), str)
-        assert parameter_search.chart_output_path
-    assert callable(globals_dict.get("run"))
-
+        assert callable(globals_dict.get("run"))
 
 @pytest.mark.parametrize("relative_path", EXPECTED_PUBLIC_SCRIPT_RUNNER_PATHS)
 def test_public_script_runners_attach_explicit_execution_model(
@@ -276,8 +268,6 @@ def test_pmxt_single_market_quote_tick_runners_expose_explicit_experiment_consta
     assert experiment.initial_cash == 100.0
     assert experiment.min_quotes == 500
     assert experiment.min_price_range == 0.005
-    assert experiment.emit_html is True
-    assert experiment.chart_output_path == "output"
 
 
 @pytest.mark.parametrize("relative_path", PMXT_INDEPENDENT_QUOTE_TICK_RUNNERS)
@@ -307,9 +297,6 @@ def test_pmxt_quote_tick_independent_runners_expose_explicit_summary_contract(
     assert report.summary_plot_panels == globals_dict["SUMMARY_PLOT_PANELS"]
     assert experiment.return_summary_series is True
     assert experiment.multi_replay_mode == "independent"
-    assert experiment.emit_html is False
-    assert experiment.chart_output_path == "output"
-    assert experiment.detail_plot_panels == globals_dict["DETAIL_PLOT_PANELS"]
 
 
 @pytest.mark.parametrize("relative_path", PMXT_JOINT_QUOTE_TICK_RUNNERS)
@@ -330,8 +317,6 @@ def test_pmxt_quote_tick_joint_runners_expose_explicit_summary_contract(
     assert report.summary_report_path == globals_dict["SUMMARY_REPORT_PATH"]
     assert experiment.return_summary_series is True
     assert experiment.multi_replay_mode == "joint_portfolio"
-    assert experiment.emit_html is False
-    assert experiment.chart_output_path == "output"
 
 
 @pytest.mark.parametrize("relative_path", TELONEX_JOINT_QUOTE_TICK_RUNNERS)
@@ -361,8 +346,6 @@ def test_telonex_quote_tick_joint_runners_expose_explicit_summary_contract(
     assert report.summary_report_path == globals_dict["SUMMARY_REPORT_PATH"]
     assert experiment.return_summary_series is True
     assert experiment.multi_replay_mode == "joint_portfolio"
-    assert experiment.emit_html is False
-    assert experiment.chart_output_path == "output"
 
 
 @pytest.mark.parametrize("relative_path", PMXT_QUOTE_TICK_OPTIMIZER_RUNNERS)
@@ -403,8 +386,6 @@ def test_pmxt_quote_tick_optimizer_runners_expose_explicit_search_configuration(
     assert parameter_search.data is data
     assert parameter_search.base_replay is base_replay
     assert parameter_search.strategy_spec is globals_dict["STRATEGY_SPEC"]
-    assert parameter_search.emit_html is True
-    assert parameter_search.chart_output_path == "output"
     assert dict(parameter_search.parameter_grid) == parameter_grid
     assert parameter_search.train_windows == train_windows
     assert parameter_search.holdout_windows == holdout_windows
@@ -426,9 +407,6 @@ def test_trade_tick_independent_runners_emit_summary_contract(
 
     experiment = globals_dict["EXPERIMENT"]
     report = globals_dict["REPORT"]
-
-    assert experiment.emit_html is False
-    assert experiment.chart_output_path == "output"
     assert experiment.return_summary_series is True
     assert experiment.multi_replay_mode == "independent"
     assert report.summary_report is True
@@ -447,9 +425,6 @@ def test_trade_tick_joint_runners_emit_summary_contract(
 
     experiment = globals_dict["EXPERIMENT"]
     report = globals_dict["REPORT"]
-
-    assert experiment.emit_html is False
-    assert experiment.chart_output_path == "output"
     assert experiment.return_summary_series is True
     assert experiment.multi_replay_mode == "joint_portfolio"
     assert report.summary_report is True

@@ -1,8 +1,11 @@
 # Repository Notes For Agents
 
-This repo is a prediction-market backtesting research project. Optimize for
-honest simulation, durable runner behavior, and clear operational docs. Do not
-paper over failures that could make a reader trust misleading results.
+This repo is a professional prediction-market backtesting framework built on
+NautilusTrader. The primary objective is **maximum backtest realism** — every
+design choice must be weighed against whether it makes simulated results more
+or less trustworthy. Do not paper over failures that could make a reader trust
+misleading results. Play devil's advocate on realism gaps; chase the best
+features from the NautilusTrader documentation.
 
 ## Scope And Worktree Safety
 
@@ -31,6 +34,41 @@ paper over failures that could make a reader trust misleading results.
 uv run mkdocs build --strict
 ```
 
+## L2 Book Architecture
+
+This framework is L2-native. All replay data is L2 order book deltas
+(`OrderBookDeltas`), not L1 quotes or trade ticks.
+
+- The replay spec is **`BookReplay`** — never `QuoteReplay` or `TradeReplay`.
+- The data type string is **`"book"`** — never `"quote_tick"` or `"trade_tick"`.
+- `min_book_events` — never `min_quotes` or `min_trades`.
+- NautilusTrader **ignores `QuoteTick` for `L2_MBP`** backtesting. Our data is
+  L2 order book data; naming it "quote tick" was incorrect and has been fixed.
+- **Trade ticks are integrated into book replay for order matching**, per
+  [NautilusTrader backtesting docs](https://nautilustrader.io/docs/latest/concepts/backtesting/#combining-l2-book-data-with-trade-ticks).
+  Standalone trade-tick replay does not exist and must not be re-introduced.
+- No backwards-compatibility aliases. Do not add `QuoteReplay = BookReplay` or
+  similar shims. We move forward with correctness.
+
+### Book Data Signals
+
+The `cache.order_book(instrument_id)` API exposes these L2 signals that
+strategies should use:
+
+- `spread()`, `midpoint()`, `bids()`, `asks()`
+- `get_avg_px_for_quantity()`, `get_quantity_for_price()`
+- `simulate_fills()` — for pre-trade impact estimation
+- **Imbalance**, **microprice** — derived from bid/ask depth asymmetry
+- `OrderBookImbalance` — NautilusTrader ships a built-in indicator
+
+New strategies should consume the full depth of the book, not just BBO.
+
+### Per-Market HTML Removed
+
+Individual per-market HTML report generation (`emit_html`) has been removed.
+Summary/portfolio HTML with all panels (including per-market result lines in
+tables and plots) is retained. Do not re-add per-market file generation.
+
 ## Backtest Realism Priorities
 
 Treat these as high-value issues:
@@ -43,6 +81,10 @@ Treat these as high-value issues:
 - timestamp or datetime warnings in normal runs
 - examples that use stale markets, fragile dates, or false performance claims
 - optimizer math, scoring, or ranking behavior that misleads research decisions
+- **PMXT missing-hour gaps** — must warn and reset book state (already fixed)
+- **resolution metadata look-ahead** — `instrument.info` must not contain
+  `result` keys accessible to strategy during simulation (already fixed)
+- **zero latency defaults** — realistic CLOB round-trip latencies needed
 
 Treat expected losing strategies separately from bugs. Negative PnL or
 `AccountBalanceNegative` is not automatically a code defect.
@@ -135,17 +177,15 @@ uv run pytest tests/ -q
 Useful representative smoke checks:
 
 ```bash
-uv run python backtests/kalshi_trade_tick_breakout.py
-uv run python backtests/polymarket_trade_tick_vwap_reversion.py
-uv run python backtests/polymarket_quote_tick_ema_crossover.py
-uv run python backtests/polymarket_quote_tick_independent_multi_replay_runner.py
+uv run python backtests/polymarket_book_ema_crossover.py
+uv run python backtests/polymarket_book_independent_multi_replay_runner.py
 ```
 
 If core internals, optimizer math, loader behavior, runner bootstrap, plotting,
 reporting, or backtest behavior changed, run focused tests plus representative
-runner smokes before submitting a PR. Include trade-tick Kalshi, trade-tick
-Polymarket, quote-tick Polymarket, multi-runner, optimizer, and HTML/report
-paths when the touched code can affect them.
+runner smokes before submitting a PR. Include book Polymarket (PMXT and
+Telonex), multi-runner, optimizer, and HTML/report paths when the touched code
+can affect them.
 
 When touching `main.py`, timing, PMXT loader behavior, or default backtest
 selection/parameters, verify both:

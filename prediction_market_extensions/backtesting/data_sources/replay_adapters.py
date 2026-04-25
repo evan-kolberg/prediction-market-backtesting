@@ -9,12 +9,10 @@ from typing import Any
 
 import pandas as pd
 from nautilus_trader.adapters.polymarket import POLYMARKET_VENUE
-from nautilus_trader.model.currencies import USD, USDC_POS
-from nautilus_trader.model.data import QuoteTick
+from nautilus_trader.model.currencies import USDC_POS
+from nautilus_trader.model.data import OrderBookDeltas, QuoteTick
 from nautilus_trader.model.enums import AccountType, BookType, OmsType
-from nautilus_trader.model.identifiers import Venue
 
-from prediction_market_extensions.adapters.kalshi.fee_model import KalshiProportionalFeeModel
 from prediction_market_extensions.adapters.polymarket.fee_model import PolymarketFeeModel
 from prediction_market_extensions.adapters.prediction_market import (
     HistoricalReplayAdapter,
@@ -30,25 +28,13 @@ from prediction_market_extensions.adapters.prediction_market.backtest_utils impo
     infer_realized_outcome_from_metadata,
 )
 from prediction_market_extensions.backtesting._backtest_runtime import _record_timestamp_ns
-from prediction_market_extensions.backtesting._replay_specs import QuoteReplay, TradeReplay
-from prediction_market_extensions.backtesting.data_sources.kalshi_native import (
-    RunnerKalshiDataLoader as KalshiDataLoader,
-)
-from prediction_market_extensions.backtesting.data_sources.kalshi_native import (
-    configured_kalshi_native_data_source,
-)
+from prediction_market_extensions.backtesting._replay_specs import BookReplay
 from prediction_market_extensions.backtesting.data_sources.pmxt import (
     RunnerPolymarketPMXTDataLoader as PolymarketPMXTDataLoader,
 )
 from prediction_market_extensions.backtesting.data_sources.pmxt import configured_pmxt_data_source
-from prediction_market_extensions.backtesting.data_sources.polymarket_native import (
-    RunnerPolymarketDataLoader as PolymarketDataLoader,
-)
-from prediction_market_extensions.backtesting.data_sources.polymarket_native import (
-    configured_polymarket_native_data_source,
-)
 from prediction_market_extensions.backtesting.data_sources.telonex import (
-    RunnerPolymarketTelonexQuoteDataLoader as PolymarketTelonexQuoteDataLoader,
+    RunnerPolymarketTelonexBookDataLoader as PolymarketTelonexBookDataLoader,
 )
 from prediction_market_extensions.backtesting.data_sources.telonex import (
     TELONEX_FULL_BOOK_CHANNEL,
@@ -67,12 +53,6 @@ def _resolve_backtest_compat_symbol(name: str, default: Any) -> Any:
 
 
 def _loader_realized_outcome(loader: Any) -> float | None:
-    """Resolve the loader's realized outcome without re-reading instrument.info.
-
-    Loaders that pre-strip resolution data expose `resolution_metadata` so the
-    instrument cache stays free of look-ahead. Older loaders fall back to the
-    instrument-based path.
-    """
     metadata = getattr(loader, "resolution_metadata", None)
     if metadata:
         outcome_name = str(getattr(loader.instrument, "outcome", "") or "")
@@ -140,6 +120,18 @@ def _validate_replay_window(
         )
         return False
     return True
+
+
+L2_BOOK_ENGINE_PROFILE = ReplayEngineProfile(
+    venue=POLYMARKET_VENUE,
+    oms_type=OmsType.NETTING,
+    account_type=AccountType.CASH,
+    base_currency=USDC_POS,
+    fee_model_factory=PolymarketFeeModel,
+    fill_model_mode="passive_book",
+    book_type=BookType.L2_MBP,
+    liquidity_consumption=True,
+)
 
 
 @dataclass(frozen=True)
@@ -217,229 +209,13 @@ class _BaseReplayAdapter(HistoricalReplayAdapter):
         )
 
 
-class KalshiTradeTickReplayAdapter(_BaseReplayAdapter):
+class PolymarketPMXTBookReplayAdapter(_BaseReplayAdapter):
     def __init__(self) -> None:
         super().__init__(
-            _key=ReplayAdapterKey("kalshi", "native", "trade_tick"),
-            _replay_spec_type=TradeReplay,
-            _configure_sources_fn=configured_kalshi_native_data_source,
-            _engine_profile=ReplayEngineProfile(
-                venue=Venue("KALSHI"),
-                oms_type=OmsType.NETTING,
-                account_type=AccountType.CASH,
-                base_currency=USD,
-                fee_model_factory=KalshiProportionalFeeModel,
-            ),
-            _single_market_required_fields=("market_ticker",),
-            _single_market_forwarded_fields=(
-                "market_ticker",
-                "lookback_days",
-                "start_time",
-                "end_time",
-                "outcome",
-                "metadata",
-            ),
-            _single_market_replay_factory=lambda fields: TradeReplay(
-                market_ticker=str(fields["market_ticker"]),
-                lookback_days=fields.get("lookback_days"),
-                start_time=fields.get("start_time"),
-                end_time=fields.get("end_time"),
-                outcome=fields.get("outcome"),
-                metadata=fields.get("metadata"),
-            ),
-        )
-
-    async def load_replay(
-        self, replay: TradeReplay, *, request: ReplayLoadRequest
-    ) -> LoadedReplay | None:
-        end = _normalize_timestamp(
-            replay.end_time if replay.end_time is not None else request.default_end_time,
-            default_now=True,
-        )
-        if replay.start_time is not None:
-            start = _normalize_timestamp(replay.start_time)
-        else:
-            lookback_days = (
-                replay.lookback_days
-                if replay.lookback_days is not None
-                else request.default_lookback_days
-            )
-            if lookback_days is None:
-                raise ValueError("lookback_days or start_time is required for Kalshi replays.")
-            start = end - pd.Timedelta(days=float(lookback_days))
-
-        if start >= end:
-            raise ValueError(
-                f"start_time {start.isoformat()} must be earlier than end_time {end.isoformat()}"
-            )
-
-        print(
-            f"Loading Kalshi market {replay.market_ticker} "
-            f"(window_start={start.isoformat()}, window_end={end.isoformat()})..."
-        )
-        try:
-            loader_cls = _resolve_backtest_compat_symbol("KalshiDataLoader", KalshiDataLoader)
-            loader = await loader_cls.from_market_ticker(replay.market_ticker)
-            trades = tuple(await loader.load_trades(start, end))
-        except Exception as exc:
-            print(f"Skip {replay.market_ticker}: unable to load trades ({exc})")
-            return None
-
-        if not trades:
-            print(f"Skip {replay.market_ticker}: no trades returned")
-            return None
-
-        prices = tuple(float(trade.price) for trade in trades)
-        if not _validate_replay_window(
-            market_label=replay.market_ticker,
-            count_label="trades",
-            count=len(trades),
-            min_record_count=request.min_record_count,
-            prices=prices,
-            min_price_range=request.min_price_range,
-        ):
-            return None
-
-        return self._build_loaded_replay(
-            replay=replay,
-            instrument=loader.instrument,
-            records=trades,
-            count=len(trades),
-            count_key="trades",
-            market_key="ticker",
-            market_id=replay.market_ticker,
-            prices=prices,
-            outcome=str(replay.outcome or ""),
-            realized_outcome=_loader_realized_outcome(loader),
-            metadata=dict(replay.metadata or {}),
-            requested_window=_requested_window(start, end),
-        )
-
-
-class PolymarketTradeTickReplayAdapter(_BaseReplayAdapter):
-    def __init__(self) -> None:
-        super().__init__(
-            _key=ReplayAdapterKey("polymarket", "native", "trade_tick"),
-            _replay_spec_type=TradeReplay,
-            _configure_sources_fn=configured_polymarket_native_data_source,
-            _engine_profile=ReplayEngineProfile(
-                venue=POLYMARKET_VENUE,
-                oms_type=OmsType.NETTING,
-                account_type=AccountType.CASH,
-                base_currency=USDC_POS,
-                fee_model_factory=PolymarketFeeModel,
-            ),
-            _single_market_required_fields=("market_slug",),
-            _single_market_forwarded_fields=(
-                "market_slug",
-                "token_index",
-                "lookback_days",
-                "start_time",
-                "end_time",
-                "outcome",
-                "metadata",
-            ),
-            _single_market_replay_factory=lambda fields: TradeReplay(
-                market_slug=str(fields["market_slug"]),
-                token_index=int(fields.get("token_index", 0)),
-                lookback_days=fields.get("lookback_days"),
-                start_time=fields.get("start_time"),
-                end_time=fields.get("end_time"),
-                outcome=fields.get("outcome"),
-                metadata=fields.get("metadata"),
-            ),
-        )
-
-    async def load_replay(
-        self, replay: TradeReplay, *, request: ReplayLoadRequest
-    ) -> LoadedReplay | None:
-        end = _normalize_timestamp(
-            replay.end_time if replay.end_time is not None else request.default_end_time,
-            default_now=True,
-        )
-        if replay.start_time is not None:
-            start = _normalize_timestamp(replay.start_time)
-        else:
-            lookback_days = (
-                replay.lookback_days
-                if replay.lookback_days is not None
-                else request.default_lookback_days
-            )
-            if lookback_days is None:
-                raise ValueError(
-                    "lookback_days or start_time is required for Polymarket trade-tick replays."
-                )
-            start = end - pd.Timedelta(days=float(lookback_days))
-
-        if start >= end:
-            raise ValueError(
-                f"start_time {start.isoformat()} must be earlier than end_time {end.isoformat()}"
-            )
-
-        print(
-            f"Loading Polymarket market {replay.market_slug} "
-            f"(token_index={replay.token_index}, window_start={start.isoformat()}, "
-            f"window_end={end.isoformat()})..."
-        )
-        try:
-            loader_cls = _resolve_backtest_compat_symbol(
-                "PolymarketDataLoader", PolymarketDataLoader
-            )
-            loader = await loader_cls.from_market_slug(
-                replay.market_slug, token_index=replay.token_index
-            )
-            trades = tuple(await loader.load_trades(start, end))
-        except Exception as exc:
-            print(f"Skip {replay.market_slug}: unable to load trades ({exc})")
-            return None
-
-        if not trades:
-            print(f"Skip {replay.market_slug}: no trades returned")
-            return None
-
-        prices = tuple(float(trade.price) for trade in trades)
-        if not _validate_replay_window(
-            market_label=replay.market_slug,
-            count_label="trades",
-            count=len(trades),
-            min_record_count=request.min_record_count,
-            prices=prices,
-            min_price_range=request.min_price_range,
-        ):
-            return None
-
-        return self._build_loaded_replay(
-            replay=replay,
-            instrument=loader.instrument,
-            records=trades,
-            count=len(trades),
-            count_key="trades",
-            market_key="slug",
-            market_id=replay.market_slug,
-            prices=prices,
-            outcome=str(loader.instrument.outcome or replay.outcome or ""),
-            realized_outcome=_loader_realized_outcome(loader),
-            metadata=dict(replay.metadata or {}),
-            requested_window=_requested_window(start, end),
-        )
-
-
-class PolymarketPMXTQuoteReplayAdapter(_BaseReplayAdapter):
-    def __init__(self) -> None:
-        super().__init__(
-            _key=ReplayAdapterKey("polymarket", "pmxt", "quote_tick"),
-            _replay_spec_type=QuoteReplay,
+            _key=ReplayAdapterKey("polymarket", "pmxt", "book"),
+            _replay_spec_type=BookReplay,
             _configure_sources_fn=configured_pmxt_data_source,
-            _engine_profile=ReplayEngineProfile(
-                venue=POLYMARKET_VENUE,
-                oms_type=OmsType.NETTING,
-                account_type=AccountType.CASH,
-                base_currency=USDC_POS,
-                fee_model_factory=PolymarketFeeModel,
-                fill_model_mode="passive_book",
-                book_type=BookType.L2_MBP,
-                liquidity_consumption=True,
-            ),
+            _engine_profile=L2_BOOK_ENGINE_PROFILE,
             _single_market_required_fields=("market_slug",),
             _single_market_forwarded_fields=(
                 "market_slug",
@@ -450,7 +226,7 @@ class PolymarketPMXTQuoteReplayAdapter(_BaseReplayAdapter):
                 "outcome",
                 "metadata",
             ),
-            _single_market_replay_factory=lambda fields: QuoteReplay(
+            _single_market_replay_factory=lambda fields: BookReplay(
                 market_slug=str(fields["market_slug"]),
                 token_index=int(fields.get("token_index", 0)),
                 lookback_hours=fields.get("lookback_hours"),
@@ -462,7 +238,7 @@ class PolymarketPMXTQuoteReplayAdapter(_BaseReplayAdapter):
         )
 
     async def load_replay(
-        self, replay: QuoteReplay, *, request: ReplayLoadRequest
+        self, replay: BookReplay, *, request: ReplayLoadRequest
     ) -> LoadedReplay | None:
         end = _normalize_timestamp(
             replay.end_time if replay.end_time is not None else request.default_end_time,
@@ -478,7 +254,7 @@ class PolymarketPMXTQuoteReplayAdapter(_BaseReplayAdapter):
             )
             if lookback_hours is None:
                 raise ValueError(
-                    "start_time/end_time or lookback_hours is required for PMXT quote replays."
+                    "start_time/end_time or lookback_hours is required for PMXT book replays."
                 )
             start = end - pd.Timedelta(hours=float(lookback_hours))
 
@@ -501,27 +277,28 @@ class PolymarketPMXTQuoteReplayAdapter(_BaseReplayAdapter):
             )
             records = tuple(loader.load_order_book_and_quotes(start, end))
         except Exception as exc:
-            print(f"Skip {replay.market_slug}: unable to load PMXT quotes ({exc})")
+            print(f"Skip {replay.market_slug}: unable to load PMXT L2 book data ({exc})")
             return None
 
         if not records:
-            print(f"Skip {replay.market_slug}: no PMXT records returned")
+            print(f"Skip {replay.market_slug}: no PMXT L2 book data returned")
             return None
 
         prices: list[float] = []
-        quote_count = 0
+        book_event_count = 0
         quote_tick_type = _resolve_backtest_compat_symbol("QuoteTick", QuoteTick)
+        deltas_type = _resolve_backtest_compat_symbol("OrderBookDeltas", OrderBookDeltas)
         for record in records:
-            if not isinstance(record, quote_tick_type):
-                continue
-            quote_count += 1
-            prices.append((float(record.bid_price) + float(record.ask_price)) / 2.0)
+            if isinstance(record, deltas_type):
+                book_event_count += 1
+            if isinstance(record, quote_tick_type):
+                prices.append((float(record.bid_price) + float(record.ask_price)) / 2.0)
 
         prices_tuple = tuple(prices)
         if not _validate_replay_window(
             market_label=replay.market_slug,
-            count_label="quotes",
-            count=quote_count,
+            count_label="book events",
+            count=book_event_count,
             min_record_count=request.min_record_count,
             prices=prices_tuple,
             min_price_range=request.min_price_range,
@@ -532,8 +309,8 @@ class PolymarketPMXTQuoteReplayAdapter(_BaseReplayAdapter):
             replay=replay,
             instrument=loader.instrument,
             records=records,
-            count=quote_count,
-            count_key="quotes",
+            count=book_event_count,
+            count_key="book_events",
             market_key="slug",
             market_id=replay.market_slug,
             prices=prices_tuple,
@@ -544,25 +321,16 @@ class PolymarketPMXTQuoteReplayAdapter(_BaseReplayAdapter):
         )
 
 
-class PolymarketTelonexQuoteReplayAdapter(_BaseReplayAdapter):
+class PolymarketTelonexBookReplayAdapter(_BaseReplayAdapter):
     def __init__(self) -> None:
         super().__init__(
-            _key=ReplayAdapterKey("polymarket", "telonex", "quote_tick"),
-            _replay_spec_type=QuoteReplay,
+            _key=ReplayAdapterKey("polymarket", "telonex", "book"),
+            _replay_spec_type=BookReplay,
             _configure_sources_fn=lambda *, sources: configured_telonex_data_source(
                 sources=sources,
                 channel=TELONEX_FULL_BOOK_CHANNEL,
             ),
-            _engine_profile=ReplayEngineProfile(
-                venue=POLYMARKET_VENUE,
-                oms_type=OmsType.NETTING,
-                account_type=AccountType.CASH,
-                base_currency=USDC_POS,
-                fee_model_factory=PolymarketFeeModel,
-                fill_model_mode="passive_book",
-                book_type=BookType.L2_MBP,
-                liquidity_consumption=True,
-            ),
+            _engine_profile=L2_BOOK_ENGINE_PROFILE,
             _single_market_required_fields=("market_slug",),
             _single_market_forwarded_fields=(
                 "market_slug",
@@ -573,7 +341,7 @@ class PolymarketTelonexQuoteReplayAdapter(_BaseReplayAdapter):
                 "outcome",
                 "metadata",
             ),
-            _single_market_replay_factory=lambda fields: QuoteReplay(
+            _single_market_replay_factory=lambda fields: BookReplay(
                 market_slug=str(fields["market_slug"]),
                 token_index=int(fields.get("token_index", 0)),
                 lookback_hours=fields.get("lookback_hours"),
@@ -585,7 +353,7 @@ class PolymarketTelonexQuoteReplayAdapter(_BaseReplayAdapter):
         )
 
     async def load_replay(
-        self, replay: QuoteReplay, *, request: ReplayLoadRequest
+        self, replay: BookReplay, *, request: ReplayLoadRequest
     ) -> LoadedReplay | None:
         end = _normalize_timestamp(
             replay.end_time if replay.end_time is not None else request.default_end_time,
@@ -601,7 +369,7 @@ class PolymarketTelonexQuoteReplayAdapter(_BaseReplayAdapter):
             )
             if lookback_hours is None:
                 raise ValueError(
-                    "start_time/end_time or lookback_hours is required for Telonex quote replays."
+                    "start_time/end_time or lookback_hours is required for Telonex book replays."
                 )
             start = end - pd.Timedelta(hours=float(lookback_hours))
 
@@ -617,7 +385,7 @@ class PolymarketTelonexQuoteReplayAdapter(_BaseReplayAdapter):
         )
         try:
             loader_cls = _resolve_backtest_compat_symbol(
-                "PolymarketTelonexQuoteDataLoader", PolymarketTelonexQuoteDataLoader
+                "PolymarketTelonexBookDataLoader", PolymarketTelonexBookDataLoader
             )
             loader = await loader_cls.from_market_slug(
                 replay.market_slug, token_index=replay.token_index
@@ -641,19 +409,20 @@ class PolymarketTelonexQuoteReplayAdapter(_BaseReplayAdapter):
             return None
 
         quote_tick_type = _resolve_backtest_compat_symbol("QuoteTick", QuoteTick)
+        deltas_type = _resolve_backtest_compat_symbol("OrderBookDeltas", OrderBookDeltas)
         prices: list[float] = []
-        quote_count = 0
+        book_event_count = 0
         for record in records:
-            if not isinstance(record, quote_tick_type):
-                continue
-            quote_count += 1
-            prices.append((float(record.bid_price) + float(record.ask_price)) / 2.0)
+            if isinstance(record, deltas_type):
+                book_event_count += 1
+            if isinstance(record, quote_tick_type):
+                prices.append((float(record.bid_price) + float(record.ask_price)) / 2.0)
 
         prices_tuple = tuple(prices)
         if not _validate_replay_window(
             market_label=replay.market_slug,
-            count_label="quotes",
-            count=quote_count,
+            count_label="book events",
+            count=book_event_count,
             min_record_count=request.min_record_count,
             prices=prices_tuple,
             min_price_range=request.min_price_range,
@@ -664,8 +433,8 @@ class PolymarketTelonexQuoteReplayAdapter(_BaseReplayAdapter):
             replay=replay,
             instrument=loader.instrument,
             records=records,
-            count=quote_count,
-            count_key="quotes",
+            count=book_event_count,
+            count_key="book_events",
             market_key="slug",
             market_id=replay.market_slug,
             prices=prices_tuple,
@@ -677,11 +446,9 @@ class PolymarketTelonexQuoteReplayAdapter(_BaseReplayAdapter):
 
 
 BUILTIN_REPLAY_ADAPTERS: tuple[HistoricalReplayAdapter, ...] = (
-    KalshiTradeTickReplayAdapter(),
-    PolymarketTradeTickReplayAdapter(),
-    PolymarketPMXTQuoteReplayAdapter(),
-    PolymarketTelonexQuoteReplayAdapter(),
+    PolymarketPMXTBookReplayAdapter(),
+    PolymarketTelonexBookReplayAdapter(),
 )
 
 
-__all__ = ["BUILTIN_REPLAY_ADAPTERS"]
+__all__ = ["BUILTIN_REPLAY_ADAPTERS", "L2_BOOK_ENGINE_PROFILE"]

@@ -208,7 +208,6 @@ def test_score_result_penalizes_drawdown_termination_low_coverage_and_low_fills(
 def test_optimizer_builds_repo_layer_backtest_with_summary_series_enabled(tmp_path: Path) -> None:
     config = replace(
         _make_config(tmp_path, parameter_grid={"edge": (5,)}, max_trials=1),
-        chart_output_path="output/optimizer_trial_chart.html",
     )
     window = config.train_windows[0]
 
@@ -223,8 +222,6 @@ def test_optimizer_builds_repo_layer_backtest_with_summary_series_enabled(tmp_pa
     assert backtest.min_quotes == 500
     assert backtest.min_price_range == 0.005
     assert backtest.execution == config.execution
-    assert backtest.emit_html is False
-    assert backtest.chart_output_path == "output/optimizer_trial_chart.html"
     assert backtest.return_summary_series is True
     assert len(backtest.sims) == 1
     assert backtest.sims[0].start_time == window.start_time
@@ -245,15 +242,11 @@ def test_build_optimization_window_backtest_supports_generic_holdout_replays(
         params={"edge": 2},
         trial_id=11,
         name="generic_optimizer_research",
-        emit_html=True,
-        chart_output_path="output/generic_optimizer_research.html",
         return_summary_series=False,
     )
 
     assert isinstance(backtest, PredictionMarketBacktest)
     assert backtest.name == "generic_optimizer_research"
-    assert backtest.emit_html is True
-    assert backtest.chart_output_path == "output/generic_optimizer_research.html"
     assert backtest.return_summary_series is False
     assert len(backtest.sims) == 1
     assert backtest.sims[0].start_time == window.start_time

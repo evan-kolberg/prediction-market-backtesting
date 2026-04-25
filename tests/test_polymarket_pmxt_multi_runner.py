@@ -89,7 +89,6 @@ def test_independent_pmxt_runner_emits_unique_chart_paths_for_repeated_markets(m
                 "quotes": 2,
                 "fills": 0,
                 "pnl": 0.0,
-                "chart_path": self.chart_output_path,
                 "price_series": [],
                 "pnl_series": [],
                 "equity_series": [],
@@ -120,7 +119,6 @@ def test_independent_pmxt_runner_emits_unique_chart_paths_for_repeated_markets(m
         strategy_factory=lambda instrument_id: SimpleNamespace(instrument_id=instrument_id),
         initial_cash=100.0,
         probability_window=5,
-        emit_html=True,
         return_summary_series=True,
     )
 
@@ -129,10 +127,5 @@ def test_independent_pmxt_runner_emits_unique_chart_paths_for_repeated_markets(m
     )
 
     assert len(results) == 2
-    assert captured[0].emit_html is True
     assert captured[0].return_summary_series is True
-    assert captured[1].emit_html is True
     assert captured[1].return_summary_series is True
-    assert captured[0].chart_output_path != captured[1].chart_output_path
-    assert "sample-a" in str(captured[0].chart_output_path)
-    assert "sample-b" in str(captured[1].chart_output_path)
