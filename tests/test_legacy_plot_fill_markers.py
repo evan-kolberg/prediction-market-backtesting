@@ -17,6 +17,7 @@ from prediction_market_extensions.analysis import legacy_plot_adapter as adapter
 from prediction_market_extensions.analysis.legacy_backtesting import plotting
 from prediction_market_extensions.analysis.legacy_backtesting.models import (
     PANEL_BRIER_ADVANTAGE,
+    PANEL_DRAWDOWN,
     PANEL_EQUITY,
     PANEL_TOTAL_BRIER_ADVANTAGE,
     PANEL_TOTAL_CASH_EQUITY,
@@ -355,6 +356,48 @@ def test_total_aggregate_only_panels_render_for_single_market_results(tmp_path) 
             PANEL_TOTAL_ROLLING_SHARPE,
             PANEL_TOTAL_CASH_EQUITY,
         ),
+    )
+
+    assert layout is not None
+    assert output_path.exists()
+
+
+def test_zero_fill_zero_cash_report_panels_do_not_crash(tmp_path) -> None:
+    pytest.importorskip("bokeh")
+
+    timestamps = pd.date_range("2025-01-01T00:00:00Z", periods=3, freq="h")
+    result = BacktestResult(
+        equity_curve=[
+            PortfolioSnapshot(
+                timestamp=ts.to_pydatetime(),
+                cash=0.0,
+                total_equity=0.0,
+                unrealized_pnl=0.0,
+                num_positions=0,
+            )
+            for ts in timestamps
+        ],
+        fills=[],
+        metrics={},
+        strategy_name="zero-fill-zero-cash",
+        platform=Platform.KALSHI,
+        start_time=timestamps[0].to_pydatetime(),
+        end_time=timestamps[-1].to_pydatetime(),
+        initial_cash=0.0,
+        final_equity=0.0,
+        num_markets_traded=0,
+        num_markets_resolved=1,
+        market_prices={},
+        market_pnls={},
+    )
+
+    output_path = tmp_path / "zero_fill.html"
+    layout = plotting.plot(
+        result,
+        filename=str(output_path),
+        open_browser=False,
+        progress=False,
+        plot_panels=(PANEL_EQUITY, PANEL_DRAWDOWN, PANEL_TOTAL_DRAWDOWN),
     )
 
     assert layout is not None

@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from types import SimpleNamespace
 from typing import Any
 
+import pytest
 from nautilus_trader.model.currencies import USD
 from nautilus_trader.model.enums import AccountType, OmsType
 from nautilus_trader.model.identifiers import Venue
@@ -27,6 +28,7 @@ from prediction_market_extensions.backtesting._market_data_support import (
     unregister_market_data_support,
 )
 from prediction_market_extensions.backtesting._prediction_market_runner import MarketDataConfig
+from prediction_market_extensions.backtesting.data_sources import replay_adapters
 
 
 @dataclass(frozen=True)
@@ -111,3 +113,43 @@ def test_new_adapter_registers_without_core_executor_changes(monkeypatch) -> Non
         assert engine.venues[0]["account_type"] == AccountType.CASH
     finally:
         unregister_market_data_support(("demo", "book", "fake"))
+
+
+def test_preflight_midpoints_apply_l2_book_state(monkeypatch) -> None:
+    class FakeDeltas:
+        def __init__(self, updates: tuple[tuple[str, float], ...]) -> None:
+            self.updates = updates
+
+    class FakeOrderBook:
+        def __init__(self, instrument_id, book_type):  # type: ignore[no-untyped-def]
+            del instrument_id, book_type
+            self._bid: float | None = None
+            self._ask: float | None = None
+
+        def apply_deltas(self, deltas: FakeDeltas) -> None:
+            for side, price in deltas.updates:
+                if side == "bid":
+                    self._bid = price
+                else:
+                    self._ask = price
+
+        def best_bid_price(self) -> float | None:
+            return self._bid
+
+        def best_ask_price(self) -> float | None:
+            return self._ask
+
+    monkeypatch.setattr(replay_adapters, "OrderBook", FakeOrderBook)
+
+    count, midpoints = replay_adapters._book_event_count_and_midpoints(
+        instrument=SimpleNamespace(id="POLYMARKET.TEST"),
+        records=(
+            FakeDeltas((("bid", 0.49), ("ask", 0.51))),
+            FakeDeltas((("ask", 0.55),)),
+        ),
+        deltas_type=FakeDeltas,
+    )
+
+    assert count == 2
+    assert midpoints == (0.5, 0.52)
+    assert replay_adapters._price_range(midpoints) == pytest.approx(0.02)

@@ -21,10 +21,14 @@ from collections.abc import Mapping, Sequence
 from datetime import datetime
 import warnings
 
+from nautilus_trader.model.book import OrderBook
+from nautilus_trader.model.data import OrderBookDeltas
+from nautilus_trader.model.enums import BookType
 import pandas as pd
 
 PricePoint = tuple[object, float]
 _DEFAULT_TS_ATTRS = ("ts_event", "ts_init")
+_BOOK_PRICE_ATTRS = {"price", "mid_price", "midpoint", "book_midpoint"}
 
 
 def _parse_numeric(value: object, default: float = 0.0) -> float:
@@ -52,6 +56,14 @@ def _parse_required_numeric(value: object) -> float | None:
         return None
     parsed = _parse_numeric(value, default=float("nan"))
     return parsed if pd.notna(parsed) else None
+
+
+def _book_midpoint(book: OrderBook) -> float | None:
+    best_bid = book.best_bid_price()
+    best_ask = book.best_ask_price()
+    if best_bid is None or best_ask is None:
+        return None
+    return (float(best_bid) + float(best_ask)) / 2.0
 
 
 def extract_realized_pnl(pos_report: pd.DataFrame) -> float:
@@ -114,6 +126,7 @@ def extract_price_points(
     Extract ``(timestamp, price)`` pairs from Nautilus records.
     """
     points: list[PricePoint] = []
+    books: dict[object, OrderBook] = {}
     for record in records:
         ts_raw = None
         for ts_attr in ts_attrs:
@@ -122,6 +135,19 @@ def extract_price_points(
                 ts_raw = candidate
                 break
         if ts_raw is None:
+            continue
+
+        if isinstance(record, OrderBookDeltas) and price_attr in _BOOK_PRICE_ATTRS:
+            instrument_id = record.instrument_id
+            book = books.get(instrument_id)
+            if book is None:
+                book = OrderBook(instrument_id, book_type=BookType.L2_MBP)
+                books[instrument_id] = book
+            book.apply_deltas(record)
+            price = _book_midpoint(book)
+            if price is None:
+                continue
+            points.append((ts_raw, price))
             continue
 
         if price_attr == "mid_price":

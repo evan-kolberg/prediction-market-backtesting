@@ -456,6 +456,16 @@ def test_telonex_local_range_matches_consolidated_download_script_layout(tmp_pat
     )
 
 
+def test_telonex_local_blob_candidates_include_outcome_id_segment() -> None:
+    loader = RunnerPolymarketTelonexBookDataLoader.__new__(RunnerPolymarketTelonexBookDataLoader)
+
+    assert loader._outcome_segment_candidates(token_index=0, outcome="Yes") == (
+        "Yes",
+        "outcome_id=0",
+        "0",
+    )
+
+
 def test_telonex_local_path_matches_daily_download_script_layout(tmp_path) -> None:
     loader = RunnerPolymarketTelonexBookDataLoader.__new__(RunnerPolymarketTelonexBookDataLoader)
     local_path = (

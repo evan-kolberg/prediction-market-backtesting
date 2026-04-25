@@ -6,6 +6,7 @@
 import warnings
 from datetime import datetime
 
+from prediction_market_extensions.adapters.prediction_market import backtest_utils
 from prediction_market_extensions.adapters.prediction_market.backtest_utils import (
     compute_binary_settlement_pnl,
     extract_price_points,
@@ -64,6 +65,46 @@ def test_extract_price_points_supports_mid_price():
     points = extract_price_points([_QuoteStub()], price_attr="mid_price")
 
     assert points == [(123, 0.42)]
+
+
+def test_extract_price_points_applies_l2_book_deltas(monkeypatch) -> None:
+    class FakeDeltas:
+        def __init__(self, ts_event: int, updates: tuple[tuple[str, float], ...]) -> None:
+            self.instrument_id = "POLYMARKET.TEST"
+            self.ts_event = ts_event
+            self.updates = updates
+
+    class FakeOrderBook:
+        def __init__(self, instrument_id, book_type):  # type: ignore[no-untyped-def]
+            del instrument_id, book_type
+            self._bid: float | None = None
+            self._ask: float | None = None
+
+        def apply_deltas(self, deltas: FakeDeltas) -> None:
+            for side, price in deltas.updates:
+                if side == "bid":
+                    self._bid = price
+                else:
+                    self._ask = price
+
+        def best_bid_price(self) -> float | None:
+            return self._bid
+
+        def best_ask_price(self) -> float | None:
+            return self._ask
+
+    monkeypatch.setattr(backtest_utils, "OrderBookDeltas", FakeDeltas)
+    monkeypatch.setattr(backtest_utils, "OrderBook", FakeOrderBook)
+
+    points = extract_price_points(
+        [
+            FakeDeltas(1, (("bid", 0.44), ("ask", 0.46))),
+            FakeDeltas(2, (("ask", 0.50),)),
+        ],
+        price_attr="price",
+    )
+
+    assert points == [(1, 0.45), (2, 0.47)]
 
 
 def test_to_naive_utc_truncates_nanoseconds_without_warning():

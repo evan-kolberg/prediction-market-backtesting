@@ -11,6 +11,7 @@ from typing import Any
 
 import pandas as pd
 from nautilus_trader.adapters.polymarket import POLYMARKET_VENUE
+from nautilus_trader.model.book import OrderBook
 from nautilus_trader.model.currencies import USDC_POS
 from nautilus_trader.model.data import OrderBookDeltas, TradeTick
 from nautilus_trader.model.enums import AccountType, AggressorSide, BookType, OmsType
@@ -105,23 +106,29 @@ def _price_range(prices: tuple[float, ...]) -> float:
     return max(prices) - min(prices)
 
 
-def _midpoint_from_deltas(deltas: OrderBookDeltas) -> float | None:
-    """Extract a midpoint price from an OrderBookDeltas record."""
-    best_bid: float | None = None
-    best_ask: float | None = None
-    for delta in deltas.deltas:
-        price = float(delta.order.price)
-        if delta.order.side.name == "BUY":
-            if best_bid is None or price > best_bid:
-                best_bid = price
-        else:
-            if best_ask is None or price < best_ask:
-                best_ask = price
-        if best_bid is not None and best_ask is not None:
-            return (best_bid + best_ask) / 2.0
-    if best_bid is not None and best_ask is not None:
-        return (best_bid + best_ask) / 2.0
-    return None
+def _best_book_midpoint(book: OrderBook) -> float | None:
+    best_bid = book.best_bid_price()
+    best_ask = book.best_ask_price()
+    if best_bid is None or best_ask is None:
+        return None
+    return (float(best_bid) + float(best_ask)) / 2.0
+
+
+def _book_event_count_and_midpoints(
+    *, instrument: Any, records: tuple[object, ...], deltas_type: type[Any]
+) -> tuple[int, tuple[float, ...]]:
+    book = OrderBook(instrument.id, book_type=BookType.L2_MBP)
+    book_event_count = 0
+    prices: list[float] = []
+    for record in records:
+        if not isinstance(record, deltas_type):
+            continue
+        book_event_count += 1
+        book.apply_deltas(record)
+        midpoint = _best_book_midpoint(book)
+        if midpoint is not None:
+            prices.append(midpoint)
+    return book_event_count, tuple(prices)
 
 
 def _validate_replay_window(
@@ -424,17 +431,12 @@ class PolymarketPMXTBookReplayAdapter(_BaseReplayAdapter):
             print(f"Skip {replay.market_slug}: no PMXT L2 book data returned")
             return None
 
-        prices: list[float] = []
-        book_event_count = 0
         deltas_type = _resolve_backtest_compat_symbol("OrderBookDeltas", OrderBookDeltas)
-        for record in records:
-            if isinstance(record, deltas_type):
-                book_event_count += 1
-                mid = _midpoint_from_deltas(record)
-                if mid is not None:
-                    prices.append(mid)
-
-        prices_tuple = tuple(prices)
+        book_event_count, prices_tuple = _book_event_count_and_midpoints(
+            instrument=loader.instrument,
+            records=records,
+            deltas_type=deltas_type,
+        )
         if not _validate_replay_window(
             market_label=replay.market_slug,
             count_label="book events",
@@ -551,16 +553,11 @@ class PolymarketTelonexBookReplayAdapter(_BaseReplayAdapter):
             return None
 
         deltas_type = _resolve_backtest_compat_symbol("OrderBookDeltas", OrderBookDeltas)
-        prices: list[float] = []
-        book_event_count = 0
-        for record in records:
-            if isinstance(record, deltas_type):
-                book_event_count += 1
-                mid = _midpoint_from_deltas(record)
-                if mid is not None:
-                    prices.append(mid)
-
-        prices_tuple = tuple(prices)
+        book_event_count, prices_tuple = _book_event_count_and_midpoints(
+            instrument=loader.instrument,
+            records=records,
+            deltas_type=deltas_type,
+        )
         if not _validate_replay_window(
             market_label=replay.market_slug,
             count_label="book events",

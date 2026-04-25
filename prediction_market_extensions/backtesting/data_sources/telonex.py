@@ -336,7 +336,7 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
 
     @staticmethod
     def _outcome_segment_candidates(*, token_index: int, outcome: str | None) -> tuple[str, ...]:
-        segments = [str(token_index)]
+        segments = [f"outcome_id={token_index}", str(token_index)]
         if outcome:
             segments.insert(0, outcome)
         return tuple(segments)

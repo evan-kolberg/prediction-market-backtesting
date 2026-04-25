@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from nautilus_trader.model.enums import OrderSide
 from nautilus_trader.model.identifiers import InstrumentId, Symbol, Venue
 
+import strategies.core as core_module
 from strategies import BookVWAPReversionConfig
 from strategies.core import LongOnlyPredictionMarketStrategy
 
@@ -101,6 +102,40 @@ def test_partial_exit_preserves_remaining_entry_cost_basis() -> None:
     assert strategy._entry_qty_sum == Decimal("60")
     assert strategy._entry_cost_sum == Decimal("30")
     assert strategy._entry_price == 0.50
+
+
+def test_order_book_deltas_route_through_local_l2_book(monkeypatch) -> None:
+    seen_books = []
+
+    class FakeDeltas:
+        instrument_id = INSTRUMENT_ID
+
+    class FakeOrderBook:
+        def __init__(self, instrument_id, book_type):  # type: ignore[no-untyped-def]
+            self.instrument_id = instrument_id
+            self.book_type = book_type
+            self.applied = []
+
+        def apply_deltas(self, deltas: FakeDeltas) -> None:
+            self.applied.append(deltas)
+
+    monkeypatch.setattr(core_module, "OrderBook", FakeOrderBook)
+
+    fake_strategy = SimpleNamespace(
+        config=SimpleNamespace(instrument_id=INSTRUMENT_ID),
+        _order_book=None,
+        on_order_book=lambda order_book: seen_books.append(order_book),
+    )
+    deltas = FakeDeltas()
+
+    LongOnlyPredictionMarketStrategy.on_order_book_deltas(
+        fake_strategy,
+        deltas,
+    )
+
+    assert len(seen_books) == 1
+    assert seen_books[0].instrument_id == INSTRUMENT_ID
+    assert seen_books[0].applied == [deltas]
 
 
 class _StopExitHarness(LongOnlyPredictionMarketStrategy):
