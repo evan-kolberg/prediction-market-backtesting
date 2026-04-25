@@ -119,6 +119,26 @@ def main() -> int:
         ),
     )
     parser.add_argument(
+        "--writer-queue-items",
+        type=int,
+        default=None,
+        help=(
+            "Maximum parsed day results waiting for the writer before applying "
+            "backpressure (default: 128; also configurable with "
+            "TELONEX_WRITER_QUEUE_ITEMS)."
+        ),
+    )
+    parser.add_argument(
+        "--pending-commit-items",
+        type=int,
+        default=None,
+        help=(
+            "Maximum completed day results the writer holds before committing "
+            "to the manifest (default: 128; also configurable with "
+            "TELONEX_PENDING_COMMIT_ITEMS)."
+        ),
+    )
+    parser.add_argument(
         "--db-filename",
         default="telonex.duckdb",
         help="Name of the DuckDB manifest file inside --destination (default: telonex.duckdb).",
@@ -148,6 +168,8 @@ def main() -> int:
                 None if args.recheck_empty_after_days < 0 else args.recheck_empty_after_days
             ),
             parse_workers=args.parse_workers,
+            writer_queue_items=args.writer_queue_items,
+            pending_commit_items=args.pending_commit_items,
         )
     except KeyboardInterrupt:
         # SIGINT/SIGTERM landed in a blocking call outside the job loop (usually

@@ -314,6 +314,59 @@ def test_telonex_full_book_snapshots_replay_l2_deltas() -> None:
     assert len(records) == 2
 
 
+def test_telonex_materialized_deltas_cache_round_trips(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv(TELONEX_CACHE_ROOT_ENV, str(tmp_path))
+    loader = _make_polymarket_loader()
+    start = pd.Timestamp("2026-01-19T00:00:00Z")
+    end = pd.Timestamp("2026-01-19T23:59:59Z")
+    frame = pd.DataFrame(
+        {
+            "timestamp_us": [1_768_780_800_000_000, 1_768_780_800_100_000],
+            "bids": [
+                [{"price": "0.34", "size": "10"}],
+                [{"price": "0.34", "size": "8"}],
+            ],
+            "asks": [
+                [{"price": "0.39", "size": "11"}],
+                [{"price": "0.38", "size": "12"}],
+            ],
+        }
+    )
+    records = loader._book_events_from_frame(frame, start=start, end=end)
+
+    loader._write_deltas_cache_day(
+        records=records,
+        channel=TELONEX_FULL_BOOK_CHANNEL,
+        date="2026-01-19",
+        market_slug="cache-test",
+        token_index=0,
+        outcome="Yes",
+        start=start,
+        end=end,
+    )
+    cached_records, source = loader._load_deltas_cache_day(
+        channel=TELONEX_FULL_BOOK_CHANNEL,
+        date="2026-01-19",
+        market_slug="cache-test",
+        token_index=0,
+        outcome="Yes",
+        start=start,
+        end=end,
+    )
+
+    assert source.startswith("telonex-deltas-cache::")
+    assert cached_records is not None
+    assert len(cached_records) == len(records)
+    assert [len(record.deltas) for record in cached_records] == [
+        len(record.deltas) for record in records
+    ]
+    assert [int(record.ts_event) for record in cached_records] == [
+        int(record.ts_event) for record in records
+    ]
+
+
 def test_telonex_full_book_loader_uses_cache_before_local(monkeypatch: pytest.MonkeyPatch) -> None:
     module = importlib.reload(telonex_module)
     loader_cls = module.RunnerPolymarketTelonexBookDataLoader
@@ -355,6 +408,8 @@ def test_telonex_full_book_loader_uses_cache_before_local(monkeypatch: pytest.Mo
         raise AssertionError("api should not be checked when cache has the day")
 
     monkeypatch.setattr(loader, "_load_api_day_cached", fake_cache)
+    monkeypatch.setattr(loader, "_load_deltas_cache_day", lambda **kwargs: (None, "none"))
+    monkeypatch.setattr(loader, "_write_deltas_cache_day", lambda **kwargs: None)
     monkeypatch.setattr(loader, "_try_load_day_from_local", fail_local)
     monkeypatch.setattr(loader, "_try_load_day_from_entry", fail_source)
     monkeypatch.setattr(
@@ -411,6 +466,8 @@ def test_telonex_full_book_loader_falls_back_to_api_when_blob_partition_is_incom
 
     monkeypatch.setattr(loader, "_config", lambda: config)
     monkeypatch.setattr(loader, "_load_api_day_cached", lambda **kwargs: (None, "none"))
+    monkeypatch.setattr(loader, "_load_deltas_cache_day", lambda **kwargs: (None, "none"))
+    monkeypatch.setattr(loader, "_write_deltas_cache_day", lambda **kwargs: None)
 
     def fake_api_day(**kwargs: object) -> pd.DataFrame:
         calls.append("api")

@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 from contextlib import nullcontext
 from dataclasses import dataclass
 from types import SimpleNamespace
 from typing import Any
 
+import pandas as pd
 import pytest
 from nautilus_trader.model.currencies import USD
 from nautilus_trader.model.enums import AccountType, OmsType
@@ -153,3 +155,52 @@ def test_preflight_midpoints_apply_l2_book_state(monkeypatch) -> None:
     assert count == 2
     assert midpoints == (0.5, 0.52)
     assert replay_adapters._price_range(midpoints) == pytest.approx(0.02)
+
+
+def test_trade_tick_loader_reports_api_and_cache_progress(
+    monkeypatch: pytest.MonkeyPatch, tmp_path, capsys
+) -> None:
+    class FakeTradeLoader:
+        condition_id = "0xcondition"
+        token_id = "token"
+        instrument = SimpleNamespace()
+
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def load_trades(self, start, end):  # type: ignore[no-untyped-def]
+            del start, end
+            self.calls += 1
+            return []
+
+    loader = FakeTradeLoader()
+    monkeypatch.setattr(replay_adapters, "_cache_home", lambda: tmp_path)
+
+    trades = asyncio.run(
+        replay_adapters._load_trade_ticks(
+            loader,
+            start=pd.Timestamp("2026-01-19T00:00:00Z"),
+            end=pd.Timestamp("2026-01-19T23:59:59Z"),
+            market_label="demo-market",
+        )
+    )
+    output = capsys.readouterr().out
+
+    assert trades == ()
+    assert loader.calls == 1
+    assert "Loading Polymarket trade ticks for execution demo-market" in output
+    assert "polymarket api" in output
+
+    cached_trades = asyncio.run(
+        replay_adapters._load_trade_ticks(
+            loader,
+            start=pd.Timestamp("2026-01-19T00:00:00Z"),
+            end=pd.Timestamp("2026-01-19T23:59:59Z"),
+            market_label="demo-market",
+        )
+    )
+    cached_output = capsys.readouterr().out
+
+    assert cached_trades == ()
+    assert loader.calls == 1
+    assert "cache 2026-01-19" in cached_output

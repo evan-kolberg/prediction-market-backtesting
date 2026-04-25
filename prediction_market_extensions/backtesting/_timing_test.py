@@ -63,6 +63,7 @@ def _transfer_label(source: str) -> str:
         ("cache::", "cache"),
         ("local-raw::", "local raw"),
         ("remote-raw::", "r2 raw"),
+        ("telonex-deltas-cache::", "telonex deltas cache"),
         ("telonex-cache-fast::", "telonex cache"),
         ("telonex-cache::", "telonex cache"),
         ("telonex-local::", "telonex local"),

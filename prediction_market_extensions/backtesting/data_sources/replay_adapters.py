@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import time
 from collections.abc import Callable, Mapping
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
@@ -191,6 +192,8 @@ def _serialize_trade_ticks(trades: tuple[TradeTick, ...]) -> pd.DataFrame:
 
 
 def _deserialize_trade_ticks(*, loader: Any, frame: pd.DataFrame) -> tuple[TradeTick, ...]:
+    if frame.empty:
+        return ()
     instrument = loader.instrument
     make_price = instrument.make_price
     make_qty = instrument.make_qty
@@ -221,27 +224,60 @@ def _write_trade_cache(*, path: Path, trades: tuple[TradeTick, ...]) -> None:
     os.replace(tmp_path, path)
 
 
+def _trade_day_label(day: pd.Timestamp) -> str:
+    return day.strftime("%Y-%m-%d")
+
+
+def _print_trade_progress_header(
+    *, market_label: str, start: pd.Timestamp, end: pd.Timestamp
+) -> None:
+    print(
+        f"Loading Polymarket trade ticks for execution {market_label} "
+        f"(window_start={start.isoformat()}, window_end={end.isoformat()})..."
+    )
+
+
+def _print_trade_progress_line(
+    *,
+    day: pd.Timestamp,
+    elapsed_secs: float,
+    rows: int,
+    source: str,
+) -> None:
+    print(f"  trades {_trade_day_label(day):>10s}  {elapsed_secs:7.3f}s  {rows:8d} rows  {source}")
+
+
 async def _load_trade_ticks(
-    loader: Any, *, start: pd.Timestamp, end: pd.Timestamp
+    loader: Any, *, start: pd.Timestamp, end: pd.Timestamp, market_label: str
 ) -> tuple[TradeTick, ...]:
     start_utc = start.tz_convert(UTC)
     end_utc = end.tz_convert(UTC)
     current_day = start_utc.floor("D")
     final_day = end_utc.floor("D")
     all_trades: list[TradeTick] = []
+    _print_trade_progress_header(market_label=market_label, start=start_utc, end=end_utc)
     while current_day <= final_day:
         day_start = current_day
         day_end = min(current_day + pd.Timedelta(days=1) - pd.Timedelta(nanoseconds=1), end_utc)
         cache_path = _trade_cache_path(loader=loader, date=current_day)
         day_trades: tuple[TradeTick, ...]
+        started_at = time.perf_counter()
         if cache_path is not None and cache_path.exists():
             frame = pd.read_parquet(cache_path)
             day_trades = _deserialize_trade_ticks(loader=loader, frame=frame)
+            source = f"cache {cache_path.name.removesuffix('.parquet')}"
         else:
             fetched = await loader.load_trades(day_start, day_end)
             day_trades = tuple(sorted(fetched, key=_trade_record_sort_key))
             if cache_path is not None:
                 _write_trade_cache(path=cache_path, trades=day_trades)
+            source = "polymarket api"
+        _print_trade_progress_line(
+            day=current_day,
+            elapsed_secs=time.perf_counter() - started_at,
+            rows=len(day_trades),
+            source=source,
+        )
         all_trades.extend(
             trade
             for trade in day_trades
@@ -421,7 +457,9 @@ class PolymarketPMXTBookReplayAdapter(_BaseReplayAdapter):
                 replay.market_slug, token_index=replay.token_index
             )
             book_records = tuple(loader.load_order_book_deltas(start, end))
-            trade_records = await _load_trade_ticks(loader, start=start, end=end)
+            trade_records = await _load_trade_ticks(
+                loader, start=start, end=end, market_label=replay.market_slug
+            )
             records = _merge_records(book_records=book_records, trade_records=trade_records)
         except Exception as exc:
             print(f"Skip {replay.market_slug}: unable to load PMXT L2 book data ({exc})")
@@ -542,7 +580,9 @@ class PolymarketTelonexBookReplayAdapter(_BaseReplayAdapter):
                     outcome=selected_outcome or None,
                 )
             )
-            trade_records = await _load_trade_ticks(loader, start=start, end=end)
+            trade_records = await _load_trade_ticks(
+                loader, start=start, end=end, market_label=replay.market_slug
+            )
             records = _merge_records(book_records=book_records, trade_records=trade_records)
         except Exception as exc:
             print(f"Skip {replay.market_slug}: unable to load Telonex L2 book data ({exc})")

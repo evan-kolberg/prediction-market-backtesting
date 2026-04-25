@@ -29,6 +29,8 @@ from tqdm.auto import tqdm
 
 TELONEX_API_KEY_ENV = "TELONEX_API_KEY"
 TELONEX_PARSE_WORKERS_ENV = "TELONEX_PARSE_WORKERS"
+TELONEX_WRITER_QUEUE_ITEMS_ENV = "TELONEX_WRITER_QUEUE_ITEMS"
+TELONEX_PENDING_COMMIT_ITEMS_ENV = "TELONEX_PENDING_COMMIT_ITEMS"
 
 _USER_AGENT = "prediction-market-backtesting/1.0"
 _DEFAULT_API_BASE_URL = "https://api.telonex.io"
@@ -48,7 +50,7 @@ _PARQUET_COMPRESSION_LEVEL = 3
 # high enough to avoid tiny row groups during high-throughput downloads.
 _DEFAULT_COMMIT_BATCH_ROWS = 50_000
 _DEFAULT_COMMIT_BATCH_SECS = 10.0
-_MAX_PENDING_COMMIT_ITEMS = 16
+_MAX_PENDING_COMMIT_ITEMS = 128
 _MEMORY_LOG_INTERVAL_SECS = 3600.0
 _DEFAULT_MAX_RETRIES = 4
 _RETRY_BACKOFF_BASE_SECS = 2.0
@@ -1127,6 +1129,18 @@ def _resolve_parse_worker_count(value: int | None) -> int:
     return _DEFAULT_PARSE_WORKERS
 
 
+def _resolve_positive_int(value: int | None, *, env_name: str, default: int) -> int:
+    if value is not None:
+        return max(1, value)
+    raw = os.getenv(env_name)
+    if raw is not None and raw.strip():
+        try:
+            return max(1, int(raw))
+        except ValueError:
+            return default
+    return default
+
+
 async def _download_day_bytes_with_retry_async(
     *,
     client: httpx.AsyncClient,
@@ -1389,12 +1403,24 @@ def _run_jobs(
     commit_batch_rows: int | None = None,
     commit_batch_secs: float | None = None,
     parse_workers: int | None = None,
+    writer_queue_items: int | None = None,
+    pending_commit_items: int | None = None,
 ) -> tuple[int, int, int, int, int, bool, list[str]]:
     # Resolve at call-time so monkeypatched module constants take effect in tests.
     if commit_batch_rows is None:
         commit_batch_rows = _DEFAULT_COMMIT_BATCH_ROWS
     if commit_batch_secs is None:
         commit_batch_secs = _DEFAULT_COMMIT_BATCH_SECS
+    writer_queue_limit = _resolve_positive_int(
+        writer_queue_items,
+        env_name=TELONEX_WRITER_QUEUE_ITEMS_ENV,
+        default=_MAX_PENDING_COMMIT_ITEMS,
+    )
+    pending_commit_limit = _resolve_positive_int(
+        pending_commit_items,
+        env_name=TELONEX_PENDING_COMMIT_ITEMS_ENV,
+        default=_MAX_PENDING_COMMIT_ITEMS,
+    )
     downloaded_days = 0
     missing_days = 0
     failed_days = 0
@@ -1409,13 +1435,10 @@ def _run_jobs(
     active_registry = _ActiveRegistry()
     # Bounded so the writer applies backpressure on the async dispatcher: when
     # the writer falls behind, the put-side coroutine polls until a slot frees
-    # up, which stops new jobs from being scheduled. Kept small relative to
-    # `workers` because each queued result holds a parsed Arrow table. For
-    # book_snapshot_full those can be 50+ MiB, so keep the writer handoff queue
-    # small and let it apply backpressure instead of pinning many tables in RAM.
-    result_queue: Queue[_DownloadResult | _FlushWriterQueue] = Queue(
-        maxsize=_MAX_PENDING_COMMIT_ITEMS
-    )
+    # up, which stops new jobs from being scheduled. Each queued result holds a
+    # parsed Arrow table, so the queue must stay finite; the default is high
+    # enough to avoid throttling normal high-throughput downloads.
+    result_queue: Queue[_DownloadResult | _FlushWriterQueue] = Queue(maxsize=writer_queue_limit)
 
     # Dedicated bounded pool for CPU-bound parquet parsing. Using the default
     # asyncio executor (~40 threads) here creates heavy contention with the
@@ -1684,7 +1707,6 @@ def _run_jobs(
     pending_for_commit: list[_DownloadResult] = []
     last_commit_ts = time.monotonic()
     last_writer_drain_ts = time.monotonic()
-    handoffs_since_writer_drain = 0
 
     def _flush_pending(force: bool = False) -> None:
         nonlocal last_commit_ts, downloaded_days, missing_days, failed_days, bytes_total
@@ -1704,7 +1726,7 @@ def _run_jobs(
             not force
             and total_pending_rows < commit_batch_rows
             and time.monotonic() - last_commit_ts < commit_batch_secs
-            and len(pending_for_commit) < _MAX_PENDING_COMMIT_ITEMS
+            and len(pending_for_commit) < pending_commit_limit
         ):
             return
         batch = pending_for_commit[:]
@@ -1887,21 +1909,11 @@ def _run_jobs(
                         )
 
                 async def _handoff(result: _DownloadResult) -> None:
-                    nonlocal handoffs_since_writer_drain, last_writer_drain_ts
+                    nonlocal last_writer_drain_ts
                     await _handoff_item(result)
-                    handoffs_since_writer_drain += 1
                     now = time.monotonic()
-                    if (
-                        now - last_writer_drain_ts >= _MEMORY_LOG_INTERVAL_SECS
-                        or handoffs_since_writer_drain >= _MAX_PENDING_COMMIT_ITEMS
-                    ):
-                        reason = (
-                            "hourly"
-                            if now - last_writer_drain_ts >= _MEMORY_LOG_INTERVAL_SECS
-                            else "item-cap"
-                        )
-                        await _drain_writer_queue(reason)
-                        handoffs_since_writer_drain = 0
+                    if now - last_writer_drain_ts >= _MEMORY_LOG_INTERVAL_SECS:
+                        await _drain_writer_queue("hourly")
                         last_writer_drain_ts = time.monotonic()
 
                 while in_flight:
@@ -2036,6 +2048,8 @@ def download_telonex_days(
     db_filename: str = _MANIFEST_FILENAME,
     recheck_empty_after_days: int | None = _DEFAULT_EMPTY_RECHECK_AFTER_DAYS,
     parse_workers: int | None = None,
+    writer_queue_items: int | None = None,
+    pending_commit_items: int | None = None,
 ) -> TelonexDownloadSummary:
     if channel is not None and channels is None:
         channels = [channel]
@@ -2067,6 +2081,16 @@ def download_telonex_days(
     normalized_destination.mkdir(parents=True, exist_ok=True)
     store = _TelonexParquetStore(normalized_destination, manifest_name=db_filename)
     db_path = store.manifest_path
+    writer_queue_limit = _resolve_positive_int(
+        writer_queue_items,
+        env_name=TELONEX_WRITER_QUEUE_ITEMS_ENV,
+        default=_MAX_PENDING_COMMIT_ITEMS,
+    )
+    pending_commit_limit = _resolve_positive_int(
+        pending_commit_items,
+        env_name=TELONEX_PENDING_COMMIT_ITEMS_ENV,
+        default=_MAX_PENDING_COMMIT_ITEMS,
+    )
 
     window_start = _parse_date_bound(start_date)
     window_end = _parse_date_bound(end_date)
@@ -2187,6 +2211,9 @@ def download_telonex_days(
             print(
                 f"[telonex] Channels={channels} workers={workers} "
                 f"retries={_DEFAULT_MAX_RETRIES} timeout={timeout_secs}s "
+                f"writer-queue={writer_queue_limit:,} "
+                f"pending-commit={pending_commit_limit:,} "
+                f"forced-drain={_MEMORY_LOG_INTERVAL_SECS:.0f}s "
                 f"part-roll-at={_format_bytes(_TARGET_PART_DISK_BYTES)} on disk "
                 f"or {_format_bytes(_TARGET_PART_BYTES)} Arrow "
                 f"or {_TARGET_PART_PENDING_DAYS:,} pending days.",
@@ -2211,6 +2238,8 @@ def download_telonex_days(
             show_progress=show_progress,
             total_jobs=remaining_jobs,
             parse_workers=parse_workers,
+            writer_queue_items=writer_queue_limit,
+            pending_commit_items=pending_commit_limit,
         )
 
         # Deferred reads: mutable list counters are final now that

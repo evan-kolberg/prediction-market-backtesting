@@ -103,12 +103,22 @@ def test_build_backtest_run_state_uses_requested_window_for_coverage():
     assert state["requested_coverage_ratio"] == 2 / 3
 
 
-def test_book_pmxt_runner_pins_passive_execution_heuristics():
+def test_book_pmxt_runner_pins_passive_execution_heuristics(monkeypatch):
+    from prediction_market_extensions.backtesting import _experiments
+
+    captured: dict[str, object] = {}
+
+    def capture_run_experiment(experiment):  # type: ignore[no-untyped-def]
+        captured["experiment"] = experiment
+
+    monkeypatch.setattr(_experiments, "run_experiment", capture_run_experiment)
     module = importlib.import_module("backtests.polymarket_book_ema_crossover")
+    module.run()
+    experiment = captured["experiment"]
 
-    assert module.EXPERIMENT.execution.queue_position is True
+    assert experiment.execution.queue_position is True
 
-    latency_model = module.EXPERIMENT.execution.build_latency_model()
+    latency_model = experiment.execution.build_latency_model()
     assert latency_model is not None
     assert latency_model.base_latency_nanos == 75_000_000
     assert latency_model.insert_latency_nanos == 85_000_000

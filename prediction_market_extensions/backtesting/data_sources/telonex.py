@@ -20,6 +20,7 @@ import numpy as np
 import pandas as pd
 import pyarrow as pa
 import pyarrow.dataset as ds
+import pyarrow.parquet as pq
 from nautilus_trader.adapters.polymarket.schemas.book import (
     PolymarketBookLevel,
     PolymarketBookSnapshot,
@@ -58,6 +59,20 @@ _TELONEX_SOURCE_API = "api"
 _TELONEX_BLOB_DB_FILENAME = "telonex.duckdb"
 _TELONEX_DATA_SUBDIR = "data"
 _TELONEX_CACHE_SUBDIR = "api-days"
+_TELONEX_DELTAS_CACHE_SUBDIR = "book-deltas-v1"
+_TELONEX_DELTAS_CACHE_COLUMNS = frozenset(
+    {
+        "event_index",
+        "action",
+        "side",
+        "price",
+        "size",
+        "flags",
+        "sequence",
+        "ts_event",
+        "ts_init",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -1152,6 +1167,205 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
             )
         return None, "none"
 
+    @classmethod
+    def _deltas_cache_path(
+        cls,
+        *,
+        channel: str,
+        date: str,
+        market_slug: str,
+        token_index: int,
+        outcome: str | None,
+        instrument_id: object,
+        start: pd.Timestamp,
+        end: pd.Timestamp,
+    ) -> Path | None:
+        cache_root = cls._resolve_api_cache_root()
+        if cache_root is None:
+            return None
+        outcome_segment = (
+            f"outcome={quote(outcome, safe='')}" if outcome else f"outcome_id={token_index}"
+        )
+        instrument_key = sha256(str(instrument_id).encode("utf-8")).hexdigest()[:16]
+        start_ns = int(cls._normalize_to_utc(start).value)
+        end_ns = int(cls._normalize_to_utc(end).value)
+        return (
+            cache_root
+            / _TELONEX_DELTAS_CACHE_SUBDIR
+            / _TELONEX_EXCHANGE
+            / channel
+            / quote(market_slug, safe="")
+            / outcome_segment
+            / f"instrument={instrument_key}"
+            / f"{date}.{start_ns}-{end_ns}.parquet"
+        )
+
+    def _load_deltas_cache_day(
+        self,
+        *,
+        channel: str,
+        date: str,
+        market_slug: str,
+        token_index: int,
+        outcome: str | None,
+        start: pd.Timestamp,
+        end: pd.Timestamp,
+    ) -> tuple[list[OrderBookDeltas] | None, str]:
+        cache_path = self._deltas_cache_path(
+            channel=channel,
+            date=date,
+            market_slug=market_slug,
+            token_index=token_index,
+            outcome=outcome,
+            instrument_id=self.instrument.id,
+            start=start,
+            end=end,
+        )
+        if cache_path is None or not cache_path.exists():
+            return None, "none"
+        try:
+            table = pq.read_table(cache_path)
+            if not _TELONEX_DELTAS_CACHE_COLUMNS.issubset(set(table.schema.names)):
+                raise ValueError("missing required deltas cache columns")
+            data = table.to_pydict()
+            records = self._deltas_records_from_columns(data)
+        except Exception as exc:  # noqa: BLE001 - stale/corrupt cache should self-heal
+            try:
+                cache_path.unlink()
+            except OSError:
+                pass
+            warnings.warn(
+                f"Telonex: ignored stale materialized deltas cache {cache_path} ({exc})",
+                stacklevel=2,
+            )
+            return None, "none"
+        return records, f"telonex-deltas-cache::{cache_path}"
+
+    def _write_deltas_cache_day(
+        self,
+        *,
+        records: Sequence[OrderBookDeltas],
+        channel: str,
+        date: str,
+        market_slug: str,
+        token_index: int,
+        outcome: str | None,
+        start: pd.Timestamp,
+        end: pd.Timestamp,
+    ) -> None:
+        cache_path = self._deltas_cache_path(
+            channel=channel,
+            date=date,
+            market_slug=market_slug,
+            token_index=token_index,
+            outcome=outcome,
+            instrument_id=self.instrument.id,
+            start=start,
+            end=end,
+        )
+        if cache_path is None:
+            return
+        tmp_path = cache_path.with_name(f"{cache_path.name}.tmp.{os.getpid()}")
+        try:
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
+            pq.write_table(
+                self._deltas_records_to_table(records),
+                tmp_path,
+                compression="zstd",
+            )
+            os.replace(tmp_path, cache_path)
+        except Exception as exc:  # noqa: BLE001 - cache writes must not break replay
+            try:
+                tmp_path.unlink()
+            except OSError:
+                pass
+            warnings.warn(
+                f"Telonex: failed to write materialized deltas cache {cache_path} ({exc})",
+                stacklevel=2,
+            )
+
+    @staticmethod
+    def _deltas_records_to_table(records: Sequence[OrderBookDeltas]) -> pa.Table:
+        event_indexes: list[int] = []
+        actions: list[int] = []
+        sides: list[int] = []
+        prices: list[float] = []
+        sizes: list[float] = []
+        flags: list[int] = []
+        sequences: list[int] = []
+        ts_events: list[int] = []
+        ts_inits: list[int] = []
+        for event_index, record in enumerate(records):
+            for delta in record.deltas:
+                event_indexes.append(event_index)
+                actions.append(int(delta.action))
+                sides.append(int(delta.order.side))
+                prices.append(float(delta.order.price))
+                sizes.append(float(delta.order.size))
+                flags.append(int(delta.flags))
+                sequences.append(int(delta.sequence))
+                ts_events.append(int(delta.ts_event))
+                ts_inits.append(int(delta.ts_init))
+        return pa.table(
+            {
+                "event_index": pa.array(event_indexes, pa.int32()),
+                "action": pa.array(actions, pa.uint8()),
+                "side": pa.array(sides, pa.uint8()),
+                "price": pa.array(prices, pa.float64()),
+                "size": pa.array(sizes, pa.float64()),
+                "flags": pa.array(flags, pa.uint8()),
+                "sequence": pa.array(sequences, pa.int32()),
+                "ts_event": pa.array(ts_events, pa.int64()),
+                "ts_init": pa.array(ts_inits, pa.int64()),
+            }
+        )
+
+    def _deltas_records_from_columns(self, data: dict[str, list[object]]) -> list[OrderBookDeltas]:
+        event_indexes = data["event_index"]
+        actions = data["action"]
+        sides = data["side"]
+        prices = data["price"]
+        sizes = data["size"]
+        flags = data["flags"]
+        sequences = data["sequence"]
+        ts_events = data["ts_event"]
+        ts_inits = data["ts_init"]
+
+        records: list[OrderBookDeltas] = []
+        current_event_index: int | None = None
+        deltas: list[OrderBookDelta] = []
+        instrument = self.instrument
+        instrument_id = instrument.id
+        for idx, raw_event_index in enumerate(event_indexes):
+            event_index = int(raw_event_index)
+            if current_event_index is None:
+                current_event_index = event_index
+            elif event_index != current_event_index:
+                records.append(OrderBookDeltas(instrument_id, deltas))
+                deltas = []
+                current_event_index = event_index
+
+            order = BookOrder(
+                side=OrderSide(int(sides[idx])),
+                price=instrument.make_price(float(prices[idx])),
+                size=instrument.make_qty(float(sizes[idx])),
+                order_id=0,
+            )
+            deltas.append(
+                OrderBookDelta(
+                    instrument_id=instrument_id,
+                    action=BookAction(int(actions[idx])),
+                    order=order,
+                    flags=int(flags[idx]),
+                    sequence=int(sequences[idx]),
+                    ts_event=int(ts_events[idx]),
+                    ts_init=int(ts_inits[idx]),
+                )
+            )
+        if deltas:
+            records.append(OrderBookDeltas(instrument_id, deltas))
+        return records
+
     @staticmethod
     def _resolve_presigned_url(*, url: str, api_key: str) -> str:
         request = Request(
@@ -1701,6 +1915,20 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
                 continue
             try:
                 day_start, day_end = day_window
+                cached_records, cached_source = self._load_deltas_cache_day(
+                    channel=config.channel,
+                    date=date,
+                    market_slug=market_slug,
+                    token_index=token_index,
+                    outcome=outcome,
+                    start=day_start,
+                    end=day_end,
+                )
+                if cached_records is not None:
+                    records.extend(cached_records)
+                    self._day_progress(date, "complete", cached_source, len(cached_records))
+                    emitted_day_complete = True
+                    continue
                 frame: pd.DataFrame | None = None
                 for entry in api_entries:
                     assert entry.target is not None
@@ -1766,6 +1994,17 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
                     end=day_end,
                     include_order_book=include_order_book,
                 )
+                if include_order_book:
+                    self._write_deltas_cache_day(
+                        records=day_records,
+                        channel=config.channel,
+                        date=date,
+                        market_slug=market_slug,
+                        token_index=token_index,
+                        outcome=outcome,
+                        start=day_start,
+                        end=day_end,
+                    )
                 records.extend(day_records)
                 self._day_progress(date, "complete", day_source, len(day_records))
                 emitted_day_complete = True
