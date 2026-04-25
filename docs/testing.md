@@ -2,7 +2,7 @@
 
 ## Standard Repo Gate
 
-Run these before cutting a commit you want to keep on the next-version branch:
+Run these before cutting a commit intended for the PR:
 
 ```bash
 uv run ruff check .
@@ -10,7 +10,7 @@ uv run ruff format --check .
 uv run pytest tests/ -q
 ```
 
-You can also use the equivalent Make targets:
+Equivalent Make targets:
 
 ```bash
 make check
@@ -19,48 +19,58 @@ make test
 
 ## Useful Smoke Checks
 
+Public Python runner smoke checks:
+
 ```bash
-uv run python backtests/kalshi_trade_tick_breakout.py
-uv run python backtests/polymarket_trade_tick_vwap_reversion.py
-uv run python backtests/polymarket_quote_tick_ema_crossover.py
-uv run python backtests/polymarket_quote_tick_joint_portfolio_runner.py
-uv run python backtests/polymarket_telonex_quote_tick_joint_portfolio_runner.py
-uv run python backtests/polymarket_quote_tick_independent_multi_replay_runner.py
+uv run python backtests/polymarket_book_ema_crossover.py
+uv run python backtests/polymarket_book_ema_optimizer.py
+uv run python backtests/polymarket_book_joint_portfolio_runner.py
+uv run python backtests/polymarket_telonex_book_joint_portfolio_runner.py
 ```
 
-Those cover the main user-facing paths in the current tree: one pinned Kalshi
-trade-tick runner, one native Polymarket trade-tick runner, one single-market
-PMXT quote-tick runner, one PMXT joint-portfolio basket runner, one Telonex
-joint-portfolio basket runner, and one PMXT independent basket runner.
+All public Python runners:
 
-Quote-tick PMXT runners use the source path pinned in `DATA.sources` inside the
-file. Public PMXT runners now pin `local:/Volumes/LaCie/pmxt_data` first,
-`archive:r2v2.pmxt.dev` + `archive:r2.pmxt.dev` second (tried in that order so
-the newer v2 subdomain is preferred, with v1 covering older history). If the
-local mirror path is absent, the loader falls through to archives.
-Those prefixes are the contract; do not use unprefixed hosts or ad hoc aliases.
-Telonex quote-tick runners are local-first at
-`local:/Volumes/LaCie/telonex_data`, then `api:` with `TELONEX_API_KEY` read
-from the environment.
+```bash
+uv run python scripts/run_all_backtests.py
+```
+
+Menu path:
+
+```bash
+make backtest
+```
+
+The runner smokes cover:
+
+- PMXT L2 book replay from filtered cache, local raw mirror, and archive
+  fallback.
+- Telonex L2 full-book replay from local mirror, API-day cache, and API
+  fallback when configured.
+- Real trade-tick integration for execution.
+- `BookType.L2_MBP`, `liquidity_consumption=True`, `trade_execution=True`, and
+  optional `queue_position=True`.
+- Summary report generation without per-market HTML files.
+
+PMXT public runners pin `local:/Volumes/LaCie/pmxt_data` first, then
+`archive:r2v2.pmxt.dev` and `archive:r2.pmxt.dev`. Telonex public runners pin
+`local:/Volumes/LaCie/telonex_data`, then `api:`.
 
 Coverage is mixed by design:
 
-- fast unit tests for strategy, loader, cache, and vendor source logic
-- smoke tests that exercise real backtest flows
-- generated chart output either redirected to temp dirs or explicitly cleaned up
-  so the working tree stays clean
+- Fast unit tests for strategies, loaders, cache, and source selection.
+- Focused tests for replay adapter architecture and execution wiring.
+- Smoke tests for direct backtest entrypoints.
+- Docs build validation for Markdown, MkDocs config, and theme changes.
 
-If you are specifically validating HTML/report behavior, include at least:
-
-- one single-market runner that should emit one `*_legacy.html`
-- one joint-portfolio basket runner that should emit per-market
-  `*_legacy.html` files plus one `*_joint_portfolio.html`
-- one independent basket runner that should emit per-replay `*_legacy.html`
-  files plus one `*_independent_aggregate.html`
+If you are validating runner realism changes, include focused tests plus at
+least one PMXT runner and one Telonex runner. If the user asks whether
+"everything works" or asks for end-to-end validation, run every public Python
+entrypoint under `backtests/` and do not claim success until each returns 0.
 
 ## Docs Validation
 
-When you change docs, README navigation, or MkDocs config, also run:
+When docs, README navigation, MkDocs config, theme CSS, code-fence behavior, or
+docs assets change, run:
 
 ```bash
 uv run mkdocs build --strict
