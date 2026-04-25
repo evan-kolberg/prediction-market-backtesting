@@ -17,6 +17,9 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener, urlopen
 
 import numpy as np
 import pandas as pd
+import pyarrow as pa
+import pyarrow.compute as pc
+import pyarrow.dataset as ds
 import pyarrow.parquet as pq
 from nautilus_trader.adapters.polymarket.schemas.book import (
     PolymarketBookLevel,
@@ -263,14 +266,20 @@ class RunnerPolymarketTelonexQuoteDataLoader(PolymarketDataLoader):
         if not hasattr(self, "_telonex_incomplete_blob_partitions_warned"):
             self._telonex_incomplete_blob_partitions_warned: set[Path] = set()
         # Memoize blob-range frames keyed by (store_root, channel, market, token,
-        # outcome, start_ym, end_ym). The DuckDB query already prunes by
+        # outcome, start_ym, end_ym). The pyarrow query already prunes by
         # year/month, so two callers with start/end inside the same month
-        # window hit the same data — hammering DuckDB once per backtest day was
-        # the dominant cost on this path and the reason "cache" felt slower
-        # than the API. None is cached too so we don't retry empty stores.
+        # window hit the same data. None is cached too so we don't retry
+        # empty stores.
         if not hasattr(self, "_telonex_blob_range_frames"):
             self._telonex_blob_range_frames: dict[
                 tuple[str, str, str, int, str | None, int, int], pd.DataFrame | None
+            ] = {}
+        # Cache the nanosecond timestamp array derived from each memoized
+        # blob frame so _column_to_ns() is not called N times for an N-day
+        # range on the same month-sized frame.
+        if not hasattr(self, "_telonex_blob_ts_ns"):
+            self._telonex_blob_ts_ns: dict[
+                tuple[str, str, str, int, str | None, int, int], np.ndarray
             ] = {}
 
     def _download_progress(
@@ -382,9 +391,15 @@ class RunnerPolymarketTelonexQuoteDataLoader(PolymarketDataLoader):
         paths: list[str] = []
         incomplete = False
         for path in sorted(partition_dir.glob("*.parquet")):
+            # File-size check replaces pq.read_metadata() — reading every
+            # parquet footer on a slow external disk was the dominant cost
+            # before memoization kicked in.  A non-zero .parquet file on
+            # disk is almost certainly readable; corrupted files will fail
+            # at actual read time and are caught there.
             try:
-                pq.read_metadata(path)
-            except (OSError, ValueError, RuntimeError):
+                if path.stat().st_size <= 0:
+                    raise OSError("empty file")
+            except (OSError, ValueError):
                 incomplete = True
                 if path not in self._telonex_unreadable_blob_parts_warned:
                     warnings.warn(
@@ -412,14 +427,14 @@ class RunnerPolymarketTelonexQuoteDataLoader(PolymarketDataLoader):
         outcome) slice. Returns None when the channel has no data on disk.
 
         Memoized by (store_root, channel, market, token, outcome, start_ym,
-        end_ym). The downstream day filter is narrower than the DuckDB query,
-        so per-day callers safely share one read.
-        """
-        try:
-            import duckdb
-        except ImportError:
-            return None
+        end_ym). The downstream day filter is narrower than the pyarrow
+        query, so per-day callers safely share one read.
 
+        Uses pyarrow.dataset with predicate pushdown instead of DuckDB, which
+        eliminates SQL engine overhead, fetch_df() bulk materialization, and
+        the frame.drop() copy — the dominant costs that made local-cache reads
+        slower than the API.
+        """
         self._ensure_blob_scan_caches()
 
         start_utc = self._normalize_to_utc(start)
@@ -445,8 +460,8 @@ class RunnerPolymarketTelonexQuoteDataLoader(PolymarketDataLoader):
             self._telonex_blob_range_frames[cache_key] = None
             return None
         # Glob every part file under this channel, regardless of year/month
-        # partition depth. Empty-but-existing channel dirs yield no matches,
-        # in which case DuckDB will raise — guard with a cheap pre-check.
+        # partition depth. Empty-but-existing channel dirs yield no matches -
+        # guard with a cheap pre-check.
         part_paths, incomplete_parts = self._readable_blob_part_paths(
             channel_dir=channel_dir,
             start=start_utc,
@@ -459,43 +474,127 @@ class RunnerPolymarketTelonexQuoteDataLoader(PolymarketDataLoader):
             return None
 
         segments = self._outcome_segment_candidates(token_index=token_index, outcome=outcome)
-        placeholders = ", ".join(["?"] * len(segments))
 
-        # DuckDB's hive_partitioning exposes year/month as VARCHAR by default —
-        # cast to INTEGER before arithmetic so range pruning works.
-        query = (
-            "SELECT * FROM read_parquet(?, hive_partitioning=1, union_by_name=True) "
-            f"WHERE market_slug = ? AND outcome_segment IN ({placeholders}) "
-            "AND CAST(year AS INTEGER) * 100 + CAST(month AS INTEGER) "
-            "BETWEEN ? AND ?"
-        )
-        params: list[object] = [part_paths, market_slug, *segments, start_ym, end_ym]
-
-        con = duckdb.connect(":memory:")
         try:
-            try:
-                frame = con.execute(query, params).fetch_df()
-            except duckdb.Error as exc:
-                warnings.warn(
-                    f"Telonex: skipping blob store {store_root} for {market_slug}/"
-                    f"{token_index} ({channel}) — DuckDB failed: {exc}",
-                    stacklevel=2,
-                )
+            # Build pyarrow.dataset with Hive partitioning from the
+            # year=/month= directory structure.  Predicate pushdown prunes
+            # partition dirs and row groups at scan time — no SQL engine,
+            # no schema-inference tax, no fetch_df() bulk allocation.
+            part_dataset = ds.dataset(
+                part_paths,
+                format="parquet",
+                partitioning="hive",
+            )
+
+            # Build filter expression:
+            #   market_slug = ? AND outcome_segment IN (segments)
+            #   AND year/month between start and end.
+            # Hive partition columns are inferred from directory names —
+            # pure-numeric dirs (year=2026) become int, others become string.
+            # Check the schema and compare with the matching type.
+            schema = part_dataset.schema
+            year_field = schema.field("year")
+            month_field = schema.field("month")
+            year_is_int = pa.types.is_integer(year_field.type)
+            month_is_int = pa.types.is_integer(month_field.type)
+
+            ym_pairs: list = []
+            cursor = start_utc.replace(day=1)
+            final_ym = end_utc.year * 100 + end_utc.month
+            while True:
+                cur_ym = cursor.year * 100 + cursor.month
+                if cur_ym > final_ym:
+                    break
+                if year_is_int and month_is_int:
+                    ym_pairs.append(
+                        (ds.field("year") == cursor.year)
+                        & (ds.field("month") == cursor.month)
+                    )
+                else:
+                    ym_pairs.append(
+                        (ds.field("year") == str(cursor.year))
+                        & (ds.field("month") == f"{cursor.month:02d}")
+                    )
+                if cursor.month == 12:
+                    cursor = cursor.replace(year=cursor.year + 1, month=1)
+                else:
+                    cursor = cursor.replace(month=cursor.month + 1)
+
+            if len(ym_pairs) == 1:
+                ym_expr = ym_pairs[0]
+            else:
+                ym_expr = ym_pairs[0]
+                for extra in ym_pairs[1:]:
+                    ym_expr = ym_expr | extra
+
+            filter_expr = (
+                (ds.field("market_slug") == market_slug)
+                & ds.field("outcome_segment").isin(segments)
+                & ym_expr
+            )
+
+            # Project out Hive partition columns at scan time — no
+            # post-hoc frame.drop() copy needed.
+            data_columns = [
+                f.name
+                for f in part_dataset.schema
+                if f.name not in ("market_slug", "outcome_segment", "year", "month")
+            ]
+            scanner = part_dataset.scanner(
+                columns=data_columns,
+                filter=filter_expr,
+            )
+            table = scanner.to_table()
+            if table.num_rows == 0:
                 self._telonex_blob_range_frames[cache_key] = None
                 return None
-        finally:
-            con.close()
-
-        if frame is None or frame.empty:
+            frame = table.to_pandas()
+        except (pa.ArrowInvalid, pa.ArrowIOError, OSError, ValueError) as exc:
+            warnings.warn(
+                f"Telonex: skipping blob store {store_root} for {market_slug}/"
+                f"{token_index} ({channel}) — pyarrow failed: {exc}",
+                stacklevel=2,
+            )
             self._telonex_blob_range_frames[cache_key] = None
             return None
-        drop_cols = [
-            c for c in ("market_slug", "outcome_segment", "year", "month") if c in frame.columns
-        ]
-        if drop_cols:
-            frame = frame.drop(columns=drop_cols)
+
+        if frame.empty:
+            self._telonex_blob_range_frames[cache_key] = None
+            self._telonex_blob_ts_ns.pop(cache_key, None)
+            return None
         self._telonex_blob_range_frames[cache_key] = frame
+        # Pre-compute the nanosecond timestamp array for every possible
+        # timestamp column name so per-day callers of _column_to_ns() can
+        # reuse it instead of converting the same month-sized column N times.
+        ts_ns_map: dict[str, np.ndarray] = {}
+        for col_candidates in (
+            ("timestamp_us", "timestamp_ms", "timestamp", "time"),
+        ):
+            for col_name in col_candidates:
+                if col_name in frame.columns:
+                    ts_ns_map[col_name] = self._column_to_ns(
+                        frame[col_name], col_name,
+                    )
+                    break
+        if ts_ns_map:
+            self._telonex_blob_ts_ns[cache_key] = ts_ns_map
         return frame
+
+    def _cached_ts_ns_for_frame(self, frame: pd.DataFrame, column_name: str) -> np.ndarray | None:
+        """Return a pre-computed ts_ns array if *frame* is a memoized blob
+        frame (same object identity) and *column_name* was cached."""
+        blob_frames = getattr(self, "_telonex_blob_range_frames", None)
+        if blob_frames is None:
+            return None
+        blob_ts = getattr(self, "_telonex_blob_ts_ns", None)
+        for key, cached_frame in blob_frames.items():
+            if cached_frame is frame:
+                if blob_ts is not None:
+                    ts_map = blob_ts.get(key)
+                    if ts_map is not None:
+                        return ts_map.get(column_name)
+                return None
+        return None
 
     @classmethod
     def _local_consolidated_candidates(
@@ -921,7 +1020,7 @@ class RunnerPolymarketTelonexQuoteDataLoader(PolymarketDataLoader):
         raise ValueError(f"Telonex {label} data is missing required columns: {', '.join(names)}")
 
     def _quote_ticks_from_frame(
-        self, frame: pd.DataFrame, *, start: pd.Timestamp, end: pd.Timestamp
+        self, frame: pd.DataFrame, *, start: pd.Timestamp, end: pd.Timestamp,
     ) -> list[QuoteTick]:
         if frame.empty:
             return []
@@ -947,7 +1046,8 @@ class RunnerPolymarketTelonexQuoteDataLoader(PolymarketDataLoader):
         start_ns = int(self._normalize_to_utc(start).value)
         end_ns = int(self._normalize_to_utc(end).value)
 
-        ts_ns = self._column_to_ns(frame[timestamp_column], timestamp_column)
+        cached = self._cached_ts_ns_for_frame(frame, timestamp_column)
+        ts_ns = cached if cached is not None else self._column_to_ns(frame[timestamp_column], timestamp_column)
         mask = (ts_ns >= start_ns) & (ts_ns <= end_ns)
         if not mask.any():
             return []
@@ -1121,7 +1221,8 @@ class RunnerPolymarketTelonexQuoteDataLoader(PolymarketDataLoader):
 
         start_ns = int(self._normalize_to_utc(start).value)
         end_ns = int(self._normalize_to_utc(end).value)
-        ts_ns = self._column_to_ns(frame[timestamp_column], timestamp_column)
+        cached = self._cached_ts_ns_for_frame(frame, timestamp_column)
+        ts_ns = cached if cached is not None else self._column_to_ns(frame[timestamp_column], timestamp_column)
         mask = ts_ns <= end_ns
         if not mask.any():
             return []
