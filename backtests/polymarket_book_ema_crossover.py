@@ -86,8 +86,8 @@ STRATEGY_CONFIGS = [
 ]
 
 REPORT = MarketReportConfig(
-    count_key="quotes",
-    count_label="Quotes",
+    count_key="book_events",
+    count_label="Book Events",
     pnl_label="PnL (USDC)",
     summary_report=True,
     summary_report_path="output/polymarket_book_ema_crossover_summary.html",

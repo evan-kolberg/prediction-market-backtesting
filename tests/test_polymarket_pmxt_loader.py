@@ -1,4 +1,4 @@
-"""Smoke test for the PMXT-backed Polymarket L2 loader."""
+"""Smoke test for the PMXT-backed Polymarket L2 book loader."""
 
 import asyncio
 import os
@@ -13,8 +13,8 @@ EXPECTED_MARKET_SLUG = "will-openai-launch-a-new-consumer-hardware-product-by-ma
     os.getenv("RUN_PMXT_INTEGRATION") != "1",
     reason="Set RUN_PMXT_INTEGRATION=1 to exercise the live PMXT archive",
 )
-def test_pmxt_loader_returns_quotes_and_book_deltas():
-    from nautilus_trader.model.data import OrderBookDeltas, QuoteTick
+def test_pmxt_loader_returns_book_deltas():
+    from nautilus_trader.model.data import OrderBookDeltas
 
     from prediction_market_extensions.adapters.polymarket.pmxt import PolymarketPMXTDataLoader
 
@@ -22,9 +22,9 @@ def test_pmxt_loader_returns_quotes_and_book_deltas():
         loader = await PolymarketPMXTDataLoader.from_market_slug(EXPECTED_MARKET_SLUG)
         end = pd.Timestamp.now(tz="UTC").floor("h") - pd.Timedelta(hours=3)
         start = end - pd.Timedelta(hours=2)
-        return loader.load_order_book_and_quotes(start, end)
+        return loader.load_order_book_deltas(start, end)
 
     data = asyncio.run(_load())
 
-    assert any(isinstance(record, QuoteTick) for record in data)
-    assert any(isinstance(record, OrderBookDeltas) for record in data)
+    assert data
+    assert all(isinstance(record, OrderBookDeltas) for record in data)

@@ -41,14 +41,14 @@ def test_transfer_label_identifies_r2_raw_urls() -> None:
 def test_transfer_label_identifies_telonex_sources() -> None:
     cache_label = _transfer_label(
         "telonex-cache::/Users/test/.cache/nautilus_trader/telonex/api-days/hash/"
-        "polymarket/quotes/slug/outcome_id=0/2026-03-01.parquet"
+        "polymarket/book_snapshot_full/slug/outcome_id=0/2026-03-01.parquet"
     )
     local_blob_label = _transfer_label("telonex-local::/Volumes/LaCie/telonex_data")
     local_label = _transfer_label(
-        "telonex-local::/Volumes/LaCie/telonex_data/polymarket/quotes/slug/0/2026-03-01.parquet"
+        "telonex-local::/Volumes/LaCie/telonex_data/polymarket/book_snapshot_full/slug/0/2026-03-01.parquet"
     )
     api_label = _transfer_label(
-        "telonex-api::https://api.telonex.io/v1/downloads/polymarket/quotes/2026-03-01?slug=slug&outcome_id=0"
+        "telonex-api::https://api.telonex.io/v1/downloads/polymarket/book_snapshot_full/2026-03-01?slug=slug&outcome_id=0"
     )
 
     assert cache_label == "telonex cache 2026-03-01.parquet"
@@ -219,22 +219,17 @@ def test_install_timing_patches_telonex_loader() -> None:
     )
 
     timing_module = importlib.reload(timing_module)
-    original_load_quotes = RunnerPolymarketTelonexBookDataLoader.load_quotes
-    original_load_order_book_and_quotes = (
-        RunnerPolymarketTelonexBookDataLoader.load_order_book_and_quotes
-    )
+    original_load_order_book_deltas = RunnerPolymarketTelonexBookDataLoader.load_order_book_deltas
 
     try:
         timing_module.install_timing()
 
-        assert RunnerPolymarketTelonexBookDataLoader.load_quotes is not original_load_quotes
         assert (
-            RunnerPolymarketTelonexBookDataLoader.load_order_book_and_quotes
-            is not original_load_order_book_and_quotes
+            RunnerPolymarketTelonexBookDataLoader.load_order_book_deltas
+            is not original_load_order_book_deltas
         )
     finally:
         timing_module._installed = False
-        RunnerPolymarketTelonexBookDataLoader.load_quotes = original_load_quotes
-        RunnerPolymarketTelonexBookDataLoader.load_order_book_and_quotes = (
-            original_load_order_book_and_quotes
+        RunnerPolymarketTelonexBookDataLoader.load_order_book_deltas = (
+            original_load_order_book_deltas
         )

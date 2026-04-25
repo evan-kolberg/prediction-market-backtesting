@@ -38,9 +38,7 @@ from prediction_market_extensions.backtesting._replay_specs import BookReplay
 from prediction_market_extensions.backtesting._timing_harness import timing_harness
 from prediction_market_extensions.backtesting.data_sources import Book, Polymarket, Telonex
 
-SUMMARY_REPORT_PATH = (
-    "output/polymarket_telonex_book_joint_portfolio_runner_joint_portfolio.html"
-)
+SUMMARY_REPORT_PATH = "output/polymarket_telonex_book_joint_portfolio_runner_joint_portfolio.html"
 SUMMARY_PLOT_PANELS = (
     "total_equity",
     "equity",
@@ -134,8 +132,8 @@ EXECUTION = ExecutionModelConfig(
 )
 
 REPORT = MarketReportConfig(
-    count_key="quotes",
-    count_label="Quotes",
+    count_key="book_events",
+    count_label="Book Events",
     pnl_label="PnL (USDC)",
     market_key="sim_label",
     summary_report=True,

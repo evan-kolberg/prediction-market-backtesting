@@ -28,19 +28,17 @@ PUBLIC_SCRIPT_RUNNER_PATHS = sorted(
 EXPECTED_PUBLIC_RUNNER_PATHS = [
     Path("backtests/generic_optimizer_research.ipynb"),
     Path("backtests/generic_tpe_research.ipynb"),
-    Path("backtests/pmxt_quote_tick_joint_portfolio_runner.ipynb"),
+    Path("backtests/pmxt_book_joint_portfolio_runner.ipynb"),
     Path("backtests/polymarket_book_ema_crossover.py"),
     Path("backtests/polymarket_book_ema_optimizer.py"),
     Path("backtests/polymarket_book_joint_portfolio_runner.py"),
     Path("backtests/polymarket_telonex_book_joint_portfolio_runner.py"),
-    Path("backtests/telonex_quote_tick_joint_portfolio_runner.ipynb"),
+    Path("backtests/telonex_book_joint_portfolio_runner.ipynb"),
 ]
 
 PMXT_SINGLE_MARKET_BOOK_RUNNERS = [Path("backtests/polymarket_book_ema_crossover.py")]
 PMXT_JOINT_BOOK_RUNNERS = [Path("backtests/polymarket_book_joint_portfolio_runner.py")]
-TELONEX_JOINT_BOOK_RUNNERS = [
-    Path("backtests/polymarket_telonex_book_joint_portfolio_runner.py")
-]
+TELONEX_JOINT_BOOK_RUNNERS = [Path("backtests/polymarket_telonex_book_joint_portfolio_runner.py")]
 PMXT_BOOK_OPTIMIZER_RUNNERS = [Path("backtests/polymarket_book_ema_optimizer.py")]
 
 SCRIPT_ENTRYPOINT_PATHS = [

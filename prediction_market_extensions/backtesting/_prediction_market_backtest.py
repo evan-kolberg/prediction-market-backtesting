@@ -4,7 +4,6 @@ import asyncio
 import warnings
 from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime
-from pathlib import Path
 from typing import Any
 
 import pandas as pd
@@ -278,9 +277,7 @@ class PredictionMarketBacktest:
             engine=engine, loaded_sims=loaded_sims
         )
 
-    def _normalize_replays(
-        self, replays: Sequence[ReplaySpec]
-    ) -> tuple[ReplaySpec, ...]:
+    def _normalize_replays(self, replays: Sequence[ReplaySpec]) -> tuple[ReplaySpec, ...]:
         adapter = resolve_replay_adapter(
             platform=self.data.platform, data_type=self.data.data_type, vendor=self.data.vendor
         )
@@ -357,6 +354,8 @@ class PredictionMarketBacktest:
             latency_model=latency_model,
             liquidity_consumption=engine_profile.liquidity_consumption,
             queue_position=self.execution.queue_position,
+            bar_execution=False,
+            trade_execution=True,
         )
         return engine
 

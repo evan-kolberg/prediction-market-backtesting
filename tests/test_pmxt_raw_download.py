@@ -405,10 +405,9 @@ def test_download_raw_hours_keeps_larger_overlap_source(monkeypatch, tmp_path: P
     assert downloaded.read_bytes() == large_payload
 
 
-def test_download_raw_hours_refreshes_existing_when_upstream_is_larger(
+def test_download_raw_hours_does_not_refresh_existing_without_overwrite(
     monkeypatch, tmp_path: Path
 ) -> None:
-    payload = _raw_parquet_payload()
     destination = tmp_path / "raws"
     existing_path = (
         destination / "2026" / "03" / "21" / "polymarket_orderbook_2026-03-21T09.parquet"
@@ -420,9 +419,7 @@ def test_download_raw_hours_refreshes_existing_when_upstream_is_larger(
 
     def fake_urlopen(request, timeout=60):  # type: ignore[no-untyped-def]
         del timeout
-        if request.get_method() == "HEAD":
-            return _Response(b"", headers={"Content-Length": "1024"})
-        return _Response(payload, headers={"Content-Length": str(len(payload))})
+        raise AssertionError(f"unexpected request for existing raw file: {request.full_url}")
 
     monkeypatch.setattr(raw_download, "urlopen", fake_urlopen)
 
@@ -433,7 +430,7 @@ def test_download_raw_hours_refreshes_existing_when_upstream_is_larger(
         **_window_kwargs("2026-03-21T09", "2026-03-21T09"),
     )
 
-    assert summary.downloaded_hours == 1
-    assert summary.refreshed_existing_hours == 1
-    assert summary.skipped_existing_hours == 0
-    assert existing_path.read_bytes() == payload
+    assert summary.downloaded_hours == 0
+    assert summary.refreshed_existing_hours == 0
+    assert summary.skipped_existing_hours == 1
+    assert existing_path.read_bytes() == b"old"

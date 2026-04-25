@@ -131,7 +131,7 @@ def _install_payload_stub(
             seen_urls.append(url)
         if seen_auth is not None:
             seen_auth.append(api_key)
-        # URL path looks like .../quotes/2026-01-19?slug=...
+        # URL path looks like .../<channel>/2026-01-19?slug=...
         day = url.rsplit("/", 1)[1].split("?", 1)[0]
         call_counts[day] = call_counts.get(day, 0) + 1
 
@@ -185,8 +185,8 @@ def test_download_telonex_days_writes_duckdb_blob(
     assert summary.failed_days == 0
     assert summary.missing_days == 0
     assert sorted(seen_urls) == [
-        "https://api.telonex.io/v1/downloads/polymarket/quotes/2026-01-19?slug=us-recession-by-end-of-2026&outcome_id=0",
-        "https://api.telonex.io/v1/downloads/polymarket/quotes/2026-01-20?slug=us-recession-by-end-of-2026&outcome_id=0",
+        "https://api.telonex.io/v1/downloads/polymarket/book_snapshot_full/2026-01-19?slug=us-recession-by-end-of-2026&outcome_id=0",
+        "https://api.telonex.io/v1/downloads/polymarket/book_snapshot_full/2026-01-20?slug=us-recession-by-end-of-2026&outcome_id=0",
     ]
     assert sorted(seen_auth) == ["test-key", "test-key"]
 
@@ -216,12 +216,12 @@ def test_download_telonex_days_writes_duckdb_blob(
         con.close()
 
     assert len(manifest) == 2
-    assert {row[0] for row in manifest} == {"quotes"}
+    assert {row[0] for row in manifest} == {"book_snapshot_full"}
     assert {row[1] for row in manifest} == {"us-recession-by-end-of-2026"}
     assert {row[2] for row in manifest} == {"0"}
     assert all(row[5] is not None for row in manifest)
 
-    glob = str(data_root / "channel=quotes" / "**" / "*.parquet")
+    glob = str(data_root / "channel=book_snapshot_full" / "**" / "*.parquet")
     con = duckdb.connect(":memory:")
     try:
         rows = con.execute(
@@ -520,7 +520,7 @@ def test_download_telonex_days_schema_evolves_when_later_day_has_new_column(
     assert summary.downloaded_days == 2
     assert summary.failed_days == 0
 
-    glob = str(tmp_path / "data" / "channel=quotes" / "**" / "*.parquet")
+    glob = str(tmp_path / "data" / "channel=book_snapshot_full" / "**" / "*.parquet")
     con = duckdb.connect(":memory:")
     try:
         rows = con.execute(
@@ -768,6 +768,73 @@ def test_run_jobs_reuses_one_async_http_client(
     assert len(requested_urls) == 2
 
 
+def test_run_jobs_periodically_drains_writer_queue(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    payloads = {
+        "2026-01-19": _parquet_payload(1_768_780_800_000_000),
+        "2026-01-20": _parquet_payload(1_768_867_200_000_000),
+        "2026-01-21": _parquet_payload(1_768_953_600_000_000),
+    }
+    _install_payload_stub(monkeypatch, payloads)
+    monkeypatch.setattr(telonex_download, "_MEMORY_LOG_INTERVAL_SECS", 0.0)
+    monkeypatch.setattr(telonex_download, "_MAX_PENDING_COMMIT_ITEMS", 999)
+
+    original_ingest_batch = telonex_download._TelonexParquetStore.ingest_batch
+    batch_sizes: list[int] = []
+
+    def record_ingest_batch(self, results):  # type: ignore[no-untyped-def]
+        batch_sizes.append(len(results))
+        return original_ingest_batch(self, results)
+
+    monkeypatch.setattr(
+        telonex_download._TelonexParquetStore,
+        "ingest_batch",
+        record_ingest_batch,
+    )
+
+    store = telonex_download._TelonexParquetStore(tmp_path)
+    try:
+        jobs = [
+            telonex_download._Job(
+                market_slug="queue-drain-market",
+                outcome_segment="0",
+                outcome_id=0,
+                outcome=None,
+                channel="book_snapshot_full",
+                day=date(2026, 1, day),
+            )
+            for day in (19, 20, 21)
+        ]
+
+        downloaded, missing, failed, cancelled, _bytes, interrupted, samples = (
+            telonex_download._run_jobs(
+                jobs,
+                store=store,
+                api_key="test-key",
+                base_url="https://api.telonex.io",
+                timeout_secs=60,
+                workers=1,
+                show_progress=False,
+                total_jobs=len(jobs),
+                commit_batch_rows=10_000_000,
+                commit_batch_secs=3600.0,
+            )
+        )
+    finally:
+        store.close()
+
+    assert (downloaded, missing, failed, cancelled, interrupted, samples) == (
+        3,
+        0,
+        0,
+        0,
+        False,
+        [],
+    )
+    assert batch_sizes == [1, 1, 1]
+
+
 def test_download_telonex_days_reports_writer_commit_failure(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -939,6 +1006,7 @@ def test_all_markets_resume_progress_total_excludes_manifest_hits(
         destination=tmp_path,
         market_slugs=["already-downloaded"],
         outcome_id=0,
+        channels=["quotes"],
         start_date="2026-01-19",
         end_date="2026-01-19",
         show_progress=False,
@@ -1012,10 +1080,19 @@ def test_downloaded_parquet_is_readable_by_telonex_loader(
     loader = RunnerPolymarketTelonexBookDataLoader.__new__(RunnerPolymarketTelonexBookDataLoader)
     blob_root = loader._local_blob_root(tmp_path)
     assert blob_root is not None
+    orphan = (
+        blob_root
+        / "data"
+        / "channel=book_snapshot_full"
+        / "year=2026"
+        / "month=01"
+        / "orphan.parquet"
+    )
+    orphan.write_bytes(b"")
 
     frame = loader._load_blob_range(
         store_root=blob_root,
-        channel="quotes",
+        channel="book_snapshot_full",
         market_slug="us-recession-by-end-of-2026",
         token_index=0,
         outcome=None,

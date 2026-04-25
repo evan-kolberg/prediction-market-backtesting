@@ -71,7 +71,7 @@ def main() -> int:
         nargs="+",
         choices=VALID_CHANNELS,
         default=None,
-        help="Channels to download (default: quotes).",
+        help="Channels to download (default: book_snapshot_full).",
     )
     parser.add_argument("--start-date", default=None, help="Inclusive UTC start date YYYY-MM-DD.")
     parser.add_argument("--end-date", default=None, help="Inclusive UTC end date YYYY-MM-DD.")
@@ -101,13 +101,11 @@ def main() -> int:
     parser.add_argument(
         "--workers",
         type=int,
-        default=128,
+        default=16,
         help=(
-            "Concurrent in-flight downloads (default: 128). With the async httpx "
-            "client each in-flight request is a coroutine, not an OS thread, so "
-            "128 is usually the useful ceiling for the consolidated blob writer. "
-            "Try 64 or 256 only when benchmarking your host; transient 429/503 "
-            "are retried automatically."
+            "Concurrent in-flight downloads (default: 16). Increase only after "
+            "checking RSS on book_snapshot_full downloads; transient 429/503 are "
+            "retried automatically."
         ),
     )
     parser.add_argument(

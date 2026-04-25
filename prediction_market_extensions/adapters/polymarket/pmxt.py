@@ -35,7 +35,7 @@ from nautilus_trader.adapters.polymarket.schemas.book import (
     PolymarketQuotes,
 )
 from nautilus_trader.model.book import OrderBook
-from nautilus_trader.model.data import OrderBookDeltas, QuoteTick
+from nautilus_trader.model.data import OrderBookDeltas
 from nautilus_trader.model.enums import BookType
 
 
@@ -75,8 +75,7 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
     The PMXT archive stores one parquet file per UTC hour. Each row contains a
     market-scoped order-book event payload encoded as JSON. This loader filters
     to one market ID at parquet-scan time, then filters to the target token in
-    Python and converts the payloads into Nautilus `OrderBookDeltas` and
-    `QuoteTick` records.
+    Python and converts the payloads into Nautilus `OrderBookDeltas` records.
     """
 
     _PMXT_BASE_URL = "https://r2v2.pmxt.dev"
@@ -105,7 +104,7 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
         self._pmxt_progress_size_cache: dict[str, int | None] = {}
         self._pmxt_temp_download_root = self._PMXT_TEMP_DOWNLOAD_ROOT
         # Hours that no source could supply during the most recent
-        # ``load_order_book_and_quotes`` call. Strategies and runners can read
+        # ``load_order_book_deltas`` call. Strategies and runners can read
         # this to surface coverage gaps instead of silently trusting an
         # apparently-continuous record stream.
         self._pmxt_last_load_gap_hours: tuple[pd.Timestamp, ...] = ()
@@ -784,28 +783,6 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
         return f"{timestamp_secs * 1000:.6f}"
 
     @staticmethod
-    def _quote_from_book(
-        *, instrument, local_book: OrderBook, ts_event_ns: int
-    ) -> QuoteTick | None:
-        bid_price = local_book.best_bid_price()
-        ask_price = local_book.best_ask_price()
-        bid_size = local_book.best_bid_size()
-        ask_size = local_book.best_ask_size()
-        if bid_price is None or ask_price is None or bid_size is None or ask_size is None:
-            return None
-
-        return QuoteTick(
-            instrument_id=instrument.id,
-            bid_price=bid_price,
-            ask_price=ask_price,
-            bid_size=bid_size,
-            ask_size=ask_size,
-            ts_event=ts_event_ns,
-            # Process the quote immediately after the associated book update.
-            ts_init=ts_event_ns + 1,
-        )
-
-    @staticmethod
     def _decode_book_snapshot(payload_text: str) -> _PMXTBookSnapshotPayload:
         return _PMXT_BOOK_SNAPSHOT_DECODER.decode(payload_text)
 
@@ -855,16 +832,10 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
         )
 
     @staticmethod
-    def _event_sort_key(record: OrderBookDeltas | QuoteTick) -> tuple[int, int, int]:
+    def _event_sort_key(record: OrderBookDeltas) -> tuple[int, int]:
         ts_event = int(getattr(record, "ts_event", getattr(record, "ts_init", 0)))
         ts_init = int(getattr(record, "ts_init", ts_event))
-        if isinstance(record, OrderBookDeltas):
-            priority = 0
-        elif isinstance(record, QuoteTick):
-            priority = 1
-        else:
-            priority = 2
-        return (ts_event, priority, ts_init)
+        return (ts_event, ts_init)
 
     def _payload_sort_key(self, update_type: str, payload_text: str) -> tuple[int, int]:
         if update_type == "book_snapshot":
@@ -886,11 +857,10 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
         instrument,
         local_book: OrderBook,
         has_snapshot: bool,
-        events: list[OrderBookDeltas | QuoteTick],
+        events: list[OrderBookDeltas],
         start_ns: int,
         end_ns: int,
         include_order_book: bool,
-        include_quotes: bool,
     ) -> tuple[OrderBook, bool]:
         payload = self._decode_book_snapshot(payload_text)
         if payload.token_id != token_id:
@@ -912,10 +882,6 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
 
         if include_order_book:
             events.append(deltas)
-        if include_quotes:
-            quote = snapshot.parse_to_quote(instrument=instrument, ts_init=deltas.ts_event + 1)
-            if quote is not None:
-                events.append(quote)
 
         return local_book, has_snapshot
 
@@ -927,11 +893,10 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
         instrument,
         local_book: OrderBook,
         has_snapshot: bool,
-        events: list[OrderBookDeltas | QuoteTick],
+        events: list[OrderBookDeltas],
         start_ns: int,
         end_ns: int,
         include_order_book: bool,
-        include_quotes: bool,
     ) -> OrderBook:
         if not has_snapshot:
             return local_book
@@ -952,24 +917,17 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
 
         if include_order_book:
             events.append(deltas)
-        if include_quotes:
-            quote = self._quote_from_book(
-                instrument=instrument, local_book=local_book, ts_event_ns=deltas.ts_event
-            )
-            if quote is not None:
-                events.append(quote)
 
         return local_book
 
-    def load_order_book_and_quotes(
+    def load_order_book_deltas(
         self,
         start: pd.Timestamp,
         end: pd.Timestamp,
         *,
         batch_size: int = 25_000,
         include_order_book: bool = True,
-        include_quotes: bool = True,
-    ) -> list[OrderBookDeltas | QuoteTick]:
+    ) -> list[OrderBookDeltas]:
         """
         Load one market's historical L2 updates from PMXT.
 
@@ -992,7 +950,7 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
         instrument = self.instrument
         local_book = OrderBook(instrument.id, book_type=BookType.L2_MBP)
         has_snapshot = False
-        events: list[OrderBookDeltas | QuoteTick] = []
+        events: list[OrderBookDeltas] = []
         hours = self._archive_hours(start_ts, end_ts)
         last_payload_key: tuple[int, int] | None = None
         gap_hours: list[pd.Timestamp] = []
@@ -1036,7 +994,6 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
                         start_ns=start_ns,
                         end_ns=end_ns,
                         include_order_book=include_order_book,
-                        include_quotes=include_quotes,
                     )
                     last_payload_key = payload_key
                     continue
@@ -1052,7 +1009,6 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
                         start_ns=start_ns,
                         end_ns=end_ns,
                         include_order_book=include_order_book,
-                        include_quotes=include_quotes,
                     )
                     last_payload_key = payload_key
 

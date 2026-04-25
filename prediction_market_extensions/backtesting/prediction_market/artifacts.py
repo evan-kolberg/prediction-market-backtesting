@@ -133,7 +133,7 @@ class PredictionMarketArtifactBuilder:
         for loaded_sim in loaded_sims:
             price_points = extract_price_points(
                 loaded_sim.records,
-                price_attr="mid_price" if self.data_type == "quote_tick" else "price",
+                price_attr="price",
             )
             price_points = downsample_price_points(price_points, max_points=5000)
             market_prices_by_instrument_id[str(loaded_sim.instrument.id)] = build_market_prices(
@@ -180,7 +180,7 @@ class PredictionMarketArtifactBuilder:
     ) -> dict[str, Any]:
         price_points = extract_price_points(
             loaded_sim.records,
-            price_attr="mid_price" if self.data_type == "quote_tick" else "price",
+            price_attr="price",
         )
         if self.return_summary_series:
             price_points = downsample_price_points(price_points, max_points=5000)

@@ -731,55 +731,28 @@ def download_raw_hours(
             hour_label = _hour_label_for_filename(filename)
             hour_started_at = time.perf_counter()
             if destination_path.exists() and not overwrite:
-                source_urls = [
-                    url
-                    for candidate_source in source_sequence
-                    for url, _source_label in _candidate_urls(
-                        source=candidate_source,
-                        filename=filename,
-                        archive_sources=resolved_archive_sources,
-                        discovered_archive_base_urls=discovered_archive_base_urls,
-                        timeout_secs=timeout_secs,
-                    )
-                ]
-                refresh_reason = _existing_refresh_reason(
-                    path=destination_path,
-                    source_urls=source_urls,
-                    timeout_secs=timeout_secs,
-                )
-                if refresh_reason is None:
-                    skipped_existing_hours += 1
-                    _write_progress_line(
-                        progress_bar,
-                        _hour_result_text(
-                            hour_label=hour_label,
-                            elapsed_secs=time.perf_counter() - hour_started_at,
-                            detail="existing",
-                            source="skip",
-                        ),
-                    )
-                    if progress_bar is not None:
-                        progress_bar.update(1)
-                    completed_hours += 1
-                    _set_status(
-                        progress_bar,
-                        total_hours=len(download_filenames),
-                        completed_hours=completed_hours,
-                        active_hours=0,
-                        status="",
-                        force=True,
-                    )
-                    continue
-                refreshed_existing_hours += 1
+                skipped_existing_hours += 1
                 _write_progress_line(
                     progress_bar,
                     _hour_result_text(
                         hour_label=hour_label,
                         elapsed_secs=time.perf_counter() - hour_started_at,
-                        detail="refresh",
-                        source=refresh_reason,
+                        detail="existing",
+                        source="skip",
                     ),
                 )
+                if progress_bar is not None:
+                    progress_bar.update(1)
+                completed_hours += 1
+                _set_status(
+                    progress_bar,
+                    total_hours=len(download_filenames),
+                    completed_hours=completed_hours,
+                    active_hours=0,
+                    status="",
+                    force=True,
+                )
+                continue
 
             last_error: Exception | None = None
             completed_source: str | None = None

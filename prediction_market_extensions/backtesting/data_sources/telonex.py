@@ -15,12 +15,11 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlencode
 from urllib.request import HTTPRedirectHandler, Request, build_opener, urlopen
 
+import duckdb
 import numpy as np
 import pandas as pd
 import pyarrow as pa
-import pyarrow.compute as pc
 import pyarrow.dataset as ds
-import pyarrow.parquet as pq
 from nautilus_trader.adapters.polymarket.schemas.book import (
     PolymarketBookLevel,
     PolymarketBookSnapshot,
@@ -28,7 +27,6 @@ from nautilus_trader.adapters.polymarket.schemas.book import (
 from nautilus_trader.model.data import BookOrder
 from nautilus_trader.model.data import OrderBookDelta
 from nautilus_trader.model.data import OrderBookDeltas
-from nautilus_trader.model.data import QuoteTick
 from nautilus_trader.model.enums import BookAction
 from nautilus_trader.model.enums import OrderSide
 from nautilus_trader.model.enums import RecordFlag
@@ -47,8 +45,8 @@ TELONEX_CHANNEL_ENV = "TELONEX_CHANNEL"
 TELONEX_CACHE_ROOT_ENV = "TELONEX_CACHE_ROOT"
 
 _TELONEX_DEFAULT_API_BASE_URL = "https://api.telonex.io"
-_TELONEX_DEFAULT_CHANNEL = "quotes"
 TELONEX_FULL_BOOK_CHANNEL = "book_snapshot_full"
+_TELONEX_DEFAULT_CHANNEL = TELONEX_FULL_BOOK_CHANNEL
 _TELONEX_EXCHANGE = "polymarket"
 _TELONEX_HTTP_TIMEOUT_SECS = 60
 _TELONEX_DOWNLOAD_CHUNK_SIZE = 1024 * 1024
@@ -412,6 +410,70 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
             paths.append(str(path))
         return tuple(paths), incomplete
 
+    def _manifest_blob_part_paths(
+        self,
+        *,
+        store_root: Path,
+        channel: str,
+        market_slug: str,
+        token_index: int,
+        outcome: str | None,
+        start: pd.Timestamp,
+        end: pd.Timestamp,
+    ) -> tuple[list[str], bool] | None:
+        manifest = store_root / _TELONEX_BLOB_DB_FILENAME
+        if not manifest.exists():
+            return None
+
+        query_start = self._normalize_to_utc(start).floor("D").date()
+        query_end = self._normalize_to_utc(end).floor("D").date()
+        segments = self._outcome_segment_candidates(token_index=token_index, outcome=outcome)
+        placeholders = ", ".join("?" for _ in segments)
+        params: list[object] = [channel, market_slug, *segments, query_start, query_end]
+
+        try:
+            con = duckdb.connect(str(manifest), read_only=True)
+            try:
+                rows = con.execute(
+                    "SELECT DISTINCT parquet_part FROM completed_days "
+                    "WHERE channel = ? "
+                    "AND market_slug = ? "
+                    f"AND outcome_segment IN ({placeholders}) "
+                    "AND day BETWEEN ? AND ? "
+                    "AND rows > 0 "
+                    "AND parquet_part IS NOT NULL "
+                    "ORDER BY parquet_part",
+                    params,
+                ).fetchall()
+            finally:
+                con.close()
+        except Exception:
+            return None
+
+        paths: list[str] = []
+        incomplete = False
+        for (raw_part,) in rows:
+            if raw_part is None:
+                continue
+            part_path = Path(str(raw_part))
+            if not part_path.is_absolute():
+                part_path = store_root / part_path
+            try:
+                if part_path.stat().st_size <= 0:
+                    raise OSError("empty file")
+            except OSError:
+                incomplete = True
+                if part_path not in self._telonex_unreadable_blob_parts_warned:
+                    warnings.warn(
+                        f"Telonex: manifest references unreadable parquet part {part_path}; "
+                        "trying next source instead of using partial local data.",
+                        stacklevel=2,
+                    )
+                    self._telonex_unreadable_blob_parts_warned.add(part_path)
+                continue
+            paths.append(str(part_path))
+        return paths, incomplete
+
     def _load_blob_range(
         self,
         *,
@@ -426,9 +488,8 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
         """Query the Hive-partitioned Parquet layout for a single (market,
         outcome) slice. Returns None when the channel has no data on disk.
 
-        Memoized by (store_root, channel, market, token, outcome, start_ym,
-        end_ym). The downstream day filter is narrower than the pyarrow
-        query, so per-day callers safely share one read.
+        Memoized by (store_root, channel, market, token, outcome, start_day,
+        end_day).
 
         Uses pyarrow.dataset with predicate pushdown instead of DuckDB, which
         eliminates SQL engine overhead, fetch_df() bulk materialization, and
@@ -439,16 +500,16 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
 
         start_utc = self._normalize_to_utc(start)
         end_utc = self._normalize_to_utc(end)
-        start_ym = start_utc.year * 100 + start_utc.month
-        end_ym = end_utc.year * 100 + end_utc.month
+        start_day = start_utc.floor("D").date()
+        end_day = end_utc.floor("D").date()
         cache_key = (
             str(store_root),
             channel,
             market_slug,
             token_index,
             outcome,
-            start_ym,
-            end_ym,
+            start_day,
+            end_day,
         )
         if cache_key in self._telonex_blob_range_frames:
             # Downstream consumers only `.to_numpy()` slices off the frame,
@@ -459,14 +520,26 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
         if not channel_dir.exists():
             self._telonex_blob_range_frames[cache_key] = None
             return None
-        # Glob every part file under this channel, regardless of year/month
-        # partition depth. Empty-but-existing channel dirs yield no matches -
-        # guard with a cheap pre-check.
-        part_paths, incomplete_parts = self._readable_blob_part_paths(
-            channel_dir=channel_dir,
+        manifest_parts = self._manifest_blob_part_paths(
+            store_root=store_root,
+            channel=channel,
+            market_slug=market_slug,
+            token_index=token_index,
+            outcome=outcome,
             start=start_utc,
             end=end_utc,
         )
+        if manifest_parts is None:
+            # Legacy/no-manifest fallback: glob every part file under this channel,
+            # regardless of year/month partition depth. Empty-but-existing channel
+            # dirs yield no matches - guard with a cheap pre-check.
+            part_paths, incomplete_parts = self._readable_blob_part_paths(
+                channel_dir=channel_dir,
+                start=start_utc,
+                end=end_utc,
+            )
+        else:
+            part_paths, incomplete_parts = manifest_parts
         if incomplete_parts:
             return None
         if not part_paths:
@@ -488,7 +561,7 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
 
             # Build filter expression:
             #   market_slug = ? AND outcome_segment IN (segments)
-            #   AND year/month between start and end.
+            #   AND year/month/timestamp between start and end.
             # Hive partition columns are inferred from directory names —
             # pure-numeric dirs (year=2026) become int, others become string.
             # Check the schema and compare with the matching type.
@@ -507,8 +580,7 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
                     break
                 if year_is_int and month_is_int:
                     ym_pairs.append(
-                        (ds.field("year") == cursor.year)
-                        & (ds.field("month") == cursor.month)
+                        (ds.field("year") == cursor.year) & (ds.field("month") == cursor.month)
                     )
                 else:
                     ym_pairs.append(
@@ -532,6 +604,23 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
                 & ds.field("outcome_segment").isin(segments)
                 & ym_expr
             )
+            schema_names = set(schema.names)
+            if "timestamp_us" in schema_names:
+                start_us = int(start_utc.value // 1_000)
+                end_us = int(end_utc.value // 1_000)
+                filter_expr = (
+                    filter_expr
+                    & (ds.field("timestamp_us") >= start_us)
+                    & (ds.field("timestamp_us") <= end_us)
+                )
+            elif "timestamp_ms" in schema_names:
+                start_ms = int(start_utc.value // 1_000_000)
+                end_ms = int(end_utc.value // 1_000_000)
+                filter_expr = (
+                    filter_expr
+                    & (ds.field("timestamp_ms") >= start_ms)
+                    & (ds.field("timestamp_ms") <= end_ms)
+                )
 
             # Project out Hive partition columns at scan time — no
             # post-hoc frame.drop() copy needed.
@@ -567,13 +656,12 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
         # timestamp column name so per-day callers of _column_to_ns() can
         # reuse it instead of converting the same month-sized column N times.
         ts_ns_map: dict[str, np.ndarray] = {}
-        for col_candidates in (
-            ("timestamp_us", "timestamp_ms", "timestamp", "time"),
-        ):
+        for col_candidates in (("timestamp_us", "timestamp_ms", "timestamp", "time"),):
             for col_name in col_candidates:
                 if col_name in frame.columns:
                     ts_ns_map[col_name] = self._column_to_ns(
-                        frame[col_name], col_name,
+                        frame[col_name],
+                        col_name,
                     )
                     break
         if ts_ns_map:
@@ -865,6 +953,205 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
                 stacklevel=2,
             )
 
+    @classmethod
+    def _fast_api_cache_path(
+        cls,
+        *,
+        base_url: str,
+        channel: str,
+        date: str,
+        market_slug: str,
+        token_index: int,
+        outcome: str | None,
+    ) -> Path | None:
+        cache_path = cls._api_cache_path(
+            base_url=base_url,
+            channel=channel,
+            date=date,
+            market_slug=market_slug,
+            token_index=token_index,
+            outcome=outcome,
+        )
+        if cache_path is None:
+            return None
+        return cache_path.parent / f"{cache_path.stem}.fast.parquet"
+
+    def _load_fast_cache_day(
+        self,
+        *,
+        base_url: str,
+        channel: str,
+        date: str,
+        market_slug: str,
+        token_index: int,
+        outcome: str | None,
+    ) -> pd.DataFrame | None:
+        fast_path = self._fast_api_cache_path(
+            base_url=base_url,
+            channel=channel,
+            date=date,
+            market_slug=market_slug,
+            token_index=token_index,
+            outcome=outcome,
+        )
+        if fast_path is None or not fast_path.exists():
+            return None
+        frame = self._safe_read_parquet(fast_path)
+        if frame is not None:
+            return frame
+        try:
+            fast_path.unlink()
+        except OSError:
+            pass
+        return None
+
+    def _write_fast_cache_day(
+        self,
+        *,
+        frame: pd.DataFrame,
+        base_url: str,
+        channel: str,
+        date: str,
+        market_slug: str,
+        token_index: int,
+        outcome: str | None,
+    ) -> None:
+        fast_path = self._fast_api_cache_path(
+            base_url=base_url,
+            channel=channel,
+            date=date,
+            market_slug=market_slug,
+            token_index=token_index,
+            outcome=outcome,
+        )
+        if fast_path is None:
+            return
+        if "bids" not in frame.columns or "asks" not in frame.columns:
+            return
+        bid_prices_list: list[list[str]] = []
+        bid_sizes_list: list[list[str]] = []
+        ask_prices_list: list[list[str]] = []
+        ask_sizes_list: list[list[str]] = []
+        for bids_val in frame["bids"]:
+            bp: list[str] = []
+            bs: list[str] = []
+            if bids_val is not None:
+                for item in bids_val:
+                    if isinstance(item, dict):
+                        bp.append(str(item.get("price", "")))
+                        bs.append(str(item.get("size", "")))
+                    else:
+                        bp.append(str(getattr(item, "price", "")))
+                        bs.append(str(getattr(item, "size", "")))
+            bid_prices_list.append(bp)
+            bid_sizes_list.append(bs)
+        for asks_val in frame["asks"]:
+            ap: list[str] = []
+            as_: list[str] = []
+            if asks_val is not None:
+                for item in asks_val:
+                    if isinstance(item, dict):
+                        ap.append(str(item.get("price", "")))
+                        as_.append(str(item.get("size", "")))
+                    else:
+                        ap.append(str(getattr(item, "price", "")))
+                        as_.append(str(getattr(item, "size", "")))
+            ask_prices_list.append(ap)
+            ask_sizes_list.append(as_)
+        fast_frame = frame.drop(columns=["bids", "asks"]).copy()
+        fast_frame["bid_prices"] = bid_prices_list
+        fast_frame["bid_sizes"] = bid_sizes_list
+        fast_frame["ask_prices"] = ask_prices_list
+        fast_frame["ask_sizes"] = ask_sizes_list
+        tmp_path = fast_path.with_name(f"{fast_path.name}.tmp.{os.getpid()}")
+        try:
+            fast_path.parent.mkdir(parents=True, exist_ok=True)
+            fast_frame.to_parquet(tmp_path, compression="zstd", index=False)
+            os.replace(tmp_path, fast_path)
+        except OSError as exc:
+            try:
+                tmp_path.unlink()
+            except OSError:
+                pass
+            warnings.warn(
+                f"Telonex: failed to write fast cache {fast_path} ({exc})",
+                stacklevel=2,
+            )
+
+    def _load_api_day_cached(
+        self,
+        *,
+        base_url: str,
+        channel: str,
+        date: str,
+        market_slug: str,
+        token_index: int,
+        outcome: str | None,
+    ) -> tuple[pd.DataFrame | None, str]:
+        """Try fast cache, then slow cache (migrating lazily).
+
+        Returns ``(frame, source_label)`` where *source_label* is ``"none"``
+        when no cached data was found.
+        """
+        fast_frame = self._load_fast_cache_day(
+            base_url=base_url,
+            channel=channel,
+            date=date,
+            market_slug=market_slug,
+            token_index=token_index,
+            outcome=outcome,
+        )
+        if fast_frame is not None:
+            fast_path = self._fast_api_cache_path(
+                base_url=base_url,
+                channel=channel,
+                date=date,
+                market_slug=market_slug,
+                token_index=token_index,
+                outcome=outcome,
+            )
+            return fast_frame, (
+                f"telonex-cache-fast::{fast_path}"
+                if fast_path is not None
+                else "telonex-cache-fast"
+            )
+        slow_frame = self._load_api_cache_day(
+            base_url=base_url,
+            channel=channel,
+            date=date,
+            market_slug=market_slug,
+            token_index=token_index,
+            outcome=outcome,
+        )
+        if slow_frame is not None:
+            cache_path = self._api_cache_path(
+                base_url=base_url,
+                channel=channel,
+                date=date,
+                market_slug=market_slug,
+                token_index=token_index,
+                outcome=outcome,
+            )
+            try:
+                self._write_fast_cache_day(
+                    frame=slow_frame,
+                    base_url=base_url,
+                    channel=channel,
+                    date=date,
+                    market_slug=market_slug,
+                    token_index=token_index,
+                    outcome=outcome,
+                )
+            except Exception as exc:
+                warnings.warn(
+                    f"Telonex: failed to migrate slow cache to fast format ({exc})",
+                    stacklevel=2,
+                )
+            return slow_frame, (
+                f"telonex-cache::{cache_path}" if cache_path is not None else "telonex-cache"
+            )
+        return None, "none"
+
     @staticmethod
     def _resolve_presigned_url(*, url: str, api_key: str) -> str:
         request = Request(
@@ -905,7 +1192,7 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
         api_key: str | None = None,
     ) -> pd.DataFrame | None:
         self._telonex_last_api_source = None
-        cached = self._load_api_cache_day(
+        cached_frame, cached_source = self._load_api_day_cached(
             base_url=base_url,
             channel=channel,
             date=date,
@@ -913,19 +1200,9 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
             token_index=token_index,
             outcome=outcome,
         )
-        if cached is not None:
-            cache_path = self._api_cache_path(
-                base_url=base_url,
-                channel=channel,
-                date=date,
-                market_slug=market_slug,
-                token_index=token_index,
-                outcome=outcome,
-            )
-            self._telonex_last_api_source = (
-                f"telonex-cache::{cache_path}" if cache_path is not None else "telonex-cache"
-            )
-            return cached
+        if cached_frame is not None:
+            self._telonex_last_api_source = cached_source
+            return cached_frame
 
         if api_key is None or not api_key.strip():
             api_key = _env_value(TELONEX_API_KEY_ENV)
@@ -979,7 +1256,20 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
             token_index=token_index,
             outcome=outcome,
         )
-        return pd.read_parquet(BytesIO(payload))
+        frame = pd.read_parquet(BytesIO(payload))
+        try:
+            self._write_fast_cache_day(
+                frame=frame,
+                base_url=base_url,
+                channel=channel,
+                date=date,
+                market_slug=market_slug,
+                token_index=token_index,
+                outcome=outcome,
+            )
+        except Exception:
+            pass
+        return frame
 
     @staticmethod
     def _column_to_ns(column: pd.Series, column_name: str) -> np.ndarray:
@@ -1019,68 +1309,6 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
                 return name
         raise ValueError(f"Telonex {label} data is missing required columns: {', '.join(names)}")
 
-    def _quote_ticks_from_frame(
-        self, frame: pd.DataFrame, *, start: pd.Timestamp, end: pd.Timestamp,
-    ) -> list[QuoteTick]:
-        if frame.empty:
-            return []
-
-        timestamp_column = self._first_present_column(
-            frame, ("timestamp_us", "timestamp_ms", "timestamp", "time"), label="quote"
-        )
-        bid_price_column = self._first_present_column(
-            frame, ("bid_price", "best_bid", "bid"), label="quote"
-        )
-        ask_price_column = self._first_present_column(
-            frame, ("ask_price", "best_ask", "ask"), label="quote"
-        )
-        bid_size_column = self._first_present_column(
-            frame, ("bid_size", "best_bid_size", "bid_qty", "bid_quantity"), label="quote"
-        )
-        ask_size_column = self._first_present_column(
-            frame, ("ask_size", "best_ask_size", "ask_qty", "ask_quantity"), label="quote"
-        )
-
-        # Normalize the user's start/end to UTC ns — a naive Timestamp's `.value`
-        # is wall-clock ns, not UTC, and would silently mis-filter the range.
-        start_ns = int(self._normalize_to_utc(start).value)
-        end_ns = int(self._normalize_to_utc(end).value)
-
-        cached = self._cached_ts_ns_for_frame(frame, timestamp_column)
-        ts_ns = cached if cached is not None else self._column_to_ns(frame[timestamp_column], timestamp_column)
-        mask = (ts_ns >= start_ns) & (ts_ns <= end_ns)
-        if not mask.any():
-            return []
-
-        bid_px = frame[bid_price_column].to_numpy()[mask]
-        ask_px = frame[ask_price_column].to_numpy()[mask]
-        bid_sz = frame[bid_size_column].to_numpy()[mask]
-        ask_sz = frame[ask_size_column].to_numpy()[mask]
-        ns_arr = ts_ns[mask]
-
-        order = np.argsort(ns_arr, kind="stable")
-        bid_px = bid_px[order]
-        ask_px = ask_px[order]
-        bid_sz = bid_sz[order]
-        ask_sz = ask_sz[order]
-        ns_arr = ns_arr[order]
-
-        make_price = self.instrument.make_price
-        make_qty = self.instrument.make_qty
-        instrument_id = self.instrument.id
-        return [
-            QuoteTick(
-                instrument_id=instrument_id,
-                bid_price=make_price(bp),
-                ask_price=make_price(ap),
-                bid_size=make_qty(bs),
-                ask_size=make_qty(sz),
-                ts_event=int(ns),
-                ts_init=int(ns),
-            )
-            for bp, ap, bs, sz, ns in zip(bid_px, ask_px, bid_sz, ask_sz, ns_arr, strict=True)
-        ]
-
     @staticmethod
     def _book_levels_from_value(value: object, *, side: str) -> tuple[PolymarketBookLevel, ...]:
         if value is None:
@@ -1111,10 +1339,27 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
 
         # Nautilus' Polymarket parser takes bids[-1] and asks[-1] as the touch.
         # Telonex stores bids best-first and asks best-first, so normalize the
-        # ordering before parsing snapshots or deriving quotes.
+        # ordering before parsing snapshots or applying order-book updates.
         reverse = side == "ask"
         levels.sort(key=lambda item: item[0], reverse=reverse)
         return tuple(PolymarketBookLevel(price=price, size=size) for _px, price, size in levels)
+
+    @staticmethod
+    def _book_levels_from_arrays(
+        *,
+        prices: object,
+        sizes: object,
+        side: str,
+    ) -> tuple[PolymarketBookLevel, ...]:
+        pairs: list[tuple[float, str, str]] = []
+        for p, s in zip(prices, sizes):
+            s_str = str(s)
+            if float(s_str) <= 0:
+                continue
+            pairs.append((float(p), str(p), s_str))
+        reverse = side == "ask"
+        pairs.sort(key=lambda t: t[0], reverse=reverse)
+        return tuple(PolymarketBookLevel(price=p_str, size=s_str) for _, p_str, s_str in pairs)
 
     @staticmethod
     def _book_side_map(levels: Sequence[PolymarketBookLevel]) -> dict[str, str]:
@@ -1185,22 +1430,6 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
             )
         return OrderBookDeltas(instrument.id, deltas)
 
-    def _quote_from_levels(
-        self,
-        *,
-        bids: Sequence[PolymarketBookLevel],
-        asks: Sequence[PolymarketBookLevel],
-        ts_event: int,
-    ) -> QuoteTick | None:
-        snapshot = PolymarketBookSnapshot(
-            market=str(getattr(self, "condition_id", "") or ""),
-            asset_id=str(getattr(self, "token_id", "") or ""),
-            bids=list(bids),
-            asks=list(asks),
-            timestamp=str(ts_event / 1_000_000),
-        )
-        return snapshot.parse_to_quote(instrument=self.instrument, ts_init=ts_event + 1)
-
     def _book_events_from_frame(
         self,
         frame: pd.DataFrame,
@@ -1208,39 +1437,58 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
         start: pd.Timestamp,
         end: pd.Timestamp,
         include_order_book: bool = True,
-        include_quotes: bool = True,
-    ) -> list[OrderBookDeltas | QuoteTick]:
+    ) -> list[OrderBookDeltas]:
         if frame.empty:
             return []
 
         timestamp_column = self._first_present_column(
             frame, ("timestamp_us", "timestamp_ms", "timestamp", "time"), label="book snapshot"
         )
-        bids_column = self._first_present_column(frame, ("bids",), label="book snapshot")
-        asks_column = self._first_present_column(frame, ("asks",), label="book snapshot")
+        has_flat = "bid_prices" in frame.columns
 
         start_ns = int(self._normalize_to_utc(start).value)
         end_ns = int(self._normalize_to_utc(end).value)
         cached = self._cached_ts_ns_for_frame(frame, timestamp_column)
-        ts_ns = cached if cached is not None else self._column_to_ns(frame[timestamp_column], timestamp_column)
+        ts_ns = (
+            cached
+            if cached is not None
+            else self._column_to_ns(frame[timestamp_column], timestamp_column)
+        )
         mask = ts_ns <= end_ns
         if not mask.any():
             return []
 
-        bids_values = frame[bids_column].to_numpy()[mask]
-        asks_values = frame[asks_column].to_numpy()[mask]
+        if has_flat:
+            bid_prices_values = frame["bid_prices"].to_numpy()[mask]
+            bid_sizes_values = frame["bid_sizes"].to_numpy()[mask]
+            ask_prices_values = frame["ask_prices"].to_numpy()[mask]
+            ask_sizes_values = frame["ask_sizes"].to_numpy()[mask]
+        else:
+            bids_column = self._first_present_column(frame, ("bids",), label="book snapshot")
+            asks_column = self._first_present_column(frame, ("asks",), label="book snapshot")
+            bids_values = frame[bids_column].to_numpy()[mask]
+            asks_values = frame[asks_column].to_numpy()[mask]
+
         ns_arr = ts_ns[mask]
         order = np.argsort(ns_arr, kind="stable")
 
-        events: list[OrderBookDeltas | QuoteTick] = []
+        events: list[OrderBookDeltas] = []
         previous_bids: dict[str, str] | None = None
         previous_asks: dict[str, str] | None = None
         emitted_snapshot = False
 
         for idx in order:
             ts_event = int(ns_arr[idx])
-            bids = self._book_levels_from_value(bids_values[idx], side="bid")
-            asks = self._book_levels_from_value(asks_values[idx], side="ask")
+            if has_flat:
+                bids = self._book_levels_from_arrays(
+                    prices=bid_prices_values[idx], sizes=bid_sizes_values[idx], side="bid"
+                )
+                asks = self._book_levels_from_arrays(
+                    prices=ask_prices_values[idx], sizes=ask_sizes_values[idx], side="ask"
+                )
+            else:
+                bids = self._book_levels_from_value(bids_values[idx], side="bid")
+                asks = self._book_levels_from_value(asks_values[idx], side="ask")
             current_bids = self._book_side_map(bids)
             current_asks = self._book_side_map(asks)
 
@@ -1266,20 +1514,10 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
 
             if deltas is not None and include_order_book:
                 events.append(deltas)
-            if include_quotes:
-                quote = self._quote_from_levels(bids=bids, asks=asks, ts_event=ts_event)
-                if quote is not None:
-                    events.append(quote)
-
             previous_bids = current_bids
             previous_asks = current_asks
 
-        events.sort(
-            key=lambda record: (
-                int(record.ts_event),
-                0 if isinstance(record, OrderBookDeltas) else 1,
-            )
-        )
+        events.sort(key=lambda record: int(record.ts_event))
         return events
 
     def _try_load_range_from_local(
@@ -1437,74 +1675,7 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
             return None
         return None
 
-    def load_quotes(
-        self,
-        start: pd.Timestamp,
-        end: pd.Timestamp,
-        *,
-        market_slug: str,
-        token_index: int,
-        outcome: str | None,
-    ) -> list[QuoteTick]:
-        config = self._config()
-        records: list[QuoteTick] = []
-        api_entries = [
-            entry for entry in config.ordered_source_entries if entry.kind == _TELONEX_SOURCE_API
-        ]
-        range_cache: dict[Path, pd.DataFrame | None] = {}
-        for date in self._date_range(start, end):
-            day_window = self._day_window(date, start=start, end=end)
-            if day_window is None:
-                continue
-            day_start, day_end = day_window
-            frame: pd.DataFrame | None = None
-            for entry in api_entries:
-                assert entry.target is not None
-                frame = self._load_api_cache_day(
-                    base_url=entry.target,
-                    channel=config.channel,
-                    date=date,
-                    market_slug=market_slug,
-                    token_index=token_index,
-                    outcome=outcome,
-                )
-                if frame is not None:
-                    break
-            if frame is not None:
-                records.extend(self._quote_ticks_from_frame(frame, start=day_start, end=day_end))
-                continue
-
-            for entry in config.ordered_source_entries:
-                if entry.kind == _TELONEX_SOURCE_LOCAL:
-                    frame = self._try_load_day_from_local(
-                        entry=entry,
-                        channel=config.channel,
-                        date=date,
-                        market_slug=market_slug,
-                        token_index=token_index,
-                        outcome=outcome,
-                        start=day_start,
-                        end=day_end,
-                        range_cache=range_cache,
-                    )
-                else:
-                    frame = self._try_load_day_from_entry(
-                        entry=entry,
-                        channel=config.channel,
-                        date=date,
-                        market_slug=market_slug,
-                        token_index=token_index,
-                        outcome=outcome,
-                    )
-                if frame is not None:
-                    break
-            if frame is None:
-                continue
-            records.extend(self._quote_ticks_from_frame(frame, start=day_start, end=day_end))
-        records.sort(key=lambda quote: quote.ts_event)
-        return records
-
-    def load_order_book_and_quotes(
+    def load_order_book_deltas(
         self,
         start: pd.Timestamp,
         end: pd.Timestamp,
@@ -1513,10 +1684,9 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
         token_index: int,
         outcome: str | None,
         include_order_book: bool = True,
-        include_quotes: bool = True,
-    ) -> list[OrderBookDeltas | QuoteTick]:
+    ) -> list[OrderBookDeltas]:
         config = self._config()
-        records: list[OrderBookDeltas | QuoteTick] = []
+        records: list[OrderBookDeltas] = []
         api_entries = [
             entry for entry in config.ordered_source_entries if entry.kind == _TELONEX_SOURCE_API
         ]
@@ -1534,7 +1704,7 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
                 frame: pd.DataFrame | None = None
                 for entry in api_entries:
                     assert entry.target is not None
-                    frame = self._load_api_cache_day(
+                    cached_frame, cached_source = self._load_api_day_cached(
                         base_url=entry.target,
                         channel=config.channel,
                         date=date,
@@ -1542,20 +1712,9 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
                         token_index=token_index,
                         outcome=outcome,
                     )
-                    if frame is not None:
-                        cache_path = self._api_cache_path(
-                            base_url=entry.target,
-                            channel=config.channel,
-                            date=date,
-                            market_slug=market_slug,
-                            token_index=token_index,
-                            outcome=outcome,
-                        )
-                        day_source = (
-                            f"telonex-cache::{cache_path}"
-                            if cache_path is not None
-                            else "telonex-cache"
-                        )
+                    if cached_frame is not None:
+                        frame = cached_frame
+                        day_source = cached_source
                         break
                 if frame is None:
                     for entry in config.ordered_source_entries:
@@ -1606,7 +1765,6 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
                     start=day_start,
                     end=day_end,
                     include_order_book=include_order_book,
-                    include_quotes=include_quotes,
                 )
                 records.extend(day_records)
                 self._day_progress(date, "complete", day_source, len(day_records))
@@ -1614,13 +1772,7 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
             finally:
                 if not emitted_day_complete:
                     self._day_progress(date, "complete", day_source, 0)
-        records.sort(
-            key=lambda record: (
-                int(record.ts_event),
-                0 if isinstance(record, OrderBookDeltas) else 1,
-                int(record.ts_init),
-            )
-        )
+        records.sort(key=lambda record: int(record.ts_event))
         return records
 
 

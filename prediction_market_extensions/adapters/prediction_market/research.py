@@ -701,7 +701,6 @@ def run_market_backtest(
     )
     chart_market_prices = build_market_prices(price_points, resample_rule=chart_resample_rule)
 
-
     summary_price_series = None
     summary_pnl_series = None
     summary_equity_series = None

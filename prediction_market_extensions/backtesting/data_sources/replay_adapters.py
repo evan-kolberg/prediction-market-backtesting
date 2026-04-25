@@ -1,17 +1,20 @@
 from __future__ import annotations
 
+import os
 from collections.abc import Callable, Mapping
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from importlib import import_module
+from pathlib import Path
 from typing import Any
 
 import pandas as pd
 from nautilus_trader.adapters.polymarket import POLYMARKET_VENUE
 from nautilus_trader.model.currencies import USDC_POS
-from nautilus_trader.model.data import OrderBookDeltas, QuoteTick
-from nautilus_trader.model.enums import AccountType, BookType, OmsType
+from nautilus_trader.model.data import OrderBookDeltas, TradeTick
+from nautilus_trader.model.enums import AccountType, AggressorSide, BookType, OmsType
+from nautilus_trader.model.identifiers import TradeId
 
 from prediction_market_extensions.adapters.polymarket.fee_model import PolymarketFeeModel
 from prediction_market_extensions.adapters.prediction_market import (
@@ -102,6 +105,25 @@ def _price_range(prices: tuple[float, ...]) -> float:
     return max(prices) - min(prices)
 
 
+def _midpoint_from_deltas(deltas: OrderBookDeltas) -> float | None:
+    """Extract a midpoint price from an OrderBookDeltas record."""
+    best_bid: float | None = None
+    best_ask: float | None = None
+    for delta in deltas.deltas:
+        price = float(delta.order.price)
+        if delta.order.side.name == "BUY":
+            if best_bid is None or price > best_bid:
+                best_bid = price
+        else:
+            if best_ask is None or price < best_ask:
+                best_ask = price
+        if best_bid is not None and best_ask is not None:
+            return (best_bid + best_ask) / 2.0
+    if best_bid is not None and best_ask is not None:
+        return (best_bid + best_ask) / 2.0
+    return None
+
+
 def _validate_replay_window(
     *,
     market_label: str,
@@ -120,6 +142,122 @@ def _validate_replay_window(
         )
         return False
     return True
+
+
+def _cache_home() -> Path:
+    configured = os.getenv("XDG_CACHE_HOME")
+    return Path(configured).expanduser() if configured else Path.home() / ".cache"
+
+
+def _trade_cache_path(*, loader: Any, date: pd.Timestamp) -> Path | None:
+    condition_id = getattr(loader, "condition_id", None)
+    token_id = getattr(loader, "token_id", None)
+    if not condition_id or not token_id:
+        return None
+    return (
+        _cache_home()
+        / "nautilus_trader"
+        / "polymarket_trades"
+        / str(condition_id)
+        / str(token_id)
+        / f"{date.strftime('%Y-%m-%d')}.parquet"
+    )
+
+
+def _trade_record_sort_key(record: TradeTick) -> tuple[int, int]:
+    return (int(record.ts_event), int(record.ts_init))
+
+
+def _serialize_trade_ticks(trades: tuple[TradeTick, ...]) -> pd.DataFrame:
+    rows = [
+        {
+            "price": float(trade.price),
+            "size": float(trade.size),
+            "aggressor_side": getattr(trade.aggressor_side, "name", str(trade.aggressor_side)),
+            "trade_id": str(trade.trade_id),
+            "ts_event": int(trade.ts_event),
+            "ts_init": int(trade.ts_init),
+        }
+        for trade in trades
+    ]
+    return pd.DataFrame.from_records(rows)
+
+
+def _deserialize_trade_ticks(*, loader: Any, frame: pd.DataFrame) -> tuple[TradeTick, ...]:
+    instrument = loader.instrument
+    make_price = instrument.make_price
+    make_qty = instrument.make_qty
+    trades: list[TradeTick] = []
+    for row in frame.itertuples(index=False):
+        aggressor_name = str(getattr(row, "aggressor_side"))
+        aggressor_side = getattr(AggressorSide, aggressor_name, AggressorSide.NO_AGGRESSOR)
+        trades.append(
+            TradeTick(
+                instrument_id=instrument.id,
+                price=make_price(getattr(row, "price")),
+                size=make_qty(getattr(row, "size")),
+                aggressor_side=aggressor_side,
+                trade_id=TradeId(str(getattr(row, "trade_id"))),
+                ts_event=int(getattr(row, "ts_event")),
+                ts_init=int(getattr(row, "ts_init")),
+            )
+        )
+    trades.sort(key=_trade_record_sort_key)
+    return tuple(trades)
+
+
+def _write_trade_cache(*, path: Path, trades: tuple[TradeTick, ...]) -> None:
+    tmp_path = path.with_name(f"{path.name}.tmp")
+    frame = _serialize_trade_ticks(trades)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    frame.to_parquet(tmp_path, compression="zstd", index=False)
+    os.replace(tmp_path, path)
+
+
+async def _load_trade_ticks(
+    loader: Any, *, start: pd.Timestamp, end: pd.Timestamp
+) -> tuple[TradeTick, ...]:
+    start_utc = start.tz_convert(UTC)
+    end_utc = end.tz_convert(UTC)
+    current_day = start_utc.floor("D")
+    final_day = end_utc.floor("D")
+    all_trades: list[TradeTick] = []
+    while current_day <= final_day:
+        day_start = current_day
+        day_end = min(current_day + pd.Timedelta(days=1) - pd.Timedelta(nanoseconds=1), end_utc)
+        cache_path = _trade_cache_path(loader=loader, date=current_day)
+        day_trades: tuple[TradeTick, ...]
+        if cache_path is not None and cache_path.exists():
+            frame = pd.read_parquet(cache_path)
+            day_trades = _deserialize_trade_ticks(loader=loader, frame=frame)
+        else:
+            fetched = await loader.load_trades(day_start, day_end)
+            day_trades = tuple(sorted(fetched, key=_trade_record_sort_key))
+            if cache_path is not None:
+                _write_trade_cache(path=cache_path, trades=day_trades)
+        all_trades.extend(
+            trade
+            for trade in day_trades
+            if int(start_utc.value) <= int(trade.ts_event) <= int(end_utc.value)
+        )
+        current_day += pd.Timedelta(days=1)
+    all_trades.sort(key=_trade_record_sort_key)
+    return tuple(all_trades)
+
+
+def _record_sort_key(record: object) -> tuple[int, int, int]:
+    ts_event = int(getattr(record, "ts_event", getattr(record, "ts_init", 0)))
+    ts_init = int(getattr(record, "ts_init", ts_event))
+    priority = 0 if isinstance(record, OrderBookDeltas) else 1
+    return (ts_event, priority, ts_init)
+
+
+def _merge_records(
+    *, book_records: tuple[OrderBookDeltas, ...], trade_records: tuple[TradeTick, ...]
+) -> tuple[object, ...]:
+    records: list[object] = [*book_records, *trade_records]
+    records.sort(key=_record_sort_key)
+    return tuple(records)
 
 
 L2_BOOK_ENGINE_PROFILE = ReplayEngineProfile(
@@ -275,7 +413,9 @@ class PolymarketPMXTBookReplayAdapter(_BaseReplayAdapter):
             loader = await loader_cls.from_market_slug(
                 replay.market_slug, token_index=replay.token_index
             )
-            records = tuple(loader.load_order_book_and_quotes(start, end))
+            book_records = tuple(loader.load_order_book_deltas(start, end))
+            trade_records = await _load_trade_ticks(loader, start=start, end=end)
+            records = _merge_records(book_records=book_records, trade_records=trade_records)
         except Exception as exc:
             print(f"Skip {replay.market_slug}: unable to load PMXT L2 book data ({exc})")
             return None
@@ -286,13 +426,13 @@ class PolymarketPMXTBookReplayAdapter(_BaseReplayAdapter):
 
         prices: list[float] = []
         book_event_count = 0
-        quote_tick_type = _resolve_backtest_compat_symbol("QuoteTick", QuoteTick)
         deltas_type = _resolve_backtest_compat_symbol("OrderBookDeltas", OrderBookDeltas)
         for record in records:
             if isinstance(record, deltas_type):
                 book_event_count += 1
-            if isinstance(record, quote_tick_type):
-                prices.append((float(record.bid_price) + float(record.ask_price)) / 2.0)
+                mid = _midpoint_from_deltas(record)
+                if mid is not None:
+                    prices.append(mid)
 
         prices_tuple = tuple(prices)
         if not _validate_replay_window(
@@ -391,8 +531,8 @@ class PolymarketTelonexBookReplayAdapter(_BaseReplayAdapter):
                 replay.market_slug, token_index=replay.token_index
             )
             selected_outcome = str(loader.instrument.outcome or replay.outcome or "")
-            records = tuple(
-                loader.load_order_book_and_quotes(
+            book_records = tuple(
+                loader.load_order_book_deltas(
                     start,
                     end,
                     market_slug=replay.market_slug,
@@ -400,6 +540,8 @@ class PolymarketTelonexBookReplayAdapter(_BaseReplayAdapter):
                     outcome=selected_outcome or None,
                 )
             )
+            trade_records = await _load_trade_ticks(loader, start=start, end=end)
+            records = _merge_records(book_records=book_records, trade_records=trade_records)
         except Exception as exc:
             print(f"Skip {replay.market_slug}: unable to load Telonex L2 book data ({exc})")
             return None
@@ -408,15 +550,15 @@ class PolymarketTelonexBookReplayAdapter(_BaseReplayAdapter):
             print(f"Skip {replay.market_slug}: no Telonex L2 book data returned")
             return None
 
-        quote_tick_type = _resolve_backtest_compat_symbol("QuoteTick", QuoteTick)
         deltas_type = _resolve_backtest_compat_symbol("OrderBookDeltas", OrderBookDeltas)
         prices: list[float] = []
         book_event_count = 0
         for record in records:
             if isinstance(record, deltas_type):
                 book_event_count += 1
-            if isinstance(record, quote_tick_type):
-                prices.append((float(record.bid_price) + float(record.ask_price)) / 2.0)
+                mid = _midpoint_from_deltas(record)
+                if mid is not None:
+                    prices.append(mid)
 
         prices_tuple = tuple(prices)
         if not _validate_replay_window(

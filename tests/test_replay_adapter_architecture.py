@@ -37,7 +37,7 @@ class FakeReplay:
 class FakeAdapter(HistoricalReplayAdapter):
     @property
     def key(self) -> ReplayAdapterKey:
-        return ReplayAdapterKey("demo", "fake", "trade_tick")
+        return ReplayAdapterKey("demo", "fake", "book")
 
     @property
     def replay_spec_type(self) -> type[FakeReplay]:
@@ -76,7 +76,7 @@ class _EngineStub:
 
 
 def test_new_adapter_registers_without_core_executor_changes(monkeypatch) -> None:
-    support = MarketDataSupport(key=("demo", "trade_tick", "fake"), adapter=FakeAdapter())
+    support = MarketDataSupport(key=("demo", "book", "fake"), adapter=FakeAdapter())
     register_market_data_support(support)
     monkeypatch.setattr(backtest_module, "BacktestEngine", _EngineStub)
 
@@ -88,7 +88,7 @@ def test_new_adapter_registers_without_core_executor_changes(monkeypatch) -> Non
             name="demo-fake-runner",
             description="Fake adapter acceptance test",
             data=MarketDataConfig(
-                platform="demo", data_type="trade_tick", vendor="fake", sources=("fake:memory",)
+                platform="demo", data_type="book", vendor="fake", sources=("fake:memory",)
             ),
             replays=(replay,),
             strategy_configs=[
@@ -110,4 +110,4 @@ def test_new_adapter_registers_without_core_executor_changes(monkeypatch) -> Non
         assert engine.venues[0]["venue"] == Venue("FAKE")
         assert engine.venues[0]["account_type"] == AccountType.CASH
     finally:
-        unregister_market_data_support(("demo", "trade_tick", "fake"))
+        unregister_market_data_support(("demo", "book", "fake"))

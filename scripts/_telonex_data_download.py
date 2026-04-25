@@ -32,7 +32,7 @@ TELONEX_PARSE_WORKERS_ENV = "TELONEX_PARSE_WORKERS"
 
 _USER_AGENT = "prediction-market-backtesting/1.0"
 _DEFAULT_API_BASE_URL = "https://api.telonex.io"
-_DEFAULT_CHANNEL = "quotes"
+_DEFAULT_CHANNEL = "book_snapshot_full"
 _EXCHANGE = "polymarket"
 _DOWNLOAD_CHUNK_SIZE = 1024 * 1024
 _MANIFEST_FILENAME = "telonex.duckdb"
@@ -48,7 +48,7 @@ _PARQUET_COMPRESSION_LEVEL = 3
 # high enough to avoid tiny row groups during high-throughput downloads.
 _DEFAULT_COMMIT_BATCH_ROWS = 50_000
 _DEFAULT_COMMIT_BATCH_SECS = 10.0
-_MAX_PENDING_COMMIT_ITEMS = 64
+_MAX_PENDING_COMMIT_ITEMS = 16
 _MEMORY_LOG_INTERVAL_SECS = 3600.0
 _DEFAULT_MAX_RETRIES = 4
 _RETRY_BACKOFF_BASE_SECS = 2.0
@@ -113,12 +113,27 @@ def _format_bytes(size: int | None) -> str:
 
 
 def _get_rss_mb() -> float | None:
-    """Get current process RSS in MiB, or None if unavailable."""
+    """Get current process RSS in MiB, or None if unavailable.
+
+    Prefers ``psutil`` (which returns true current RSS on every OS) and
+    falls back to ``/proc/self/status`` on Linux or ``resource.getrusage``
+    on macOS.  The macOS fallback reports *peak* RSS, not the current
+    value, because ``ru_maxrss`` is the only per-process metric available
+    without psutil — still useful as an upper-bound guard.
+    """
+    try:
+        import psutil
+
+        return psutil.Process().memory_info().rss / (1024 * 1024)
+    except ImportError:
+        pass
+    except Exception:
+        pass
     try:
         with open("/proc/self/status") as f:
             for line in f:
                 if line.startswith("VmRSS:"):
-                    return int(line.split()[1]) / 1024  # KiB → MiB
+                    return int(line.split()[1]) / 1024  # KiB -> MiB
     except (OSError, ValueError, IndexError):
         pass
     try:
@@ -255,6 +270,12 @@ class _DownloadResult:
     payload: bytes | None
     bytes_downloaded: int
     error: str | None
+
+
+@dataclass
+class _FlushWriterQueue:
+    reason: str
+    ack: threading.Event = field(default_factory=threading.Event)
 
 
 class _CancelledError(Exception):
@@ -1389,10 +1410,12 @@ def _run_jobs(
     # Bounded so the writer applies backpressure on the async dispatcher: when
     # the writer falls behind, the put-side coroutine polls until a slot frees
     # up, which stops new jobs from being scheduled. Kept small relative to
-    # `workers` because each queued result holds a parsed Arrow table — for
-    # book_snapshot_full those can be 50+ MiB, so 32 × 50 MiB ≈ 1.5 GiB is our
-    # worst-case live memory from the queue alone.
-    result_queue: Queue[_DownloadResult] = Queue(maxsize=32)
+    # `workers` because each queued result holds a parsed Arrow table. For
+    # book_snapshot_full those can be 50+ MiB, so keep the writer handoff queue
+    # small and let it apply backpressure instead of pinning many tables in RAM.
+    result_queue: Queue[_DownloadResult | _FlushWriterQueue] = Queue(
+        maxsize=_MAX_PENDING_COMMIT_ITEMS
+    )
 
     # Dedicated bounded pool for CPU-bound parquet parsing. Using the default
     # asyncio executor (~40 threads) here creates heavy contention with the
@@ -1660,6 +1683,8 @@ def _run_jobs(
     writer_done = threading.Event()
     pending_for_commit: list[_DownloadResult] = []
     last_commit_ts = time.monotonic()
+    last_writer_drain_ts = time.monotonic()
+    handoffs_since_writer_drain = 0
 
     def _flush_pending(force: bool = False) -> None:
         nonlocal last_commit_ts, downloaded_days, missing_days, failed_days, bytes_total
@@ -1679,6 +1704,7 @@ def _run_jobs(
             not force
             and total_pending_rows < commit_batch_rows
             and time.monotonic() - last_commit_ts < commit_batch_secs
+            and len(pending_for_commit) < _MAX_PENDING_COMMIT_ITEMS
         ):
             return
         batch = pending_for_commit[:]
@@ -1721,31 +1747,52 @@ def _run_jobs(
                 async_stop.set()
             last_commit_ts = time.monotonic()
             return
+
         with state_lock:
             downloaded_days += batch_ok
             missing_days += batch_missing
             bytes_total += batch_bytes
         last_commit_ts = time.monotonic()
+        # Clear table refs from the batch so Arrow memory can be reclaimed
+        # by the gc + Arrow pool release below.
+        for result in batch:
+            result.table = None
+        del batch
+        # Return freed Arrow memory to the OS allocator after each commit
+        # cycle. Without this, the Arrow memory pool retains freed buffers
+        # internally and RSS never drops even though the objects are gone.
+        _release_arrow_memory()
+        gc.collect()
 
     def _writer() -> None:
         while not (writer_done.is_set() and result_queue.empty()) and not writer_failed.is_set():
             try:
-                result = result_queue.get(timeout=0.25)
+                item = result_queue.get(timeout=0.25)
             except Empty:
-                _flush_pending(force=False)
+                _flush_pending(force=True)
                 continue
-            if result.status == "ok":
-                # The result already carries a parsed Arrow table (parsing ran
-                # in the dedicated parse pool on the async side, see
-                # `_do_one_async`). Writer just appends and periodically flushes.
-                pending_for_commit.append(result)
-                _flush_pending(force=False)
-            elif result.status == "missing":
-                pending_for_commit.append(result)
-                _flush_pending(force=False)
-            if progress is not None:
-                progress.update(1)
-                _refresh_postfix(force=True)
+            try:
+                if isinstance(item, _FlushWriterQueue):
+                    try:
+                        _flush_pending(force=True)
+                    finally:
+                        item.ack.set()
+                    continue
+                result = item
+                if result.status == "ok":
+                    # The result already carries a parsed Arrow table (parsing ran
+                    # in the dedicated parse pool on the async side, see
+                    # `_do_one_async`). Writer just appends and periodically flushes.
+                    pending_for_commit.append(result)
+                    _flush_pending(force=False)
+                elif result.status == "missing":
+                    pending_for_commit.append(result)
+                    _flush_pending(force=False)
+                if progress is not None:
+                    progress.update(1)
+                    _refresh_postfix(force=True)
+            finally:
+                result_queue.task_done()
         _flush_pending(force=True)
 
     writer_thread = threading.Thread(target=_writer, name="telonex-writer", daemon=True)
@@ -1808,7 +1855,7 @@ def _run_jobs(
                         break
                     in_flight.add(asyncio.create_task(_do_one_async(j, client)))
 
-                async def _handoff(result: _DownloadResult) -> None:
+                async def _handoff_item(item: _DownloadResult | _FlushWriterQueue) -> None:
                     # Cooperative put: poll the bounded queue so a slow writer
                     # throttles the dispatcher without starving the event loop or
                     # blocking a thread that couldn't be interrupted on SIGTERM.
@@ -1816,10 +1863,46 @@ def _run_jobs(
                         if writer_failed.is_set():
                             return
                         try:
-                            result_queue.put_nowait(result)
+                            result_queue.put_nowait(item)
                             return
                         except Full:
                             await asyncio.sleep(0.05)
+
+                async def _drain_writer_queue(reason: str) -> None:
+                    if writer_failed.is_set():
+                        return
+                    flush = _FlushWriterQueue(reason=reason)
+                    await _handoff_item(flush)
+                    while not flush.ack.is_set() and not writer_failed.is_set():
+                        await asyncio.sleep(0.05)
+                    _release_arrow_memory()
+                    gc.collect()
+                    if reason == "hourly":
+                        rss = _get_rss_mb()
+                        rss_text = f"{rss:.1f} MiB" if rss is not None else "unknown"
+                        print(
+                            "[telonex] writer queue drained "
+                            f"(reason=hourly, queued={result_queue.qsize()}, rss={rss_text})",
+                            file=sys.stderr,
+                        )
+
+                async def _handoff(result: _DownloadResult) -> None:
+                    nonlocal handoffs_since_writer_drain, last_writer_drain_ts
+                    await _handoff_item(result)
+                    handoffs_since_writer_drain += 1
+                    now = time.monotonic()
+                    if (
+                        now - last_writer_drain_ts >= _MEMORY_LOG_INTERVAL_SECS
+                        or handoffs_since_writer_drain >= _MAX_PENDING_COMMIT_ITEMS
+                    ):
+                        reason = (
+                            "hourly"
+                            if now - last_writer_drain_ts >= _MEMORY_LOG_INTERVAL_SECS
+                            else "item-cap"
+                        )
+                        await _drain_writer_queue(reason)
+                        handoffs_since_writer_drain = 0
+                        last_writer_drain_ts = time.monotonic()
 
                 while in_flight:
                     if async_stop.is_set() or writer_failed.is_set():

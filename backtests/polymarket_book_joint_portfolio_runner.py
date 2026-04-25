@@ -131,8 +131,8 @@ EXECUTION = ExecutionModelConfig(
 )
 
 REPORT = MarketReportConfig(
-    count_key="quotes",
-    count_label="Quotes",
+    count_key="book_events",
+    count_label="Book Events",
     pnl_label="PnL (USDC)",
     market_key="sim_label",
     summary_report=True,

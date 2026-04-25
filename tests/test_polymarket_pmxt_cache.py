@@ -67,7 +67,6 @@ def test_resolve_local_archive_dir_parses_env(monkeypatch, tmp_path):
     assert PolymarketPMXTDataLoader._resolve_local_archive_dir() is None
 
 
-
 def test_load_market_table_writes_token_filtered_cache(tmp_path):
     loader = _make_loader(tmp_path)
     hour = pd.Timestamp("2026-03-16T12:00:00Z")
@@ -383,29 +382,23 @@ def test_iter_market_tables_preserves_hour_order(tmp_path):
     ]
 
 
-def test_event_sort_key_orders_book_updates_before_quotes(monkeypatch):
+def test_event_sort_key_orders_book_updates_by_event_then_init(monkeypatch):
     class _FakeOrderBookDeltas:
         def __init__(self, ts_event: int, ts_init: int) -> None:
             self.ts_event = ts_event
             self.ts_init = ts_init
 
-    class _FakeQuoteTick:
-        def __init__(self, ts_event: int, ts_init: int) -> None:
-            self.ts_event = ts_event
-            self.ts_init = ts_init
-
     monkeypatch.setattr(pmxt_module, "OrderBookDeltas", _FakeOrderBookDeltas)
-    monkeypatch.setattr(pmxt_module, "QuoteTick", _FakeQuoteTick)
 
-    quote = _FakeQuoteTick(ts_event=10, ts_init=11)
-    delta = _FakeOrderBookDeltas(ts_event=10, ts_init=20)
+    early = _FakeOrderBookDeltas(ts_event=10, ts_init=11)
+    late = _FakeOrderBookDeltas(ts_event=10, ts_init=20)
 
-    ordered = sorted([quote, delta], key=PolymarketPMXTDataLoader._event_sort_key)
+    ordered = sorted([late, early], key=PolymarketPMXTDataLoader._event_sort_key)
 
-    assert ordered == [delta, quote]
+    assert ordered == [early, late]
 
 
-def test_load_order_book_and_quotes_keeps_snapshot_before_quote(monkeypatch, tmp_path):
+def test_load_order_book_deltas_returns_snapshot_event(monkeypatch, tmp_path):
     loader = _make_loader(tmp_path)
     loader._instrument = SimpleNamespace(id="POLYMARKET.TEST")
     hour = pd.Timestamp("2026-03-16T12:00:00Z")
@@ -420,14 +413,8 @@ def test_load_order_book_and_quotes_keeps_snapshot_before_quote(monkeypatch, tmp
             self.ts_event = ts_event
             self.ts_init = ts_init
 
-    class _FakeQuoteTick:
-        def __init__(self, ts_event: int, ts_init: int) -> None:
-            self.ts_event = ts_event
-            self.ts_init = ts_init
-
     monkeypatch.setattr(pmxt_module, "OrderBook", _FakeOrderBook)
     monkeypatch.setattr(pmxt_module, "OrderBookDeltas", _FakeOrderBookDeltas)
-    monkeypatch.setattr(pmxt_module, "QuoteTick", _FakeQuoteTick)
 
     loader._archive_hours = lambda _start, _end: [hour]  # type: ignore[method-assign]
     loader._iter_market_batches = (  # type: ignore[method-assign]
@@ -472,23 +459,20 @@ def test_load_order_book_and_quotes_keeps_snapshot_before_quote(monkeypatch, tmp
         start_ns,
         end_ns,
         include_order_book,
-        include_quotes,
     ):
         del payload_text, token_id, instrument, has_snapshot, start_ns, end_ns
         if include_order_book:
             events.append(_FakeOrderBookDeltas(ts_event=10, ts_init=20))
-        if include_quotes:
-            events.append(_FakeQuoteTick(ts_event=10, ts_init=11))
         return local_book, True
 
     monkeypatch.setattr(loader, "_process_book_snapshot", _process_book_snapshot)
 
-    data = loader.load_order_book_and_quotes(hour, hour + pd.Timedelta(hours=1))
+    data = loader.load_order_book_deltas(hour, hour + pd.Timedelta(hours=1))
 
-    assert [type(record).__name__ for record in data] == ["_FakeOrderBookDeltas", "_FakeQuoteTick"]
+    assert [type(record).__name__ for record in data] == ["_FakeOrderBookDeltas"]
 
 
-def test_load_order_book_and_quotes_sorts_payloads_before_book_mutation(monkeypatch, tmp_path):
+def test_load_order_book_deltas_sorts_payloads_before_book_mutation(monkeypatch, tmp_path):
     loader = _make_loader(tmp_path)
     loader._instrument = SimpleNamespace(id="POLYMARKET.TEST")
     hour = pd.Timestamp("2026-03-16T12:00:00Z")
@@ -552,10 +536,9 @@ def test_load_order_book_and_quotes_sorts_payloads_before_book_mutation(monkeypa
         start_ns,
         end_ns,
         include_order_book,
-        include_quotes,
     ):
         del payload_text, token_id, instrument, has_snapshot, events, start_ns, end_ns
-        del include_order_book, include_quotes
+        del include_order_book
         processed.append("book_snapshot")
         return local_book, True
 
@@ -570,22 +553,21 @@ def test_load_order_book_and_quotes_sorts_payloads_before_book_mutation(monkeypa
         start_ns,
         end_ns,
         include_order_book,
-        include_quotes,
     ):
         del payload_text, token_id, instrument, has_snapshot, events, start_ns, end_ns
-        del include_order_book, include_quotes
+        del include_order_book
         processed.append("price_change")
         return local_book
 
     monkeypatch.setattr(loader, "_process_book_snapshot", _process_book_snapshot)
     monkeypatch.setattr(loader, "_process_price_change", _process_price_change)
 
-    loader.load_order_book_and_quotes(hour, hour + pd.Timedelta(hours=1))
+    loader.load_order_book_deltas(hour, hour + pd.Timedelta(hours=1))
 
     assert processed == ["book_snapshot", "price_change"]
 
 
-def test_load_order_book_and_quotes_skips_stale_cross_hour_payloads(monkeypatch, tmp_path):
+def test_load_order_book_deltas_skips_stale_cross_hour_payloads(monkeypatch, tmp_path):
     loader = _make_loader(tmp_path)
     loader._instrument = SimpleNamespace(id="POLYMARKET.TEST")
     hours = [
@@ -667,10 +649,9 @@ def test_load_order_book_and_quotes_skips_stale_cross_hour_payloads(monkeypatch,
         start_ns,
         end_ns,
         include_order_book,
-        include_quotes,
     ):
         del payload_text, token_id, instrument, has_snapshot, events, start_ns, end_ns
-        del include_order_book, include_quotes
+        del include_order_book
         processed.append("book_snapshot")
         return local_book, True
 
@@ -685,17 +666,16 @@ def test_load_order_book_and_quotes_skips_stale_cross_hour_payloads(monkeypatch,
         start_ns,
         end_ns,
         include_order_book,
-        include_quotes,
     ):
         del payload_text, token_id, instrument, has_snapshot, events, start_ns, end_ns
-        del include_order_book, include_quotes
+        del include_order_book
         processed.append("price_change")
         return local_book
 
     monkeypatch.setattr(loader, "_process_book_snapshot", _process_book_snapshot)
     monkeypatch.setattr(loader, "_process_price_change", _process_price_change)
 
-    loader.load_order_book_and_quotes(hours[0], hours[-1] + pd.Timedelta(hours=1))
+    loader.load_order_book_deltas(hours[0], hours[-1] + pd.Timedelta(hours=1))
 
     assert processed == ["book_snapshot", "price_change"]
 
