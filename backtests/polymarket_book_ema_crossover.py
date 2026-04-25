@@ -32,7 +32,7 @@ from prediction_market_extensions.backtesting._replay_specs import BookReplay
 from prediction_market_extensions.backtesting._timing_harness import timing_harness
 from prediction_market_extensions.backtesting.data_sources import Book, PMXT, Polymarket
 
-DETAIL_PLOT_PANELS = (
+SUMMARY_PLOT_PANELS = (
     "total_equity",
     "equity",
     "market_pnl",
@@ -89,6 +89,9 @@ REPORT = MarketReportConfig(
     count_key="quotes",
     count_label="Quotes",
     pnl_label="PnL (USDC)",
+    summary_report=True,
+    summary_report_path="output/polymarket_book_ema_crossover_summary.html",
+    summary_plot_panels=SUMMARY_PLOT_PANELS,
 )
 
 
