@@ -142,7 +142,7 @@ def find_updated_html_artifacts(
 
 def partition_html_artifacts(html_artifacts: Sequence[Path]) -> tuple[list[Path], list[Path]]:
     artifacts = list(html_artifacts)
-    summary_suffixes = ("_joint_portfolio.html", "_independent_aggregate.html")
+    summary_suffixes = ("_joint_portfolio.html",)
     summary_reports = [path for path in artifacts if path.name.endswith(summary_suffixes)]
     if summary_reports:
         primary = summary_reports[-1:]

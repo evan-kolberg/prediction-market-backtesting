@@ -158,7 +158,6 @@ EXPERIMENT = build_replay_experiment(
     empty_message=EMPTY_MESSAGE,
     partial_message=PARTIAL_MESSAGE,
     return_summary_series=True,
-    multi_replay_mode="joint_portfolio",
 )
 
 

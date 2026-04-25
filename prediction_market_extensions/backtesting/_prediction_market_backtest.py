@@ -13,7 +13,6 @@ from nautilus_trader.backtest.engine import BacktestEngine
 from nautilus_trader.common.component import is_backtest_force_stop
 from nautilus_trader.config import LoggingConfig
 from nautilus_trader.config import StrategyFactory as NautilusStrategyFactory
-from nautilus_trader.model.data import QuoteTick
 from nautilus_trader.model.identifiers import InstrumentId, TraderId
 from nautilus_trader.model.objects import Money
 from nautilus_trader.risk.config import RiskEngineConfig
@@ -32,11 +31,7 @@ from prediction_market_extensions.adapters.prediction_market.fill_model import (
 from prediction_market_extensions.backtesting._backtest_runtime import build_backtest_run_state
 from prediction_market_extensions.backtesting._execution_config import ExecutionModelConfig
 from prediction_market_extensions.backtesting._market_data_config import MarketDataConfig
-from prediction_market_extensions.backtesting._replay_specs import (
-    MarketSimConfig,
-    ReplaySpec,
-    coerce_legacy_market_sim_config,
-)
+from prediction_market_extensions.backtesting._replay_specs import ReplaySpec
 from prediction_market_extensions.backtesting._result_policies import (
     apply_repo_research_disclosures,
 )
@@ -101,8 +96,7 @@ class PredictionMarketBacktest:
         *,
         name: str,
         data: MarketDataConfig,
-        replays: Sequence[ReplaySpec] | None = None,
-        sims: Sequence[ReplaySpec | MarketSimConfig] | None = None,
+        replays: Sequence[ReplaySpec],
         strategy_configs: Sequence[StrategyConfigSpec] = (),
         strategy_factory: StrategyFactory | None = None,
         initial_cash: float,
@@ -123,16 +117,12 @@ class PredictionMarketBacktest:
             raise ValueError("Use strategy_factory or strategy_configs, not both.")
         if strategy_factory is None and not strategy_configs:
             raise ValueError("strategy_configs is required when strategy_factory is not provided.")
-        if replays is not None and sims is not None:
-            raise ValueError("Use replays or sims, not both.")
-        raw_replays = replays if replays is not None else sims
-        if raw_replays is None:
+        if not replays:
             raise ValueError("replays is required.")
 
         self.name = name
         self.data = data
-        self._sims = tuple(raw_replays)
-        self.replays = self._normalize_replays(self._sims)
+        self.replays = self._normalize_replays(tuple(replays))
         self.strategy_configs = tuple(strategy_configs)
         self.strategy_factory = strategy_factory
         if initial_cash <= 0:
@@ -150,10 +140,6 @@ class PredictionMarketBacktest:
         self.execution = execution if execution is not None else ExecutionModelConfig()
         self.chart_resample_rule = chart_resample_rule
         self.return_summary_series = return_summary_series
-
-    @property
-    def sims(self) -> tuple[ReplaySpec | MarketSimConfig, ...]:
-        return self._sims
 
     def _strategy_summary_label(self) -> str:
         if self.strategy_configs:
@@ -254,7 +240,7 @@ class PredictionMarketBacktest:
             probability_window=self.probability_window,
             chart_resample_rule=self.chart_resample_rule,
             return_summary_series=self.return_summary_series,
-            sim_count=len(self.sims),
+            sim_count=len(self.replays),
         )
 
     def _build_result(
@@ -295,35 +281,23 @@ class PredictionMarketBacktest:
         )
 
     def _normalize_replays(
-        self, replays: Sequence[ReplaySpec | MarketSimConfig]
+        self, replays: Sequence[ReplaySpec]
     ) -> tuple[ReplaySpec, ...]:
-        normalized: list[ReplaySpec] = []
         adapter = resolve_replay_adapter(
             platform=self.data.platform, data_type=self.data.data_type, vendor=self.data.vendor
         )
         for replay in replays:
-            if isinstance(replay, MarketSimConfig):
-                replay = coerce_legacy_market_sim_config(
-                    platform=self.data.platform,
-                    data_type=self.data.data_type,
-                    vendor=self.data.vendor,
-                    sim=replay,
-                )
             if not isinstance(replay, adapter.replay_spec_type):
                 raise TypeError(
                     "Replay spec does not match selected adapter. "
                     f"Expected {adapter.replay_spec_type.__name__}, "
                     f"received {type(replay).__name__}."
                 )
-            normalized.append(replay)
-        return tuple(normalized)
+        return tuple(replays)
 
     def _load_request(self) -> ReplayLoadRequest:
-        min_record_count = (
-            self.min_quotes if self.data.data_type == "quote_tick" else self.min_trades
-        )
         return ReplayLoadRequest(
-            min_record_count=min_record_count,
+            min_record_count=max(self.min_quotes, self.min_trades),
             min_price_range=self.min_price_range,
             default_lookback_days=self.default_lookback_days,
             default_lookback_hours=self.default_lookback_hours,
@@ -506,7 +480,7 @@ class PredictionMarketBacktest:
 
 def _LoadedMarketSim(
     *,
-    spec: ReplaySpec | MarketSimConfig,
+    spec: ReplaySpec,
     instrument: Any,
     records: Sequence[Any],
     count: int,
@@ -545,11 +519,9 @@ __all__ = [
     "KalshiDataLoader",
     "LoadedReplay",
     "MarketReportConfig",
-    "MarketSimConfig",
     "PolymarketDataLoader",
     "PolymarketPMXTDataLoader",
     "PredictionMarketBacktest",
-    "QuoteTick",
     "_LoadedMarketSim",
     "finalize_market_results",
     "run_reported_backtest",

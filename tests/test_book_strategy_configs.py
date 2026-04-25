@@ -1,6 +1,6 @@
 # Derived from NautilusTrader prediction-market test code.
 # Distributed under the GNU Lesser General Public License Version 3.0 or later.
-# Modified in this repository on 2026-03-16.
+# Modified in this repository on 2026-04-25.
 # See the repository NOTICE file for provenance and licensing scope.
 
 from __future__ import annotations
@@ -9,17 +9,16 @@ import pytest
 from nautilus_trader.model.identifiers import InstrumentId, Symbol, Venue
 
 from strategies import (
-    QuoteTickBreakoutConfig,
-    QuoteTickDeepValueHoldConfig,
-    QuoteTickEMACrossoverConfig,
-    QuoteTickFinalPeriodMomentumConfig,
-    QuoteTickLateFavoriteLimitHoldConfig,
-    QuoteTickMeanReversionConfig,
-    QuoteTickPanicFadeConfig,
-    QuoteTickRSIReversionConfig,
-    QuoteTickThresholdMomentumConfig,
-    QuoteTickVWAPReversionConfig,
-    TradeTickLateFavoriteLimitHoldConfig,
+    BookBreakoutConfig,
+    BookDeepValueHoldConfig,
+    BookEMACrossoverConfig,
+    BookFinalPeriodMomentumConfig,
+    BookLateFavoriteLimitHoldConfig,
+    BookMeanReversionConfig,
+    BookPanicFadeConfig,
+    BookRSIReversionConfig,
+    BookThresholdMomentumConfig,
+    BookVWAPReversionConfig,
 )
 
 INSTRUMENT_ID = InstrumentId(Symbol("PM-TEST-YES"), Venue("POLYMARKET"))
@@ -28,27 +27,23 @@ INSTRUMENT_ID = InstrumentId(Symbol("PM-TEST-YES"), Venue("POLYMARKET"))
 @pytest.mark.parametrize(
     "config_cls",
     [
-        QuoteTickBreakoutConfig,
-        QuoteTickDeepValueHoldConfig,
-        QuoteTickEMACrossoverConfig,
-        QuoteTickFinalPeriodMomentumConfig,
-        QuoteTickLateFavoriteLimitHoldConfig,
-        QuoteTickMeanReversionConfig,
-        QuoteTickPanicFadeConfig,
-        QuoteTickRSIReversionConfig,
-        QuoteTickThresholdMomentumConfig,
-        QuoteTickVWAPReversionConfig,
+        BookBreakoutConfig,
+        BookDeepValueHoldConfig,
+        BookEMACrossoverConfig,
+        BookFinalPeriodMomentumConfig,
+        BookLateFavoriteLimitHoldConfig,
+        BookMeanReversionConfig,
+        BookPanicFadeConfig,
+        BookRSIReversionConfig,
+        BookThresholdMomentumConfig,
+        BookVWAPReversionConfig,
     ],
 )
-def test_quote_tick_prediction_market_configs_construct(config_cls):
+def test_book_prediction_market_configs_construct(config_cls):
     config = config_cls(instrument_id=INSTRUMENT_ID)
     assert config.instrument_id == INSTRUMENT_ID
 
 
-@pytest.mark.parametrize(
-    "config_cls",
-    [QuoteTickLateFavoriteLimitHoldConfig, TradeTickLateFavoriteLimitHoldConfig],
-)
 @pytest.mark.parametrize(
     ("kwargs", "message"),
     [
@@ -62,6 +57,6 @@ def test_quote_tick_prediction_market_configs_construct(config_cls):
         ),
     ],
 )
-def test_late_favorite_configs_validate_ranges(config_cls, kwargs, message):
+def test_book_late_favorite_config_validates_ranges(kwargs, message):
     with pytest.raises(ValueError, match=message):
-        config_cls(instrument_id=INSTRUMENT_ID, **kwargs)
+        BookLateFavoriteLimitHoldConfig(instrument_id=INSTRUMENT_ID, **kwargs)

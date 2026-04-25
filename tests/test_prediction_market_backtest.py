@@ -9,15 +9,15 @@ from prediction_market_extensions.backtesting._prediction_market_backtest import
     PredictionMarketBacktest,
 )
 from prediction_market_extensions.backtesting._prediction_market_runner import MarketDataConfig
-from prediction_market_extensions.backtesting._replay_specs import MarketSimConfig
+from prediction_market_extensions.backtesting._replay_specs import BookReplay
 
 
 def _build_backtest(**kwargs) -> PredictionMarketBacktest:
     return PredictionMarketBacktest(
         name="demo",
-        data=MarketDataConfig(platform="polymarket", data_type="quote_tick", vendor="pmxt"),
-        sims=(
-            MarketSimConfig(
+        data=MarketDataConfig(platform="polymarket", data_type="book", vendor="pmxt"),
+        replays=(
+            BookReplay(
                 market_slug="demo-market",
                 start_time="2026-02-21T16:00:00Z",
                 end_time="2026-02-21T17:00:00Z",
@@ -33,8 +33,8 @@ def test_strategy_summary_label_uses_config_count() -> None:
     backtest = _build_backtest(
         strategy_configs=(
             {
-                "strategy_path": "strategies:QuoteTickVWAPReversionStrategy",
-                "config_path": "strategies:QuoteTickVWAPReversionConfig",
+                "strategy_path": "strategies:BookVWAPReversionStrategy",
+                "config_path": "strategies:BookVWAPReversionConfig",
                 "config": {"vwap_window": 30},
             },
         )

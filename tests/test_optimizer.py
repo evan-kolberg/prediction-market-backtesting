@@ -223,10 +223,10 @@ def test_optimizer_builds_repo_layer_backtest_with_summary_series_enabled(tmp_pa
     assert backtest.min_price_range == 0.005
     assert backtest.execution == config.execution
     assert backtest.return_summary_series is True
-    assert len(backtest.sims) == 1
-    assert backtest.sims[0].start_time == window.start_time
-    assert backtest.sims[0].end_time == window.end_time
-    assert backtest.sims[0].metadata == {"optimization_window": "train-a"}
+    assert len(backtest.replays) == 1
+    assert backtest.replays[0].start_time == window.start_time
+    assert backtest.replays[0].end_time == window.end_time
+    assert backtest.replays[0].metadata == {"optimization_window": "train-a"}
     assert backtest.strategy_configs[0]["config"]["edge"] == 5
 
 
@@ -248,9 +248,9 @@ def test_build_optimization_window_backtest_supports_generic_holdout_replays(
     assert isinstance(backtest, PredictionMarketBacktest)
     assert backtest.name == "generic_optimizer_research"
     assert backtest.return_summary_series is False
-    assert len(backtest.sims) == 1
-    assert backtest.sims[0].start_time == window.start_time
-    assert backtest.sims[0].end_time == window.end_time
+    assert len(backtest.replays) == 1
+    assert backtest.replays[0].start_time == window.start_time
+    assert backtest.replays[0].end_time == window.end_time
     assert backtest.strategy_configs[0]["strategy_path"] == "strategies:DemoStrategy"
     assert backtest.strategy_configs[0]["config_path"] == "strategies:DemoConfig"
     assert backtest.strategy_configs[0]["config"]["edge"] == 2
@@ -343,7 +343,7 @@ def test_optimizer_reruns_only_top_k_train_candidates_on_holdout_and_selects_by_
 
     def _evaluator(backtest: PredictionMarketBacktest) -> dict[str, object]:
         edge = backtest.strategy_configs[0]["config"]["edge"]
-        window_name = backtest.sims[0].metadata["optimization_window"]
+        window_name = backtest.replays[0].metadata["optimization_window"]
         calls.append((edge, window_name))
         return _result_for_score(scores[edge][window_name])
 
@@ -366,7 +366,7 @@ def test_optimizer_breaks_holdout_ties_with_train_median_score(tmp_path: Path) -
 
     def _evaluator(backtest: PredictionMarketBacktest) -> dict[str, object]:
         edge = backtest.strategy_configs[0]["config"]["edge"]
-        window_name = backtest.sims[0].metadata["optimization_window"]
+        window_name = backtest.replays[0].metadata["optimization_window"]
         return _result_for_score(scores[edge][window_name])
 
     summary = optimizer.run_parameter_optimization(config, evaluator=_evaluator)
@@ -406,7 +406,7 @@ def test_run_parameter_optimization_writes_artifacts(tmp_path: Path) -> None:
 
     def _evaluator(backtest: PredictionMarketBacktest) -> dict[str, object]:
         edge = backtest.strategy_configs[0]["config"]["edge"]
-        window_name = backtest.sims[0].metadata["optimization_window"]
+        window_name = backtest.replays[0].metadata["optimization_window"]
         holdout_bonus = 1.0 if window_name == "holdout-a" else 0.0
         return _result_for_score(float(edge) + holdout_bonus)
 

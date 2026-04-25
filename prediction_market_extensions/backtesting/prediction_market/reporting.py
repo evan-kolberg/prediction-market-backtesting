@@ -41,7 +41,6 @@ def finalize_market_results(
     name: str,
     results: Sequence[dict[str, object]],
     report: MarketReportConfig,
-    multi_replay_mode: str = "joint_portfolio",
 ) -> None:
     market_key = _resolve_report_market_key(results=results, configured_key=report.market_key)
     print_backtest_summary(
@@ -53,39 +52,34 @@ def finalize_market_results(
     )
     print_backtest_result_warnings(results=results, market_key=market_key)
 
-    if len(results) == 1:
-        chart_path = results[0].get("chart_path")
-        if chart_path is not None:
-            print(f"\nLegacy chart saved to {chart_path}")
+    if not (report.summary_report and report.summary_report_path is not None):
+        return
 
-    if report.summary_report and report.summary_report_path is not None:
-        plot_panels = (
-            DEFAULT_SUMMARY_PLOT_PANELS
-            if report.summary_plot_panels is None
-            else tuple(report.summary_plot_panels)
+    plot_panels = (
+        DEFAULT_SUMMARY_PLOT_PANELS
+        if report.summary_plot_panels is None
+        else tuple(report.summary_plot_panels)
+    )
+    if len(results) > 1:
+        summary_path = save_joint_portfolio_backtest_report(
+            results=list(results),
+            output_path=resolve_repo_relative_path(report.summary_report_path),
+            title=f"{name} joint-portfolio summary",
+            market_key=market_key,
+            pnl_label=report.pnl_label,
+            plot_panels=plot_panels,
         )
-        if multi_replay_mode == "joint_portfolio" and len(results) > 1:
-            summary_path = save_joint_portfolio_backtest_report(
-                results=list(results),
-                output_path=resolve_repo_relative_path(report.summary_report_path),
-                title=f"{name} legacy joint-portfolio chart",
-                market_key=market_key,
-                pnl_label=report.pnl_label,
-                plot_panels=plot_panels,
-            )
-            saved_label = "Legacy joint-portfolio chart saved to"
-        else:
-            summary_path = save_aggregate_backtest_report(
-                results=list(results),
-                output_path=resolve_repo_relative_path(report.summary_report_path),
-                title=f"{name} legacy independent aggregate chart",
-                market_key=market_key,
-                pnl_label=report.pnl_label,
-                plot_panels=plot_panels,
-            )
-            saved_label = "Legacy independent aggregate chart saved to"
-        if summary_path is not None:
-            print(f"\n{saved_label} {summary_path}")
+    else:
+        summary_path = save_aggregate_backtest_report(
+            results=list(results),
+            output_path=resolve_repo_relative_path(report.summary_report_path),
+            title=f"{name} summary",
+            market_key=market_key,
+            pnl_label=report.pnl_label,
+            plot_panels=plot_panels,
+        )
+    if summary_path is not None:
+        print(f"\nSummary report saved to {summary_path}")
 
 
 def run_reported_backtest(
@@ -93,7 +87,6 @@ def run_reported_backtest(
     backtest: PredictionMarketBacktest,
     report: MarketReportConfig,
     empty_message: str | None = None,
-    multi_replay_mode: str = "joint_portfolio",
 ) -> list[dict[str, object]]:
     results = backtest.run()
     if not results:
@@ -101,9 +94,7 @@ def run_reported_backtest(
             print(empty_message)
         return []
 
-    finalize_market_results(
-        name=backtest.name, results=results, report=report, multi_replay_mode=multi_replay_mode
-    )
+    finalize_market_results(name=backtest.name, results=results, report=report)
     return results
 
 

@@ -145,7 +145,7 @@ def test_pmxt_runner_respects_explicit_start_and_end_times(monkeypatch):
     )
 
     assert result is not None
-    sim = captured["backtest"].sims[0]
+    sim = captured["backtest"].replays[0]
     assert sim.start_time == "2026-03-22T09:00:00Z"
     assert sim.end_time == "2026-03-22T13:00:00Z"
     assert sim.lookback_hours is None

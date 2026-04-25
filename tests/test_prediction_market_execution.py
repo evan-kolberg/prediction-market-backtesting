@@ -13,10 +13,10 @@ from prediction_market_extensions.backtesting._execution_config import (
     StaticLatencyConfig,
 )
 from prediction_market_extensions.backtesting._prediction_market_backtest import (
-    MarketSimConfig,
     PredictionMarketBacktest,
 )
 from prediction_market_extensions.backtesting._prediction_market_runner import MarketDataConfig
+from prediction_market_extensions.backtesting._replay_specs import BookReplay
 
 
 class _EngineStub:
@@ -33,8 +33,8 @@ def test_prediction_market_backtest_build_engine_forwards_execution(monkeypatch)
 
     backtest = PredictionMarketBacktest(
         name="demo",
-        data=MarketDataConfig(platform="polymarket", data_type="quote_tick", vendor="pmxt"),
-        sims=(MarketSimConfig(market_slug="demo-market"),),
+        data=MarketDataConfig(platform="polymarket", data_type="book", vendor="pmxt"),
+        replays=(BookReplay(market_slug="demo-market"),),
         strategy_factory=lambda instrument_id: SimpleNamespace(instrument_id=instrument_id),
         initial_cash=100.0,
         probability_window=16,
@@ -103,8 +103,8 @@ def test_build_backtest_run_state_uses_requested_window_for_coverage():
     assert state["requested_coverage_ratio"] == 2 / 3
 
 
-def test_quote_tick_pmxt_runner_pins_passive_execution_heuristics():
-    module = importlib.import_module("backtests.polymarket_quote_tick_ema_crossover")
+def test_book_pmxt_runner_pins_passive_execution_heuristics():
+    module = importlib.import_module("backtests.polymarket_book_ema_crossover")
 
     assert module.EXPERIMENT.execution.queue_position is True
 
