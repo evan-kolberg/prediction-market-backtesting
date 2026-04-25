@@ -40,8 +40,7 @@ class ReplayExperiment:
     strategy_factory: Callable[..., Any] | None = None
     initial_cash: float = 100.0
     probability_window: int = 30
-    min_trades: int = 0
-    min_quotes: int = 0
+    min_book_events: int = 0
     min_price_range: float = 0.0
     default_lookback_days: int | None = None
     default_lookback_hours: float | None = None
@@ -80,8 +79,7 @@ def build_backtest_for_experiment(experiment: ReplayExperiment) -> PredictionMar
         strategy_factory=experiment.strategy_factory,
         initial_cash=experiment.initial_cash,
         probability_window=experiment.probability_window,
-        min_trades=experiment.min_trades,
-        min_quotes=experiment.min_quotes,
+        min_book_events=experiment.min_book_events,
         min_price_range=experiment.min_price_range,
         default_lookback_days=experiment.default_lookback_days,
         default_lookback_hours=experiment.default_lookback_hours,
@@ -104,8 +102,7 @@ def build_replay_experiment(
     strategy_factory: Callable[..., Any] | None = None,
     initial_cash: float = 100.0,
     probability_window: int = 30,
-    min_trades: int = 0,
-    min_quotes: int = 0,
+    min_book_events: int = 0,
     min_price_range: float = 0.0,
     default_lookback_days: int | None = None,
     default_lookback_hours: float | None = None,
@@ -129,8 +126,7 @@ def build_replay_experiment(
         strategy_factory=strategy_factory,
         initial_cash=initial_cash,
         probability_window=probability_window,
-        min_trades=min_trades,
-        min_quotes=min_quotes,
+        min_book_events=min_book_events,
         min_price_range=min_price_range,
         default_lookback_days=default_lookback_days,
         default_lookback_hours=default_lookback_hours,
@@ -165,8 +161,7 @@ def replay_experiment_from_backtest(
         strategy_factory=backtest.strategy_factory,
         initial_cash=backtest.initial_cash,
         probability_window=backtest.probability_window,
-        min_trades=backtest.min_trades,
-        min_quotes=backtest.min_quotes,
+        min_book_events=backtest.min_book_events,
         min_price_range=backtest.min_price_range,
         default_lookback_days=backtest.default_lookback_days,
         default_lookback_hours=backtest.default_lookback_hours,

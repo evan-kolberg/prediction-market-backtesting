@@ -17,7 +17,7 @@ from prediction_market_extensions.backtesting.data_sources.telonex import (
     TELONEX_CACHE_ROOT_ENV,
     TELONEX_API_KEY_ENV,
     TELONEX_LOCAL_DIR_ENV,
-    RunnerPolymarketTelonexQuoteDataLoader,
+    RunnerPolymarketTelonexBookDataLoader,
     configured_telonex_data_source,
     resolve_telonex_loader_config,
 )
@@ -26,7 +26,7 @@ from prediction_market_extensions.backtesting.data_sources.telonex import (
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
-def _make_polymarket_loader() -> RunnerPolymarketTelonexQuoteDataLoader:
+def _make_polymarket_loader() -> RunnerPolymarketTelonexBookDataLoader:
     instrument = parse_polymarket_instrument(
         market_info={
             "condition_id": "0x" + "1" * 64,
@@ -41,7 +41,7 @@ def _make_polymarket_loader() -> RunnerPolymarketTelonexQuoteDataLoader:
         outcome="Yes",
         ts_init=0,
     )
-    loader = RunnerPolymarketTelonexQuoteDataLoader.__new__(RunnerPolymarketTelonexQuoteDataLoader)
+    loader = RunnerPolymarketTelonexBookDataLoader.__new__(RunnerPolymarketTelonexBookDataLoader)
     loader._instrument = instrument
     loader._token_id = "2" * 64
     loader._condition_id = "0x" + "1" * 64
@@ -159,7 +159,7 @@ def test_telonex_default_api_source_requires_key_only_from_env(monkeypatch) -> N
 
 
 def test_telonex_api_url_uses_slug_and_outcome_id_without_key() -> None:
-    url = RunnerPolymarketTelonexQuoteDataLoader._api_url(
+    url = RunnerPolymarketTelonexBookDataLoader._api_url(
         base_url="https://api.telonex.io/",
         channel="quotes",
         date="2026-01-20",
@@ -192,13 +192,13 @@ def test_telonex_runner_api_downloads_cache_then_clear(
         return _FakeHTTPResponse(payload)
 
     monkeypatch.setattr(
-        RunnerPolymarketTelonexQuoteDataLoader,
+        RunnerPolymarketTelonexBookDataLoader,
         "_resolve_presigned_url",
         staticmethod(fake_resolve_presigned_url),
     )
     monkeypatch.setattr(telonex_module, "urlopen", fake_urlopen)
 
-    loader = RunnerPolymarketTelonexQuoteDataLoader.__new__(RunnerPolymarketTelonexQuoteDataLoader)
+    loader = RunnerPolymarketTelonexBookDataLoader.__new__(RunnerPolymarketTelonexBookDataLoader)
     load_kwargs = {
         "base_url": "https://api.example.test",
         "channel": "quotes",
@@ -230,7 +230,7 @@ def test_telonex_runner_api_downloads_cache_then_clear(
         raise AssertionError("cache hit should not download from Telonex")
 
     monkeypatch.setattr(
-        RunnerPolymarketTelonexQuoteDataLoader,
+        RunnerPolymarketTelonexBookDataLoader,
         "_resolve_presigned_url",
         staticmethod(fail_resolve_presigned_url),
     )
@@ -261,7 +261,7 @@ def test_telonex_runner_api_downloads_cache_then_clear(
     assert not cache_path.exists()
 
     monkeypatch.setattr(
-        RunnerPolymarketTelonexQuoteDataLoader,
+        RunnerPolymarketTelonexBookDataLoader,
         "_resolve_presigned_url",
         staticmethod(fake_resolve_presigned_url),
     )
@@ -282,7 +282,7 @@ def test_telonex_runner_api_downloads_cache_then_clear(
 
 def test_telonex_load_quotes_uses_cache_before_local(monkeypatch: pytest.MonkeyPatch) -> None:
     module = importlib.reload(telonex_module)
-    loader_cls = module.RunnerPolymarketTelonexQuoteDataLoader
+    loader_cls = module.RunnerPolymarketTelonexBookDataLoader
     loader = loader_cls.__new__(loader_cls)
     config = module.TelonexLoaderConfig(
         channel="quotes",
@@ -343,7 +343,7 @@ def test_telonex_load_quotes_uses_local_before_api_after_cache_miss(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     module = importlib.reload(telonex_module)
-    loader_cls = module.RunnerPolymarketTelonexQuoteDataLoader
+    loader_cls = module.RunnerPolymarketTelonexBookDataLoader
     loader = loader_cls.__new__(loader_cls)
     config = module.TelonexLoaderConfig(
         channel="quotes",
@@ -437,7 +437,7 @@ def test_telonex_full_book_snapshots_replay_l2_deltas_and_quotes() -> None:
 
 def test_telonex_full_book_loader_uses_cache_before_local(monkeypatch: pytest.MonkeyPatch) -> None:
     module = importlib.reload(telonex_module)
-    loader_cls = module.RunnerPolymarketTelonexQuoteDataLoader
+    loader_cls = module.RunnerPolymarketTelonexBookDataLoader
     loader = loader_cls.__new__(loader_cls)
     config = module.TelonexLoaderConfig(
         channel="book_snapshot_full",
@@ -506,7 +506,7 @@ def test_telonex_full_book_loader_falls_back_to_api_when_blob_partition_is_incom
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     module = importlib.reload(telonex_module)
-    loader_cls = module.RunnerPolymarketTelonexQuoteDataLoader
+    loader_cls = module.RunnerPolymarketTelonexBookDataLoader
     loader = loader_cls.__new__(loader_cls)
     local_root = tmp_path / "telonex"
     partition_dir = local_root / "data" / "channel=book_snapshot_full" / "year=2026" / "month=01"
@@ -562,7 +562,7 @@ def test_telonex_full_book_loader_falls_back_to_api_when_blob_partition_is_incom
 
 
 def test_telonex_local_range_matches_consolidated_download_script_layout(tmp_path) -> None:
-    loader = RunnerPolymarketTelonexQuoteDataLoader.__new__(RunnerPolymarketTelonexQuoteDataLoader)
+    loader = RunnerPolymarketTelonexBookDataLoader.__new__(RunnerPolymarketTelonexBookDataLoader)
     local_path = tmp_path / "polymarket" / "us-recession-by-end-of-2026" / "0" / "quotes.parquet"
     local_path.parent.mkdir(parents=True)
     local_path.write_bytes(b"parquet")
@@ -580,7 +580,7 @@ def test_telonex_local_range_matches_consolidated_download_script_layout(tmp_pat
 
 
 def test_telonex_local_path_matches_daily_download_script_layout(tmp_path) -> None:
-    loader = RunnerPolymarketTelonexQuoteDataLoader.__new__(RunnerPolymarketTelonexQuoteDataLoader)
+    loader = RunnerPolymarketTelonexBookDataLoader.__new__(RunnerPolymarketTelonexBookDataLoader)
     local_path = (
         tmp_path
         / "polymarket"
@@ -624,7 +624,7 @@ def test_telonex_blob_range_query_is_memoized_across_days(
     outcome, start_ym, end_ym).
     """
     module = importlib.reload(telonex_module)
-    loader_cls = module.RunnerPolymarketTelonexQuoteDataLoader
+    loader_cls = module.RunnerPolymarketTelonexBookDataLoader
     loader = loader_cls.__new__(loader_cls)
     loader._ensure_blob_scan_caches()
     store_root = tmp_path

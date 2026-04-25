@@ -124,7 +124,6 @@ PARAMETER_SEARCH = ParameterSearchConfig(
     min_price_range=0.005,
     min_fills_per_window=1,
     execution=EXECUTION,
-    chart_output_path="output",
 )
 
 

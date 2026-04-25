@@ -115,8 +115,6 @@ EXPERIMENT = build_replay_experiment(
     execution=EXECUTION,
     report=REPORT,
     empty_message="No PMXT EMA crossover sims met the book requirements.",
-    chart_output_path="output",
-    detail_plot_panels=DETAIL_PLOT_PANELS,
 )
 
 

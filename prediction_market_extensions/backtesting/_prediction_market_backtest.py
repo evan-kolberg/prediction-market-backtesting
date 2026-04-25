@@ -101,8 +101,7 @@ class PredictionMarketBacktest:
         strategy_factory: StrategyFactory | None = None,
         initial_cash: float,
         probability_window: int,
-        min_trades: int = 0,
-        min_quotes: int = 0,
+        min_book_events: int = 0,
         min_price_range: float = 0.0,
         default_lookback_days: int | None = None,
         default_lookback_hours: float | None = None,
@@ -129,8 +128,7 @@ class PredictionMarketBacktest:
             raise ValueError(f"initial_cash must be positive, got {initial_cash}")
         self.initial_cash = float(initial_cash)
         self.probability_window = int(probability_window)
-        self.min_trades = int(min_trades)
-        self.min_quotes = int(min_quotes)
+        self.min_book_events = int(min_book_events)
         self.min_price_range = float(min_price_range)
         self.default_lookback_days = default_lookback_days
         self.default_lookback_hours = default_lookback_hours
@@ -297,7 +295,7 @@ class PredictionMarketBacktest:
 
     def _load_request(self) -> ReplayLoadRequest:
         return ReplayLoadRequest(
-            min_record_count=max(self.min_quotes, self.min_trades),
+            min_record_count=self.min_book_events,
             min_price_range=self.min_price_range,
             default_lookback_days=self.default_lookback_days,
             default_lookback_hours=self.default_lookback_hours,

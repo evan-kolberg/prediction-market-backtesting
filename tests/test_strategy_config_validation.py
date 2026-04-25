@@ -7,12 +7,12 @@ from nautilus_trader.model.identifiers import InstrumentId, Symbol, Venue
 
 from strategies import (
     BarBreakoutConfig,
-    QuoteTickDeepValueHoldConfig,
-    QuoteTickEMACrossoverConfig,
-    QuoteTickFinalPeriodMomentumConfig,
-    QuoteTickPanicFadeConfig,
-    QuoteTickRSIReversionConfig,
-    QuoteTickThresholdMomentumConfig,
+    BookDeepValueHoldConfig,
+    BookEMACrossoverConfig,
+    BookFinalPeriodMomentumConfig,
+    BookPanicFadeConfig,
+    BookRSIReversionConfig,
+    BookThresholdMomentumConfig,
 )
 
 INSTRUMENT_ID = InstrumentId(Symbol("PM-TEST-YES"), Venue("POLYMARKET"))
@@ -22,20 +22,20 @@ BAR_TYPE = "unused-bar-type"
 @pytest.mark.parametrize(
     ("config_cls", "kwargs", "message"),
     [
-        (QuoteTickDeepValueHoldConfig, {"trade_size": Decimal("0")}, "trade_size"),
-        (QuoteTickDeepValueHoldConfig, {"entry_price_max": 1.1}, "entry_price_max"),
-        (QuoteTickEMACrossoverConfig, {"fast_period": 10, "slow_period": 10}, "fast_period"),
-        (QuoteTickRSIReversionConfig, {"entry_rsi": -1.0}, "entry_rsi"),
-        (QuoteTickRSIReversionConfig, {"entry_rsi": 60.0, "exit_rsi": 55.0}, "entry_rsi"),
-        (QuoteTickPanicFadeConfig, {"drop_window": 0}, "drop_window"),
-        (QuoteTickPanicFadeConfig, {"panic_price": 1.2}, "panic_price"),
+        (BookDeepValueHoldConfig, {"trade_size": Decimal("0")}, "trade_size"),
+        (BookDeepValueHoldConfig, {"entry_price_max": 1.1}, "entry_price_max"),
+        (BookEMACrossoverConfig, {"fast_period": 10, "slow_period": 10}, "fast_period"),
+        (BookRSIReversionConfig, {"entry_rsi": -1.0}, "entry_rsi"),
+        (BookRSIReversionConfig, {"entry_rsi": 60.0, "exit_rsi": 55.0}, "entry_rsi"),
+        (BookPanicFadeConfig, {"drop_window": 0}, "drop_window"),
+        (BookPanicFadeConfig, {"panic_price": 1.2}, "panic_price"),
         (
-            QuoteTickThresholdMomentumConfig,
+            BookThresholdMomentumConfig,
             {"market_close_time_ns": -1},
             "market_close_time_ns",
         ),
         (
-            QuoteTickFinalPeriodMomentumConfig,
+            BookFinalPeriodMomentumConfig,
             {"final_period_minutes": 0},
             "final_period_minutes",
         ),

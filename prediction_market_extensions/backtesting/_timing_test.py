@@ -232,10 +232,10 @@ def install_timing() -> None:
         RunnerPolymarketPMXTDataLoader = None
     try:
         from prediction_market_extensions.backtesting.data_sources.telonex import (
-            RunnerPolymarketTelonexQuoteDataLoader,
+            RunnerPolymarketTelonexBookDataLoader,
         )
     except ImportError:
-        RunnerPolymarketTelonexQuoteDataLoader = None
+        RunnerPolymarketTelonexBookDataLoader = None
 
     source_local = threading.local()
     pbar_state: dict = {"bar": None}
@@ -1175,8 +1175,8 @@ def install_timing() -> None:
         _install_full_timing(RunnerPolymarketPMXTDataLoader)
         _install_runner_local_archive_timing(RunnerPolymarketPMXTDataLoader)
     _install_full_timing(PolymarketPMXTDataLoader)
-    if RunnerPolymarketTelonexQuoteDataLoader is not None:
-        _install_telonex_timing(RunnerPolymarketTelonexQuoteDataLoader)
+    if RunnerPolymarketTelonexBookDataLoader is not None:
+        _install_telonex_timing(RunnerPolymarketTelonexBookDataLoader)
 
 
 def _load_backtest_module(path_str: str):

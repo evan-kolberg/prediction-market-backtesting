@@ -117,7 +117,11 @@ def test_public_script_runner_set_matches_curated_examples() -> None:
 
 
 def test_repo_keeps_script_bootstrap_helpers_only_next_to_entrypoints() -> None:
-    helpers = {path.relative_to(REPO_ROOT) for path in REPO_ROOT.rglob("_script_helpers.py")}
+    helpers = {
+        path.relative_to(REPO_ROOT)
+        for path in REPO_ROOT.rglob("_script_helpers.py")
+        if ".claude" not in path.parts
+    }
     assert helpers == REPO_BOOTSTRAP_HELPERS
 
 

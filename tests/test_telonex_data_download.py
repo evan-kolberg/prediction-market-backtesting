@@ -1006,10 +1006,10 @@ def test_downloaded_parquet_is_readable_by_telonex_loader(
     )
 
     from prediction_market_extensions.backtesting.data_sources.telonex import (
-        RunnerPolymarketTelonexQuoteDataLoader,
+        RunnerPolymarketTelonexBookDataLoader,
     )
 
-    loader = RunnerPolymarketTelonexQuoteDataLoader.__new__(RunnerPolymarketTelonexQuoteDataLoader)
+    loader = RunnerPolymarketTelonexBookDataLoader.__new__(RunnerPolymarketTelonexBookDataLoader)
     blob_root = loader._local_blob_root(tmp_path)
     assert blob_root is not None
 
@@ -1104,10 +1104,10 @@ def test_telonex_blob_reader_uses_requested_channel_only(tmp_path: Path) -> None
         store.close()
 
     from prediction_market_extensions.backtesting.data_sources.telonex import (
-        RunnerPolymarketTelonexQuoteDataLoader,
+        RunnerPolymarketTelonexBookDataLoader,
     )
 
-    loader = RunnerPolymarketTelonexQuoteDataLoader.__new__(RunnerPolymarketTelonexQuoteDataLoader)
+    loader = RunnerPolymarketTelonexBookDataLoader.__new__(RunnerPolymarketTelonexBookDataLoader)
     frame = loader._load_blob_range(
         store_root=tmp_path,
         channel="quotes",

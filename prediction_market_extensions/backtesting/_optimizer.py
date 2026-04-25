@@ -72,8 +72,7 @@ class ParameterSearchConfig:
     holdout_top_k: int = 5
     initial_cash: float = 100.0
     probability_window: int = 256
-    min_trades: int = 0
-    min_quotes: int = 0
+    min_book_events: int = 0
     min_price_range: float = 0.0
     min_fills_per_window: int = 1
     execution: ExecutionModelConfig | None = None
@@ -435,8 +434,7 @@ def _build_backtest_kwargs(
         "strategy_configs": [bound_strategy_spec],
         "initial_cash": config.initial_cash,
         "probability_window": config.probability_window,
-        "min_trades": config.min_trades,
-        "min_quotes": config.min_quotes,
+        "min_book_events": config.min_book_events,
         "min_price_range": config.min_price_range,
         "nautilus_log_level": config.nautilus_log_level,
         "execution": config.execution,

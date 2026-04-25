@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from nautilus_trader.model.enums import OrderSide
 from nautilus_trader.model.identifiers import InstrumentId, Symbol, Venue
 
-from strategies import QuoteTickVWAPReversionConfig
+from strategies import BookVWAPReversionConfig
 from strategies.core import LongOnlyPredictionMarketStrategy
 
 INSTRUMENT_ID = InstrumentId(Symbol("PM-TEST-YES"), Venue("POLYMARKET"))
@@ -39,7 +39,7 @@ class _EntryQuantityHarness(LongOnlyPredictionMarketStrategy):
         self, *, trade_size: Decimal, free_balance: Decimal, min_quantity: Decimal | None
     ) -> None:
         super().__init__(
-            QuoteTickVWAPReversionConfig(instrument_id=INSTRUMENT_ID, trade_size=trade_size)
+            BookVWAPReversionConfig(instrument_id=INSTRUMENT_ID, trade_size=trade_size)
         )
         self._free_balance = free_balance
         self._instrument = _FakeInstrument(min_quantity=min_quantity)
@@ -106,7 +106,7 @@ def test_partial_exit_preserves_remaining_entry_cost_basis() -> None:
 class _StopExitHarness(LongOnlyPredictionMarketStrategy):
     def __init__(self) -> None:
         super().__init__(
-            QuoteTickVWAPReversionConfig(instrument_id=INSTRUMENT_ID, trade_size=Decimal(5))
+            BookVWAPReversionConfig(instrument_id=INSTRUMENT_ID, trade_size=Decimal(5))
         )
         self.canceled_instrument_ids: list[InstrumentId] = []
         self.closed_instrument_ids: list[InstrumentId] = []

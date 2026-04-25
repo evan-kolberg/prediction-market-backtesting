@@ -16,8 +16,8 @@ from prediction_market_extensions.backtesting._prediction_market_backtest import
     PredictionMarketBacktest,
 )
 from prediction_market_extensions.backtesting._prediction_market_runner import MarketDataConfig
-from prediction_market_extensions.backtesting._replay_specs import QuoteReplay
-from prediction_market_extensions.backtesting.data_sources import PMXT, Polymarket, QuoteTick
+from prediction_market_extensions.backtesting._replay_specs import BookReplay
+from prediction_market_extensions.backtesting.data_sources import PMXT, Book, Polymarket
 from prediction_market_extensions.backtesting.optimizers import OPTIMIZER_TYPE_PARAMETER_SEARCH
 
 
@@ -82,9 +82,9 @@ def _make_config(
     return optimizer.ParameterSearchConfig(
         name=name,
         data=MarketDataConfig(
-            platform=Polymarket, data_type=QuoteTick, vendor=PMXT, sources=("local:/tmp/pmxt_raws",)
+            platform=Polymarket, data_type=Book, vendor=PMXT, sources=("local:/tmp/pmxt_raws",)
         ),
-        base_replay=QuoteReplay(market_slug="demo-market", token_index=0),
+        base_replay=BookReplay(market_slug="demo-market", token_index=0),
         strategy_spec=resolved_strategy_spec,
         parameter_grid=resolved_parameter_grid,
         parameter_space=resolved_parameter_space,
@@ -95,7 +95,7 @@ def _make_config(
         random_seed=random_seed,
         holdout_top_k=holdout_top_k,
         initial_cash=100.0,
-        min_quotes=500,
+        min_book_events=500,
         min_price_range=0.005,
         min_fills_per_window=min_fills_per_window,
         execution=ExecutionModelConfig(
@@ -219,7 +219,7 @@ def test_optimizer_builds_repo_layer_backtest_with_summary_series_enabled(tmp_pa
     assert backtest.name == "optimizer_test:train-a:trial-007"
     assert backtest.data is config.data
     assert backtest.initial_cash == 100.0
-    assert backtest.min_quotes == 500
+    assert backtest.min_book_events == 500
     assert backtest.min_price_range == 0.005
     assert backtest.execution == config.execution
     assert backtest.return_summary_series is True
@@ -467,13 +467,13 @@ def test_parameter_search_config_accepts_base_replays_for_multi_market(
     tmp_path: Path,
 ) -> None:
     replays = (
-        QuoteReplay(market_slug="market-one", token_index=0),
-        QuoteReplay(market_slug="market-two", token_index=0),
+        BookReplay(market_slug="market-one", token_index=0),
+        BookReplay(market_slug="market-two", token_index=0),
     )
     config = optimizer.ParameterSearchConfig(
         name="joint_test",
         data=MarketDataConfig(
-            platform=Polymarket, data_type=QuoteTick, vendor=PMXT, sources=("local:/tmp",)
+            platform=Polymarket, data_type=Book, vendor=PMXT, sources=("local:/tmp",)
         ),
         base_replays=replays,
         strategy_spec={
