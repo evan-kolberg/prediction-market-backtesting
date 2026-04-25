@@ -23,15 +23,13 @@ def _make_loader(
     loader._condition_id = "condition-123"
     loader._token_id = "token-yes-123"
     loader._pmxt_prefetch_workers = 2
-    loader._pmxt_http_block_size = 32 * 1024 * 1024
-    loader._pmxt_http_cache_type = "readahead"
     loader._pmxt_download_progress_callback = None
     loader._pmxt_scan_progress_callback = None
     loader._pmxt_progress_size_cache = {}
     loader._pmxt_temp_download_root = (
         cache_dir if cache_dir is not None else Path.cwd()
     ) / ".pmxt-temp-downloads"
-    loader._reset_http_filesystem()
+    loader._pmxt_last_load_gap_hours = ()
     return loader
 
 
@@ -68,25 +66,6 @@ def test_resolve_local_archive_dir_parses_env(monkeypatch, tmp_path):
     monkeypatch.setenv(PolymarketPMXTDataLoader._PMXT_LOCAL_ARCHIVE_DIR_ENV, "0")
     assert PolymarketPMXTDataLoader._resolve_local_archive_dir() is None
 
-
-def test_resolve_http_tuning_parses_env(monkeypatch):
-    monkeypatch.delenv(PolymarketPMXTDataLoader._PMXT_HTTP_BLOCK_SIZE_MB_ENV, raising=False)
-    monkeypatch.delenv(PolymarketPMXTDataLoader._PMXT_HTTP_CACHE_TYPE_ENV, raising=False)
-
-    assert PolymarketPMXTDataLoader._resolve_http_block_size() == 32 * 1024 * 1024
-    assert PolymarketPMXTDataLoader._resolve_http_cache_type() == "readahead"
-
-    monkeypatch.setenv(PolymarketPMXTDataLoader._PMXT_HTTP_BLOCK_SIZE_MB_ENV, "64")
-    monkeypatch.setenv(PolymarketPMXTDataLoader._PMXT_HTTP_CACHE_TYPE_ENV, "bytes")
-
-    assert PolymarketPMXTDataLoader._resolve_http_block_size() == 64 * 1024 * 1024
-    assert PolymarketPMXTDataLoader._resolve_http_cache_type() == "bytes"
-
-    monkeypatch.setenv(PolymarketPMXTDataLoader._PMXT_HTTP_BLOCK_SIZE_MB_ENV, "invalid")
-    monkeypatch.setenv(PolymarketPMXTDataLoader._PMXT_HTTP_CACHE_TYPE_ENV, "")
-
-    assert PolymarketPMXTDataLoader._resolve_http_block_size() == 32 * 1024 * 1024
-    assert PolymarketPMXTDataLoader._resolve_http_cache_type() == "readahead"
 
 
 def test_load_market_table_writes_token_filtered_cache(tmp_path):

@@ -10,6 +10,7 @@ import re
 import shutil
 import tempfile
 import time
+import warnings
 from collections.abc import Callable, Iterator
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import contextmanager, suppress
@@ -19,13 +20,11 @@ from pathlib import Path
 from typing import ClassVar
 from urllib.request import Request, urlopen
 
-import fsspec
 import msgspec
 import pandas as pd
 import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.dataset as ds
-import pyarrow.fs as pafs
 import pyarrow.parquet as pq
 from nautilus_trader.adapters.polymarket.common.enums import PolymarketOrderSide
 from nautilus_trader.adapters.polymarket.loaders import PolymarketDataLoader
@@ -87,11 +86,7 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
     _PMXT_DISABLE_CACHE_ENV = "PMXT_DISABLE_CACHE"
     _PMXT_LOCAL_ARCHIVE_DIR_ENV = "PMXT_LOCAL_ARCHIVE_DIR"
     _PMXT_PREFETCH_WORKERS_ENV = "PMXT_PREFETCH_WORKERS"
-    _PMXT_HTTP_BLOCK_SIZE_MB_ENV = "PMXT_HTTP_BLOCK_SIZE_MB"
-    _PMXT_HTTP_CACHE_TYPE_ENV = "PMXT_HTTP_CACHE_TYPE"
     _PMXT_DEFAULT_PREFETCH_WORKERS = 16
-    _PMXT_DEFAULT_HTTP_BLOCK_SIZE = 32 * 1024 * 1024
-    _PMXT_DEFAULT_HTTP_CACHE_TYPE = "readahead"
     _PMXT_DOWNLOAD_CHUNK_SIZE = 4 * 1024 * 1024
     _PMXT_TEMP_DOWNLOAD_ROOT = Path(tempfile.gettempdir()) / "nautilus_trader" / "pmxt-downloads"
     _PMXT_TEMP_DOWNLOAD_STALE_SECONDS = 24 * 60 * 60
@@ -101,8 +96,6 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
         self._pmxt_cache_dir = self._resolve_cache_dir()
         self._pmxt_local_archive_dir = self._resolve_local_archive_dir()
         self._pmxt_prefetch_workers = self._resolve_prefetch_workers()
-        self._pmxt_http_block_size = self._resolve_http_block_size()
-        self._pmxt_http_cache_type = self._resolve_http_cache_type()
         self._pmxt_download_progress_callback: (
             Callable[[str, int, int | None, bool], None] | None
         ) = None
@@ -111,8 +104,17 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
         ) = None
         self._pmxt_progress_size_cache: dict[str, int | None] = {}
         self._pmxt_temp_download_root = self._PMXT_TEMP_DOWNLOAD_ROOT
+        # Hours that no source could supply during the most recent
+        # ``load_order_book_and_quotes`` call. Strategies and runners can read
+        # this to surface coverage gaps instead of silently trusting an
+        # apparently-continuous record stream.
+        self._pmxt_last_load_gap_hours: tuple[pd.Timestamp, ...] = ()
         self._cleanup_stale_temp_downloads()
-        self._reset_http_filesystem()
+
+    @property
+    def last_load_gap_hours(self) -> tuple[pd.Timestamp, ...]:
+        """UTC hour-floored timestamps of archive hours that failed to load."""
+        return self._pmxt_last_load_gap_hours
 
     @staticmethod
     def _normalize_timestamp(value: pd.Timestamp | str | None) -> pd.Timestamp | None:
@@ -203,36 +205,6 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
             return max(1, int(value))
         except ValueError:
             return cls._PMXT_DEFAULT_PREFETCH_WORKERS
-
-    @classmethod
-    def _resolve_http_block_size(cls) -> int:
-        configured = os.getenv(cls._PMXT_HTTP_BLOCK_SIZE_MB_ENV)
-        if configured is None:
-            return cls._PMXT_DEFAULT_HTTP_BLOCK_SIZE
-
-        value = configured.strip()
-        if not value:
-            return cls._PMXT_DEFAULT_HTTP_BLOCK_SIZE
-
-        try:
-            return max(1, int(value)) * 1024 * 1024
-        except ValueError:
-            return cls._PMXT_DEFAULT_HTTP_BLOCK_SIZE
-
-    @classmethod
-    def _resolve_http_cache_type(cls) -> str:
-        configured = os.getenv(cls._PMXT_HTTP_CACHE_TYPE_ENV)
-        if configured is None:
-            return cls._PMXT_DEFAULT_HTTP_CACHE_TYPE
-
-        value = configured.strip()
-        return value or cls._PMXT_DEFAULT_HTTP_CACHE_TYPE
-
-    def _reset_http_filesystem(self) -> None:
-        self._pmxt_http_fs = fsspec.filesystem(
-            "https", block_size=self._pmxt_http_block_size, cache_type=self._pmxt_http_cache_type
-        )
-        self._pmxt_fs = pafs.PyFileSystem(pafs.FSSpecHandler(self._pmxt_http_fs))
 
     @classmethod
     def _market_cache_path_for_hour(
@@ -1023,8 +995,21 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
         events: list[OrderBookDeltas | QuoteTick] = []
         hours = self._archive_hours(start_ts, end_ts)
         last_payload_key: tuple[int, int] | None = None
+        gap_hours: list[pd.Timestamp] = []
+        self._pmxt_last_load_gap_hours = ()
 
-        for _hour, batches in self._iter_market_batches(hours, batch_size=batch_size):
+        for hour, batches in self._iter_market_batches(hours, batch_size=batch_size):
+            if batches is None:
+                # Distinguish "no source could supply this hour" from "hour
+                # loaded fine but had no events for this market". A None
+                # result is a coverage gap: warn loudly and invalidate the
+                # incremental book so subsequent price_change deltas wait for
+                # a fresh book_snapshot rather than applying against a
+                # potentially stale state.
+                gap_hours.append(hour)
+                has_snapshot = False
+                local_book = OrderBook(instrument.id, book_type=BookType.L2_MBP)
+                continue
             if not batches:
                 continue
 
@@ -1072,6 +1057,18 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
                     last_payload_key = payload_key
 
         events.sort(key=self._event_sort_key)
+
+        if gap_hours:
+            self._pmxt_last_load_gap_hours = tuple(gap_hours)
+            gap_count = len(gap_hours)
+            warnings.warn(
+                f"PMXT: {gap_count} archive hour(s) missing for market "
+                f"{self.condition_id}/{self.token_id} between {start_ts.isoformat()} "
+                f"and {end_ts.isoformat()}; book state was reset on each gap. "
+                f"First gap hour: {gap_hours[0].isoformat()}.",
+                stacklevel=2,
+            )
+
         return events
 
     @staticmethod
