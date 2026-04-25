@@ -19,6 +19,7 @@
 import asyncio
 import json
 from collections import OrderedDict, defaultdict
+from decimal import ROUND_DOWN, Decimal
 from typing import Any
 
 import msgspec
@@ -119,6 +120,40 @@ from py_clob_client.clob_types import AssetType, PostOrdersArgs
 from py_clob_client.exceptions import PolyApiException
 
 from prediction_market_extensions.adapters.polymarket.parsing import infer_fee_exponent
+
+
+# USDC (the maker asset on market BUY orders) is enforced by the Polymarket
+# CLOB to a maximum of 2 decimal places. Floats coming through Nautilus
+# `order.quantity` (e.g. Kelly-sized dollar amounts) frequently carry
+# binary-float dust like 5.430000000000001, which py-clob-client's internal
+# float rounding then leaks into the EIP-712-signed taker amount and the API
+# rejects with HTTP 400 "invalid amounts". Quantize via `Decimal` before
+# passing to the client to eliminate that class of rejection.
+_USDC_QUANTUM = Decimal("0.01")
+
+
+def _quantize_usdc_amount(amount: float) -> float:
+    """
+    Round a USDC dollar amount DOWN to 2 decimal places without float drift.
+
+    Uses `Decimal` (string-based) to avoid binary-float artefacts that
+    re-introduce >2 decimal places after `round()`. Round-down is intentional:
+    we'd rather slightly underspend than risk an over-precision rejection or
+    spending one cent more than the strategy sized.
+    """
+    return float(Decimal(str(amount)).quantize(_USDC_QUANTUM, rounding=ROUND_DOWN))
+
+
+# Circuit breaker for repeated order-placement rejections. The Polymarket
+# market-buy decimal-precision rejection class is non-idempotent at the
+# strategy level: the strategy sees no fill, generates a new submit on the
+# next tick, and we burn API quota in a tight loop. After
+# `_ORDER_REJECT_CIRCUIT_THRESHOLD` consecutive client-side rejections for the
+# same (token_id, side) pair, deny further submits for
+# `_ORDER_REJECT_CIRCUIT_COOLDOWN_NS` nanoseconds. A successful submit
+# (acknowledged by the API) clears the counter.
+_ORDER_REJECT_CIRCUIT_THRESHOLD = 3
+_ORDER_REJECT_CIRCUIT_COOLDOWN_NS = 60 * 1_000_000_000  # 60 seconds
 
 
 class PolymarketExecutionClient(LiveExecutionClient):
@@ -245,6 +280,10 @@ class PolymarketExecutionClient(LiveExecutionClient):
         self._finalized_trades: OrderedDict[TradeId, None] = OrderedDict()
         self._ack_events_order: dict[VenueOrderId, asyncio.Event] = {}
         self._ack_events_trade: dict[VenueOrderId, asyncio.Event] = {}
+
+        # Circuit breaker for consecutive order-placement rejections.
+        # Key: (token_id, side_str). Value: (consecutive_reject_count, blocked_until_ns).
+        self._order_reject_circuit: dict[tuple[str, str], tuple[int, int]] = {}
 
     async def _connect(self) -> None:
         await self._instrument_provider.initialize()
@@ -1316,6 +1355,7 @@ class PolymarketExecutionClient(LiveExecutionClient):
         Generate rejection events for all orders.
         """
         for order in orders:
+            self._record_order_rejection(order)
             self.generate_order_rejected(
                 strategy_id=order.strategy_id,
                 instrument_id=order.instrument_id,
@@ -1348,6 +1388,7 @@ class PolymarketExecutionClient(LiveExecutionClient):
 
         for order, result in zip(orders, response, strict=False):
             if result.get("success"):
+                self._clear_order_rejection(order)
                 venue_order_id = VenueOrderId(result["orderID"])
                 self._cache.add_venue_order_id(order.client_order_id, venue_order_id)
 
@@ -1365,6 +1406,7 @@ class PolymarketExecutionClient(LiveExecutionClient):
                     f"Order {order.client_order_id} accepted, venue_order_id={venue_order_id}"
                 )
             else:
+                self._record_order_rejection(order)
                 reason = result.get("errorMsg", "Unknown error")
                 self.generate_order_rejected(
                     strategy_id=order.strategy_id,
@@ -1387,10 +1429,67 @@ class PolymarketExecutionClient(LiveExecutionClient):
             ts_event=self._clock.timestamp_ns(),
         )
 
+    def _circuit_breaker_key(self, order: Order) -> tuple[str, str]:
+        return (
+            get_polymarket_token_id(order.instrument_id),
+            order_side_to_str(order.side),
+        )
+
+    def _is_order_circuit_open(self, order: Order) -> tuple[bool, str | None]:
+        """
+        Return (open, reason). When `open` is True the caller MUST NOT submit
+        and should deny the order with `reason`.
+        """
+        key = self._circuit_breaker_key(order)
+        entry = self._order_reject_circuit.get(key)
+        if entry is None:
+            return False, None
+        count, blocked_until_ns = entry
+        if count < _ORDER_REJECT_CIRCUIT_THRESHOLD:
+            return False, None
+        now_ns = self._clock.timestamp_ns()
+        if now_ns >= blocked_until_ns:
+            # Cooldown expired — reset and allow a probe submission through.
+            self._order_reject_circuit.pop(key, None)
+            return False, None
+        remaining_s = (blocked_until_ns - now_ns) / 1_000_000_000
+        return True, (
+            f"Polymarket order circuit breaker open for token={key[0]} "
+            f"side={key[1]} after {count} consecutive rejections "
+            f"(cooldown {remaining_s:.1f}s remaining)"
+        )
+
+    def _record_order_rejection(self, order: Order) -> None:
+        key = self._circuit_breaker_key(order)
+        count, _ = self._order_reject_circuit.get(key, (0, 0))
+        count += 1
+        blocked_until_ns = (
+            self._clock.timestamp_ns() + _ORDER_REJECT_CIRCUIT_COOLDOWN_NS
+            if count >= _ORDER_REJECT_CIRCUIT_THRESHOLD
+            else 0
+        )
+        self._order_reject_circuit[key] = (count, blocked_until_ns)
+        if count >= _ORDER_REJECT_CIRCUIT_THRESHOLD:
+            self._log.warning(
+                f"Polymarket order circuit breaker TRIPPED for token={key[0]} "
+                f"side={key[1]} after {count} consecutive rejections; "
+                f"suppressing submits for "
+                f"{_ORDER_REJECT_CIRCUIT_COOLDOWN_NS // 1_000_000_000}s",
+                LogColor.RED,
+            )
+
+    def _clear_order_rejection(self, order: Order) -> None:
+        self._order_reject_circuit.pop(self._circuit_breaker_key(order), None)
+
     async def _submit_market_order(self, command: SubmitOrder, instrument) -> None:
         self._log.debug("Creating Polymarket order", LogColor.MAGENTA)
 
         order = command.order
+
+        circuit_open, circuit_reason = self._is_order_circuit_open(order)
+        if circuit_open:
+            self._deny_market_order_quantity(order, circuit_reason or "circuit breaker open")
+            return
 
         if order.side == OrderSide.BUY:
             if not order.is_quote_quantity:
@@ -1408,7 +1507,14 @@ class PolymarketExecutionClient(LiveExecutionClient):
             )
             return
 
-        amount = float(order.quantity)
+        amount = _quantize_usdc_amount(float(order.quantity))
+        if amount <= 0.0:
+            self._deny_market_order_quantity(
+                order,
+                f"Polymarket market BUY order amount {float(order.quantity)} "
+                "rounds to zero USDC after 2-decimal quantization",
+            )
+            return
         order_type = convert_tif_to_polymarket_order_type(order.time_in_force)
 
         market_order_args = MarketOrderArgs(
@@ -1440,6 +1546,21 @@ class PolymarketExecutionClient(LiveExecutionClient):
         self._log.debug("Creating Polymarket order", LogColor.MAGENTA)
 
         order = command.order
+
+        circuit_open, circuit_reason = self._is_order_circuit_open(order)
+        if circuit_open:
+            self._log.error(
+                f"Cannot submit order {order.client_order_id}: {circuit_reason}",
+                LogColor.RED,
+            )
+            self.generate_order_denied(
+                strategy_id=order.strategy_id,
+                instrument_id=order.instrument_id,
+                client_order_id=order.client_order_id,
+                reason=circuit_reason or "circuit breaker open",
+                ts_event=self._clock.timestamp_ns(),
+            )
+            return
 
         if order.is_quote_quantity:
             self._log.error(
@@ -1495,6 +1616,7 @@ class PolymarketExecutionClient(LiveExecutionClient):
                 post_only,
             )
             if not response or not response.get("success"):
+                self._record_order_rejection(order)
                 self.generate_order_rejected(
                     strategy_id=order.strategy_id,
                     instrument_id=order.instrument_id,
@@ -1503,6 +1625,7 @@ class PolymarketExecutionClient(LiveExecutionClient):
                     ts_event=self._clock.timestamp_ns(),
                 )
             else:
+                self._clear_order_rejection(order)
                 venue_order_id = VenueOrderId(response["orderID"])
                 self._cache.add_venue_order_id(order.client_order_id, venue_order_id)
 

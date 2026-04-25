@@ -1,8 +1,8 @@
 # Codebase UML Inventory
 
 This file is generated from Python AST metadata and excludes `tests/`.
-Generated: 2026-04-23T23:11:41+00:00
-Modules: 107 | Classes: 167 | Functions/methods: 1098
+Generated: 2026-04-25T05:18:26+00:00
+Modules: 109 | Classes: 173 | Functions/methods: 1117
 
 ## Backtesting Data Flow
 
@@ -236,51 +236,56 @@ flowchart TD
 - Imports: none
 
 ### `prediction_market_extensions/adapters/polymarket/execution.py`
-- Imports: `asyncio, collections, json, msgspec, nautilus_trader, prediction_market_extensions, py_clob_client, typing`
-- Class L124: `PolymarketExecutionClient(LiveExecutionClient)`
-  - Method L151: `__init__(self, loop: asyncio.AbstractEventLoop, http_client: ClobClient, msgbus: MessageBus, cache: Cache, clock: LiveClock, instrument_provider: PolymarketInstrumentProvider, ws_auth: PolymarketWebSocketAuth, config: PolymarketExecClientConfig, name: str | None) -> None`
-  - Method L249: `async _connect(self) -> None`
-  - Method L271: `async _disconnect(self) -> None`
-  - Method L274: `_stop(self) -> None`
-  - Method L277: `async _maintain_active_market(self, instrument_id: InstrumentId) -> None`
-  - Method L281: `async _update_account_state(self) -> None`
-  - Method L302: `async _fetch_user_positions(self, *, limit: int = 100, size_threshold: int = 0) -> list[dict[str, Any]]`
-  - Method L350: `async generate_order_status_reports(self, command: GenerateOrderStatusReports) -> list[OrderStatusReport]`
-  - Method L521: `async generate_order_status_report(self, command: GenerateOrderStatusReport) -> OrderStatusReport | None`
-  - Method L576: `async generate_fill_reports(self, command: GenerateFillReports) -> list[FillReport]`
-  - Method L625: `async generate_position_status_reports(self, command: GeneratePositionStatusReports) -> list[PositionStatusReport]`
-  - Method L664: `_parse_trades_response_object(self, command: GenerateFillReports, json_obj: JSON, parsed_fill_keys: set[tuple[TradeId, VenueOrderId]], reports: list[FillReport]) -> None`
-  - Method L719: `async _fetch_quantities_from_gamma_api(self, instrument_ids: list[InstrumentId]) -> dict[InstrumentId, Quantity]`
-  - Method L757: `async _fetch_quantities_from_clob_api(self, instrument_ids: list[InstrumentId]) -> dict[InstrumentId, Quantity]`
-  - Method L785: `_generate_cancel_event(self, strategy_id, instrument_id, client_order_id, venue_order_id, reason: str, ts_event: int) -> None`
-  - Method L811: `_get_neg_risk_for_instrument(self, instrument) -> bool`
-  - Method L816: `async _query_account(self, _command: QueryAccount) -> None`
-  - Method L820: `async _cancel_order(self, command: CancelOrder) -> None`
-  - Method L867: `async _batch_cancel_orders(self, command: BatchCancelOrders) -> None`
-  - Method L920: `async _cancel_all_orders(self, command: CancelAllOrders) -> None`
-  - Method L968: `async _cancel_all_global(self) -> None`
-  - Method L1002: `async _cancel_market_orders(self, instrument_id: InstrumentId | None = None, asset_id: str = '') -> None`
-  - Method L1056: `async _submit_order(self, command: SubmitOrder) -> None`
-  - Method L1130: `_validate_order_for_batch(self, order: Order) -> str | None`
-  - Method L1154: `async _submit_order_list(self, command: SubmitOrderList) -> None`
-  - Method L1224: `async _sign_orders_for_batch(self, orders: list[Order]) -> tuple[list[Order], list[PostOrdersArgs]]`
-  - Method L1285: `async _post_signed_orders_batch(self, orders: list[Order], signed_orders_args: list[PostOrdersArgs]) -> None`
-  - Method L1314: `_reject_all_orders(self, orders: list[Order], reason: str) -> None`
-  - Method L1327: `_process_batch_response(self, orders: list[Order], response: list) -> None`
-  - Method L1378: `_deny_market_order_quantity(self, order: Order, reason: str) -> None`
-  - Method L1390: `async _submit_market_order(self, command: SubmitOrder, instrument) -> None`
-  - Method L1439: `async _submit_limit_order(self, command: SubmitOrder, instrument) -> None`
-  - Method L1485: `async _post_signed_order(self, order: Order, signed_order, post_only: bool = False) -> None`
-  - Method L1521: `_handle_ws_message(self, raw: bytes) -> None`
-  - Method L1543: `_add_trade_to_cache(self, msg: PolymarketUserTrade, raw: bytes) -> None`
-  - Method L1553: `async _wait_for_ack_order(self, msg: PolymarketUserOrder, venue_order_id: VenueOrderId) -> None`
-  - Method L1576: `async _wait_for_ack_trade(self, msg: PolymarketUserTrade, venue_order_id: VenueOrderId) -> None`
-  - Method L1603: `_handle_ws_order_msg(self, msg: PolymarketUserOrder, wait_for_ack: bool) -> Any`
-  - Method L1675: `_truncate_ordered_dict(self, store: OrderedDict[Any, Any]) -> None`
-  - Method L1679: `_record_processed_trade(self, trade_id: TradeId, status: PolymarketTradeStatus) -> None`
-  - Method L1693: `_record_processed_fill(self, trade_id: TradeId, venue_order_id: VenueOrderId) -> None`
-  - Method L1699: `_handle_ws_trade_msg(self, msg: PolymarketUserTrade, wait_for_ack: bool) -> Any`
-  - Method L1741: `_handle_user_trade_in_ws_trade_msg(self, msg: PolymarketUserTrade, trade_id: TradeId, wait_for_ack: bool, order_id: str) -> Any`
+- Imports: `asyncio, collections, decimal, json, msgspec, nautilus_trader, prediction_market_extensions, py_clob_client, typing`
+- Function L135: `_quantize_usdc_amount(amount: float) -> float`
+- Class L159: `PolymarketExecutionClient(LiveExecutionClient)`
+  - Method L186: `__init__(self, loop: asyncio.AbstractEventLoop, http_client: ClobClient, msgbus: MessageBus, cache: Cache, clock: LiveClock, instrument_provider: PolymarketInstrumentProvider, ws_auth: PolymarketWebSocketAuth, config: PolymarketExecClientConfig, name: str | None) -> None`
+  - Method L288: `async _connect(self) -> None`
+  - Method L310: `async _disconnect(self) -> None`
+  - Method L313: `_stop(self) -> None`
+  - Method L316: `async _maintain_active_market(self, instrument_id: InstrumentId) -> None`
+  - Method L320: `async _update_account_state(self) -> None`
+  - Method L341: `async _fetch_user_positions(self, *, limit: int = 100, size_threshold: int = 0) -> list[dict[str, Any]]`
+  - Method L389: `async generate_order_status_reports(self, command: GenerateOrderStatusReports) -> list[OrderStatusReport]`
+  - Method L560: `async generate_order_status_report(self, command: GenerateOrderStatusReport) -> OrderStatusReport | None`
+  - Method L615: `async generate_fill_reports(self, command: GenerateFillReports) -> list[FillReport]`
+  - Method L664: `async generate_position_status_reports(self, command: GeneratePositionStatusReports) -> list[PositionStatusReport]`
+  - Method L703: `_parse_trades_response_object(self, command: GenerateFillReports, json_obj: JSON, parsed_fill_keys: set[tuple[TradeId, VenueOrderId]], reports: list[FillReport]) -> None`
+  - Method L758: `async _fetch_quantities_from_gamma_api(self, instrument_ids: list[InstrumentId]) -> dict[InstrumentId, Quantity]`
+  - Method L796: `async _fetch_quantities_from_clob_api(self, instrument_ids: list[InstrumentId]) -> dict[InstrumentId, Quantity]`
+  - Method L824: `_generate_cancel_event(self, strategy_id, instrument_id, client_order_id, venue_order_id, reason: str, ts_event: int) -> None`
+  - Method L850: `_get_neg_risk_for_instrument(self, instrument) -> bool`
+  - Method L855: `async _query_account(self, _command: QueryAccount) -> None`
+  - Method L859: `async _cancel_order(self, command: CancelOrder) -> None`
+  - Method L906: `async _batch_cancel_orders(self, command: BatchCancelOrders) -> None`
+  - Method L959: `async _cancel_all_orders(self, command: CancelAllOrders) -> None`
+  - Method L1007: `async _cancel_all_global(self) -> None`
+  - Method L1041: `async _cancel_market_orders(self, instrument_id: InstrumentId | None = None, asset_id: str = '') -> None`
+  - Method L1095: `async _submit_order(self, command: SubmitOrder) -> None`
+  - Method L1169: `_validate_order_for_batch(self, order: Order) -> str | None`
+  - Method L1193: `async _submit_order_list(self, command: SubmitOrderList) -> None`
+  - Method L1263: `async _sign_orders_for_batch(self, orders: list[Order]) -> tuple[list[Order], list[PostOrdersArgs]]`
+  - Method L1324: `async _post_signed_orders_batch(self, orders: list[Order], signed_orders_args: list[PostOrdersArgs]) -> None`
+  - Method L1353: `_reject_all_orders(self, orders: list[Order], reason: str) -> None`
+  - Method L1367: `_process_batch_response(self, orders: list[Order], response: list) -> None`
+  - Method L1420: `_deny_market_order_quantity(self, order: Order, reason: str) -> None`
+  - Method L1432: `_circuit_breaker_key(self, order: Order) -> tuple[str, str]`
+  - Method L1438: `_is_order_circuit_open(self, order: Order) -> tuple[bool, str | None]`
+  - Method L1462: `_record_order_rejection(self, order: Order) -> None`
+  - Method L1481: `_clear_order_rejection(self, order: Order) -> None`
+  - Method L1484: `async _submit_market_order(self, command: SubmitOrder, instrument) -> None`
+  - Method L1545: `async _submit_limit_order(self, command: SubmitOrder, instrument) -> None`
+  - Method L1606: `async _post_signed_order(self, order: Order, signed_order, post_only: bool = False) -> None`
+  - Method L1644: `_handle_ws_message(self, raw: bytes) -> None`
+  - Method L1666: `_add_trade_to_cache(self, msg: PolymarketUserTrade, raw: bytes) -> None`
+  - Method L1676: `async _wait_for_ack_order(self, msg: PolymarketUserOrder, venue_order_id: VenueOrderId) -> None`
+  - Method L1699: `async _wait_for_ack_trade(self, msg: PolymarketUserTrade, venue_order_id: VenueOrderId) -> None`
+  - Method L1726: `_handle_ws_order_msg(self, msg: PolymarketUserOrder, wait_for_ack: bool) -> Any`
+  - Method L1798: `_truncate_ordered_dict(self, store: OrderedDict[Any, Any]) -> None`
+  - Method L1802: `_record_processed_trade(self, trade_id: TradeId, status: PolymarketTradeStatus) -> None`
+  - Method L1816: `_record_processed_fill(self, trade_id: TradeId, venue_order_id: VenueOrderId) -> None`
+  - Method L1822: `_handle_ws_trade_msg(self, msg: PolymarketUserTrade, wait_for_ack: bool) -> Any`
+  - Method L1864: `_handle_user_trade_in_ws_trade_msg(self, msg: PolymarketUserTrade, trade_id: TradeId, wait_for_ack: bool, order_id: str) -> Any`
 
 ### `prediction_market_extensions/adapters/polymarket/fee_model.py`
 - Imports: `__future__, decimal, nautilus_trader, prediction_market_extensions`
@@ -414,7 +419,7 @@ flowchart TD
   - Method L909: `_process_book_snapshot(self, payload_text: str, *, token_id: str, instrument, local_book: OrderBook, has_snapshot: bool, events: list[OrderBookDeltas | QuoteTick], start_ns: int, end_ns: int, include_order_book: bool, include_quotes: bool) -> tuple[OrderBook, bool]`
   - Method L950: `_process_price_change(self, payload_text: str, *, token_id: str, instrument, local_book: OrderBook, has_snapshot: bool, events: list[OrderBookDeltas | QuoteTick], start_ns: int, end_ns: int, include_order_book: bool, include_quotes: bool) -> OrderBook`
   - Method L992: `load_order_book_and_quotes(self, start: pd.Timestamp, end: pd.Timestamp, *, batch_size: int = 25000, include_order_book: bool = True, include_quotes: bool = True) -> list[OrderBookDeltas | QuoteTick]`
-  - Method L1077: `_timestamp_to_ns(value: object) -> int`
+  - Method L1078: `_timestamp_to_ns(value: object) -> int`
 
 ### `prediction_market_extensions/adapters/polymarket/research.py`
 - Imports: `__future__, collections, datetime, msgspec, nautilus_trader, pandas, prediction_market_extensions, typing`
@@ -506,24 +511,24 @@ flowchart TD
 - Function L249: `_align_series_to_timeline(series: pd.Series, timeline: pd.DatetimeIndex, *, before: float, after: float) -> pd.Series`
 - Function L261: `_parse_float_like(value, default: float = 0.0) -> float`
 - Function L281: `_serialize_fill_events(*, market_id: str, fills_report: pd.DataFrame) -> list[dict[str, Any]]`
-- Function L350: `_deserialize_fill_events(*, market_id: str, fill_events: Sequence[dict[str, Any]], models_module) -> list[Any]`
-- Function L393: `_aggregate_brier_frames(results: Sequence[dict[str, Any]]) -> dict[str, pd.DataFrame]`
-- Function L421: `_aggregate_brier_unavailable_reason(results: Sequence[dict[str, Any]]) -> str | None`
-- Function L443: `_summary_panels_need_market_prices(plot_panels: Sequence[str]) -> bool`
-- Function L447: `_summary_panels_need_fill_events(plot_panels: Sequence[str]) -> bool`
-- Function L453: `_summary_panels_need_overlay_series(plot_panels: Sequence[str]) -> bool`
-- Function L460: `_yes_price_fill_marker_budget(max_points: int) -> int`
-- Function L466: `_summary_yes_price_fill_marker_limit(fill_count: int, max_points: int) -> int | None`
-- Function L477: `_configure_summary_report_downsampling(plotting_module, *, adaptive: bool = True, max_points: int = 5000) -> None`
-- Function L524: `_build_summary_brier_panel(brier_frames: dict[str, pd.DataFrame], *, axis_label: str, max_points_per_market: int) -> Any | None`
-- Function L538: `_build_total_summary_brier_frame(brier_frames: Mapping[str, pd.DataFrame]) -> pd.DataFrame`
-- Function L559: `_build_summary_brier_extra_panels(*, results: Sequence[dict[str, Any]], resolved_plot_panels: Sequence[str], max_points_per_market: int) -> dict[str, Any]`
-- Function L604: `_apply_summary_layout_overrides(layout, *, initial_cash: float, max_yes_price_fill_markers: int | None) -> Any`
-- Function L618: `run_market_backtest(*, market_id: str, instrument, data: Sequence[object], strategy: Strategy, strategy_name: str, output_prefix: str, platform: str, venue: Venue, base_currency: Currency, fee_model, fill_model: Any | None = None, apply_default_fill_model: bool = True, initial_cash: float, probability_window: int, price_attr: str, count_key: str, data_count: int | None = None, chart_resample_rule: str | None = None, market_key: str = 'market', open_browser: bool = False, emit_html: bool = True, return_chart_layout: bool = False, return_summary_series: bool = False, chart_output_path: str | Path | None = None, book_type: BookType = BookType.L1_MBP, liquidity_consumption: bool = False, queue_position: bool = False, latency_model: Any | None = None) -> dict[str, Any]`
-- Function L802: `save_combined_backtest_report(*, results: Sequence[dict[str, Any]], output_path: str | Path, title: str, market_key: str, pnl_label: str) -> str | None`
-- Function L856: `save_aggregate_backtest_report(*, results: Sequence[dict[str, Any]], output_path: str | Path, title: str, market_key: str, pnl_label: str, max_points_per_market: int = 400, plot_panels: Sequence[str] | None = None) -> str | None`
-- Function L1099: `save_joint_portfolio_backtest_report(*, results: Sequence[dict[str, Any]], output_path: str | Path, title: str, market_key: str, pnl_label: str, max_points_per_market: int = 400, plot_panels: Sequence[str] | None = None) -> str | None`
-- Function L1335: `print_backtest_summary(*, results: list[dict[str, Any]], market_key: str, count_key: str, count_label: str, pnl_label: str, empty_message: str = 'No markets had sufficient data.') -> None`
+- Function L358: `_deserialize_fill_events(*, market_id: str, fill_events: Sequence[dict[str, Any]], models_module) -> list[Any]`
+- Function L401: `_aggregate_brier_frames(results: Sequence[dict[str, Any]]) -> dict[str, pd.DataFrame]`
+- Function L429: `_aggregate_brier_unavailable_reason(results: Sequence[dict[str, Any]]) -> str | None`
+- Function L451: `_summary_panels_need_market_prices(plot_panels: Sequence[str]) -> bool`
+- Function L455: `_summary_panels_need_fill_events(plot_panels: Sequence[str]) -> bool`
+- Function L461: `_summary_panels_need_overlay_series(plot_panels: Sequence[str]) -> bool`
+- Function L468: `_yes_price_fill_marker_budget(max_points: int) -> int`
+- Function L474: `_summary_yes_price_fill_marker_limit(fill_count: int, max_points: int) -> int | None`
+- Function L485: `_configure_summary_report_downsampling(plotting_module, *, adaptive: bool = True, max_points: int = 5000) -> None`
+- Function L532: `_build_summary_brier_panel(brier_frames: dict[str, pd.DataFrame], *, axis_label: str, max_points_per_market: int) -> Any | None`
+- Function L546: `_build_total_summary_brier_frame(brier_frames: Mapping[str, pd.DataFrame]) -> pd.DataFrame`
+- Function L567: `_build_summary_brier_extra_panels(*, results: Sequence[dict[str, Any]], resolved_plot_panels: Sequence[str], max_points_per_market: int) -> dict[str, Any]`
+- Function L612: `_apply_summary_layout_overrides(layout, *, initial_cash: float, max_yes_price_fill_markers: int | None) -> Any`
+- Function L626: `run_market_backtest(*, market_id: str, instrument, data: Sequence[object], strategy: Strategy, strategy_name: str, output_prefix: str, platform: str, venue: Venue, base_currency: Currency, fee_model, fill_model: Any | None = None, apply_default_fill_model: bool = True, initial_cash: float, probability_window: int, price_attr: str, count_key: str, data_count: int | None = None, chart_resample_rule: str | None = None, market_key: str = 'market', open_browser: bool = False, emit_html: bool = True, return_chart_layout: bool = False, return_summary_series: bool = False, chart_output_path: str | Path | None = None, book_type: BookType = BookType.L1_MBP, liquidity_consumption: bool = False, queue_position: bool = False, latency_model: Any | None = None) -> dict[str, Any]`
+- Function L810: `save_combined_backtest_report(*, results: Sequence[dict[str, Any]], output_path: str | Path, title: str, market_key: str, pnl_label: str) -> str | None`
+- Function L864: `save_aggregate_backtest_report(*, results: Sequence[dict[str, Any]], output_path: str | Path, title: str, market_key: str, pnl_label: str, max_points_per_market: int = 400, plot_panels: Sequence[str] | None = None) -> str | None`
+- Function L1109: `save_joint_portfolio_backtest_report(*, results: Sequence[dict[str, Any]], output_path: str | Path, title: str, market_key: str, pnl_label: str, max_points_per_market: int = 400, plot_panels: Sequence[str] | None = None) -> str | None`
+- Function L1347: `print_backtest_summary(*, results: list[dict[str, Any]], market_key: str, count_key: str, count_label: str, pnl_label: str, empty_message: str = 'No markets had sufficient data.') -> None`
 
 ### `prediction_market_extensions/analysis/__init__.py`
 - Imports: none
@@ -1375,31 +1380,31 @@ flowchart TD
 - Imports: `__future__, decimal, nautilus_trader, prediction_market_extensions, typing`
 - Function L41: `_decimal_or_none(value: object) -> Decimal | None`
 - Function L50: `_estimate_entry_unit_cost(*, reference_price: Decimal, taker_fee: Decimal) -> Decimal`
-- Function L57: `_cap_entry_size_to_free_balance(*, desired_size: Decimal, reference_price: Decimal | None, taker_fee: Decimal, free_balance: Decimal | None) -> Decimal`
-- Function L81: `_cap_entry_size_to_visible_liquidity(*, desired_size: Decimal, visible_size: Decimal | None) -> Decimal`
-- Function L93: `_effective_entry_reference_price(*, reference_price: Decimal | None, visible_size: Decimal | None) -> Decimal`
+- Function L55: `_cap_entry_size_to_free_balance(*, desired_size: Decimal, reference_price: Decimal | None, taker_fee: Decimal, free_balance: Decimal | None) -> Decimal`
+- Function L79: `_cap_entry_size_to_visible_liquidity(*, desired_size: Decimal, visible_size: Decimal | None) -> Decimal`
+- Function L91: `_effective_entry_reference_price(*, reference_price: Decimal | None, visible_size: Decimal | None) -> Decimal`
 - Class L36: `LongOnlyConfig(Protocol)`
-- Class L106: `LongOnlyPredictionMarketStrategy(Strategy)`
-  - Method L111: `__init__(self, config: LongOnlyConfig) -> None`
-  - Method L123: `_warn_entry_unfillable(self, *, desired_size: Decimal, reference_price: float | None, reason: str) -> None`
-  - Method L139: `_subscribe(self) -> None`
-  - Method L142: `on_start(self) -> None`
-  - Method L150: `_in_position(self) -> bool`
-  - Method L153: `_free_quote_balance(self) -> Decimal | None`
-  - Method L163: `_remember_market_context(self, *, entry_reference_price: float | None, entry_visible_size: float | None, exit_visible_size: float | None = None) -> None`
-  - Method L176: `_order_tags(self, *, intent: str, visible_size: float | None) -> list[str]`
-  - Method L183: `_entry_quantity(self, *, reference_price: float | None = None, visible_size: float | None = None) -> Any`
-  - Method L247: `_submit_entry(self, *, reference_price: float | None = None, visible_size: float | None = None) -> None`
-  - Method L272: `_submit_exit(self) -> None`
-  - Method L314: `_entry_price_with_fees(self) -> float | None`
-  - Method L327: `_exit_price_after_fees(self, price: float) -> float`
-  - Method L335: `_risk_exit(self, *, price: float, take_profit: float, stop_loss: float) -> bool`
-  - Method L355: `on_order_filled(self, event) -> None`
-  - Method L377: `on_order_rejected(self, event) -> None`
-  - Method L380: `on_order_canceled(self, event) -> None`
-  - Method L383: `on_order_expired(self, event) -> None`
-  - Method L386: `on_stop(self) -> None`
-  - Method L390: `on_reset(self) -> None`
+- Class L104: `LongOnlyPredictionMarketStrategy(Strategy)`
+  - Method L109: `__init__(self, config: LongOnlyConfig) -> None`
+  - Method L121: `_warn_entry_unfillable(self, *, desired_size: Decimal, reference_price: float | None, reason: str) -> None`
+  - Method L137: `_subscribe(self) -> None`
+  - Method L140: `on_start(self) -> None`
+  - Method L148: `_in_position(self) -> bool`
+  - Method L151: `_free_quote_balance(self) -> Decimal | None`
+  - Method L161: `_remember_market_context(self, *, entry_reference_price: float | None, entry_visible_size: float | None, exit_visible_size: float | None = None) -> None`
+  - Method L174: `_order_tags(self, *, intent: str, visible_size: float | None) -> list[str]`
+  - Method L181: `_entry_quantity(self, *, reference_price: float | None = None, visible_size: float | None = None) -> Any`
+  - Method L245: `_submit_entry(self, *, reference_price: float | None = None, visible_size: float | None = None) -> None`
+  - Method L270: `_submit_exit(self) -> None`
+  - Method L312: `_entry_price_with_fees(self) -> float | None`
+  - Method L325: `_exit_price_after_fees(self, price: float) -> float`
+  - Method L333: `_risk_exit(self, *, price: float, take_profit: float, stop_loss: float) -> bool`
+  - Method L353: `on_order_filled(self, event) -> None`
+  - Method L375: `on_order_rejected(self, event) -> None`
+  - Method L378: `on_order_canceled(self, event) -> None`
+  - Method L381: `on_order_expired(self, event) -> None`
+  - Method L384: `on_stop(self) -> None`
+  - Method L388: `on_reset(self) -> None`
 
 ### `strategies/deep_value.py`
 - Imports: `__future__, decimal, nautilus_trader, strategies`
@@ -1538,6 +1543,32 @@ flowchart TD
 - Class L202: `QuoteTickPanicFadeStrategy(_PanicFadeBase)`
   - Method L203: `_subscribe(self) -> None`
   - Method L206: `on_quote_tick(self, tick: QuoteTick) -> None`
+
+### `strategies/private/__init__.py`
+- Imports: `strategies`
+
+### `strategies/private/forecast_threshold.py`
+- Imports: `__future__, decimal, math, nautilus_trader, strategies, typing`
+- Function L31: `_norm_cdf(x: float) -> float`
+- Function L35: `_bucket_prob(forecast: float, t_low: float, t_high: float, sigma: float) -> float`
+- Class L46: `_ForecastThresholdConfig(Protocol)`
+- Class L61: `QuoteTickForecastThresholdConfig(StrategyConfig)`
+  - Method L77: `__post_init__(self) -> None`
+- Class L86: `TradeTickForecastThresholdConfig(StrategyConfig)`
+  - Method L100: `__post_init__(self) -> None`
+- Class L109: `_ForecastThresholdBase(LongOnlyPredictionMarketStrategy)`
+  - Method L113: `__init__(self, config: _ForecastThresholdConfig) -> None`
+  - Method L124: `_entry_window_is_open(self, ts_event_ns: int) -> bool`
+  - Method L133: `_should_enter(self, price: float) -> bool`
+  - Method L144: `_on_price(self, *, price: float, ts_event_ns: int, entry_price: float | None = None, visible_size: float | None = None, exit_visible_size: float | None = None) -> None`
+  - Method L183: `on_reset(self) -> None`
+  - Method L187: `on_order_filled(self, event) -> None`
+- Class L193: `TradeTickForecastThresholdStrategy(_ForecastThresholdBase)`
+  - Method L194: `_subscribe(self) -> None`
+  - Method L197: `on_trade_tick(self, tick: TradeTick) -> None`
+- Class L207: `QuoteTickForecastThresholdStrategy(_ForecastThresholdBase)`
+  - Method L208: `_subscribe(self) -> None`
+  - Method L211: `on_quote_tick(self, tick: QuoteTick) -> None`
 
 ### `strategies/rsi_reversion.py`
 - Imports: `__future__, decimal, nautilus_trader, strategies, typing`
