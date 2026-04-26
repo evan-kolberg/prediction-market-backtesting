@@ -15,6 +15,7 @@ This package contains reusable, venue-agnostic strategy classes for prediction m
 
 - `core.py`: shared single-instrument long-only lifecycle and order plumbing.
 - `mean_reversion.py`: rolling-average spread capture.
+- `microprice_imbalance.py`: L2 spread, depth-imbalance, and microprice pressure.
 - `ema_crossover.py`: trend-following crossover.
 - `breakout.py`: volatility breakout with bounded entry near resolution.
 - `final_period_momentum.py`: late-game threshold breakout in the final minutes.

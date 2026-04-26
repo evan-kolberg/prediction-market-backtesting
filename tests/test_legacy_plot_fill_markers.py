@@ -23,15 +23,113 @@ from prediction_market_extensions.analysis.legacy_backtesting.models import (
     PANEL_TOTAL_CASH_EQUITY,
     PANEL_TOTAL_DRAWDOWN,
     PANEL_TOTAL_ROLLING_SHARPE,
+    PANEL_YES_PRICE,
     BacktestResult,
+    Fill,
+    OrderAction,
     Platform,
     PortfolioSnapshot,
+    Side,
 )
 
 
 class _DummyLayout:
     def __init__(self, children: list[object] | None = None) -> None:
         self.children = list(children or [])
+
+
+def test_select_display_markets_includes_price_only_markets_within_limit() -> None:
+    market_df = pd.DataFrame(
+        {
+            "filled-market": [0.40, 0.41],
+            "nothing-ever-happens-2026": [0.90, 0.91],
+        }
+    )
+    fills_df = pd.DataFrame({"market_id": ["filled-market"]})
+
+    display_markets = plotting._select_display_markets(
+        market_df,
+        fills_df,
+        max_markets=10,
+    )
+
+    assert display_markets == ["filled-market", "nothing-ever-happens-2026"]
+
+
+def test_select_display_markets_prioritizes_filled_markets_when_limited() -> None:
+    market_df = pd.DataFrame(
+        {
+            "filled-market": [0.40, 0.41],
+            "price-only-volatile": [0.10, 0.90],
+        }
+    )
+    fills_df = pd.DataFrame({"market_id": ["filled-market"]})
+
+    display_markets = plotting._select_display_markets(
+        market_df,
+        fills_df,
+        max_markets=1,
+    )
+
+    assert display_markets == ["filled-market"]
+
+
+def test_yes_price_plot_renders_market_with_prices_but_no_fills(tmp_path) -> None:
+    start = datetime(2026, 3, 14, 18, tzinfo=UTC)
+    result = BacktestResult(
+        equity_curve=[
+            PortfolioSnapshot(
+                timestamp=start,
+                cash=100.0,
+                total_equity=100.0,
+                unrealized_pnl=0.0,
+                num_positions=0,
+            ),
+            PortfolioSnapshot(
+                timestamp=start.replace(minute=1),
+                cash=99.5,
+                total_equity=100.2,
+                unrealized_pnl=0.2,
+                num_positions=1,
+            ),
+        ],
+        fills=[
+            Fill(
+                order_id="fill-1",
+                market_id="filled-market",
+                action=OrderAction.BUY,
+                side=Side.YES,
+                price=0.40,
+                quantity=1.0,
+                timestamp=start,
+            )
+        ],
+        metrics={},
+        strategy_name="test",
+        platform=Platform.POLYMARKET,
+        start_time=start,
+        end_time=start.replace(minute=1),
+        initial_cash=100.0,
+        final_equity=100.2,
+        num_markets_traded=1,
+        num_markets_resolved=0,
+        market_prices={
+            "filled-market": [(start, 0.40), (start.replace(minute=1), 0.41)],
+            "nothing-ever-happens-2026": [(start, 0.90), (start.replace(minute=1), 0.91)],
+        },
+    )
+    output_path = tmp_path / "yes_price_price_only_market.html"
+
+    plotting.plot(
+        result,
+        filename=str(output_path),
+        open_browser=False,
+        progress=False,
+        max_markets=10,
+        plot_panels=(PANEL_YES_PRICE,),
+    )
+
+    assert "price_nothing-ever-happens-2026" in output_path.read_text(encoding="utf-8")
 
 
 def test_to_naive_utc_truncates_nanoseconds_without_warning() -> None:
@@ -118,6 +216,127 @@ def test_build_legacy_backtest_layout_never_auto_limits_yes_price_fill_markers(
     assert layout is base_layout
     assert title == "Test Strategy legacy chart"
     assert apply_calls == [{}]
+
+
+def test_apply_layout_overrides_limits_yes_price_fill_markers() -> None:
+    class _Axis:
+        axis_label = "YES Price"
+
+    class _Glyph:
+        pass
+
+    class _Source:
+        def __init__(self) -> None:
+            self.data = {
+                "index": np.arange(6),
+                "datetime": pd.date_range("2026-01-01", periods=6).to_numpy(),
+                "price": np.arange(6, dtype=float),
+                "fill_color": np.array(["1", "0", "1", "0", "1", "0"]),
+                "market_id": np.array(["m"] * 6),
+                "action": np.array(["buy"] * 6),
+                "side": np.array(["yes"] * 6),
+                "quantity": np.arange(6, dtype=float),
+            }
+
+    class _Renderer:
+        def __init__(self, source: _Source) -> None:
+            self.data_source = source
+            self.glyph = _Glyph()
+
+    class _LegendItem:
+        def __init__(self, renderer: _Renderer) -> None:
+            self.label = {"value": "Fills (6)"}
+            self.renderers = [renderer]
+
+    class _Legend:
+        def __init__(self, item: _LegendItem) -> None:
+            self.items = [item]
+
+    source = _Source()
+    renderer = _Renderer(source)
+    legend_item = _LegendItem(renderer)
+    fig = SimpleNamespace(
+        title=SimpleNamespace(text="YES Price"),
+        yaxis=[_Axis()],
+        renderers=[renderer],
+        legend=[_Legend(legend_item)],
+        tools=[],
+    )
+
+    adapter._apply_layout_overrides(
+        _DummyLayout(children=[fig]),
+        initial_cash=100.0,
+        max_yes_price_fill_markers=3,
+    )
+
+    assert source.data["price"].tolist() == [0.0, 2.0, 5.0]
+    assert np.issubdtype(source.data["datetime"].dtype, np.datetime64)
+    assert np.array_equal(
+        source.data["datetime"],
+        np.array(
+            [
+                pd.Timestamp("2026-01-01T00:00:00").to_datetime64(),
+                pd.Timestamp("2026-01-03T00:00:00").to_datetime64(),
+                pd.Timestamp("2026-01-06T00:00:00").to_datetime64(),
+            ]
+        ),
+    )
+    assert legend_item.label == {"value": "Fills (3 of 6)"}
+
+
+def test_apply_layout_overrides_limits_market_pnl_fill_markers() -> None:
+    class _Axis:
+        axis_label = "Profit / Loss"
+
+    class _Glyph:
+        pass
+
+    class _Source:
+        def __init__(self) -> None:
+            self.data = {
+                "index": np.arange(6),
+                "datetime": pd.date_range("2026-01-01", periods=6).to_numpy(),
+                "pnl_long": np.arange(6, dtype=float),
+                "pnl_short": np.arange(6, dtype=float),
+                "positive": np.array(["1", "0", "1", "0", "1", "0"]),
+                "market_id": np.array(["m"] * 6),
+                "size_marker": np.arange(6, dtype=float),
+            }
+
+    class _Renderer:
+        def __init__(self, source: _Source) -> None:
+            self.data_source = source
+            self.glyph = _Glyph()
+
+    source = _Source()
+    renderer = _Renderer(source)
+    fig = SimpleNamespace(
+        title=SimpleNamespace(text="Profit / Loss"),
+        yaxis=[_Axis()],
+        renderers=[renderer],
+        legend=[],
+        tools=[],
+    )
+
+    adapter._apply_layout_overrides(
+        _DummyLayout(children=[fig]),
+        initial_cash=100.0,
+        max_market_pnl_fill_markers=3,
+    )
+
+    assert source.data["index"].tolist() == [0, 2, 5]
+    assert np.issubdtype(source.data["datetime"].dtype, np.datetime64)
+    assert np.array_equal(
+        source.data["datetime"],
+        np.array(
+            [
+                pd.Timestamp("2026-01-01T00:00:00").to_datetime64(),
+                pd.Timestamp("2026-01-03T00:00:00").to_datetime64(),
+                pd.Timestamp("2026-01-06T00:00:00").to_datetime64(),
+            ]
+        ),
+    )
+    assert source.data["pnl_long"].tolist() == [0.0, 2.0, 5.0]
 
 
 def test_build_legacy_backtest_layout_skips_brier_when_not_requested(

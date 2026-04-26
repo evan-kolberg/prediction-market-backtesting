@@ -51,6 +51,10 @@ from strategies.mean_reversion import (
     BookMeanReversionConfig,
     BookMeanReversionStrategy,
 )
+from strategies.microprice_imbalance import (
+    BookMicropriceImbalanceConfig,
+    BookMicropriceImbalanceStrategy,
+)
 from strategies.panic_fade import (
     BarPanicFadeConfig,
     BarPanicFadeStrategy,
@@ -101,6 +105,8 @@ __all__ = [
     "BookLateFavoriteLimitHoldStrategy",
     "BookMeanReversionConfig",
     "BookMeanReversionStrategy",
+    "BookMicropriceImbalanceConfig",
+    "BookMicropriceImbalanceStrategy",
     "BookPanicFadeConfig",
     "BookPanicFadeStrategy",
     "BookRSIReversionConfig",

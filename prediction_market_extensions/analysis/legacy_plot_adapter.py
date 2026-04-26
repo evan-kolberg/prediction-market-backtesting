@@ -1073,6 +1073,103 @@ def _remove_yes_price_profitability_connectors(layout: Any) -> None:
         yes_fig.renderers = [r for r in yes_fig.renderers if r not in renderers_to_drop]
 
 
+def _limit_yes_price_fill_markers(layout: Any, max_yes_price_fill_markers: int | None) -> None:
+    if max_yes_price_fill_markers is None or max_yes_price_fill_markers <= 0:
+        return
+
+    yes_fig = _find_figure_with_yaxis_label(layout, lambda label: label == "YES Price")
+    if yes_fig is None:
+        return
+
+    marker_keys = {"index", "datetime", "price", "fill_color", "action", "quantity"}
+    for renderer in getattr(yes_fig, "renderers", []):
+        source = getattr(renderer, "data_source", None)
+        data = getattr(source, "data", None)
+        if not isinstance(data, dict) or not marker_keys.issubset(data):
+            continue
+
+        row_count = len(data["price"])
+        if row_count <= max_yes_price_fill_markers:
+            continue
+
+        indexes = np.unique(
+            np.linspace(0, row_count - 1, num=max_yes_price_fill_markers, dtype=int)
+        )
+        if len(indexes) >= row_count:
+            continue
+
+        limited: dict[str, Any] = {}
+        for key, values in data.items():
+            if hasattr(values, "__len__") and len(values) == row_count:
+                limited[key] = _subset_bokeh_source_values(values, indexes)
+            else:
+                limited[key] = values
+        source.data = limited
+
+        for legend in getattr(yes_fig, "legend", []):
+            for item in getattr(legend, "items", []):
+                if renderer not in getattr(item, "renderers", []):
+                    continue
+                if "fills" in _legend_item_label_text(item).lower():
+                    item.label = {
+                        "value": f"Fills ({len(indexes):,} of {row_count:,})",
+                    }
+
+
+def _subset_bokeh_source_values(values: Any, indexes: np.ndarray) -> Any:
+    if isinstance(values, np.ndarray):
+        return values[indexes]
+    if isinstance(values, pd.Series):
+        return values.iloc[indexes].to_numpy()
+    if isinstance(values, pd.Index):
+        return values.take(indexes).to_numpy()
+    return [values[int(index)] for index in indexes]
+
+
+def _limit_market_pnl_fill_markers(layout: Any, max_market_pnl_fill_markers: int | None) -> None:
+    if max_market_pnl_fill_markers is None or max_market_pnl_fill_markers <= 0:
+        return
+
+    pnl_fig = _find_figure_with_yaxis_label(
+        layout, lambda label: label in {"Profit / Loss", "Market P&L"}
+    )
+    if pnl_fig is None:
+        return
+
+    marker_keys = {
+        "index",
+        "datetime",
+        "pnl_long",
+        "pnl_short",
+        "positive",
+        "market_id",
+        "size_marker",
+    }
+    for renderer in getattr(pnl_fig, "renderers", []):
+        source = getattr(renderer, "data_source", None)
+        data = getattr(source, "data", None)
+        if not isinstance(data, dict) or not marker_keys.issubset(data):
+            continue
+
+        row_count = len(data["index"])
+        if row_count <= max_market_pnl_fill_markers:
+            continue
+
+        indexes = np.unique(
+            np.linspace(0, row_count - 1, num=max_market_pnl_fill_markers, dtype=int)
+        )
+        if len(indexes) >= row_count:
+            continue
+
+        limited: dict[str, Any] = {}
+        for key, values in data.items():
+            if hasattr(values, "__len__") and len(values) == row_count:
+                limited[key] = _subset_bokeh_source_values(values, indexes)
+            else:
+                limited[key] = values
+        source.data = limited
+
+
 def _standardize_periodic_pnl_panel(layout: Any) -> None:
     try:
         from bokeh.models import ColumnDataSource, HoverTool, NumeralTickFormatter
@@ -1355,11 +1452,15 @@ def _apply_layout_overrides(
     initial_cash: float,
     *,
     relabel_market_pnl: bool = False,
+    max_yes_price_fill_markers: int | None = None,
+    max_market_pnl_fill_markers: int | None = None,
 ) -> Any:
     _ = initial_cash  # Keep signature stable for callers and future layout transforms.
     layout = _remove_data_banner(layout)
     _focus_allocation_panel(layout)
     _remove_yes_price_profitability_connectors(layout)
+    _limit_yes_price_fill_markers(layout, max_yes_price_fill_markers)
+    _limit_market_pnl_fill_markers(layout, max_market_pnl_fill_markers)
     _standardize_periodic_pnl_panel(layout)
     if relabel_market_pnl:
         _relabel_market_pnl_panel(layout)

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import os
+import threading
+import time
 from pathlib import Path
 from urllib.request import Request
 
@@ -286,25 +288,25 @@ def test_runner_loader_honors_per_entry_explicit_source_order(monkeypatch) -> No
 
     monkeypatch.setattr(loader, "_load_cached_market_batches", lambda hour: None)
 
-    def _record(kind: str):
-        def _inner(self, hour, *, batch_size):
-            target = (
-                self._pmxt_remote_base_url if kind == "raw-remote" else str(self._pmxt_raw_root)
-            )
-            calls.append((kind, target))
-            return None
+    def _record_local(self, raw_root, hour, *, batch_size):
+        del self, hour, batch_size
+        calls.append(("raw-local", str(raw_root)))
+        return None
 
-        return _inner
+    def _record_remote(self, base_url, hour, *, batch_size):
+        del self, hour, batch_size
+        calls.append(("raw-remote", base_url))
+        return None
 
     monkeypatch.setattr(
         RunnerPolymarketPMXTDataLoader,
-        "_load_remote_market_batches",
-        _record("raw-remote"),
+        "_load_remote_market_batches_from_base_url",
+        _record_remote,
     )
     monkeypatch.setattr(
         RunnerPolymarketPMXTDataLoader,
-        "_load_local_archive_market_batches",
-        _record("raw-local"),
+        "_load_local_raw_market_batches_from_root",
+        _record_local,
     )
 
     assert (
@@ -315,6 +317,39 @@ def test_runner_loader_honors_per_entry_explicit_source_order(monkeypatch) -> No
         ("raw-local", "/tmp/local-a"),
         ("raw-remote", "https://second.archive.test"),
     ]
+
+
+def test_runner_loader_prefetches_explicit_local_sources_without_serial_lock(
+    monkeypatch,
+) -> None:
+    loader = _make_loader()
+    loader._pmxt_ordered_source_entries = (("raw-local", "/tmp/local-a"),)
+    loader._pmxt_prefetch_workers = 2
+    hours = [pd.Timestamp("2026-03-21T11:00:00Z"), pd.Timestamp("2026-03-21T12:00:00Z")]
+    active = 0
+    max_active = 0
+    lock = threading.Lock()
+
+    monkeypatch.setattr(loader, "_load_cached_market_batches", lambda hour: None)
+
+    def _record_local(raw_root, hour, *, batch_size):
+        del raw_root, hour, batch_size
+        nonlocal active, max_active
+        with lock:
+            active += 1
+            max_active = max(max_active, active)
+        time.sleep(0.05)
+        with lock:
+            active -= 1
+        return []
+
+    monkeypatch.setattr(loader, "_load_local_raw_market_batches_from_root", _record_local)
+
+    assert list(loader._iter_market_batches(hours, batch_size=1_000)) == [
+        (hours[0], []),
+        (hours[1], []),
+    ]
+    assert max_active == 2
 
 
 def test_configured_pmxt_data_source_preserves_full_per_entry_order(tmp_path) -> None:

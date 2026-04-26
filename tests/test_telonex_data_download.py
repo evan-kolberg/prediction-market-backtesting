@@ -431,6 +431,52 @@ def test_download_telonex_days_all_markets_expands_every_channel(
     assert {job.outcome_segment for job in captured_jobs} == {"0", "1"}
 
 
+def test_download_telonex_days_max_days_caps_post_resume_jobs(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    captured_jobs = []
+    markets = pd.DataFrame(
+        {
+            "slug": ["market-one"],
+            "quotes_from": ["2026-01-19"],
+            "quotes_to": ["2026-01-23"],
+        }
+    )
+
+    def fake_fetch_markets_dataset(
+        base_url: str, timeout_secs: int, *, show_progress: bool = False
+    ) -> pd.DataFrame:
+        del base_url, timeout_secs, show_progress
+        return markets
+
+    def fake_run_jobs(jobs, **kwargs):
+        del kwargs
+        job_list = list(jobs)
+        captured_jobs.extend(job_list)
+        return (len(job_list), 0, 0, 0, 123, False, [])
+
+    monkeypatch.setenv("TELONEX_API_KEY", "test-key")
+    monkeypatch.setattr(telonex_download, "_fetch_markets_dataset", fake_fetch_markets_dataset)
+    monkeypatch.setattr(telonex_download, "_run_jobs", fake_run_jobs)
+
+    summary = telonex_download.download_telonex_days(
+        destination=tmp_path,
+        all_markets=True,
+        channels=["quotes"],
+        outcomes_for_all=[0],
+        max_days=3,
+        show_progress=True,
+    )
+
+    assert summary.requested_days == 3
+    assert summary.downloaded_days == 3
+    assert [job.day for job in captured_jobs] == [
+        date(2026, 1, 19),
+        date(2026, 1, 20),
+        date(2026, 1, 21),
+    ]
+
+
 def test_all_markets_catalog_date_parsing_handles_mixed_valid_formats() -> None:
     markets = pd.DataFrame(
         {
@@ -821,6 +867,8 @@ def test_run_jobs_periodically_drains_writer_queue(
                 commit_batch_secs=3600.0,
             )
         )
+        committed = store.completed_keys("book_snapshot_full")
+        open_writers = store.open_writer_count
     finally:
         store.close()
 
@@ -833,6 +881,8 @@ def test_run_jobs_periodically_drains_writer_queue(
         [],
     )
     assert batch_sizes == [1, 1, 1]
+    assert len(committed) == 3
+    assert open_writers == 0
 
 
 def test_download_telonex_days_reports_writer_commit_failure(

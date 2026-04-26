@@ -128,6 +128,11 @@ Raw PMXT archive parquet must contain:
 The loader filters raw hours to `market_id` at parquet scan time, then filters
 the remaining rows to `token_id` inside the JSON payload.
 
+`PMXT_PREFETCH_WORKERS` controls how many archive hours are read ahead while a
+market window is loading. Local raw mirrors default to `4` workers through the
+repo data-source wrapper; raise it, for example `PMXT_PREFETCH_WORKERS=8`, only
+after checking that the local disk has enough read bandwidth.
+
 ### Required JSON Payload Shape
 
 For `book_snapshot`, the loader expects the `data` JSON to include:
@@ -164,6 +169,8 @@ constructs typed prices and quantities.
 
 Telonex is a Polymarket full-book snapshot vendor path. Public Telonex runners
 use `data_type=Book`, `vendor=Telonex`, and the `book_snapshot_full` channel.
+They read the local mirror first, then use the API source when
+`TELONEX_API_KEY` is set.
 
 Telonex source syntax:
 
@@ -188,7 +195,9 @@ Each cached API day has two forms:
 
 The fast sidecar preserves price and size strings while avoiding expensive
 pandas materialization of nested list-of-struct columns. If a raw cache file is
-encountered without a sidecar, the loader migrates it lazily.
+encountered without a sidecar, the loader migrates it lazily. The API-day cache
+is consulted only when an `api:` source is reached, so a `local:` mirror listed
+first still has priority over a stale API cache hit.
 
 Replay conversion has a separate materialized cache under:
 
@@ -249,6 +258,9 @@ uv run python scripts/telonex_download_data.py \
   --channels book_snapshot_full
 ```
 
+For a bounded smoke test of the all-market path, add `--max-days 100`; the cap
+is applied after manifest resume pruning.
+
 `book_snapshot_full` is the canonical book source. Do not download
 `book_snapshot_5` and `book_snapshot_25` unless you intentionally want the
 shallow vendor files too; they duplicate the same book-state family at lower
@@ -259,6 +271,8 @@ Downloader behavior:
 - Default destination is `/Volumes/LaCie/telonex_data`.
 - Default channel is `book_snapshot_full`.
 - Default `--workers` is 16.
+- `--max-days` caps post-resume day jobs for smoke tests.
+- Runner API day loading uses `TELONEX_PREFETCH_WORKERS`, default `128`.
 - `--parse-workers` or `TELONEX_PARSE_WORKERS` controls the bounded Arrow
   decode pool.
 - `--writer-queue-items` or `TELONEX_WRITER_QUEUE_ITEMS` bounds parsed day
@@ -270,9 +284,10 @@ Downloader behavior:
 - Completed days and empty days are tracked in `telonex.duckdb` for crash-safe
   resume.
 - The writer queue and pending-commit list are bounded, and an hourly forced
-  writer drain releases Arrow memory and prints RSS. Raising the queue limits
-  can improve throughput on high-RAM machines while still preventing unbounded
-  growth.
+  writer drain closes open Parquet part writers, commits their manifest rows,
+  releases Arrow memory, and prints RSS/open-part diagnostics. Raising the
+  queue limits can improve throughput on high-RAM machines while still
+  preventing unbounded growth.
 - Hit `Ctrl-C` once to stop gracefully; in-flight work drains and the manifest
   is flushed before exit.
 

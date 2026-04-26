@@ -167,6 +167,20 @@ def _embed_html_as_iframe(html_text: str, *, height: int = 820) -> str:
     )
 
 
+def _display_html_suppressing_iframe_warning(html_text: str) -> None:
+    import warnings
+
+    from IPython.display import HTML, display
+
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            message="Consider using IPython.display.IFrame instead",
+            category=UserWarning,
+        )
+        display(HTML(html_text))
+
+
 def display_html_artifacts(
     html_artifacts: Sequence[Path], *, repo_root: Path, iframe_height: int = 820
 ) -> None:
@@ -174,7 +188,7 @@ def display_html_artifacts(
         print("No new HTML artifacts were detected under output/.")
         return
 
-    from IPython.display import HTML, Markdown, display
+    from IPython.display import Markdown, display
 
     primary, additional = partition_html_artifacts(html_artifacts)
     primary_html = primary[-1]
@@ -183,13 +197,15 @@ def display_html_artifacts(
 
     html_text = primary_html.read_text(encoding="utf-8")
     if len(html_text.encode("utf-8")) > _MAX_INLINE_HTML_BYTES:
-        display(HTML(html_text))
+        _display_html_suppressing_iframe_warning(html_text)
         print(
-            "[notice] Chart exceeds inline embed limit; rendered without iframe wrapper. "
+            "[notice] Chart exceeds inline iframe limit; rendered as inline HTML. "
             "Re-run this cell after reopening the notebook to restore the view."
         )
     else:
-        display(HTML(_embed_html_as_iframe(html_text, height=iframe_height)))
+        _display_html_suppressing_iframe_warning(
+            _embed_html_as_iframe(html_text, height=iframe_height)
+        )
 
     if additional:
         extras = "\n".join(f"- `{path.relative_to(repo_root).as_posix()}`" for path in additional)

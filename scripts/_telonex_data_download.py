@@ -13,6 +13,7 @@ from collections.abc import Iterable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, date, datetime, timedelta
+from itertools import islice
 from pathlib import Path
 from queue import Empty, Full, Queue
 from socket import timeout as SocketTimeout
@@ -157,6 +158,14 @@ def _release_arrow_memory() -> None:
         pass  # older PyArrow without release_unused
 
 
+def _get_arrow_allocated_mb() -> float | None:
+    """Return bytes still owned by the Arrow memory pool in MiB."""
+    try:
+        return pa.default_memory_pool().bytes_allocated() / (1024 * 1024)
+    except AttributeError:
+        return None
+
+
 def _parse_date_bound(value: str | None) -> date | None:
     if value is None or not str(value).strip():
         return None
@@ -277,7 +286,13 @@ class _DownloadResult:
 @dataclass
 class _FlushWriterQueue:
     reason: str
+    close_parts: bool = False
     ack: threading.Event = field(default_factory=threading.Event)
+    open_parts_before: int = 0
+    open_parts_after: int = 0
+    pending_part_days_before: int = 0
+    pending_part_days_after: int = 0
+    closed_parts: int = 0
 
 
 class _CancelledError(Exception):
@@ -451,16 +466,58 @@ class _TelonexParquetStore:
         with self._lock:
             return len(self._writers)
 
-    def close(self) -> None:
+    def _open_part_stats_locked(self) -> tuple[int, int]:
+        return (
+            len(self._writers),
+            sum(len(part.pending) for part in self._writers.values()),
+        )
+
+    def open_part_stats(self) -> tuple[int, int]:
+        """Return (open writer count, pending manifest days) for diagnostics."""
+        with self._lock:
+            return self._open_part_stats_locked()
+
+    def close(self, *, progress_label: str | None = None) -> None:
         """Flush all open writers and close the manifest. Idempotent."""
         with self._lock:
             if self._closed:
                 return
-            for key in list(self._writers.keys()):
+            keys = list(self._writers.keys())
+            if progress_label is not None and keys:
+                _open_parts, pending_part_days = self._open_part_stats_locked()
+                print(
+                    f"[telonex] {progress_label}: flushing {len(keys):,} open "
+                    f"part writer(s), pending_manifest_days={pending_part_days:,}.",
+                    file=sys.stderr,
+                    flush=True,
+                )
+            for index, key in enumerate(keys, start=1):
+                pending_days = len(self._writers[key].pending)
+                if progress_label is not None:
+                    channel, year, month = key
+                    print(
+                        f"[telonex] {progress_label}: flushing part {index:,}/"
+                        f"{len(keys):,} channel={channel} year={year} "
+                        f"month={month:02d} pending_days={pending_days:,}.",
+                        file=sys.stderr,
+                        flush=True,
+                    )
                 self._flush_open_part_locked(key)
+            if progress_label is not None:
+                print(
+                    f"[telonex] {progress_label}: closing DuckDB manifest.",
+                    file=sys.stderr,
+                    flush=True,
+                )
             self._remove_orphan_parts()
             self._con.close()
             self._closed = True
+            if progress_label is not None:
+                print(
+                    f"[telonex] {progress_label}: closed.",
+                    file=sys.stderr,
+                    flush=True,
+                )
 
     def _init_schema(self) -> None:
         with self._lock:
@@ -850,12 +907,14 @@ class _TelonexParquetStore:
                     raise
         return total_rows
 
-    def flush_all(self) -> None:
+    def flush_all(self) -> int:
         """Close every open part writer, committing their pending manifest rows.
         Used at the end of a run so days aren't left in-memory."""
         with self._lock:
+            closed = len(self._writers)
             for key in list(self._writers.keys()):
                 self._flush_open_part_locked(key)
+            return closed
 
     def size_bytes(self) -> int:
         total = 0
@@ -1780,13 +1839,14 @@ def _run_jobs(
         for result in batch:
             result.table = None
         del batch
+        gc.collect()
         # Return freed Arrow memory to the OS allocator after each commit
         # cycle. Without this, the Arrow memory pool retains freed buffers
         # internally and RSS never drops even though the objects are gone.
         _release_arrow_memory()
-        gc.collect()
 
     def _writer() -> None:
+        nonlocal failed_days
         while not (writer_done.is_set() and result_queue.empty()) and not writer_failed.is_set():
             try:
                 item = result_queue.get(timeout=0.25)
@@ -1796,7 +1856,41 @@ def _run_jobs(
             try:
                 if isinstance(item, _FlushWriterQueue):
                     try:
+                        (
+                            item.open_parts_before,
+                            item.pending_part_days_before,
+                        ) = store.open_part_stats()
                         _flush_pending(force=True)
+                        if item.close_parts:
+                            item.closed_parts = store.flush_all()
+                        (
+                            item.open_parts_after,
+                            item.pending_part_days_after,
+                        ) = store.open_part_stats()
+                    except Exception as exc:  # noqa: BLE001
+                        failed_count = max(
+                            1,
+                            item.pending_part_days_before,
+                            item.pending_part_days_after,
+                        )
+                        with state_lock:
+                            failed_days += failed_count
+                            if len(failed_samples) < 20:
+                                failed_samples.append(
+                                    "writer forced drain failed for "
+                                    f"{failed_count} pending day(s): "
+                                    f"{exc.__class__.__name__}: {exc}"
+                                )
+                        print(
+                            "[telonex] writer: failed to drain open part writers "
+                            f"({exc.__class__.__name__}: {exc}) - stopping; "
+                            "uncommitted days will retry on the next run.",
+                            file=sys.stderr,
+                        )
+                        writer_failed.set()
+                        stop_event.set()
+                        if async_stop is not None:
+                            async_stop.set()
                     finally:
                         item.ack.set()
                     continue
@@ -1893,18 +1987,28 @@ def _run_jobs(
                 async def _drain_writer_queue(reason: str) -> None:
                     if writer_failed.is_set():
                         return
-                    flush = _FlushWriterQueue(reason=reason)
+                    flush = _FlushWriterQueue(
+                        reason=reason,
+                        close_parts=reason == "hourly",
+                    )
                     await _handoff_item(flush)
                     while not flush.ack.is_set() and not writer_failed.is_set():
                         await asyncio.sleep(0.05)
-                    _release_arrow_memory()
                     gc.collect()
+                    _release_arrow_memory()
                     if reason == "hourly":
                         rss = _get_rss_mb()
                         rss_text = f"{rss:.1f} MiB" if rss is not None else "unknown"
+                        arrow_mb = _get_arrow_allocated_mb()
+                        arrow_text = f"{arrow_mb:.1f} MiB" if arrow_mb is not None else "unknown"
                         print(
                             "[telonex] writer queue drained "
-                            f"(reason=hourly, queued={result_queue.qsize()}, rss={rss_text})",
+                            f"(reason=hourly, queued={result_queue.qsize()}, "
+                            f"closed_parts={flush.closed_parts}, "
+                            f"open_parts={flush.open_parts_before}->{flush.open_parts_after}, "
+                            "pending_part_days="
+                            f"{flush.pending_part_days_before}->{flush.pending_part_days_after}, "
+                            f"rss={rss_text}, arrow_pool={arrow_text})",
                             file=sys.stderr,
                         )
 
@@ -2050,6 +2154,7 @@ def download_telonex_days(
     parse_workers: int | None = None,
     writer_queue_items: int | None = None,
     pending_commit_items: int | None = None,
+    max_days: int | None = None,
 ) -> TelonexDownloadSummary:
     if channel is not None and channels is None:
         channels = [channel]
@@ -2094,6 +2199,8 @@ def download_telonex_days(
 
     window_start = _parse_date_bound(start_date)
     window_end = _parse_date_bound(end_date)
+    if max_days is not None and max_days < 1:
+        raise ValueError("--max-days must be >= 1 when provided.")
 
     # Route SIGTERM (from `timeout`, scheduler kills, etc.) through the same
     # KeyboardInterrupt path Ctrl-C already uses, so store.close() in the
@@ -2173,6 +2280,10 @@ def download_telonex_days(
         )
         _skipped: int | None = None
         remaining_jobs = planned_jobs
+        if max_days is not None:
+            jobs_iter = islice(jobs_iter, max_days)
+            if remaining_jobs is not None:
+                remaining_jobs = min(remaining_jobs, max_days)
         if not all_markets:
             explicit_jobs = list(jobs_iter)
             jobs_iter = explicit_jobs
@@ -2193,6 +2304,8 @@ def download_telonex_days(
                 # unpruned total as "remaining".
                 skipped_before = min(planned_jobs, completed_before + empty_before)
                 remaining_jobs = max(0, planned_jobs - skipped_before)
+                if max_days is not None:
+                    remaining_jobs = min(remaining_jobs, max_days)
                 remaining_text = f"estimated_remaining_after_resume={remaining_jobs:,}. "
             else:
                 remaining_text = (
@@ -2204,6 +2317,7 @@ def download_telonex_days(
                 f"completed={completed_before:,} 404s={empty_before:,}, "
                 f"planned={planned_jobs if planned_jobs is not None else 'streaming'}. "
                 f"{remaining_text}"
+                f"{f'max-days={max_days:,}. ' if max_days is not None else ''}"
                 "Ctrl-C once to stop gracefully (manifest + parquets stay consistent); "
                 "five interrupt signals force-exit.",
                 file=sys.stderr,
@@ -2248,7 +2362,7 @@ def download_telonex_days(
             _skipped = _skipped_ref[0]
     finally:
         try:
-            store.close()
+            store.close(progress_label="final store close" if show_progress else None)
         finally:
             if previous_sigterm_handler is not None:
                 try:
@@ -2259,14 +2373,16 @@ def download_telonex_days(
     start_out = f"{window_start:%Y-%m-%d}" if window_start else None
     end_out = f"{window_end:%Y-%m-%d}" if window_end else None
 
+    requested_days = planned_jobs if max_days is None else remaining_jobs
+
     return TelonexDownloadSummary(
         destination=str(normalized_destination),
         db_path=str(db_path),
         channels=list(channels),
         base_url=base_url.rstrip("/"),
         markets_considered=markets_considered,
-        requested_days=planned_jobs
-        if planned_jobs is not None
+        requested_days=requested_days
+        if requested_days is not None
         else downloaded + missing + failed + cancelled + _skipped,
         downloaded_days=downloaded,
         skipped_existing_days=_skipped,

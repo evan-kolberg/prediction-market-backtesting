@@ -63,8 +63,8 @@ MarketDataConfig(
     data_type=Book,
     vendor=Telonex,
     sources=(
-        "api:",
         "local:/Volumes/LaCie/telonex_data",
+        "api:",
     ),
 )
 ```
@@ -72,13 +72,13 @@ MarketDataConfig(
 The effective lookup order for converted replay records is:
 
 1. Telonex materialized `OrderBookDeltas` cache under `book-deltas-v1`.
-2. Telonex API-day cache, when enabled.
-3. Explicit entries in `MarketDataConfig.sources`, left to right.
+2. Explicit entries in `MarketDataConfig.sources`, left to right. API-day
+   cache is consulted only when an API entry is reached.
 
 The `Telonex source:` line shows that implicit cache layer:
 
 ```text
-Telonex source: explicit priority (cache -> api https://api.telonex.io (key set) -> local /Volumes/LaCie/telonex_data)
+Telonex source: explicit priority (cache -> local /Volumes/LaCie/telonex_data -> api https://api.telonex.io (key set))
 ```
 
 Local reads use the DuckDB manifest when present. The manifest maps requested

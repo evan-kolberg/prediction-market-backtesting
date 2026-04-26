@@ -90,6 +90,13 @@ The PMXT downloader is incremental. Existing local files are skipped unless you
 explicitly request overwrite behavior, so rerunning the command fills missing
 hours without replacing completed hours.
 
+PMXT replay loads can read multiple raw hours ahead. For local mirrors, the
+repo wrapper defaults to `PMXT_PREFETCH_WORKERS=4`; increase it for faster disks:
+
+```bash
+PMXT_PREFETCH_WORKERS=8 uv run python backtests/polymarket_book_joint_portfolio_runner.py
+```
+
 Mirror a small Telonex window:
 
 ```bash
@@ -110,8 +117,12 @@ uv run python scripts/telonex_download_data.py \
   --channels book_snapshot_full
 ```
 
+Add `--max-days 100` to run a bounded post-resume smoke test before starting a
+full mirror.
+
 `book_snapshot_full` is the canonical Telonex book channel. The public Telonex
-runner reads `api:` first, then `local:/Volumes/LaCie/telonex_data`.
+runner reads `local:/Volumes/LaCie/telonex_data` first, then appends `api:`
+when `TELONEX_API_KEY` is set.
 
 The Telonex downloader writes Hive-partitioned parquet files under
 `<destination>/data/` and a DuckDB manifest at `<destination>/telonex.duckdb`.
@@ -123,15 +134,18 @@ Arrow tables indefinitely.
 Throughput and memory controls:
 
 - `--workers` controls concurrent HTTP downloads.
+- `--max-days` caps post-resume day jobs for smoke tests.
+- Telonex runner API day loading uses `TELONEX_PREFETCH_WORKERS`, default
+  `128`.
 - `--parse-workers` or `TELONEX_PARSE_WORKERS` controls concurrent Arrow
   parquet decoders.
 - `--writer-queue-items` or `TELONEX_WRITER_QUEUE_ITEMS` bounds parsed day
   results waiting for the writer. Default: `128`.
 - `--pending-commit-items` or `TELONEX_PENDING_COMMIT_ITEMS` bounds completed
   day results held before manifest commit. Default: `128`.
-- The downloader still inserts an hourly forced writer drain and prints RSS
-  when that drain fires. Higher queue limits improve throughput while staying
-  finite.
+- The downloader still inserts an hourly forced writer drain that closes open
+  Parquet part writers, commits their manifest rows, and prints RSS/open-part
+  diagnostics. Higher queue limits improve throughput while staying finite.
 
 ## Timing And Cache Defaults
 

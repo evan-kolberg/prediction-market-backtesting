@@ -410,6 +410,10 @@ def install_timing() -> None:
         total_bytes: int | None,
         finished: bool,
     ) -> None:
+        if source.startswith(("http://", "https://")):
+            source_local.source = f"remote-raw::{source}"
+        else:
+            source_local.source = f"local-raw::{source}"
         with pbar_lock:
             state = _ensure_transfer_state(
                 url=source,
@@ -657,7 +661,9 @@ def install_timing() -> None:
                 previous_day_callback = getattr(self, "_telonex_day_progress_callback", None)
                 self._telonex_download_progress_callback = _download_progress
                 self._telonex_day_progress_callback = _day_progress
-                transfer_state["parallel"] = False
+                transfer_state["parallel"] = (
+                    min(getattr(self, "_telonex_prefetch_workers", 1), len(dates)) > 1
+                )
                 heartbeat_thread.start()
 
             try:

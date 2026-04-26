@@ -82,3 +82,33 @@ def test_print_backtest_summary_includes_rich_statistics(capsys) -> None:
     assert "Portfolio return stats" in output
     assert "Sharpe Ratio (252 days): 1.5" in output
     assert "Portfolio PnL stats (USDC)" in output
+
+
+def test_print_backtest_summary_aligns_count_header_with_values(capsys) -> None:
+    print_backtest_summary(
+        results=[
+            {
+                "slug": "a",
+                "book_events": 123456,
+                "fills": 77,
+                "pnl": 0.0,
+                "fill_events": [],
+            }
+        ],
+        market_key="slug",
+        count_key="book_events",
+        count_label="Book Events",
+        pnl_label="PnL (USDC)",
+    )
+
+    output = capsys.readouterr().out
+    header = next(line for line in output.splitlines() if line.startswith("Market"))
+    row = next(line for line in output.splitlines() if line.startswith("a"))
+
+    count_header_end = header.index("Book Events") + len("Book Events")
+    count_value_end = row.index("123456") + len("123456")
+    fills_header_end = header.index("Fills") + len("Fills")
+    fills_value_end = row.index("77") + len("77")
+
+    assert count_value_end == count_header_end
+    assert fills_value_end == fills_header_end

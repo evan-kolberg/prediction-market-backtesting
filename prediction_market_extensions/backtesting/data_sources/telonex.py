@@ -2,13 +2,15 @@ from __future__ import annotations
 
 import os
 import re
+import threading
 import warnings
-from hashlib import sha256
 from collections.abc import Iterator, Sequence
+from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import UTC
+from hashlib import sha256
 from io import BytesIO
 from pathlib import Path
 from urllib.error import HTTPError, URLError
@@ -44,12 +46,14 @@ TELONEX_API_BASE_URL_ENV = "TELONEX_API_BASE_URL"
 TELONEX_LOCAL_DIR_ENV = "TELONEX_LOCAL_DIR"
 TELONEX_CHANNEL_ENV = "TELONEX_CHANNEL"
 TELONEX_CACHE_ROOT_ENV = "TELONEX_CACHE_ROOT"
+TELONEX_PREFETCH_WORKERS_ENV = "TELONEX_PREFETCH_WORKERS"
 
 _TELONEX_DEFAULT_API_BASE_URL = "https://api.telonex.io"
 TELONEX_FULL_BOOK_CHANNEL = "book_snapshot_full"
 _TELONEX_DEFAULT_CHANNEL = TELONEX_FULL_BOOK_CHANNEL
 _TELONEX_EXCHANGE = "polymarket"
 _TELONEX_HTTP_TIMEOUT_SECS = 60
+_TELONEX_DEFAULT_PREFETCH_WORKERS = 128
 _TELONEX_DOWNLOAD_CHUNK_SIZE = 1024 * 1024
 _TELONEX_USER_AGENT = "prediction-market-backtesting/1.0"
 _TELONEX_LOCAL_PREFIX = "local:"
@@ -92,6 +96,13 @@ class TelonexLoaderConfig:
 class TelonexDataSourceSelection:
     mode: str
     summary: str
+
+
+@dataclass
+class _TelonexDayResult:
+    date: str
+    records: list[OrderBookDeltas]
+    source: str
 
 
 _CURRENT_TELONEX_LOADER_CONFIG: ContextVar[TelonexLoaderConfig | None] = ContextVar(
@@ -270,8 +281,11 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
     def __init__(self, *args, **kwargs) -> None:  # type: ignore[no-untyped-def]
         super().__init__(*args, **kwargs)
         self._ensure_blob_scan_caches()
+        self._telonex_prefetch_workers = self._resolve_prefetch_workers()
 
     def _ensure_blob_scan_caches(self) -> None:
+        if not hasattr(self, "_telonex_blob_scan_lock"):
+            self._telonex_blob_scan_lock = threading.RLock()
         if not hasattr(self, "_telonex_readable_blob_parts"):
             self._telonex_readable_blob_parts: dict[Path, tuple[tuple[str, ...], bool]] = {}
         if not hasattr(self, "_telonex_unreadable_blob_parts_warned"):
@@ -310,6 +324,16 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
     @classmethod
     def _resolve_api_cache_root(cls) -> Path | None:
         return _resolve_api_cache_root()
+
+    @classmethod
+    def _resolve_prefetch_workers(cls) -> int:
+        configured = _env_value(TELONEX_PREFETCH_WORKERS_ENV)
+        if configured is None:
+            return _TELONEX_DEFAULT_PREFETCH_WORKERS
+        try:
+            return max(1, int(configured))
+        except ValueError:
+            return _TELONEX_DEFAULT_PREFETCH_WORKERS
 
     def _config(self) -> TelonexLoaderConfig:
         config = _current_loader_config()
@@ -379,21 +403,29 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
             start=start,
             end=end,
         ):
-            if partition_dir not in self._telonex_readable_blob_parts:
-                self._telonex_readable_blob_parts[partition_dir] = (
-                    self._scan_readable_blob_part_paths(partition_dir)
-                )
-            partition_paths, partition_incomplete = self._telonex_readable_blob_parts[partition_dir]
+            with self._telonex_blob_scan_lock:
+                if partition_dir not in self._telonex_readable_blob_parts:
+                    self._telonex_readable_blob_parts[partition_dir] = (
+                        self._scan_readable_blob_part_paths(partition_dir)
+                    )
+                partition_paths, partition_incomplete = self._telonex_readable_blob_parts[
+                    partition_dir
+                ]
             if partition_incomplete:
                 incomplete = True
-                if partition_dir not in self._telonex_incomplete_blob_partitions_warned:
+                with self._telonex_blob_scan_lock:
+                    if partition_dir in self._telonex_incomplete_blob_partitions_warned:
+                        already_warned = True
+                    else:
+                        already_warned = False
+                        self._telonex_incomplete_blob_partitions_warned.add(partition_dir)
+                if not already_warned:
                     warnings.warn(
                         "Telonex: local blob partition "
                         f"{partition_dir} has unreadable part files; trying next "
                         "source to avoid partial local data.",
                         stacklevel=2,
                     )
-                    self._telonex_incomplete_blob_partitions_warned.add(partition_dir)
             paths.extend(partition_paths)
         return paths, incomplete
 
@@ -414,13 +446,18 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
                     raise OSError("empty file")
             except (OSError, ValueError):
                 incomplete = True
-                if path not in self._telonex_unreadable_blob_parts_warned:
+                with self._telonex_blob_scan_lock:
+                    if path in self._telonex_unreadable_blob_parts_warned:
+                        already_warned = True
+                    else:
+                        already_warned = False
+                        self._telonex_unreadable_blob_parts_warned.add(path)
+                if not already_warned:
                     warnings.warn(
                         f"Telonex: parquet part is not readable yet: {path}; "
                         "trying next source instead of using partial local data.",
                         stacklevel=2,
                     )
-                    self._telonex_unreadable_blob_parts_warned.add(path)
                 continue
             paths.append(str(path))
         return tuple(paths), incomplete
@@ -478,13 +515,18 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
                     raise OSError("empty file")
             except OSError:
                 incomplete = True
-                if part_path not in self._telonex_unreadable_blob_parts_warned:
+                with self._telonex_blob_scan_lock:
+                    if part_path in self._telonex_unreadable_blob_parts_warned:
+                        already_warned = True
+                    else:
+                        already_warned = False
+                        self._telonex_unreadable_blob_parts_warned.add(part_path)
+                if not already_warned:
                     warnings.warn(
                         f"Telonex: manifest references unreadable parquet part {part_path}; "
                         "trying next source instead of using partial local data.",
                         stacklevel=2,
                     )
-                    self._telonex_unreadable_blob_parts_warned.add(part_path)
                 continue
             paths.append(str(part_path))
         return paths, incomplete
@@ -526,14 +568,17 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
             start_day,
             end_day,
         )
-        if cache_key in self._telonex_blob_range_frames:
-            # Downstream consumers only `.to_numpy()` slices off the frame,
-            # never mutate it, so returning the cached reference is safe.
-            return self._telonex_blob_range_frames[cache_key]
+        self._ensure_blob_scan_caches()
+        with self._telonex_blob_scan_lock:
+            if cache_key in self._telonex_blob_range_frames:
+                # Downstream consumers only `.to_numpy()` slices off the frame,
+                # never mutate it, so returning the cached reference is safe.
+                return self._telonex_blob_range_frames[cache_key]
 
         channel_dir = store_root / _TELONEX_DATA_SUBDIR / f"channel={channel}"
         if not channel_dir.exists():
-            self._telonex_blob_range_frames[cache_key] = None
+            with self._telonex_blob_scan_lock:
+                self._telonex_blob_range_frames[cache_key] = None
             return None
         manifest_parts = self._manifest_blob_part_paths(
             store_root=store_root,
@@ -558,7 +603,8 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
         if incomplete_parts:
             return None
         if not part_paths:
-            self._telonex_blob_range_frames[cache_key] = None
+            with self._telonex_blob_scan_lock:
+                self._telonex_blob_range_frames[cache_key] = None
             return None
 
         segments = self._outcome_segment_candidates(token_index=token_index, outcome=outcome)
@@ -650,7 +696,8 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
             )
             table = scanner.to_table()
             if table.num_rows == 0:
-                self._telonex_blob_range_frames[cache_key] = None
+                with self._telonex_blob_scan_lock:
+                    self._telonex_blob_range_frames[cache_key] = None
                 return None
             frame = table.to_pandas()
         except (pa.ArrowInvalid, pa.ArrowIOError, OSError, ValueError) as exc:
@@ -659,14 +706,15 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
                 f"{token_index} ({channel}) — pyarrow failed: {exc}",
                 stacklevel=2,
             )
-            self._telonex_blob_range_frames[cache_key] = None
+            with self._telonex_blob_scan_lock:
+                self._telonex_blob_range_frames[cache_key] = None
             return None
 
         if frame.empty:
-            self._telonex_blob_range_frames[cache_key] = None
-            self._telonex_blob_ts_ns.pop(cache_key, None)
+            with self._telonex_blob_scan_lock:
+                self._telonex_blob_range_frames[cache_key] = None
+                self._telonex_blob_ts_ns.pop(cache_key, None)
             return None
-        self._telonex_blob_range_frames[cache_key] = frame
         # Pre-compute the nanosecond timestamp array for every possible
         # timestamp column name so per-day callers of _column_to_ns() can
         # reuse it instead of converting the same month-sized column N times.
@@ -680,23 +728,30 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
                     )
                     break
         if ts_ns_map:
-            self._telonex_blob_ts_ns[cache_key] = ts_ns_map
+            with self._telonex_blob_scan_lock:
+                self._telonex_blob_range_frames[cache_key] = frame
+                self._telonex_blob_ts_ns[cache_key] = ts_ns_map
+        else:
+            with self._telonex_blob_scan_lock:
+                self._telonex_blob_range_frames[cache_key] = frame
         return frame
 
     def _cached_ts_ns_for_frame(self, frame: pd.DataFrame, column_name: str) -> np.ndarray | None:
         """Return a pre-computed ts_ns array if *frame* is a memoized blob
         frame (same object identity) and *column_name* was cached."""
+        self._ensure_blob_scan_caches()
         blob_frames = getattr(self, "_telonex_blob_range_frames", None)
         if blob_frames is None:
             return None
         blob_ts = getattr(self, "_telonex_blob_ts_ns", None)
-        for key, cached_frame in blob_frames.items():
-            if cached_frame is frame:
-                if blob_ts is not None:
-                    ts_map = blob_ts.get(key)
-                    if ts_map is not None:
-                        return ts_map.get(column_name)
-                return None
+        with self._telonex_blob_scan_lock:
+            for key, cached_frame in blob_frames.items():
+                if cached_frame is frame:
+                    if blob_ts is not None:
+                        ts_map = blob_ts.get(key)
+                        if ts_map is not None:
+                            return ts_map.get(column_name)
+                    return None
         return None
 
     @classmethod
@@ -1889,6 +1944,233 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
             return None
         return None
 
+    def _try_load_day_from_api_entry(
+        self,
+        *,
+        entry: TelonexSourceEntry,
+        channel: str,
+        date: str,
+        market_slug: str,
+        token_index: int,
+        outcome: str | None,
+    ) -> tuple[pd.DataFrame | None, str]:
+        assert entry.target is not None
+        try:
+            frame = self._load_api_day(
+                base_url=entry.target,
+                channel=channel,
+                date=date,
+                market_slug=market_slug,
+                token_index=token_index,
+                outcome=outcome,
+                api_key=entry.api_key,
+            )
+        except (HTTPError, URLError, OSError, ValueError, RuntimeError) as exc:
+            warnings.warn(
+                f"Telonex: source {entry.kind}:{entry.target} failed for {date} "
+                f"({market_slug}/{token_index}): {exc}; trying next source.",
+                stacklevel=2,
+            )
+            return None, "none"
+        if frame is None:
+            return None, "none"
+        return (
+            frame,
+            self._telonex_api_source_label(
+                base_url=entry.target,
+                channel=channel,
+                date=date,
+                market_slug=market_slug,
+                token_index=token_index,
+                outcome=outcome,
+            ),
+        )
+
+    def _telonex_api_source_label(
+        self,
+        *,
+        base_url: str,
+        channel: str,
+        date: str,
+        market_slug: str,
+        token_index: int,
+        outcome: str | None,
+    ) -> str:
+        return "telonex-api::" + self._api_url(
+            base_url=base_url,
+            channel=channel,
+            date=date,
+            market_slug=market_slug,
+            token_index=token_index,
+            outcome=outcome,
+        )
+
+    def _load_order_book_deltas_day(
+        self,
+        *,
+        date: str,
+        config: TelonexLoaderConfig,
+        api_entries: Sequence[TelonexSourceEntry],
+        start: pd.Timestamp,
+        end: pd.Timestamp,
+        market_slug: str,
+        token_index: int,
+        outcome: str | None,
+        include_order_book: bool,
+        range_cache: dict[Path, pd.DataFrame | None],
+    ) -> _TelonexDayResult:
+        self._day_progress(date, "start", "none", 0)
+        _ = api_entries  # API cache is consulted only when an API source is reached.
+        day_source = "none"
+        emitted_day_complete = False
+        try:
+            day_window = self._day_window(date, start=start, end=end)
+            if day_window is None:
+                self._day_progress(date, "complete", day_source, 0)
+                emitted_day_complete = True
+                return _TelonexDayResult(date=date, records=[], source=day_source)
+
+            day_start, day_end = day_window
+            cached_records, cached_source = self._load_deltas_cache_day(
+                channel=config.channel,
+                date=date,
+                market_slug=market_slug,
+                token_index=token_index,
+                outcome=outcome,
+                start=day_start,
+                end=day_end,
+            )
+            if cached_records is not None:
+                self._day_progress(date, "complete", cached_source, len(cached_records))
+                emitted_day_complete = True
+                return _TelonexDayResult(date=date, records=cached_records, source=cached_source)
+
+            frame: pd.DataFrame | None = None
+            if frame is None:
+                for entry in config.ordered_source_entries:
+                    if entry.kind == _TELONEX_SOURCE_LOCAL:
+                        frame = self._try_load_day_from_local(
+                            entry=entry,
+                            channel=config.channel,
+                            date=date,
+                            market_slug=market_slug,
+                            token_index=token_index,
+                            outcome=outcome,
+                            start=day_start,
+                            end=day_end,
+                            range_cache=range_cache,
+                        )
+                        day_source = (
+                            f"telonex-local::{entry.target}" if frame is not None else day_source
+                        )
+                    else:
+                        frame, source = self._try_load_day_from_api_entry(
+                            entry=entry,
+                            channel=config.channel,
+                            date=date,
+                            market_slug=market_slug,
+                            token_index=token_index,
+                            outcome=outcome,
+                        )
+                        day_source = source if frame is not None else day_source
+                    if frame is not None:
+                        break
+
+            if frame is None:
+                self._day_progress(date, "complete", day_source, 0)
+                emitted_day_complete = True
+                return _TelonexDayResult(date=date, records=[], source=day_source)
+
+            day_records = self._book_events_from_frame(
+                frame,
+                start=day_start,
+                end=day_end,
+                include_order_book=include_order_book,
+            )
+            if include_order_book:
+                self._write_deltas_cache_day(
+                    records=day_records,
+                    channel=config.channel,
+                    date=date,
+                    market_slug=market_slug,
+                    token_index=token_index,
+                    outcome=outcome,
+                    start=day_start,
+                    end=day_end,
+                )
+            self._day_progress(date, "complete", day_source, len(day_records))
+            emitted_day_complete = True
+            return _TelonexDayResult(date=date, records=day_records, source=day_source)
+        finally:
+            if not emitted_day_complete:
+                self._day_progress(date, "complete", day_source, 0)
+
+    def _iter_loaded_telonex_days(
+        self,
+        *,
+        dates: list[str],
+        config: TelonexLoaderConfig,
+        api_entries: Sequence[TelonexSourceEntry],
+        start: pd.Timestamp,
+        end: pd.Timestamp,
+        market_slug: str,
+        token_index: int,
+        outcome: str | None,
+        include_order_book: bool,
+    ) -> Iterator[_TelonexDayResult]:
+        prefetch_workers = getattr(
+            self, "_telonex_prefetch_workers", self._resolve_prefetch_workers()
+        )
+        max_workers = min(prefetch_workers, len(dates)) if api_entries else 1
+        if max_workers <= 1:
+            range_cache: dict[Path, pd.DataFrame | None] = {}
+            for date in dates:
+                yield self._load_order_book_deltas_day(
+                    date=date,
+                    config=config,
+                    api_entries=api_entries,
+                    start=start,
+                    end=end,
+                    market_slug=market_slug,
+                    token_index=token_index,
+                    outcome=outcome,
+                    include_order_book=include_order_book,
+                    range_cache=range_cache,
+                )
+            return
+
+        with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="telonex-day") as pool:
+            futures: dict[str, Future[_TelonexDayResult]] = {}
+            next_index = 0
+
+            def _submit_next() -> None:
+                nonlocal next_index
+                if next_index >= len(dates):
+                    return
+                date = dates[next_index]
+                next_index += 1
+                futures[date] = pool.submit(
+                    self._load_order_book_deltas_day,
+                    date=date,
+                    config=config,
+                    api_entries=api_entries,
+                    start=start,
+                    end=end,
+                    market_slug=market_slug,
+                    token_index=token_index,
+                    outcome=outcome,
+                    include_order_book=include_order_book,
+                    range_cache={},
+                )
+
+            for _ in range(max_workers):
+                _submit_next()
+
+            for date in dates:
+                result = futures.pop(date).result()
+                _submit_next()
+                yield result
+
     def load_order_book_deltas(
         self,
         start: pd.Timestamp,
@@ -1904,113 +2186,19 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
         api_entries = [
             entry for entry in config.ordered_source_entries if entry.kind == _TELONEX_SOURCE_API
         ]
-        range_cache: dict[Path, pd.DataFrame | None] = {}
-        for date in self._date_range(start, end):
-            self._day_progress(date, "start", "none", 0)
-            day_source = "none"
-            emitted_day_complete = False
-            day_window = self._day_window(date, start=start, end=end)
-            if day_window is None:
-                self._day_progress(date, "complete", day_source, 0)
-                continue
-            try:
-                day_start, day_end = day_window
-                cached_records, cached_source = self._load_deltas_cache_day(
-                    channel=config.channel,
-                    date=date,
-                    market_slug=market_slug,
-                    token_index=token_index,
-                    outcome=outcome,
-                    start=day_start,
-                    end=day_end,
-                )
-                if cached_records is not None:
-                    records.extend(cached_records)
-                    self._day_progress(date, "complete", cached_source, len(cached_records))
-                    emitted_day_complete = True
-                    continue
-                frame: pd.DataFrame | None = None
-                for entry in api_entries:
-                    assert entry.target is not None
-                    cached_frame, cached_source = self._load_api_day_cached(
-                        base_url=entry.target,
-                        channel=config.channel,
-                        date=date,
-                        market_slug=market_slug,
-                        token_index=token_index,
-                        outcome=outcome,
-                    )
-                    if cached_frame is not None:
-                        frame = cached_frame
-                        day_source = cached_source
-                        break
-                if frame is None:
-                    for entry in config.ordered_source_entries:
-                        if entry.kind == _TELONEX_SOURCE_LOCAL:
-                            frame = self._try_load_day_from_local(
-                                entry=entry,
-                                channel=config.channel,
-                                date=date,
-                                market_slug=market_slug,
-                                token_index=token_index,
-                                outcome=outcome,
-                                start=day_start,
-                                end=day_end,
-                                range_cache=range_cache,
-                            )
-                            day_source = (
-                                f"telonex-local::{entry.target}"
-                                if frame is not None
-                                else day_source
-                            )
-                        else:
-                            frame = self._try_load_day_from_entry(
-                                entry=entry,
-                                channel=config.channel,
-                                date=date,
-                                market_slug=market_slug,
-                                token_index=token_index,
-                                outcome=outcome,
-                            )
-                            actual_source = getattr(self, "_telonex_last_api_source", None)
-                            day_source = (
-                                actual_source
-                                if frame is not None and actual_source
-                                else (
-                                    f"telonex-api::{entry.target}"
-                                    if frame is not None
-                                    else day_source
-                                )
-                            )
-                        if frame is not None:
-                            break
-                if frame is None:
-                    self._day_progress(date, "complete", day_source, 0)
-                    emitted_day_complete = True
-                    continue
-                day_records = self._book_events_from_frame(
-                    frame,
-                    start=day_start,
-                    end=day_end,
-                    include_order_book=include_order_book,
-                )
-                if include_order_book:
-                    self._write_deltas_cache_day(
-                        records=day_records,
-                        channel=config.channel,
-                        date=date,
-                        market_slug=market_slug,
-                        token_index=token_index,
-                        outcome=outcome,
-                        start=day_start,
-                        end=day_end,
-                    )
-                records.extend(day_records)
-                self._day_progress(date, "complete", day_source, len(day_records))
-                emitted_day_complete = True
-            finally:
-                if not emitted_day_complete:
-                    self._day_progress(date, "complete", day_source, 0)
+        dates = self._date_range(start, end)
+        for result in self._iter_loaded_telonex_days(
+            dates=dates,
+            config=config,
+            api_entries=api_entries,
+            start=start,
+            end=end,
+            market_slug=market_slug,
+            token_index=token_index,
+            outcome=outcome,
+            include_order_book=include_order_book,
+        ):
+            records.extend(result.records)
         records.sort(key=lambda record: int(record.ts_event))
         return records
 
@@ -2022,6 +2210,7 @@ __all__ = [
     "TELONEX_CHANNEL_ENV",
     "TELONEX_FULL_BOOK_CHANNEL",
     "TELONEX_LOCAL_DIR_ENV",
+    "TELONEX_PREFETCH_WORKERS_ENV",
     "RunnerPolymarketTelonexBookDataLoader",
     "TelonexDataSourceSelection",
     "TelonexLoaderConfig",
