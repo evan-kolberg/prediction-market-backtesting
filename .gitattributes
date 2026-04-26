@@ -1,0 +1,2 @@
+# Keep research notebooks visible in diffs, but exclude them from GitHub language stats.
+*.ipynb -linguist-detectable
