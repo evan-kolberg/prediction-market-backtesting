@@ -203,4 +203,4 @@ def test_trade_tick_loader_reports_api_and_cache_progress(
 
     assert cached_trades == ()
     assert loader.calls == 1
-    assert "cache 2026-01-19" in cached_output
+    assert "cache 2026-01-19.parquet" in cached_output

@@ -45,6 +45,12 @@ def _hour_label(source: str) -> str:
     return filename or path
 
 
+def _filename_label(source: str) -> str:
+    parsed = urlparse(source)
+    path = parsed.path or source
+    return Path(path).name or path
+
+
 def _format_bytes(size: int | None) -> str:
     if size is None:
         return "? B"
@@ -70,16 +76,20 @@ def _transfer_label(source: str) -> str:
         ("telonex-api::", "telonex api"),
     ):
         if source.startswith(prefix):
-            return f"{label} {_hour_label(source.removeprefix(prefix))}"
+            remainder = source.removeprefix(prefix)
+            if prefix == "cache::":
+                return f"{label} {_filename_label(remainder)}"
+            if prefix in {"local-raw::", "remote-raw::", "telonex-local::", "telonex-api::"}:
+                return label
+            return f"{label} {_hour_label(remainder)}"
 
     if source in {"none", "unknown", "local raw"}:
         return source
 
     parsed = urlparse(source)
-    hour_label = _hour_label(source)
     if parsed.scheme == "file" or source.startswith("/"):
-        return f"local raw {hour_label}"
-    return f"r2 raw {hour_label}"
+        return "local raw"
+    return "r2 raw"
 
 
 def _progress_bar_description(

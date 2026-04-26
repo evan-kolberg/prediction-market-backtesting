@@ -144,7 +144,7 @@ enabled unless you are intentionally testing a lower-bound execution scenario.
   rebuilds the book.
 - PMXT filtered cache is enabled by default at
   `~/.cache/nautilus_trader/pmxt`.
-- Public runners usually try `local:/Volumes/LaCie/pmxt_raws` first, then
+- Public runners usually try `local:/Volumes/LaCie/pmxt_data` first, then
   `archive:r2v2.pmxt.dev`, then `archive:r2.pmxt.dev`.
 
 ### Telonex

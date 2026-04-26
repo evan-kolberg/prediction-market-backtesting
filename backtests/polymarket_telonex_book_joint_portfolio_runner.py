@@ -51,8 +51,8 @@ def run() -> None:
                     data_type=Book,
                     vendor=Telonex,
                     sources=(
-                        "local:/Volumes/LaCie/telonex_data",
                         f"api:{os.environ.get('TELONEX_API_KEY', '')}",
+                        "local:/Volumes/LaCie/telonex_data",
                     ),
                 ),
                 replays=(

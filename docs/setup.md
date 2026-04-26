@@ -111,8 +111,7 @@ uv run python scripts/telonex_download_data.py \
 ```
 
 `book_snapshot_full` is the canonical Telonex book channel. The public Telonex
-runner reads `local:/Volumes/LaCie/telonex_data` first, then `api:` when a day
-is not available locally and `TELONEX_API_KEY` is configured.
+runner reads `api:` first, then `local:/Volumes/LaCie/telonex_data`.
 
 The Telonex downloader writes Hive-partitioned parquet files under
 `<destination>/data/` and a DuckDB manifest at `<destination>/telonex.duckdb`.
@@ -142,7 +141,7 @@ Throughput and memory controls:
 - Normal Nautilus logs are still printed; timing output is additive.
 - PMXT filtered cache is enabled by default at
   `~/.cache/nautilus_trader/pmxt`.
-- Public PMXT runners usually pin `local:/Volumes/LaCie/pmxt_raws` first,
+- Public PMXT runners usually pin `local:/Volumes/LaCie/pmxt_data` first,
   `archive:r2v2.pmxt.dev` second, and `archive:r2.pmxt.dev` third.
 - Telonex API-day cache is enabled by default at
   `~/.cache/nautilus_trader/telonex`.

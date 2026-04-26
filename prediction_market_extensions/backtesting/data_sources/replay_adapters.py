@@ -265,7 +265,7 @@ async def _load_trade_ticks(
         if cache_path is not None and cache_path.exists():
             frame = pd.read_parquet(cache_path)
             day_trades = _deserialize_trade_ticks(loader=loader, frame=frame)
-            source = f"cache {cache_path.name.removesuffix('.parquet')}"
+            source = f"cache {cache_path.name}"
         else:
             fetched = await loader.load_trades(day_start, day_end)
             day_trades = tuple(sorted(fetched, key=_trade_record_sort_key))

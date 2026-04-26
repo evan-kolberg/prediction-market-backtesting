@@ -84,7 +84,7 @@ def run() -> None:
                 data_type=Book,
                 vendor=PMXT,
                 sources=(
-                    "local:/Volumes/LaCie/pmxt_raws",
+                    "local:/Volumes/LaCie/pmxt_data",
                     "archive:r2v2.pmxt.dev",
                     "archive:r2.pmxt.dev",
                 ),
@@ -346,7 +346,7 @@ trade-tick replay.
 ### PMXT
 
 - PMXT is the raw-hourly Polymarket L2 vendor path.
-- Public runners usually list `local:/Volumes/LaCie/pmxt_raws` first, then
+- Public runners usually list `local:/Volumes/LaCie/pmxt_data` first, then
   `archive:r2v2.pmxt.dev`, then `archive:r2.pmxt.dev`.
 - PMXT source parsing is strict: only `local:` and `archive:` entries are
   supported in `MarketDataConfig.sources`.
