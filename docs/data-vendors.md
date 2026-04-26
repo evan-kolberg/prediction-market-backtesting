@@ -26,7 +26,7 @@ MarketDataConfig(
     data_type=Book,
     vendor=PMXT,
     sources=(
-        "local:/Volumes/LaCie/pmxt_raws",
+        "local:/Volumes/LaCie/pmxt_data",
         "archive:r2v2.pmxt.dev",
         "archive:r2.pmxt.dev",
     ),

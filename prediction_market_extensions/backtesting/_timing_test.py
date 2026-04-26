@@ -79,7 +79,7 @@ def _transfer_label(source: str) -> str:
             remainder = source.removeprefix(prefix)
             if prefix == "cache::":
                 return f"{label} {_filename_label(remainder)}"
-            if prefix in {"local-raw::", "telonex-local::", "telonex-api::"}:
+            if prefix in {"local-raw::", "remote-raw::", "telonex-local::", "telonex-api::"}:
                 return label
             return f"{label} {_hour_label(remainder)}"
 
@@ -87,10 +87,9 @@ def _transfer_label(source: str) -> str:
         return source
 
     parsed = urlparse(source)
-    hour_label = _hour_label(source)
     if parsed.scheme == "file" or source.startswith("/"):
         return "local raw"
-    return f"r2 raw {hour_label}"
+    return "r2 raw"
 
 
 def _progress_bar_description(

@@ -266,8 +266,8 @@ def test_telonex_book_joint_runners_build_inline_summary_contract(
     assert experiment.data.data_type == "book"
     assert experiment.data.vendor == "telonex"
     assert experiment.data.sources == (
-        "local:/Volumes/LaCie/telonex_data",
         "api:test-telonex-key",
+        "local:/Volumes/LaCie/telonex_data",
     )
     assert experiment.report.summary_report is True
     assert (

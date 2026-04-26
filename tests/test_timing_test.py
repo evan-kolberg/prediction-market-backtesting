@@ -18,7 +18,7 @@ from prediction_market_extensions.backtesting._timing_test import (
 
 def test_transfer_label_identifies_local_raw_paths() -> None:
     label = _transfer_label(
-        "/Volumes/LaCie/pmxt_raws/2026/02/22/polymarket_orderbook_2026-02-22T11.parquet"
+        "/Volumes/LaCie/pmxt_data/2026/02/22/polymarket_orderbook_2026-02-22T11.parquet"
     )
 
     assert label == "local raw"
@@ -35,7 +35,7 @@ def test_transfer_label_identifies_cache_paths() -> None:
 def test_transfer_label_identifies_r2_raw_urls() -> None:
     label = _transfer_label("https://r2v2.pmxt.dev/polymarket_orderbook_2026-02-22T11.parquet")
 
-    assert label == "r2 raw 2026-02-22T11"
+    assert label == "r2 raw"
 
 
 def test_transfer_label_identifies_telonex_sources() -> None:
@@ -72,7 +72,7 @@ def test_format_completed_hour_line_keeps_long_elapsed_values_aligned() -> None:
         datetime(2026, 2, 22, 1, tzinfo=timezone.utc),
         elapsed=22.608,
         rows=4156,
-        source="local-raw::/Volumes/LaCie/pmxt_raws/2026/02/22/polymarket_orderbook_2026-02-22T01.parquet",
+        source="local-raw::/Volumes/LaCie/pmxt_data/2026/02/22/polymarket_orderbook_2026-02-22T01.parquet",
     )
 
     assert line == "  2026-02-22T01:00:00+00:00     22.608s      4156 rows  local raw"
@@ -130,7 +130,7 @@ def test_transfer_progress_fraction_does_not_front_load_local_scan() -> None:
     assert (
         _transfer_progress_fraction(
             mode="scan",
-            source="/Volumes/LaCie/pmxt_raws/2026/02/22/polymarket_orderbook_2026-02-22T15.parquet",
+            source="/Volumes/LaCie/pmxt_data/2026/02/22/polymarket_orderbook_2026-02-22T15.parquet",
             downloaded_bytes=0,
             total_bytes=100,
             scanned_batches=0,
@@ -139,7 +139,7 @@ def test_transfer_progress_fraction_does_not_front_load_local_scan() -> None:
     )
     assert _transfer_progress_fraction(
         mode="scan",
-        source="/Volumes/LaCie/pmxt_raws/2026/02/22/polymarket_orderbook_2026-02-22T15.parquet",
+        source="/Volumes/LaCie/pmxt_data/2026/02/22/polymarket_orderbook_2026-02-22T15.parquet",
         downloaded_bytes=0,
         total_bytes=100,
         scanned_batches=2,
@@ -158,7 +158,7 @@ def test_active_transfer_progress_dedupes_by_hour() -> None:
                 "scanned_batches": 0,
             },
             "two": {
-                "url": "/Volumes/LaCie/pmxt_raws/2026/02/22/polymarket_orderbook_2026-02-22T15.parquet",
+                "url": "/Volumes/LaCie/pmxt_data/2026/02/22/polymarket_orderbook_2026-02-22T15.parquet",
                 "hour_key": "2026-02-22T15:00:00+00:00",
                 "mode": "scan",
                 "downloaded_bytes": 0,
