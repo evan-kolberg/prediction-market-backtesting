@@ -10,14 +10,14 @@ PMXT book runners fetch historical L2 order-book data one UTC hour at a time.
 The hour lookup order is:
 
 1. Local filtered cache.
-2. Each explicit raw source in `DATA.sources`, left to right.
+2. Each explicit raw source in `MarketDataConfig.sources`, left to right.
 3. Confirmed miss.
 
 The public PMXT runners usually use:
 
 ```python
 sources=(
-    "local:/Volumes/LaCie/pmxt_data",
+    "local:/Volumes/LaCie/pmxt_raws",
     "archive:r2v2.pmxt.dev",
     "archive:r2.pmxt.dev",
 )
@@ -33,7 +33,7 @@ stores a compact filtered parquet slice rather than the full raw archive hour.
 A representative PMXT run prints:
 
 ```text
-PMXT source: explicit priority (cache -> local /Volumes/LaCie/pmxt_data -> archive https://r2v2.pmxt.dev -> archive https://r2.pmxt.dev)
+PMXT source: explicit priority (cache -> local /Volumes/LaCie/pmxt_raws -> archive https://r2v2.pmxt.dev -> archive https://r2.pmxt.dev)
 Loading PMXT Polymarket market will-ludvig-aberg-win-the-2026-masters-tournament (token_index=0, window_start=2026-04-05T00:00:00+00:00, window_end=2026-04-07T23:59:59+00:00)...
   2026-04-05T00:00:00+00:00      ...          ... rows  cache 2026-04-05T00
   2026-04-06T12:00:00+00:00      ...          ... rows  local raw 2026-04-06T12
@@ -58,7 +58,7 @@ Telonex book runners read full-depth daily book snapshots from
 Typical source config:
 
 ```python
-DATA = MarketDataConfig(
+MarketDataConfig(
     platform=Polymarket,
     data_type=Book,
     vendor=Telonex,
@@ -69,11 +69,12 @@ DATA = MarketDataConfig(
 )
 ```
 
-The effective lookup order is:
+The effective lookup order for converted replay records is:
 
-1. Telonex API-day cache, when enabled.
-2. Local mirror entries listed in `DATA.sources`.
-3. API entries listed in `DATA.sources`.
+1. Telonex materialized `OrderBookDeltas` cache under `book-deltas-v1`.
+2. Telonex API-day cache, when enabled.
+3. Local mirror entries listed in `MarketDataConfig.sources`.
+4. API entries listed in `MarketDataConfig.sources`.
 
 The `Telonex source:` line shows that implicit cache layer:
 
@@ -93,6 +94,11 @@ stores `bid_prices`, `bid_sizes`, `ask_prices`, and `ask_sizes` as
 `list<string>` columns. That keeps price/size precision and avoids slow nested
 list-of-struct pandas decoding.
 
+After any raw/cache/local/API day is converted to `OrderBookDeltas`, the loader
+writes a materialized deltas parquet. Repeated runs for the same market, token,
+instrument id, day, and clipped window report `telonex deltas cache ...` and
+skip full-book snapshot diffing.
+
 ## Timing Expectations By Source
 
 | Source | Expected behavior | When it happens |
@@ -100,6 +106,7 @@ list-of-struct pandas decoding.
 | PMXT filtered cache | Fastest PMXT path; compact filtered parquet per market/token/hour | Second run onward for the same market, token, and hour |
 | Local PMXT raw archive | Local disk bound; scans full raw hour then filters to market/token | Hour is missing from filtered cache but exists in `local:/...` |
 | Remote PMXT raw archive | Network and full-hour parquet bound | Hour is missing locally and archive fallback is configured |
+| Telonex deltas cache | Fastest Telonex path; materialized Nautilus `OrderBookDeltas` | Same market/token/day/window was already converted once |
 | Telonex fast API cache | Local disk bound; avoids nested payload materialization | API day was previously downloaded and sidecar exists or was lazily migrated |
 | Local Telonex mirror | Local disk bound; manifest-pruned parquet parts | `/Volumes/LaCie/telonex_data` has the requested full-book day |
 | Telonex API | Network and daily parquet bound | Cache/local mirror misses and `TELONEX_API_KEY` is available |

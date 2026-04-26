@@ -19,6 +19,27 @@ from prediction_market_extensions.backtesting._prediction_market_runner import M
 from prediction_market_extensions.backtesting._replay_specs import BookReplay
 
 
+class _FakeMessageBus:
+    def __init__(self) -> None:
+        self.handlers = {}
+        self.published: list[tuple[str, str, bool]] = []
+
+    def subscribe(self, topic, handler):  # type: ignore[no-untyped-def]
+        self.handlers[topic] = handler
+
+    def publish(self, topic, message, external_pub=True):  # type: ignore[no-untyped-def]
+        self.published.append((topic, message, external_pub))
+        self.handlers[topic](message)
+
+
+class _FakeLogger:
+    def __init__(self) -> None:
+        self.messages: list[str] = []
+
+    def info(self, message: str) -> None:
+        self.messages.append(message)
+
+
 class _EngineStub:
     def __init__(self, *, config) -> None:  # type: ignore[no-untyped-def]
         self.config = config
@@ -63,6 +84,19 @@ def test_prediction_market_backtest_build_engine_forwards_execution(monkeypatch)
     assert latency_model.update_latency_nanos == 30_000_000
     assert latency_model.cancel_latency_nanos == 27_000_000
     assert engine.config.risk_engine.bypass is False
+
+
+def test_emit_engine_status_uses_nautilus_message_bus() -> None:
+    msgbus = _FakeMessageBus()
+    logger = _FakeLogger()
+    engine = SimpleNamespace(kernel=SimpleNamespace(msgbus=msgbus, logger=logger))
+
+    backtest_module._emit_engine_status(engine, "demo status")
+
+    assert msgbus.published == [
+        (backtest_module.REPO_STATUS_TOPIC, "demo status", False),
+    ]
+    assert logger.messages == ["demo status"]
 
 
 def test_build_backtest_run_state_marks_forced_stop_with_partial_coverage():

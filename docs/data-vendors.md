@@ -18,15 +18,15 @@ The preferred workflow is raw-first:
 
 ### Runner Source Modes
 
-Public PMXT runners select sources directly in `MarketDataConfig`:
+Public PMXT runners select sources directly in their inline `MarketDataConfig`:
 
 ```python
-DATA = MarketDataConfig(
+MarketDataConfig(
     platform=Polymarket,
     data_type=Book,
     vendor=PMXT,
     sources=(
-        "local:/Volumes/LaCie/pmxt_data",
+        "local:/Volumes/LaCie/pmxt_raws",
         "archive:r2v2.pmxt.dev",
         "archive:r2.pmxt.dev",
     ),
@@ -36,15 +36,15 @@ DATA = MarketDataConfig(
 Lookup order:
 
 1. Local filtered cache at `~/.cache/nautilus_trader/pmxt`.
-2. Explicit raw sources in `DATA.sources`, left to right.
+2. Explicit raw sources in `MarketDataConfig.sources`, left to right.
 3. Confirmed miss.
 
-`DATA.sources` is intentionally strict: use only `local:` and `archive:` for
-PMXT. Bare hosts, bare paths, and legacy aliases are rejected.
+`MarketDataConfig.sources` is intentionally strict: use only `local:` and
+`archive:` for PMXT. Bare hosts, bare paths, and legacy aliases are rejected.
 
 ### Lower-Level Loader Env Vars
 
-Runner files should carry their source priority in code. These lower-level env
+Runner files should carry their source priority inline. These lower-level env
 vars remain available for custom integrations:
 
 - `PMXT_LOCAL_ARCHIVE_DIR`
@@ -190,6 +190,17 @@ The fast sidecar preserves price and size strings while avoiding expensive
 pandas materialization of nested list-of-struct columns. If a raw cache file is
 encountered without a sidecar, the loader migrates it lazily.
 
+Replay conversion has a separate materialized cache under:
+
+```text
+~/.cache/nautilus_trader/telonex/book-deltas-v1
+```
+
+That cache stores Nautilus `OrderBookDeltas` after full-book snapshots have
+already been diffed. It is keyed by exchange, channel, market slug, outcome,
+instrument id, day, and clipped replay window. Warm runs report
+`telonex deltas cache` and skip local/API snapshot decoding entirely.
+
 Clear only the API cache with:
 
 ```bash
@@ -247,16 +258,21 @@ Downloader behavior:
 
 - Default destination is `/Volumes/LaCie/telonex_data`.
 - Default channel is `book_snapshot_full`.
-- Default `--workers` is 16 to keep full-book RSS bounded.
-- `--parse-workers` controls the bounded Arrow decode pool.
+- Default `--workers` is 16.
+- `--parse-workers` or `TELONEX_PARSE_WORKERS` controls the bounded Arrow
+  decode pool.
+- `--writer-queue-items` or `TELONEX_WRITER_QUEUE_ITEMS` bounds parsed day
+  results waiting for the writer. Default: `128`.
+- `--pending-commit-items` or `TELONEX_PENDING_COMMIT_ITEMS` bounds completed
+  day results held before manifest commit. Default: `128`.
 - Transient `408`, `425`, `429`, and `5xx` responses retry with exponential
   backoff.
 - Completed days and empty days are tracked in `telonex.duckdb` for crash-safe
   resume.
-- The writer queue is bounded and periodically flushed. The downloader inserts
-  flush barriers at least hourly and after bounded handoff counts, then releases
-  Arrow tables and runs garbage collection. This prevents the old unbounded
-  pending-job growth on long `--all-markets` runs.
+- The writer queue and pending-commit list are bounded, and an hourly forced
+  writer drain releases Arrow memory and prints RSS. Raising the queue limits
+  can improve throughput on high-RAM machines while still preventing unbounded
+  growth.
 - Hit `Ctrl-C` once to stop gracefully; in-flight work drains and the manifest
   is flushed before exit.
 

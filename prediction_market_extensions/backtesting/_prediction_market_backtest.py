@@ -63,6 +63,7 @@ PolymarketPMXTDataLoader = RunnerPolymarketPMXTDataLoader
 type StrategyFactory = Callable[[InstrumentId], Strategy]
 
 LARGE_DATA_GAP_NS = 4 * 60 * 60 * 1_000_000_000
+REPO_STATUS_TOPIC = "prediction_market.backtest.status"
 
 
 def _record_ts_event(record: Any) -> int | None:
@@ -87,6 +88,30 @@ def _largest_record_gap_ns(records: Sequence[Any]) -> int | None:
             largest_gap = gap if largest_gap is None else max(largest_gap, gap)
         previous_ts = ts_event
     return largest_gap
+
+
+def _emit_engine_status(engine: BacktestEngine, message: str) -> None:
+    try:
+        msgbus = engine.kernel.msgbus
+        logger = engine.kernel.logger
+        if not getattr(engine, "_prediction_market_status_listener", False):
+            msgbus.subscribe(REPO_STATUS_TOPIC, lambda msg: logger.info(str(msg)))
+            setattr(engine, "_prediction_market_status_listener", True)
+        msgbus.publish(REPO_STATUS_TOPIC, message, external_pub=False)
+    except Exception:
+        print(message)
+
+
+def _serialize_engine_result_stats(engine_result: Any) -> dict[str, Any]:
+    return {
+        "iterations": int(getattr(engine_result, "iterations", 0) or 0),
+        "total_events": int(getattr(engine_result, "total_events", 0) or 0),
+        "total_orders": int(getattr(engine_result, "total_orders", 0) or 0),
+        "total_positions": int(getattr(engine_result, "total_positions", 0) or 0),
+        "elapsed_time": float(getattr(engine_result, "elapsed_time", 0.0) or 0.0),
+        "stats_pnls": dict(getattr(engine_result, "stats_pnls", {}) or {}),
+        "stats_returns": dict(getattr(engine_result, "stats_returns", {}) or {}),
+    }
 
 
 class PredictionMarketBacktest:
@@ -186,8 +211,9 @@ class PredictionMarketBacktest:
                 for importable_config in self._build_importable_strategy_configs(loaded_sims):
                     engine.add_strategy(NautilusStrategyFactory.create(importable_config))
 
-            print(
-                f"Starting {self.name} with {len(loaded_sims)} sims and {self._strategy_summary_label()}..."
+            _emit_engine_status(
+                engine,
+                f"Starting {self.name} with {len(loaded_sims)} sims and {self._strategy_summary_label()}...",
             )
             engine.run()
             engine_result = engine.get_result()
@@ -220,6 +246,8 @@ class PredictionMarketBacktest:
                 )
                 for result_index, loaded_sim in enumerate(loaded_sims)
             ]
+            if results:
+                results[0]["portfolio_stats"] = _serialize_engine_result_stats(engine_result)
             return apply_repo_research_disclosures(results)
         finally:
             engine.reset()

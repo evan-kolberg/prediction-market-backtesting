@@ -15,17 +15,17 @@ Think about plotting as one shared report for a run:
   separate generated HTML files.
 
 Summary reports are built from summary-series artifacts returned by the
-backtest. Runner controls:
+backtest. Runner controls live inline in `build_replay_experiment(...)`:
 
-- `REPORT.summary_report=True`
-- `REPORT.summary_report_path=SUMMARY_REPORT_PATH`
-- `REPORT.summary_plot_panels=SUMMARY_PLOT_PANELS`
+- `MarketReportConfig(summary_report=True)`
+- `MarketReportConfig(summary_report_path="output/...html")`
+- `MarketReportConfig(summary_plot_panels=(...))`
 - `return_summary_series=True` on `build_replay_experiment(...)`
 
 The full public basket panel set is:
 
 ```python
-SUMMARY_PLOT_PANELS = (
+(
     "total_equity",
     "equity",
     "market_pnl",
@@ -75,6 +75,13 @@ Summary artifact construction also downsamples price points before building
 dense equity curves. This avoids constructing full-resolution portfolio
 timelines only to downsample them again in the chart layer.
 
+The terminal summary table is separate from the HTML report. It prints
+per-market replay counts, fills, fill quantity/notional, PnL, coverage, and any
+return-series statistics available in the result payload. Joint runs also print
+a portfolio-level Nautilus stats block from `BacktestResult.stats_pnls` and
+`BacktestResult.stats_returns`; those values are not repeated on per-market
+rows because Nautilus computes them for the shared engine account.
+
 ## Output Types
 
 The active output type is the aggregate summary report. It is a real report
@@ -83,20 +90,32 @@ built from run artifacts, not a concatenation of individual market pages.
 Typical basket setup:
 
 ```python
-SUMMARY_REPORT_PATH = "output/polymarket_book_joint_portfolio_runner_joint_portfolio.html"
-
-REPORT = MarketReportConfig(
-    count_key="book_events",
-    count_label="Book Events",
-    pnl_label="PnL (USDC)",
-    summary_report=True,
-    summary_report_path=SUMMARY_REPORT_PATH,
-    summary_plot_panels=SUMMARY_PLOT_PANELS,
-)
-
-EXPERIMENT = build_replay_experiment(
+build_replay_experiment(
     ...,
-    report=REPORT,
+    report=MarketReportConfig(
+        count_key="book_events",
+        count_label="Book Events",
+        pnl_label="PnL (USDC)",
+        summary_report=True,
+        summary_report_path="output/polymarket_book_joint_portfolio_runner_joint_portfolio.html",
+        summary_plot_panels=(
+            "total_equity",
+            "equity",
+            "market_pnl",
+            "periodic_pnl",
+            "yes_price",
+            "allocation",
+            "total_drawdown",
+            "drawdown",
+            "total_rolling_sharpe",
+            "rolling_sharpe",
+            "total_cash_equity",
+            "cash_equity",
+            "monthly_returns",
+            "total_brier_advantage",
+            "brier_advantage",
+        ),
+    ),
     return_summary_series=True,
 )
 ```
@@ -147,7 +166,7 @@ uv run python backtests/polymarket_telonex_book_joint_portfolio_runner.py
 Expected artifacts:
 
 - one terminal summary table
-- one summary HTML report when `REPORT.summary_report=True`
+- one summary HTML report when `MarketReportConfig(summary_report=True)` is set
 - no per-market HTML files
 
 ## Multi-Market References

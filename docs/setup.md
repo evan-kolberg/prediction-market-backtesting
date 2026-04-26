@@ -75,6 +75,10 @@ Repo-layer source syntax is explicit:
 - PMXT book runners use `local:` and `archive:`.
 - Telonex book runners use `local:` and `api:`.
 - Public runners should use `data_type=Book` and `BookReplay`.
+- Public Polymarket book runners replay L2 `OrderBookDeltas` and interleave
+  real Polymarket `TradeTick` records for execution only. Strategies consume
+  book state; trade ticks drive matching, queue-position updates, and
+  `trade_execution=True`.
 
 Mirror PMXT raw archive hours locally:
 
@@ -117,6 +121,19 @@ the manifest, and reruns skip already-recorded work. The writer queue is bounded
 and periodically flushed so long `--all-markets` runs do not accumulate pending
 Arrow tables indefinitely.
 
+Throughput and memory controls:
+
+- `--workers` controls concurrent HTTP downloads.
+- `--parse-workers` or `TELONEX_PARSE_WORKERS` controls concurrent Arrow
+  parquet decoders.
+- `--writer-queue-items` or `TELONEX_WRITER_QUEUE_ITEMS` bounds parsed day
+  results waiting for the writer. Default: `128`.
+- `--pending-commit-items` or `TELONEX_PENDING_COMMIT_ITEMS` bounds completed
+  day results held before manifest commit. Default: `128`.
+- The downloader still inserts an hourly forced writer drain and prints RSS
+  when that drain fires. Higher queue limits improve throughput while staying
+  finite.
+
 ## Timing And Cache Defaults
 
 - Timing output is on by default for `make backtest`, `uv run python main.py`,
@@ -125,12 +142,15 @@ Arrow tables indefinitely.
 - Normal Nautilus logs are still printed; timing output is additive.
 - PMXT filtered cache is enabled by default at
   `~/.cache/nautilus_trader/pmxt`.
-- Public PMXT runners usually pin `local:/Volumes/LaCie/pmxt_data` first,
+- Public PMXT runners usually pin `local:/Volumes/LaCie/pmxt_raws` first,
   `archive:r2v2.pmxt.dev` second, and `archive:r2.pmxt.dev` third.
 - Telonex API-day cache is enabled by default at
   `~/.cache/nautilus_trader/telonex`.
 - Telonex warm cache reads prefer `.fast.parquet` sidecars to avoid slow nested
   list-of-struct decoding.
+- Telonex replay also materializes converted `OrderBookDeltas` under
+  `book-deltas-v1`; repeated backtests can skip full-snapshot diffing entirely
+  and report `telonex deltas cache` in timing output.
 - `make clear-telonex-cache` clears only the Telonex API-day cache and refuses
   configured local data stores.
 

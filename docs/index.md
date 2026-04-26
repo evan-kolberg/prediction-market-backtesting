@@ -2,16 +2,17 @@
 
 This repository is documented around two active operating assumptions:
 
-- vendor-backed historical data is local-first: mirror raw archive hours onto
-  local disk, replay those raws directly, and keep shared infrastructure
-  focused on raw mirroring and file serving
-- public backtest runners are flat experiment specs built around `DATA`,
-  `REPLAYS`, `STRATEGY_CONFIGS`, optional `EXECUTION` / `REPORT`, and a
-  top-level `EXPERIMENT` manifest
+- vendor-backed historical data is local-first: mirror PMXT raw archive hours
+  and Telonex full-book parquet parts onto local disk, then replay through
+  L2-native adapters
+- public Python backtest runners expose `run()` and build their explicit
+  experiment inputs inline: `MarketDataConfig`, `BookReplay`, strategy configs,
+  `ExecutionModelConfig`, `MarketReportConfig`, and either
+  `build_replay_experiment(...)` or `ParameterSearchExperiment(...)`
 
 PMXT uses local raw files plus remote archives instead of a separate service
-surface. Telonex uses local daily Parquet files first, with `api:` as an
-explicit fallback.
+surface. Telonex uses a local Hive-partitioned full-book mirror, materialized
+`OrderBookDeltas` replay cache, and `api:` as an explicit fallback.
 
 - [Setup](setup.md)
 - [Backtests And Runners](backtests.md)

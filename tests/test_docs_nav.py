@@ -152,7 +152,7 @@ def test_plotting_docs_distinguish_portfolio_and_comparison_summary_panels() -> 
         in normalized
     )
     assert (
-        "Expected artifacts: - one terminal summary table - one summary HTML report when `REPORT.summary_report=True` - no per-market HTML files"
+        "Expected artifacts: - one terminal summary table - one summary HTML report when `MarketReportConfig(summary_report=True)` is set - no per-market HTML files"
         in normalized
     )
 

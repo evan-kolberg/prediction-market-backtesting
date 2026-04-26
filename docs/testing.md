@@ -51,7 +51,7 @@ The runner smokes cover:
   optional `queue_position=True`.
 - Summary report generation without per-market HTML files.
 
-PMXT public runners pin `local:/Volumes/LaCie/pmxt_data` first, then
+PMXT public runners pin `local:/Volumes/LaCie/pmxt_raws` first, then
 `archive:r2v2.pmxt.dev` and `archive:r2.pmxt.dev`. Telonex public runners pin
 `local:/Volumes/LaCie/telonex_data`, then `api:`.
 

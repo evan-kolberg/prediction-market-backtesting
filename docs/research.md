@@ -36,6 +36,11 @@ If you plan to run many-market research, download PMXT raw dumps first:
 make download-pmxt-raws DESTINATION=/path/to/pmxt_raws
 ```
 
+The PMXT raw downloader is incremental: reruns skip existing local archive
+hours unless overwrite behavior is explicitly requested. Use it to fill gaps in
+the exact slug/window set you plan to study before launching notebook-scale
+sweeps.
+
 Then point the runner at that mirror:
 
 ```python
@@ -62,6 +67,10 @@ TELONEX_API_KEY=... uv run python scripts/telonex_download_data.py \
 ```
 
 Use the exact slugs and windows you plan to study before scaling notebook runs.
+For full-book Telonex mirrors, tune `--writer-queue-items`,
+`--pending-commit-items`, and `--parse-workers` based on available RAM; the
+writer still drains at least hourly so pending Arrow tables cannot grow
+forever.
 
 ## Scoring
 

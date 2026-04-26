@@ -102,7 +102,7 @@ Public runner configs use `ExecutionModelConfig` with optional
 `StaticLatencyConfig`:
 
 ```python
-EXECUTION = ExecutionModelConfig(
+ExecutionModelConfig(
     queue_position=True,
     latency_model=StaticLatencyConfig(
         base_latency_ms=75.0,
@@ -144,7 +144,7 @@ enabled unless you are intentionally testing a lower-bound execution scenario.
   rebuilds the book.
 - PMXT filtered cache is enabled by default at
   `~/.cache/nautilus_trader/pmxt`.
-- Public runners usually try `local:/Volumes/LaCie/pmxt_data` first, then
+- Public runners usually try `local:/Volumes/LaCie/pmxt_raws` first, then
   `archive:r2v2.pmxt.dev`, then `archive:r2.pmxt.dev`.
 
 ### Telonex
@@ -155,6 +155,10 @@ enabled unless you are intentionally testing a lower-bound execution scenario.
   L2 MBP updates rather than quote ticks.
 - Real Polymarket trade ticks are interleaved with Telonex book deltas for
   matching and queue-position updates.
+- After the first conversion for a market/token/day/window, the loader writes a
+  materialized `OrderBookDeltas` cache under `book-deltas-v1`. Warm runs can
+  load `telonex-deltas-cache::...` directly and avoid re-diffing full-book
+  snapshots.
 - `local:/Volumes/LaCie/telonex_data` reads the Hive-partitioned blob mirror
   through the DuckDB manifest when available, selecting only the parquet parts
   needed for the requested channel, market, outcome, and date range.

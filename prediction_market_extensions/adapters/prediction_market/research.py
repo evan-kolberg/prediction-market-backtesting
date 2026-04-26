@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+import math
 import re
 from collections.abc import Mapping, Sequence
 from datetime import datetime
@@ -24,6 +25,7 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
+from nautilus_trader.analysis import MaxDrawdown, ProfitFactor, SharpeRatio, SortinoRatio
 from nautilus_trader.analysis.reporter import ReportProvider
 from nautilus_trader.backtest.config import BacktestEngineConfig
 from nautilus_trader.backtest.engine import BacktestEngine
@@ -1328,18 +1330,269 @@ def print_backtest_summary(
         print(empty_message)
         return
 
+    rows = [_summary_stats_for_result(result) for result in results]
+    total_row = _summary_stats_total(rows=rows, results=results)
     col_w = max(len(str(result[market_key])) for result in results) + 2
-    header = f"{'Market':<{col_w}} {count_label:>8} {'Fills':>6} {pnl_label:>12}"
+    header = (
+        f"{'Market':<{col_w}} {count_label:>8} {'Fills':>6} {'Qty':>10} "
+        f"{'AvgPx':>7} {'Notional':>10} {pnl_label:>12} {'Return':>9} "
+        f"{'MaxDD':>9} {'Sharpe':>8} {'Sortino':>8} {'PF':>7} {'Coverage':>9}"
+    )
     sep = "─" * len(header)
 
     print(f"\n{sep}\n{header}\n{sep}")
-    for result in results:
+    for result, row in zip(results, rows, strict=True):
         print(
-            f"{result[market_key]:<{col_w}} {result[count_key]:>8} {result['fills']:>6} {result['pnl']:>+12.4f}"
+            f"{result[market_key]:<{col_w}} {result[count_key]:>8} "
+            f"{result['fills']:>6} {_format_summary_float(row['fill_qty'], 2):>10} "
+            f"{_format_summary_float(row['avg_fill_price'], 4):>7} "
+            f"{_format_summary_float(row['fill_notional'], 2):>10} "
+            f"{result['pnl']:>+12.4f} {_format_summary_pct(row['return_pct']):>9} "
+            f"{_format_summary_pct(row['max_drawdown_pct']):>9} "
+            f"{_format_summary_float(row['sharpe'], 2):>8} "
+            f"{_format_summary_float(row['sortino'], 2):>8} "
+            f"{_format_summary_float(row['profit_factor'], 2):>7} "
+            f"{_format_summary_pct(row['coverage_pct']):>9}"
         )
 
     total_pnl = sum(float(result["pnl"]) for result in results)
     total_fills = sum(int(result["fills"]) for result in results)
     print(sep)
-    print(f"{'TOTAL':<{col_w}} {'':>8} {total_fills:>6} {total_pnl:>+12.4f}")
+    print(
+        f"{'TOTAL':<{col_w}} {sum(int(result[count_key]) for result in results):>8} "
+        f"{total_fills:>6} {_format_summary_float(total_row['fill_qty'], 2):>10} "
+        f"{_format_summary_float(total_row['avg_fill_price'], 4):>7} "
+        f"{_format_summary_float(total_row['fill_notional'], 2):>10} "
+        f"{total_pnl:>+12.4f} {_format_summary_pct(total_row['return_pct']):>9} "
+        f"{_format_summary_pct(total_row['max_drawdown_pct']):>9} "
+        f"{_format_summary_float(total_row['sharpe'], 2):>8} "
+        f"{_format_summary_float(total_row['sortino'], 2):>8} "
+        f"{_format_summary_float(total_row['profit_factor'], 2):>7} "
+        f"{_format_summary_pct(total_row['coverage_pct']):>9}"
+    )
     print(sep)
+    _print_portfolio_stats(results)
+
+
+def _summary_stats_for_result(result: Mapping[str, Any]) -> dict[str, float | None]:
+    fill_qty, fill_notional, avg_fill_price = _summary_fill_stats(result.get("fill_events") or ())
+    returns = _summary_returns_from_pairs(result.get("equity_series"))
+    stats = _summary_return_stats(returns)
+    coverage = _coerce_float(result.get("requested_coverage_ratio"))
+    return {
+        "fill_qty": fill_qty,
+        "fill_notional": fill_notional,
+        "avg_fill_price": avg_fill_price,
+        "return_pct": _summary_total_return_pct(result.get("equity_series")),
+        "max_drawdown_pct": stats["max_drawdown_pct"],
+        "sharpe": stats["sharpe"],
+        "sortino": stats["sortino"],
+        "profit_factor": stats["profit_factor"],
+        "coverage_pct": coverage * 100.0 if coverage is not None else None,
+    }
+
+
+def _summary_stats_total(
+    *, rows: Sequence[Mapping[str, float | None]], results: Sequence[Mapping[str, Any]]
+) -> dict[str, float | None]:
+    fill_qty = sum(float(row.get("fill_qty") or 0.0) for row in rows)
+    fill_notional = sum(float(row.get("fill_notional") or 0.0) for row in rows)
+    avg_fill_price = fill_notional / fill_qty if fill_qty > 0.0 else None
+    equity_series = results[0].get("joint_portfolio_equity_series") if results else None
+    stats = _summary_return_stats(_summary_returns_from_pairs(equity_series))
+    coverage_values = [
+        float(row["coverage_pct"])
+        for row in rows
+        if row.get("coverage_pct") is not None and math.isfinite(float(row["coverage_pct"]))
+    ]
+    return {
+        "fill_qty": fill_qty,
+        "fill_notional": fill_notional,
+        "avg_fill_price": avg_fill_price,
+        "return_pct": _summary_total_return_pct(equity_series),
+        "max_drawdown_pct": stats["max_drawdown_pct"],
+        "sharpe": stats["sharpe"],
+        "sortino": stats["sortino"],
+        "profit_factor": stats["profit_factor"],
+        "coverage_pct": sum(coverage_values) / len(coverage_values) if coverage_values else None,
+    }
+
+
+def _summary_fill_stats(fill_events: object) -> tuple[float, float, float | None]:
+    if not isinstance(fill_events, Sequence) or isinstance(fill_events, str | bytes):
+        return 0.0, 0.0, None
+
+    qty = 0.0
+    notional = 0.0
+    for event in fill_events:
+        if not isinstance(event, Mapping):
+            continue
+        event_qty = _coerce_float(event.get("quantity")) or 0.0
+        event_price = _coerce_float(event.get("price")) or 0.0
+        if event_qty <= 0.0 or event_price < 0.0:
+            continue
+        qty += event_qty
+        notional += event_qty * event_price
+    return qty, notional, notional / qty if qty > 0.0 else None
+
+
+def _summary_returns_from_pairs(pairs: object) -> dict[int, float]:
+    series = _pairs_to_series(pairs if isinstance(pairs, Sequence) else [])
+    if series.empty:
+        return {}
+
+    numeric = pd.to_numeric(series, errors="coerce").dropna()
+    if len(numeric) < 2:
+        return {}
+
+    returns = numeric.pct_change().replace([float("inf"), -float("inf")], pd.NA).dropna()
+    out: dict[int, float] = {}
+    for timestamp, value in returns.items():
+        if pd.isna(value):
+            continue
+        try:
+            out[int(pd.Timestamp(timestamp).value)] = float(value)
+        except (TypeError, ValueError, OverflowError):
+            continue
+    return out
+
+
+def _summary_return_stats(returns: dict[int, float]) -> dict[str, float | None]:
+    if not returns:
+        return {
+            "max_drawdown_pct": None,
+            "sharpe": None,
+            "sortino": None,
+            "profit_factor": None,
+        }
+
+    return {
+        "max_drawdown_pct": _safe_stat_percent(MaxDrawdown().calculate_from_returns, returns),
+        "sharpe": _safe_stat(SharpeRatio().calculate_from_returns, returns),
+        "sortino": _safe_stat(SortinoRatio().calculate_from_returns, returns),
+        "profit_factor": _safe_stat(ProfitFactor().calculate_from_returns, returns),
+    }
+
+
+def _summary_total_return_pct(pairs: object) -> float | None:
+    series = _pairs_to_series(pairs if isinstance(pairs, Sequence) else [])
+    if series.empty:
+        return None
+
+    numeric = pd.to_numeric(series, errors="coerce").dropna()
+    if len(numeric) < 2:
+        return None
+
+    first = float(numeric.iloc[0])
+    last = float(numeric.iloc[-1])
+    if abs(first) < 1e-12:
+        return None
+    return (last / first - 1.0) * 100.0
+
+
+def _safe_stat(func: Any, returns: dict[int, float]) -> float | None:
+    try:
+        value = func(returns)
+    except Exception:
+        return None
+    return _coerce_float(value)
+
+
+def _safe_stat_percent(func: Any, returns: dict[int, float]) -> float | None:
+    value = _safe_stat(func, returns)
+    return value * 100.0 if value is not None else None
+
+
+def _coerce_float(value: object) -> float | None:
+    try:
+        result = float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    return result if math.isfinite(result) else None
+
+
+def _format_summary_float(value: object, decimals: int) -> str:
+    result = _coerce_float(value)
+    if result is None:
+        return "n/a"
+    return f"{result:.{decimals}f}"
+
+
+def _format_summary_pct(value: object) -> str:
+    result = _coerce_float(value)
+    if result is None:
+        return "n/a"
+    return f"{result:+.2f}%"
+
+
+def _print_portfolio_stats(results: Sequence[Mapping[str, Any]]) -> None:
+    if not results:
+        return
+    raw_stats = results[0].get("portfolio_stats")
+    if not isinstance(raw_stats, Mapping):
+        return
+
+    run_fields = [
+        ("Iterations", raw_stats.get("iterations")),
+        ("Events", raw_stats.get("total_events")),
+        ("Orders", raw_stats.get("total_orders")),
+        ("Positions", raw_stats.get("total_positions")),
+        ("Elapsed", raw_stats.get("elapsed_time")),
+    ]
+    formatted_run = []
+    for label, value in run_fields:
+        number = _coerce_float(value)
+        if number is None:
+            continue
+        if label == "Elapsed":
+            formatted_run.append(f"{label}: {number:.3f}s")
+        else:
+            formatted_run.append(f"{label}: {int(number):,}")
+    if formatted_run:
+        print("\nPortfolio run stats: " + " | ".join(formatted_run))
+
+    returns = raw_stats.get("stats_returns")
+    if isinstance(returns, Mapping):
+        selected_returns = _selected_named_stats(
+            returns,
+            (
+                "Sharpe Ratio (252 days)",
+                "Sortino Ratio (252 days)",
+                "Profit Factor",
+                "Risk Return Ratio",
+                "Returns Volatility (252 days)",
+                "Average (Return)",
+            ),
+        )
+        if selected_returns:
+            print("Portfolio return stats: " + " | ".join(selected_returns))
+
+    pnls = raw_stats.get("stats_pnls")
+    if not isinstance(pnls, Mapping):
+        return
+    for currency, stats in pnls.items():
+        if not isinstance(stats, Mapping):
+            continue
+        selected_pnls = _selected_named_stats(
+            stats,
+            (
+                "PnL (total)",
+                "PnL% (total)",
+                "Win Rate",
+                "Expectancy",
+                "Avg Winner",
+                "Avg Loser",
+            ),
+        )
+        if selected_pnls:
+            print(f"Portfolio PnL stats ({currency}): " + " | ".join(selected_pnls))
+
+
+def _selected_named_stats(stats: Mapping[str, Any], names: Sequence[str]) -> list[str]:
+    selected: list[str] = []
+    for name in names:
+        value = _coerce_float(stats.get(name))
+        if value is None:
+            continue
+        selected.append(f"{name}: {value:.4g}")
+    return selected

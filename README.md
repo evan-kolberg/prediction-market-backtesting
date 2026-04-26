@@ -25,6 +25,7 @@
 - Telonex vendor support
 - Local Telonex download script
 - Many bug fixes & accuracy improvements
+- Book replay order book deltas with trade ticks
 
 **New in Version 2:**
 - Nautilus 1.225.0, via PyPI in lieu of a subtree
