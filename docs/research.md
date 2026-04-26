@@ -51,13 +51,15 @@ sources=(
 )
 ```
 
-For the bundled TPE example, warm the current PMXT basket first:
+For faster local mirror scans, raise PMXT hour prefetch after checking disk
+headroom:
 
 ```bash
-uv run python backtests/polymarket_book_joint_portfolio_runner.py
+PMXT_PREFETCH_WORKERS=8 uv run python backtests/polymarket_book_joint_portfolio_runner.py
 ```
 
-For Telonex notebook research, warm the local full-book mirror first:
+For Telonex notebook research, including the bundled random-grid and TPE
+examples, warm the local full-book mirror first:
 
 ```bash
 TELONEX_API_KEY=... uv run python scripts/telonex_download_data.py \
@@ -67,10 +69,12 @@ TELONEX_API_KEY=... uv run python scripts/telonex_download_data.py \
 ```
 
 Use the exact slugs and windows you plan to study before scaling notebook runs.
-For full-book Telonex mirrors, tune `--writer-queue-items`,
-`--pending-commit-items`, and `--parse-workers` based on available RAM; the
-writer still drains at least hourly so pending Arrow tables cannot grow
-forever.
+Use `--max-days` for a bounded all-market smoke test. For full-book Telonex
+mirrors, tune `--writer-queue-items`, `--pending-commit-items`, and
+`--parse-workers` based on available RAM; the writer still drains at least
+hourly, closes open Parquet part writers, and commits their manifest rows so
+pending Arrow tables and part metadata cannot grow forever.
+Telonex runner API day loading uses `TELONEX_PREFETCH_WORKERS`, default `128`.
 
 ## Scoring
 

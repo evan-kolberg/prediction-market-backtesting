@@ -87,6 +87,15 @@ def main() -> int:
     )
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument(
+        "--max-days",
+        type=int,
+        default=None,
+        help=(
+            "Stop after this many post-resume day jobs. Useful for smoke-testing "
+            "--all-markets without starting the full mirror."
+        ),
+    )
+    parser.add_argument(
         "--recheck-empty-after-days",
         type=int,
         default=7,
@@ -170,6 +179,7 @@ def main() -> int:
             parse_workers=args.parse_workers,
             writer_queue_items=args.writer_queue_items,
             pending_commit_items=args.pending_commit_items,
+            max_days=args.max_days,
         )
     except KeyboardInterrupt:
         # SIGINT/SIGTERM landed in a blocking call outside the job loop (usually

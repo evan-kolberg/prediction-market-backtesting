@@ -273,8 +273,12 @@ class LongOnlyPredictionMarketStrategy(Strategy):
             time_in_force=TimeInForce.IOC,
             tags=self._order_tags(intent="entry", visible_size=effective_visible_size),
         )
-        self.submit_order(order)
         self._pending = True
+        try:
+            self.submit_order(order)
+        except Exception:
+            self._pending = False
+            raise
 
     def _submit_exit(self) -> None:
         assert self._instrument is not None
@@ -315,8 +319,12 @@ class LongOnlyPredictionMarketStrategy(Strategy):
             reduce_only=True,
             tags=self._order_tags(intent="exit", visible_size=self._last_exit_visible_size),
         )
-        self.submit_order(order)
         self._pending = True
+        try:
+            self.submit_order(order)
+        except Exception:
+            self._pending = False
+            raise
 
     def _entry_price_with_fees(self) -> float | None:
         if self._entry_price is None:
@@ -359,6 +367,21 @@ class LongOnlyPredictionMarketStrategy(Strategy):
             return True
         return False
 
+    def _event_order_is_closed(self, event) -> bool:  # type: ignore[no-untyped-def]
+        client_order_id = getattr(event, "client_order_id", None)
+        if client_order_id is None:
+            return True
+        try:
+            order = self.cache.order(client_order_id)
+        except (AttributeError, KeyError, TypeError):
+            return True
+        if order is None:
+            return True
+        is_closed = getattr(order, "is_closed", True)
+        if callable(is_closed):
+            return bool(is_closed())
+        return bool(is_closed)
+
     def on_order_filled(self, event) -> None:  # type: ignore[no-untyped-def]
         if event.order_side == OrderSide.BUY:
             fill_px = Decimal(str(event.last_px))
@@ -379,9 +402,13 @@ class LongOnlyPredictionMarketStrategy(Strategy):
                 self._entry_price = None
                 self._entry_qty_sum = Decimal("0")
                 self._entry_cost_sum = Decimal("0")
-        self._pending = False
+        if self._event_order_is_closed(event):
+            self._pending = False
 
     def on_order_rejected(self, event) -> None:  # type: ignore[no-untyped-def]
+        self._pending = False
+
+    def on_order_denied(self, event) -> None:  # type: ignore[no-untyped-def]
         self._pending = False
 
     def on_order_canceled(self, event) -> None:  # type: ignore[no-untyped-def]

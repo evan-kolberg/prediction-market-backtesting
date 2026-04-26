@@ -181,17 +181,45 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
             / self._archive_filename_for_hour(hour)
         )
 
+    def _raw_paths_for_hour_at_root(self, raw_root: Path, hour) -> tuple[Path, ...]:  # type: ignore[no-untyped-def]
+        return self._local_archive_candidate_paths_for_hour(raw_root, hour)
+
+    def _load_local_raw_market_batches_from_root(
+        self,
+        raw_root: Path,
+        hour,
+        *,
+        batch_size: int,
+    ):  # type: ignore[no-untyped-def]
+        for raw_path in self._raw_paths_for_hour_at_root(raw_root, hour):
+            if not raw_path.exists():
+                continue
+
+            try:
+                dataset = ds.dataset(str(raw_path), format="parquet")
+            except (OSError, ValueError, pa.ArrowException):
+                continue
+
+            try:
+                return self._scan_raw_market_batches(
+                    dataset,
+                    batch_size=batch_size,
+                    source=str(raw_path),
+                    total_bytes=self._progress_total_bytes(str(raw_path)),
+                )
+            except (OSError, ValueError, pa.ArrowException):
+                continue
+
+        return None
+
     def _load_local_raw_market_batches(self, hour, *, batch_size: int):  # type: ignore[no-untyped-def]
-        raw_path = self._raw_path_for_hour(hour)
-        if raw_path is None or not raw_path.exists():
+        if self._pmxt_raw_root is None:
             return None
 
-        dataset = ds.dataset(str(raw_path), format="parquet")
-        return self._scan_raw_market_batches(
-            dataset,
+        return self._load_local_raw_market_batches_from_root(
+            self._pmxt_raw_root,
+            hour,
             batch_size=batch_size,
-            source=str(raw_path),
-            total_bytes=self._progress_total_bytes(str(raw_path)),
         )
 
     def _load_local_archive_market_batches(self, hour, *, batch_size: int):  # type: ignore[no-untyped-def]
@@ -220,6 +248,21 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
             return None
         finally:
             self._pmxt_remote_base_url = original
+
+    def _archive_url_for_base_url(self, base_url: str, hour) -> str:  # type: ignore[no-untyped-def]
+        return f"{base_url.rstrip('/')}/{self._archive_filename_for_hour(hour)}"
+
+    def _load_remote_market_batches_from_base_url(
+        self,
+        base_url: str,
+        hour,
+        *,
+        batch_size: int,
+    ):  # type: ignore[no-untyped-def]
+        return self._load_raw_market_batches_via_download(
+            self._archive_url_for_base_url(base_url, hour),
+            batch_size=batch_size,
+        )
 
     @classmethod
     def _resolve_source_priority(cls) -> tuple[str, ...]:
@@ -281,9 +324,45 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
 
     def _load_entry_batches(self, kind: str, hour, *, batch_size: int):  # type: ignore[no-untyped-def]
         if kind == _PMXT_SOURCE_STAGE_RAW_LOCAL:
-            return self._load_local_archive_market_batches(hour, batch_size=batch_size)
+            raw_root = getattr(self, "_pmxt_raw_root", None)
+            if raw_root is None:
+                return None
+            return self._load_local_raw_market_batches_from_root(
+                Path(raw_root).expanduser(),
+                hour,
+                batch_size=batch_size,
+            )
         if kind == _PMXT_SOURCE_STAGE_RAW_REMOTE:
-            return self._load_remote_market_batches(hour, batch_size=batch_size)
+            remote_url = getattr(self, "_pmxt_remote_base_url", None)
+            if remote_url is None:
+                return None
+            return self._load_remote_market_batches_from_base_url(
+                str(remote_url),
+                hour,
+                batch_size=batch_size,
+            )
+        return None
+
+    def _load_ordered_entry_batches(
+        self,
+        kind: str,
+        target: str,
+        hour,
+        *,
+        batch_size: int,
+    ):  # type: ignore[no-untyped-def]
+        if kind == _PMXT_SOURCE_STAGE_RAW_LOCAL:
+            return self._load_local_raw_market_batches_from_root(
+                Path(target).expanduser(),
+                hour,
+                batch_size=batch_size,
+            )
+        if kind == _PMXT_SOURCE_STAGE_RAW_REMOTE:
+            return self._load_remote_market_batches_from_base_url(
+                target,
+                hour,
+                batch_size=batch_size,
+            )
         return None
 
     def _write_cache_if_enabled(self, hour, table) -> None:  # type: ignore[no-untyped-def]
@@ -299,8 +378,12 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
         ordered_entries = getattr(self, "_pmxt_ordered_source_entries", ()) or ()
         if ordered_entries:
             for kind, target in ordered_entries:
-                with self._scoped_source_entry(kind, target):
-                    entry_batches = self._load_entry_batches(kind, hour, batch_size=batch_size)
+                entry_batches = self._load_ordered_entry_batches(
+                    kind,
+                    target,
+                    hour,
+                    batch_size=batch_size,
+                )
                 if entry_batches is None:
                     continue
                 if kind == _PMXT_SOURCE_STAGE_RAW_REMOTE:
@@ -353,17 +436,21 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
         ordered_entries = getattr(self, "_pmxt_ordered_source_entries", ()) or ()
         if ordered_entries:
             for kind, target in ordered_entries:
-                with self._scoped_source_entry(kind, target):
-                    entry_batches = self._load_entry_batches(kind, hour, batch_size=batch_size)
-                    if entry_batches is not None:
-                        if self._pmxt_cache_dir is not None:
-                            table = (
-                                pa.Table.from_batches(entry_batches)
-                                if entry_batches
-                                else self._empty_market_table()
-                            )
-                            self._write_cache_if_enabled(hour, table)
-                        return entry_batches
+                entry_batches = self._load_ordered_entry_batches(
+                    kind,
+                    target,
+                    hour,
+                    batch_size=batch_size,
+                )
+                if entry_batches is not None:
+                    if self._pmxt_cache_dir is not None:
+                        table = (
+                            pa.Table.from_batches(entry_batches)
+                            if entry_batches
+                            else self._empty_market_table()
+                        )
+                        self._write_cache_if_enabled(hour, table)
+                    return entry_batches
             return None
 
         for stage in self._pmxt_source_priority:

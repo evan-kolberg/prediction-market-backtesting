@@ -134,6 +134,7 @@ def test_display_html_artifacts_prefers_summary_report_and_lists_extras(
     displayed: list[tuple[str, str]] = []
     fake_display_module = SimpleNamespace(
         HTML=lambda value: ("HTML", value),
+        IFrame=lambda *, src, width, height: ("IFrame", f"{src}:{width}:{height}"),
         Markdown=lambda value: ("Markdown", value),
         display=lambda value: displayed.append(value),
     )
@@ -146,10 +147,7 @@ def test_display_html_artifacts_prefers_summary_report_and_lists_extras(
 
     assert displayed[0][0] == "Markdown"
     assert "demo_joint_portfolio.html" in displayed[0][1]
-    assert displayed[1][0] == "HTML"
-    iframe_html = displayed[1][1]
-    assert iframe_html.startswith("<iframe ")
-    assert "srcdoc=" in iframe_html
-    assert "&lt;html&gt;&lt;body&gt;summary&lt;/body&gt;&lt;/html&gt;" in iframe_html
+    assert displayed[1][0] == "IFrame"
+    assert displayed[1][1] == "demo_joint_portfolio.html:100%:820"
     assert displayed[2][0] == "Markdown"
     assert "demo_detail_legacy.html" in displayed[2][1]

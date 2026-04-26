@@ -10,6 +10,7 @@ from strategies import (
     BookDeepValueHoldConfig,
     BookEMACrossoverConfig,
     BookFinalPeriodMomentumConfig,
+    BookMicropriceImbalanceConfig,
     BookPanicFadeConfig,
     BookRSIReversionConfig,
     BookThresholdMomentumConfig,
@@ -29,6 +30,23 @@ BAR_TYPE = "unused-bar-type"
         (BookRSIReversionConfig, {"entry_rsi": 60.0, "exit_rsi": 55.0}, "entry_rsi"),
         (BookPanicFadeConfig, {"drop_window": 0}, "drop_window"),
         (BookPanicFadeConfig, {"panic_price": 1.2}, "panic_price"),
+        (BookMicropriceImbalanceConfig, {"depth_levels": 0}, "depth_levels"),
+        (
+            BookMicropriceImbalanceConfig,
+            {"entry_imbalance": 0.50, "exit_imbalance": 0.55},
+            "exit_imbalance",
+        ),
+        (BookMicropriceImbalanceConfig, {"max_spread": 1.1}, "max_spread"),
+        (
+            BookMicropriceImbalanceConfig,
+            {"min_holding_seconds": -1.0},
+            "min_holding_seconds",
+        ),
+        (
+            BookMicropriceImbalanceConfig,
+            {"reentry_cooldown_seconds": -1.0},
+            "reentry_cooldown_seconds",
+        ),
         (
             BookThresholdMomentumConfig,
             {"market_close_time_ns": -1},

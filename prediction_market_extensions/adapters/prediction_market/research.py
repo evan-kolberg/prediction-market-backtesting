@@ -618,6 +618,7 @@ def _apply_summary_layout_overrides(
             layout,
             initial_cash=float(initial_cash),
             max_yes_price_fill_markers=max_yes_price_fill_markers,
+            max_market_pnl_fill_markers=max_yes_price_fill_markers,
         )
     except TypeError:
         return apply_fn(layout, initial_cash=float(initial_cash))
@@ -1332,9 +1333,12 @@ def print_backtest_summary(
 
     rows = [_summary_stats_for_result(result) for result in results]
     total_row = _summary_stats_total(rows=rows, results=results)
-    col_w = max(len(str(result[market_key])) for result in results) + 2
+    col_w = (
+        max(len("Market"), len("TOTAL"), *(len(str(result[market_key])) for result in results)) + 2
+    )
+    count_w = max(8, len(count_label))
     header = (
-        f"{'Market':<{col_w}} {count_label:>8} {'Fills':>6} {'Qty':>10} "
+        f"{'Market':<{col_w}} {count_label:>{count_w}} {'Fills':>6} {'Qty':>10} "
         f"{'AvgPx':>7} {'Notional':>10} {pnl_label:>12} {'Return':>9} "
         f"{'MaxDD':>9} {'Sharpe':>8} {'Sortino':>8} {'PF':>7} {'Coverage':>9}"
     )
@@ -1343,7 +1347,7 @@ def print_backtest_summary(
     print(f"\n{sep}\n{header}\n{sep}")
     for result, row in zip(results, rows, strict=True):
         print(
-            f"{result[market_key]:<{col_w}} {result[count_key]:>8} "
+            f"{result[market_key]:<{col_w}} {result[count_key]:>{count_w}} "
             f"{result['fills']:>6} {_format_summary_float(row['fill_qty'], 2):>10} "
             f"{_format_summary_float(row['avg_fill_price'], 4):>7} "
             f"{_format_summary_float(row['fill_notional'], 2):>10} "
@@ -1359,7 +1363,7 @@ def print_backtest_summary(
     total_fills = sum(int(result["fills"]) for result in results)
     print(sep)
     print(
-        f"{'TOTAL':<{col_w}} {sum(int(result[count_key]) for result in results):>8} "
+        f"{'TOTAL':<{col_w}} {sum(int(result[count_key]) for result in results):>{count_w}} "
         f"{total_fills:>6} {_format_summary_float(total_row['fill_qty'], 2):>10} "
         f"{_format_summary_float(total_row['avg_fill_price'], 4):>7} "
         f"{_format_summary_float(total_row['fill_notional'], 2):>10} "

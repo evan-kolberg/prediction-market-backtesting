@@ -483,7 +483,7 @@ def test_save_aggregate_backtest_report_limits_dense_yes_price_fill_markers(
     )
 
     assert report_path == str((tmp_path / "aggregate_dense_fills.html").resolve())
-    assert apply_calls == [{"max_yes_price_fill_markers": 250}]
+    assert apply_calls == [{"max_market_pnl_fill_markers": 250, "max_yes_price_fill_markers": 250}]
 
 
 def test_save_joint_portfolio_backtest_report_limits_dense_yes_price_fill_markers(
@@ -580,7 +580,7 @@ def test_save_joint_portfolio_backtest_report_limits_dense_yes_price_fill_marker
     )
 
     assert report_path == str((tmp_path / "joint_dense_fills.html").resolve())
-    assert apply_calls == [{"max_yes_price_fill_markers": 250}]
+    assert apply_calls == [{"max_market_pnl_fill_markers": 250, "max_yes_price_fill_markers": 250}]
 
 
 def test_save_aggregate_backtest_report_prunes_unused_payload_for_total_only_panels(

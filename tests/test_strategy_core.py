@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 from nautilus_trader.model.enums import OrderSide
 from nautilus_trader.model.identifiers import InstrumentId, Symbol, Venue
+import pytest
 
 import strategies.core as core_module
 from strategies import BookVWAPReversionConfig
@@ -102,6 +103,73 @@ def test_partial_exit_preserves_remaining_entry_cost_basis() -> None:
     assert strategy._entry_qty_sum == Decimal("60")
     assert strategy._entry_cost_sum == Decimal("30")
     assert strategy._entry_price == 0.50
+
+
+def test_partial_fill_keeps_order_pending_until_cached_order_is_closed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    strategy = _EntryQuantityHarness(
+        trade_size=Decimal(100), free_balance=Decimal(100), min_quantity=None
+    )
+    strategy._pending = True
+
+    monkeypatch.setattr(
+        _EntryQuantityHarness,
+        "cache",
+        property(
+            lambda self: SimpleNamespace(
+                order=lambda client_order_id: SimpleNamespace(is_closed=False)
+            )
+        ),
+        raising=False,
+    )
+
+    strategy.on_order_filled(
+        SimpleNamespace(
+            client_order_id="O-1",
+            order_side=OrderSide.BUY,
+            last_px=0.50,
+            last_qty=40,
+        )
+    )
+
+    assert strategy._pending is True
+
+
+def test_order_denied_unblocks_pending_state() -> None:
+    strategy = _EntryQuantityHarness(
+        trade_size=Decimal(100), free_balance=Decimal(100), min_quantity=None
+    )
+    strategy._pending = True
+
+    strategy.on_order_denied(SimpleNamespace())
+
+    assert strategy._pending is False
+
+
+def test_synchronous_order_denial_does_not_leave_entry_pending(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    strategy = _EntryQuantityHarness(
+        trade_size=Decimal(10), free_balance=Decimal(100), min_quantity=None
+    )
+
+    monkeypatch.setattr(
+        _EntryQuantityHarness,
+        "order_factory",
+        property(lambda self: SimpleNamespace(market=lambda **kwargs: SimpleNamespace(**kwargs))),
+        raising=False,
+    )
+
+    def _deny_order(order) -> None:  # type: ignore[no-untyped-def]
+        del order
+        strategy.on_order_denied(SimpleNamespace())
+
+    strategy.submit_order = _deny_order
+
+    strategy._submit_entry(reference_price=0.10, visible_size=100.0)
+
+    assert strategy._pending is False
 
 
 def test_order_book_deltas_route_through_local_l2_book(monkeypatch) -> None:

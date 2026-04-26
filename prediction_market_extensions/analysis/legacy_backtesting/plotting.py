@@ -271,9 +271,10 @@ def _build_dataframes(
 ):
     """Convert a :class:`BacktestResult` into plotting-ready DataFrames.
 
-    Only the top *max_markets* markets (by price range among traded markets)
-    are fully aligned to the equity timeline.  This avoids building a
-    20 000-column DataFrame that would consume tens of GB of RAM.
+    Only up to *max_markets* markets are fully aligned to the equity timeline,
+    keeping traded markets first and then price-only markets in input order.
+    This avoids building a 20 000-column DataFrame that would consume tens of
+    GB of RAM.
 
     Returns
     -------
@@ -350,17 +351,13 @@ def _build_dataframes(
     market_prices = getattr(result, "market_prices", {})
     market_series: dict[str, np.ndarray] = {}
     if market_prices:
-        # --- select markets: all traded first, then random sample ---
         traded_ids = set(fills_df["market_id"]) if not fills_df.empty else set()
-        # Always include every traded market
-        traded_with_data = [mid for mid in traded_ids if market_prices.get(mid)]
+        traded_with_data = [
+            mid for mid in market_prices if mid in traded_ids and market_prices[mid]
+        ]
         non_traded = [mid for mid in market_prices if mid not in traded_ids and market_prices[mid]]
-        # Fill remaining budget with a random spread of non-traded markets
         budget = max(0, max_markets - len(traded_with_data))
-        if budget > 0 and non_traded:
-            sampled = random.sample(non_traded, min(budget, len(non_traded)))
-        else:
-            sampled = []
+        sampled = non_traded[:budget]
         selected = traded_with_data + sampled
         selected_set = set(selected)
 
@@ -395,6 +392,34 @@ def _build_dataframes(
         market_df = pd.DataFrame(index=eq.index)
 
     return eq, fills_df, market_df, len(eq)
+
+
+def _select_display_markets(
+    market_df: pd.DataFrame,
+    fills_df: pd.DataFrame,
+    *,
+    max_markets: int,
+) -> list[str]:
+    if market_df.empty or max_markets <= 0:
+        return []
+
+    market_ids = list(market_df.columns)
+    if len(market_ids) <= max_markets:
+        return market_ids
+
+    traded_ids = set(fills_df["market_id"]) if not fills_df.empty else set()
+    price_range = (
+        (market_df.max() - market_df.min())
+        .fillna(-np.inf)
+        .sort_values(
+            ascending=False,
+            kind="mergesort",
+        )
+    )
+    ordered_by_range = [str(mid) for mid in price_range.index]
+    traded = [mid for mid in ordered_by_range if mid in traded_ids]
+    price_only = [mid for mid in ordered_by_range if mid not in traded_ids]
+    return (traded + price_only)[:max_markets]
 
 
 def _finite_idxmax(series: pd.Series) -> int | None:
@@ -751,18 +776,11 @@ def plot(
         )
     index = eq.index
 
-    if not market_df.empty:
-        traded_cols = [
-            c for c in market_df.columns if c in set(fills_df["market_id"]) if not fills_df.empty
-        ]
-        if not traded_cols:
-            traded_cols = list(market_df.columns)
-        price_range = (market_df[traded_cols].max() - market_df[traded_cols].min()).sort_values(
-            ascending=False
-        )
-        display_markets = price_range.head(max_markets).index.tolist()
-    else:
-        display_markets = []
+    display_markets = _select_display_markets(
+        market_df,
+        fills_df,
+        max_markets=max_markets,
+    )
     has_market_lines = len(display_markets) > 0
 
     new_figure = partial(

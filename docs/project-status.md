@@ -25,8 +25,9 @@ No repo-level open issues are tracked here right now.
   keeps Nautilus on `BookType.L2_MBP` with `trade_execution=True`, removes
   standalone quote/trade replay framing, speeds Telonex API-day cache reads with
   `.fast.parquet` sidecars, prunes local Telonex mirror scans through the DuckDB
-  manifest, bounds and periodically flushes the Telonex downloader writer queue,
-  and makes PMXT raw downloads incremental by skipping existing local files
+  manifest, bounds the Telonex downloader writer queue, periodically closes
+  open Telonex part writers, and makes PMXT raw downloads incremental by
+  skipping existing local files
   [PR#119](https://github.com/evan-kolberg/prediction-market-backtesting/pull/119)
 - [x] PR#119 now also materializes Telonex `OrderBookDeltas` under
   `book-deltas-v1`, prints richer terminal statistics from per-market result

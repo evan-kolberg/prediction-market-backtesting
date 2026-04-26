@@ -53,7 +53,8 @@ The runner smokes cover:
 
 PMXT public runners pin `local:/Volumes/LaCie/pmxt_data` first, then
 `archive:r2v2.pmxt.dev` and `archive:r2.pmxt.dev`. The Telonex joint runner
-pins `api:` before `local:/Volumes/LaCie/telonex_data`.
+pins `local:/Volumes/LaCie/telonex_data` first, then appends `api:` when
+`TELONEX_API_KEY` is set.
 
 Coverage is mixed by design:
 

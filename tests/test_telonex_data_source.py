@@ -3,10 +3,13 @@ from __future__ import annotations
 import os
 import subprocess
 import importlib
+import threading
+import time
 from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
 
+import numpy as np
 import pandas as pd
 import pytest
 from nautilus_trader.adapters.polymarket.common.parsing import parse_polymarket_instrument
@@ -18,6 +21,7 @@ from prediction_market_extensions.backtesting.data_sources.telonex import (
     TELONEX_API_KEY_ENV,
     TELONEX_FULL_BOOK_CHANNEL,
     TELONEX_LOCAL_DIR_ENV,
+    TELONEX_PREFETCH_WORKERS_ENV,
     RunnerPolymarketTelonexBookDataLoader,
     configured_telonex_data_source,
     resolve_telonex_loader_config,
@@ -155,6 +159,17 @@ def test_telonex_default_api_source_requires_key_only_from_env(monkeypatch) -> N
         ("api", "https://api.telonex.io")
     ]
     assert os.getenv(TELONEX_API_KEY_ENV) == "test-key"
+
+
+def test_telonex_prefetch_workers_default_and_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv(TELONEX_PREFETCH_WORKERS_ENV, raising=False)
+    assert RunnerPolymarketTelonexBookDataLoader._resolve_prefetch_workers() == 128
+
+    monkeypatch.setenv(TELONEX_PREFETCH_WORKERS_ENV, "7")
+    assert RunnerPolymarketTelonexBookDataLoader._resolve_prefetch_workers() == 7
+
+    monkeypatch.setenv(TELONEX_PREFETCH_WORKERS_ENV, "invalid")
+    assert RunnerPolymarketTelonexBookDataLoader._resolve_prefetch_workers() == 128
 
 
 def test_telonex_api_url_uses_slug_and_outcome_id_without_key() -> None:
@@ -367,7 +382,9 @@ def test_telonex_materialized_deltas_cache_round_trips(
     ]
 
 
-def test_telonex_full_book_loader_uses_cache_before_local(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_telonex_full_book_loader_uses_local_before_api_cache(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     module = importlib.reload(telonex_module)
     loader_cls = module.RunnerPolymarketTelonexBookDataLoader
     loader = loader_cls.__new__(loader_cls)
@@ -395,23 +412,24 @@ def test_telonex_full_book_loader_uses_cache_before_local(monkeypatch: pytest.Mo
         progress_events.append((date, event, source, rows))
     )
 
-    def fake_cache(**kwargs: object) -> tuple[pd.DataFrame, str]:
+    def fail_cache(**kwargs: object) -> tuple[pd.DataFrame, str]:
         calls.append("cache")
-        return frame, "telonex-cache::test"
+        raise AssertionError("api cache should not be checked before an earlier local source")
 
-    def fail_local(**kwargs: object) -> None:
+    def fake_local(**kwargs: object) -> pd.DataFrame:
         calls.append("local")
-        raise AssertionError("local should not be checked when cache has the day")
+        return frame
 
     def fail_source(**kwargs: object) -> None:
         calls.append("api")
-        raise AssertionError("api should not be checked when cache has the day")
+        raise AssertionError("api should not be checked when local has the day")
 
-    monkeypatch.setattr(loader, "_load_api_day_cached", fake_cache)
+    monkeypatch.setattr(loader, "_load_api_day_cached", fail_cache)
     monkeypatch.setattr(loader, "_load_deltas_cache_day", lambda **kwargs: (None, "none"))
     monkeypatch.setattr(loader, "_write_deltas_cache_day", lambda **kwargs: None)
-    monkeypatch.setattr(loader, "_try_load_day_from_local", fail_local)
+    monkeypatch.setattr(loader, "_try_load_day_from_local", fake_local)
     monkeypatch.setattr(loader, "_try_load_day_from_entry", fail_source)
+    monkeypatch.setattr(loader, "_try_load_day_from_api_entry", fail_source)
     monkeypatch.setattr(
         loader,
         "_book_events_from_frame",
@@ -427,11 +445,116 @@ def test_telonex_full_book_loader_uses_cache_before_local(monkeypatch: pytest.Mo
     )
 
     assert len(records) == 1
-    assert calls == ["cache"]
+    assert calls == ["local"]
     assert progress_events[0] == ("2026-01-19", "start", "none", 0)
     assert progress_events[1][0:2] == ("2026-01-19", "complete")
-    assert "telonex-cache" in progress_events[1][2]
+    assert "telonex-local" in progress_events[1][2]
     assert progress_events[1][3] == 1
+
+
+def test_telonex_full_book_loader_prefetches_api_days(monkeypatch: pytest.MonkeyPatch) -> None:
+    module = importlib.reload(telonex_module)
+    loader_cls = module.RunnerPolymarketTelonexBookDataLoader
+    loader = loader_cls.__new__(loader_cls)
+    loader._telonex_prefetch_workers = 3
+    config = module.TelonexLoaderConfig(
+        channel="book_snapshot_full",
+        ordered_source_entries=(
+            module.TelonexSourceEntry(
+                kind="api", target="https://api.example.test", api_key="test-key"
+            ),
+        ),
+    )
+    active = 0
+    max_active = 0
+    active_lock = threading.Lock()
+
+    monkeypatch.setattr(loader, "_config", lambda: config)
+    monkeypatch.setattr(loader, "_load_api_day_cached", lambda **kwargs: (None, "none"))
+    monkeypatch.setattr(loader, "_load_deltas_cache_day", lambda **kwargs: (None, "none"))
+    monkeypatch.setattr(loader, "_write_deltas_cache_day", lambda **kwargs: None)
+
+    def fake_api_day(*, date: str, **kwargs: object) -> pd.DataFrame:
+        del kwargs
+        nonlocal active, max_active
+        with active_lock:
+            active += 1
+            max_active = max(max_active, active)
+        try:
+            time.sleep(0.05)
+            day = int(date.rsplit("-", 1)[1])
+            return pd.DataFrame(
+                {
+                    "timestamp_us": [1_768_780_800_000_000 + day],
+                    "bids": [[{"price": "0.34", "size": "10"}]],
+                    "asks": [[{"price": "0.39", "size": "11"}]],
+                }
+            )
+        finally:
+            with active_lock:
+                active -= 1
+
+    monkeypatch.setattr(loader, "_load_api_day", fake_api_day)
+    monkeypatch.setattr(
+        loader,
+        "_book_events_from_frame",
+        lambda frame, *, start, end, include_order_book: [
+            SimpleNamespace(
+                ts_event=int(frame["timestamp_us"].iloc[0]),
+                ts_init=int(frame["timestamp_us"].iloc[0]),
+            )
+        ],
+    )
+
+    records = loader.load_order_book_deltas(
+        pd.Timestamp("2026-01-19", tz="UTC"),
+        pd.Timestamp("2026-01-21 23:59:59", tz="UTC"),
+        market_slug="prefetch-test",
+        token_index=0,
+        outcome=None,
+    )
+
+    assert max_active > 1
+    assert [int(record.ts_event) for record in records] == sorted(
+        int(record.ts_event) for record in records
+    )
+
+
+def test_telonex_blob_timestamp_cache_reads_are_thread_safe() -> None:
+    loader_cls = telonex_module.RunnerPolymarketTelonexBookDataLoader
+    loader = loader_cls.__new__(loader_cls)
+    loader._ensure_blob_scan_caches()
+    frame = pd.DataFrame({"timestamp_us": [1, 2, 3]})
+    ts_ns = np.array([1_000, 2_000, 3_000], dtype=np.int64)
+    target_key = ("root", "book_snapshot_full", "market", 0, None, 20260101, 20260131)
+
+    with loader._telonex_blob_scan_lock:
+        for idx in range(500):
+            loader._telonex_blob_range_frames[
+                ("root", "book_snapshot_full", f"other-{idx}", 0, None, 20260101, 20260131)
+            ] = None
+        loader._telonex_blob_range_frames[target_key] = frame
+        loader._telonex_blob_ts_ns[target_key] = {"timestamp_us": ts_ns}
+
+    stop = threading.Event()
+
+    def _writer() -> None:
+        idx = 0
+        while not stop.is_set():
+            with loader._telonex_blob_scan_lock:
+                loader._telonex_blob_range_frames[
+                    ("root", "book_snapshot_full", f"writer-{idx}", 0, None, 20260101, 20260131)
+                ] = None
+            idx += 1
+
+    thread = threading.Thread(target=_writer)
+    thread.start()
+    try:
+        for _ in range(200):
+            assert loader._cached_ts_ns_for_frame(frame, "timestamp_us") is ts_ns
+    finally:
+        stop.set()
+        thread.join(timeout=2)
 
 
 def test_telonex_full_book_loader_falls_back_to_api_when_blob_partition_is_incomplete(
