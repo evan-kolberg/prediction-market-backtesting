@@ -96,13 +96,9 @@ def test_direct_script_entrypoints_import_without_repo_root_on_sys_path(
     globals_dict = runpy.run_path(str(script_path), run_name="__script_test__")
 
     assert "run" in globals_dict
-    if relative_path in {*PMXT_JOINT_BOOK_RUNNERS, *TELONEX_JOINT_BOOK_RUNNERS}:
-        assert "EXPERIMENT" in globals_dict
-        assert "DATA" in globals_dict
-        assert "REPLAYS" in globals_dict
-        assert "STRATEGY_CONFIGS" in globals_dict
-        assert "EXECUTION" in globals_dict
-        assert "SUMMARY_REPORT_PATH" in globals_dict
+    assert "EXPERIMENT" not in globals_dict
+    assert "DATA" not in globals_dict
+    assert "REPLAYS" not in globals_dict
 
 
 @pytest.mark.parametrize("relative_path", SCRIPT_ENTRYPOINT_PATHS)
@@ -280,8 +276,9 @@ def test_telonex_book_joint_runners_build_inline_summary_contract(
     assert experiment.data.vendor == "telonex"
     assert experiment.data.sources == (
         "local:/Volumes/LaCie/telonex_data",
-        "api:test-telonex-key",
+        "api:${TELONEX_API_KEY}",
     )
+    assert "test-telonex-key" not in repr(experiment)
     assert experiment.report.summary_report is True
     assert (
         experiment.report.summary_report_path
@@ -301,13 +298,18 @@ def test_telonex_book_joint_runners_build_inline_summary_contract(
 
 
 @pytest.mark.parametrize("relative_path", TELONEX_JOINT_BOOK_RUNNERS)
-def test_telonex_book_joint_runners_omit_empty_api_source_without_key(
+def test_telonex_book_joint_runners_do_not_embed_empty_api_key(
     monkeypatch: pytest.MonkeyPatch, relative_path: Path
 ) -> None:
     monkeypatch.setenv("TELONEX_API_KEY", "")
     experiment = _capture_script_experiment(monkeypatch, relative_path)
 
-    assert experiment.data.sources == ("local:/Volumes/LaCie/telonex_data",)
+    assert experiment.data.sources == (
+        "local:/Volumes/LaCie/telonex_data",
+        "api:${TELONEX_API_KEY}",
+    )
+    assert "api:" in experiment.data.sources[1]
+    assert "api:," not in repr(experiment)
 
 
 @pytest.mark.parametrize("relative_path", PMXT_BOOK_OPTIMIZER_RUNNERS)

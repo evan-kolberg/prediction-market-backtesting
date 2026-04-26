@@ -121,8 +121,8 @@ Add `--max-days 100` to run a bounded post-resume smoke test before starting a
 full mirror.
 
 `book_snapshot_full` is the canonical Telonex book channel. The public Telonex
-runner reads `local:/Volumes/LaCie/telonex_data` first, then appends `api:`
-when `TELONEX_API_KEY` is set.
+runner reads `local:/Volumes/LaCie/telonex_data` first, then includes
+`api:${TELONEX_API_KEY}` as a runtime-expanded API fallback.
 
 The Telonex downloader writes Hive-partitioned parquet files under
 `<destination>/data/` and a DuckDB manifest at `<destination>/telonex.duckdb`.

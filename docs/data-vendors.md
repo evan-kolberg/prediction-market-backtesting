@@ -169,8 +169,8 @@ constructs typed prices and quantities.
 
 Telonex is a Polymarket full-book snapshot vendor path. Public Telonex runners
 use `data_type=Book`, `vendor=Telonex`, and the `book_snapshot_full` channel.
-They read the local mirror first, then use the API source when
-`TELONEX_API_KEY` is set.
+They read the local mirror first, then include an `api:${TELONEX_API_KEY}`
+fallback whose key is expanded by the loader at runtime.
 
 Telonex source syntax:
 
@@ -178,7 +178,7 @@ Telonex source syntax:
 - `api:` uses `https://api.telonex.io` with `TELONEX_API_KEY`.
 - `api:https://host.example` points at a compatible custom base URL.
 
-The API path reads the key from `TELONEX_API_KEY` unless the runner source
+The API path reads the key from `TELONEX_API_KEY` unless a private runner source
 provides an explicit `api:<key>` value. Do not commit private keys.
 
 API-day downloads are cached by default at:
