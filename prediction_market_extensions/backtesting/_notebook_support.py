@@ -153,6 +153,34 @@ def partition_html_artifacts(html_artifacts: Sequence[Path]) -> tuple[list[Path]
     return artifacts[-1:], artifacts[:-1]
 
 
+_MAX_INLINE_HTML_BYTES = 8 * 1024 * 1024
+
+
+def _embed_html_as_iframe(html_text: str, *, height: int = 820) -> str:
+    from html import escape as html_escape
+
+    escaped = html_escape(html_text, quote=True)
+    return (
+        f'<iframe srcdoc="{escaped}" width="100%" height="{height}" '
+        f'style="border:none; background:white;" '
+        f'sandbox="allow-scripts allow-same-origin allow-popups"></iframe>'
+    )
+
+
+def _display_html_suppressing_iframe_warning(html_text: str) -> None:
+    import warnings
+
+    from IPython.display import HTML, display
+
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            message="Consider using IPython.display.IFrame instead",
+            category=UserWarning,
+        )
+        display(HTML(html_text))
+
+
 def display_html_artifacts(
     html_artifacts: Sequence[Path], *, repo_root: Path, iframe_height: int = 820
 ) -> None:
@@ -160,13 +188,24 @@ def display_html_artifacts(
         print("No new HTML artifacts were detected under output/.")
         return
 
-    from IPython.display import IFrame, Markdown, display
+    from IPython.display import Markdown, display
 
     primary, additional = partition_html_artifacts(html_artifacts)
     primary_html = primary[-1]
     relative_html = primary_html.relative_to(repo_root).as_posix()
     display(Markdown(f"**Chart artifact:** `{relative_html}`"))
-    display(IFrame(src=relative_html, width="100%", height=iframe_height))
+
+    html_text = primary_html.read_text(encoding="utf-8")
+    if len(html_text.encode("utf-8")) > _MAX_INLINE_HTML_BYTES:
+        _display_html_suppressing_iframe_warning(html_text)
+        print(
+            "[notice] Chart exceeds inline iframe limit; rendered as inline HTML. "
+            "Re-run this cell after reopening the notebook to restore the view."
+        )
+    else:
+        _display_html_suppressing_iframe_warning(
+            _embed_html_as_iframe(html_text, height=iframe_height)
+        )
 
     if additional:
         extras = "\n".join(f"- `{path.relative_to(repo_root).as_posix()}`" for path in additional)
