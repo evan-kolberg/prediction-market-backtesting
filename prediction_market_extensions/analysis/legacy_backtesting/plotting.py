@@ -303,12 +303,16 @@ def _build_dataframes(
     eq = eq.sort_values("datetime").reset_index(drop=True)
 
     initial = result.initial_cash
-    eq["equity_pct"] = eq["equity"] / initial
+    if initial:
+        eq["equity_pct"] = eq["equity"] / initial
+        eq["return_pct"] = (eq["equity"] - initial) / initial
+    else:
+        eq["equity_pct"] = 1.0
+        eq["return_pct"] = 0.0
     eq["equity_peak"] = eq["equity"].cummax()
     eq["equity_pct_peak"] = eq["equity_pct"].cummax()
     dd_raw = (eq["equity_peak"] - eq["equity"]) / eq["equity_peak"].replace(0, np.nan)
     eq["drawdown_pct"] = dd_raw.fillna(0.0)
-    eq["return_pct"] = (eq["equity"] - initial) / initial
 
     fill_records = [
         {
@@ -393,6 +397,13 @@ def _build_dataframes(
     return eq, fills_df, market_df, len(eq)
 
 
+def _finite_idxmax(series: pd.Series) -> int | None:
+    finite = series.replace([np.inf, -np.inf], np.nan).dropna()
+    if finite.empty:
+        return None
+    return int(finite.idxmax())
+
+
 def _downsample(
     eq: pd.DataFrame,
     fills_df: pd.DataFrame,
@@ -417,9 +428,13 @@ def _downsample(
     if not fills_df.empty:
         must_keep.update(int(b) for b in fills_df["bar"].values)
     # Equity peak and max drawdown
-    must_keep.add(int(eq["equity"].idxmax()))
+    equity_peak = _finite_idxmax(eq["equity"])
+    if equity_peak is not None:
+        must_keep.add(equity_peak)
     if "drawdown_pct" in eq.columns:
-        must_keep.add(int(eq["drawdown_pct"].idxmax()))
+        drawdown_peak = _finite_idxmax(eq["drawdown_pct"])
+        if drawdown_peak is not None:
+            must_keep.add(drawdown_peak)
     # Always keep first and last
     must_keep.add(0)
     must_keep.add(n - 1)
@@ -961,46 +976,56 @@ return this.labels[index] || "";
         fig.yaxis.formatter = NumeralTickFormatter(format=fmt_tick)
 
         if r is not None:
-            argmax = int(equity.idxmax())
-            peak_val = equity.iloc[argmax]
-            fig.scatter(
-                argmax,
-                peak_val,
-                color="cyan",
-                size=8,
-                legend_label=f"Peak ({fmt_legend.format(peak_val * (100 if relative_equity else 1))})",
-            )
-
-            fig.scatter(
-                index[-1],
-                equity.iloc[-1],
-                color="blue",
-                size=8,
-                legend_label=f"Final ({fmt_legend.format(equity.iloc[-1] * (100 if relative_equity else 1))})",
-            )
-
-            dd = eq["drawdown_pct"]
-            dd_end = int(dd.idxmax())
-            if dd.iloc[dd_end] > 0:
-                dd_start = int(equity.iloc[:dd_end].idxmax())
-                dd_dur = eq["datetime"].iloc[dd_end] - eq["datetime"].iloc[dd_start]
-                label = f"Max Dd Dur. ({dd_dur})".replace(" 00:00:00", "").replace("(0 days ", "(")
-                fig.line(
-                    [dd_start, dd_end],
-                    equity.iloc[dd_start],
-                    line_color="red",
-                    line_width=2,
-                    legend_label=label,
+            argmax = _finite_idxmax(equity)
+            if argmax is not None:
+                peak_val = equity.iloc[argmax]
+                fig.scatter(
+                    argmax,
+                    peak_val,
+                    color="cyan",
+                    size=8,
+                    legend_label=(
+                        f"Peak ({fmt_legend.format(peak_val * (100 if relative_equity else 1))})"
+                    ),
                 )
 
-                if not plot_drawdown:
-                    fig.scatter(
-                        dd_end,
-                        equity.iloc[dd_end],
-                        color="red",
-                        size=8,
-                        legend_label=f"Max Drawdown (-{100 * dd.iloc[dd_end]:.1f}%)",
+            final_value = equity.iloc[-1]
+            if pd.notna(final_value) and np.isfinite(final_value):
+                fig.scatter(
+                    index[-1],
+                    final_value,
+                    color="blue",
+                    size=8,
+                    legend_label=(
+                        f"Final ({fmt_legend.format(final_value * (100 if relative_equity else 1))})"
+                    ),
+                )
+
+            dd = eq["drawdown_pct"]
+            dd_end = _finite_idxmax(dd)
+            if dd_end is not None and dd.iloc[dd_end] > 0:
+                dd_start = _finite_idxmax(equity.iloc[:dd_end])
+                if dd_start is not None:
+                    dd_dur = eq["datetime"].iloc[dd_end] - eq["datetime"].iloc[dd_start]
+                    label = f"Max Dd Dur. ({dd_dur})".replace(" 00:00:00", "").replace(
+                        "(0 days ", "("
                     )
+                    fig.line(
+                        [dd_start, dd_end],
+                        equity.iloc[dd_start],
+                        line_color="red",
+                        line_width=2,
+                        legend_label=label,
+                    )
+
+                    if not plot_drawdown:
+                        fig.scatter(
+                            dd_end,
+                            equity.iloc[dd_end],
+                            color="red",
+                            size=8,
+                            legend_label=f"Max Drawdown (-{100 * dd.iloc[dd_end]:.1f}%)",
+                        )
 
         overlay_values: dict[str, np.ndarray] = {}
         for market_id, series in overlay_equity.items():
@@ -1067,14 +1092,15 @@ return this.labels[index] || "";
     def _plot_total_drawdown():
         fig = _new_sub("Total Drawdown", PANEL_TOTAL_DRAWDOWN, height=90)
         renderer = fig.line("index", "drawdown_pct", source=source, line_width=1.3)
-        argmax = int(eq["drawdown_pct"].idxmax())
-        fig.scatter(
-            argmax,
-            eq["drawdown_pct"].iloc[argmax],
-            color="red",
-            size=8,
-            legend_label="Peak (-{:.1f}%)".format(100 * eq["drawdown_pct"].iloc[argmax]),
-        )
+        argmax = _finite_idxmax(eq["drawdown_pct"])
+        if argmax is not None:
+            fig.scatter(
+                argmax,
+                eq["drawdown_pct"].iloc[argmax],
+                color="red",
+                size=8,
+                legend_label="Peak (-{:.1f}%)".format(100 * eq["drawdown_pct"].iloc[argmax]),
+            )
         _set_tooltips(fig, [("Drawdown", "@drawdown_pct{-0.[0]%}")], renderers=[renderer])
         fig.yaxis.formatter = NumeralTickFormatter(format="-0.[0]%")
         return fig
@@ -1713,14 +1739,15 @@ return this.labels[index] || "";
         show_primary = not (hide_primary_panel_series and overlay_equity)
         if show_primary:
             r = fig.line("index", "drawdown_pct", source=source, line_width=1.3)
-            argmax = int(eq["drawdown_pct"].idxmax())
-            fig.scatter(
-                argmax,
-                eq["drawdown_pct"].iloc[argmax],
-                color="red",
-                size=8,
-                legend_label="Peak (-{:.1f}%)".format(100 * eq["drawdown_pct"].iloc[argmax]),
-            )
+            argmax = _finite_idxmax(eq["drawdown_pct"])
+            if argmax is not None:
+                fig.scatter(
+                    argmax,
+                    eq["drawdown_pct"].iloc[argmax],
+                    color="red",
+                    size=8,
+                    legend_label="Peak (-{:.1f}%)".format(100 * eq["drawdown_pct"].iloc[argmax]),
+                )
             _set_tooltips(fig, [("Drawdown", "@drawdown_pct{-0.[0]%}")], renderers=[r])
 
         overlay_drawdown = {

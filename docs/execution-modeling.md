@@ -1,166 +1,169 @@
 # Execution Modeling
 
-Backtests here replay venue data from Kalshi and Polymarket into
-NautilusTrader. The main things that move realized backtest performance beyond
-the raw venue data are:
+Backtests in this repo are designed around maximum replay realism with the data
+we actually have. The active Polymarket path is L2 market-by-price book replay:
+strategies consume book state, Nautilus maintains an `L2_MBP` order book, and
+real trade ticks are included only as execution evidence for matching.
 
-- exchange fee models
-- taker slippage assumptions
-- engine behavior such as IOC handling, price rounding, cash-account limits,
-  and `AccountBalanceNegative`
+Nautilus documents the relevant behavior in its backtesting guide:
+<https://nautilustrader.io/docs/latest/concepts/backtesting/>. The important
+repo-level interpretation is:
+
+- `QuoteTick` is not a valid L2 replay input here. Nautilus ignores quote ticks
+  for `BookType.L2_MBP` book updates.
+- `OrderBookDeltas` update the L2 book.
+- `TradeTick` records trigger matching and queue-position updates when
+  `trade_execution=True`.
+- Strategies should not subscribe to trade ticks for signals in public runners.
+  Trade prints are execution evidence, not the strategy data feed.
 
 ## Fees
 
-- Kalshi uses a nonlinear expected-earnings fee model
 - Polymarket uses the current taker fee curve from venue metadata, plus CLOB
-  `fee-rate` enrichment when the market payload itself still reports zero fees
-- Polymarket maker fees are treated as zero; taker fees vary by market category
-  and are not hardcoded to the older sports-vs-crypto heuristic
-- if a venue reports zero fees for a market, the backtest also applies zero
-  fees
-- Kalshi fee waivers are checked at fill time against the order timestamp, so a
-  waiver expiring mid-window no longer zeroes fees for the full replay
+  fee-rate enrichment when the market payload itself still reports zero fees.
+- Polymarket maker fees are treated as zero.
+- If a venue reports zero fees for a market, the backtest applies zero fees
+  rather than inventing a fallback.
+- Kalshi fee logic remains in the extension layer, but the public v3 runner
+  surface is Polymarket book replay.
 
 ## Slippage
 
-- shared prediction-market backtests default to a custom taker fill model
-- market orders get a deterministic adverse fill shifted from the last trade print
-- `slippage_ticks` (default 1): shifts the synthetic book by N ticks adverse
-  - Polymarket 1 tick = instrument `price_increment`
-  - Kalshi 1 tick = $0.01
-- `entry_slippage_pct` (default 0.0): shifts BUY fills by a percentage of the
-  ask price (e.g., 0.02 on a $0.50 ask fills at $0.51)
-- `exit_slippage_pct` (default 0.0): shifts SELL fills by a percentage of the
-  bid price (e.g., 0.03 on a $0.50 bid fills at $0.485)
-- entry and exit percentages let you model the higher cost of exiting a binary
-  option position (thinner book, more urgency) versus entering
-- entry vs exit is inferred from repo-owned order tags and `reduce_only`
-  first, with order side only as a fallback; this keeps long exits and future
-  short-cover flows on the correct slippage path
-- when both tick-based and percentage-based slippage are non-zero, they stack
-  additively: fill price = ask + tick_shift + pct_shift (for buys) or
-  bid - tick_shift - pct_shift (for sells)
-- configure these on the `ExecutionModelConfig` in your runner:
-  ```python
-  EXECUTION = ExecutionModelConfig(
-      queue_position=False,
-      slippage_ticks=1,
-      entry_slippage_pct=0.02,
-      exit_slippage_pct=0.03,
-      latency_model=StaticLatencyConfig(...),
-  )
-  ```
-- trade-tick market orders no longer use the last trade print size as a proxy
-  for resting book depth
-- when no visible book depth exists, the synthetic taker book now uses a
-  finite fallback depth based on order size plus a configurable floor
-  (`min_synthetic_book_size`, default `10`)
-- when real visible depth exists (for example quote-tick top-of-book size), the
-  repo preserves that observed liquidity instead of inflating it with the
-  fallback floor
-- limit orders still use Nautilus passive-book heuristics, but the repo now
-  defaults touched-limit fill probability to `0.25` instead of `1.0`
-- `entry_slippage_pct` and `exit_slippage_pct` are validated to stay within
-  `[0.0, 1.0]` so runner configs cannot silently manufacture impossible
-  prediction-market fills
-- PMXT-backed Polymarket L2 backtests do not use the synthetic taker
-  fill model; they replay historical `OrderBookDeltas` with `book_type=L2_MBP`
-  and `liquidity_consumption=True`
-- Telonex-backed Polymarket quote backtests request the `book_snapshot_full`
-  channel, convert full-depth snapshots into L2 `OrderBookDeltas` plus derived
-  `QuoteTick`s, and run with `book_type=L2_MBP`
+There are two execution paths:
+
+- L2 book replay uses Nautilus passive-book execution. Marketable orders walk
+  the replayed book, so fills can consume multiple price levels when top-of-book
+  size is insufficient.
+- The custom `PredictionMarketTakerFillModel` is retained for non-book adapter
+  paths, but PMXT and Telonex book runners do not use it.
+
+For book runners, the relevant engine profile is:
+
+```python
+L2_BOOK_ENGINE_PROFILE = ReplayEngineProfile(
+    book_type=BookType.L2_MBP,
+    fill_model_mode="passive_book",
+    liquidity_consumption=True,
+)
+```
+
+`PredictionMarketBacktest._build_engine()` then wires the venue with:
+
+```python
+engine.add_venue(
+    ...,
+    book_type=BookType.L2_MBP,
+    liquidity_consumption=True,
+    queue_position=execution.queue_position,
+    bar_execution=False,
+    trade_execution=True,
+)
+```
+
+That means:
+
+- `OrderBookDeltas` are the only records that move the displayed L2 book.
+- `TradeTick` records can fill resting orders between book updates.
+- Bars do not drive execution in these runners.
+- Fills consume visible book liquidity until a later book update refreshes that
+  level.
 
 ## Passive Orders And Queue Position
 
-- public PMXT and Telonex quote-tick runners enable Nautilus
-  `queue_position=True` by default because they replay L2 book data
-- public Kalshi and Polymarket trade-tick runners keep `queue_position=False`
-  because trade prints do not provide book depth to queue against
-- this is still a heuristic, not true venue queue reconstruction
-- Kalshi and Polymarket trade-tick replay still uses the static latency model,
-  but queue-position simulation is intentionally disabled for those runners
-- PMXT and Telonex quote-tick replay can also enable queue tracking, but those
-  paths replay MBP book updates and quotes rather than MBO queue events, so
-  fills still depend more heavily on book-level size changes and price moves
-  than on true venue priority reconstruction
-- public MBP data does not expose hidden liquidity, exact priority inside a
-  level, or venue-specific matching quirks
+Public PMXT and Telonex book runners set `queue_position=True` because they
+replay L2 book depth and real trade ticks. This is more realistic than filling
+every touched limit order immediately, but it is still an MBP heuristic, not
+true venue FIFO reconstruction.
+
+For a resting `LIMIT` order, Nautilus snapshots the same-side displayed book
+quantity at the order price when the order is accepted. That quantity is the
+estimated queue ahead of the simulated order. Later trade ticks at that price
+decrement the queue ahead; only excess traded quantity after the queue clears
+can fill the simulated order.
+
+Practical implications:
+
+- A buy limit resting at the bid needs seller-aggressor trade prints at that
+  price, or book movement that makes the order marketable, before it fills.
+- A sell limit resting at the ask needs buyer-aggressor trade prints at that
+  price, or a crossing book move, before it fills.
+- Historical trades with `NO_AGGRESSOR` metadata can affect both sides, which
+  prevents impossible queue stalls but can overstate fill probability.
+- Queue position is per order and per price level. It does not model hidden
+  liquidity, cancels ahead of us, pro-rata allocation, or true L3/MBO priority.
+
+This is the best available realism level with public PMXT/Telonex L2 MBP data:
+full L2 book state, liquidity consumption, real trade prints for fill evidence,
+queue-position tracking, and explicit latency.
 
 ## Latency
 
-- public runners can now attach a static Nautilus latency model through the
-  runner config
-- the public PMXT, Telonex, Kalshi trade-tick, and Polymarket trade-tick
-  runners in this repo now ship with a static latency model enabled by default
-- the current repo-layer surface is a static millisecond model with separate
-  base, insert, update, and cancel delays
-- this helps test whether a market-making or quote-chasing strategy only works
-  because orders are assumed to land instantly
+Public runner configs use `ExecutionModelConfig` with optional
+`StaticLatencyConfig`:
+
+```python
+ExecutionModelConfig(
+    queue_position=True,
+    latency_model=StaticLatencyConfig(
+        base_latency_ms=75.0,
+        insert_latency_ms=10.0,
+        update_latency_ms=5.0,
+        cancel_latency_ms=5.0,
+    ),
+)
+```
+
+Zero-latency assumptions are optimistic for CLOB strategies. Keep latency
+enabled unless you are intentionally testing a lower-bound execution scenario.
 
 ## Limits
 
-- repo-owned backtests keep cash-account risk checks enabled by default
-- result payloads now distinguish the requested replay window from the loaded
-  data window via `planned_start`, `planned_end`, `loaded_start`,
-  `loaded_end`, `coverage_ratio`, and `requested_coverage_ratio`
-- when a binary market resolves after the replay window, the result now keeps
-  mark-to-market PnL and emits an explicit warning instead of silently applying
-  post-window settlement
-- when settlement is observable inside the replay window, result payloads use
-  binary settlement PnL and preserve the last-tick mark as `market_exit_pnl`
-- if settlement metadata exists but `simulated_through` is missing, the result
-  now keeps mark-to-market PnL and emits an explicit warning instead of
-  guessing that post-window settlement was observable
-- empty fill sets no longer overwrite `pnl` with a synthetic settlement value
-- NO-side fill events now preserve their actual side through report
-  serialization so reconstructed equity curves do not silently flip sign
-- Kalshi public backtests here are trade-tick replay only
-- Polymarket PMXT-backed backtests are full L2 order-book replay
-- Polymarket Telonex-backed backtests use full-depth Telonex book snapshots
-  when available
-- taker-heavy strategies that harvest tiny price changes can look much worse
-  once fees and one-tick slippage are turned on
-- PMXT and Telonex L2 help with taker and passive-book modeling, but robust
-  maker realism still needs L3 or MBO-style data
-- run outputs now also warn that replay sets are curated and that no
-  portfolio-level drawdown or daily-loss circuit breaker is configured by
-  default, so those limitations stay visible in normal runs
+- L2 MBP is not L3 MBO. We know aggregate size at a price level, not individual
+  orders or exact priority.
+- Public Polymarket data does not expose hidden liquidity or all venue-specific
+  matching details.
+- Trade ticks improve maker-fill realism, but they only prove that liquidity
+  traded at a price. They do not prove how much persistent queue was available
+  immediately before or after that trade.
+- Negative PnL and `AccountBalanceNegative` are not automatically bugs. They
+  can be correct consequences of fees, latency, liquidity, sizing, or expected
+  losing strategies.
+- Result payloads keep requested-window and loaded-window metadata separate
+  through `planned_start`, `planned_end`, `loaded_start`, `loaded_end`,
+  `coverage_ratio`, and `requested_coverage_ratio`.
 
 ## Vendor L2 Behavior
 
 ### PMXT
 
-- the loader prefers local filtered cache first, then raw sources in the order
-  configured by the runner with `local:` and `archive:`
-- for the public PMXT runners in this repo, that usually means local raw
-  mirror first, then the configured remote archives
-- local PMXT filtered cache is enabled by default and grows with the number of
-  unique `(condition_id, token_id, hour)` tuples you replay
-- `BACKTEST_ENABLE_TIMING=0` is the opt-out if you want a quieter PMXT run
-- PMXT payload timestamps are converted to nanoseconds with decimal-string
-  arithmetic instead of float64 multiplication, so sub-microsecond ordering is
-  no longer rounded away during replay construction
-- PMXT book snapshots now normalize bids/asks into the ordering expected by the
-  Nautilus Polymarket schema before deriving `QuoteTick`s
-- stale cross-hour PMXT payloads are ignored if their timestamp/order would
-  move the replayed book backwards in time
+- PMXT raw files are hourly Polymarket order-book archives.
+- The loader filters raw rows to market and token, decodes `book_snapshot` and
+  `price_change` payloads, and emits Nautilus `OrderBookDeltas`.
+- A missing PMXT hour warns and resets local book state. Subsequent
+  `price_change` updates are not applied across a gap until a fresh snapshot
+  rebuilds the book.
+- PMXT filtered cache is enabled by default at
+  `~/.cache/nautilus_trader/pmxt`.
+- Public runners usually try `local:/Volumes/LaCie/pmxt_raws` first, then
+  `archive:r2v2.pmxt.dev`, then `archive:r2.pmxt.dev`.
 
 ### Telonex
 
-- Telonex support uses the `quote_tick` runner surface, but the adapter pins
-  the `book_snapshot_full` channel and replays L2 book data alongside derived
-  quotes
-- `local:` reads already-downloaded Telonex Parquet files, while `api:` uses
-  the Telonex download endpoint with `TELONEX_API_KEY` from the environment
-- Telonex quote-tick runners use a passive L2 book execution profile with
-  `queue_position=True`, `liquidity_consumption=True`, and static latency
-- the Telonex replay adapter now resolves the Polymarket outcome name from the
-  selected instrument metadata when `replay.outcome` is omitted, so vendor
-  comparisons do not silently fall back to `outcome_id=token_index`
-- Telonex timestamp-ms inputs preserve fractional milliseconds when present,
-  and generated delta sequences are now monotonic within each snapshot diff
-- use Telonex when the full-depth daily Parquet/API source is the desired
-  Polymarket input; use PMXT when you specifically want the PMXT hourly archive
+- Telonex book runners pin `book_snapshot_full`, not shallow
+  `book_snapshot_5` or `book_snapshot_25`.
+- Full-depth snapshots are diffed into `OrderBookDeltas` so Nautilus receives
+  L2 MBP updates rather than quote ticks.
+- Real Polymarket trade ticks are interleaved with Telonex book deltas for
+  matching and queue-position updates.
+- After the first conversion for a market/token/day/window, the loader writes a
+  materialized `OrderBookDeltas` cache under `book-deltas-v1`. Warm runs can
+  load `telonex-deltas-cache::...` directly and avoid re-diffing full-book
+  snapshots.
+- `local:/Volumes/LaCie/telonex_data` reads the Hive-partitioned blob mirror
+  through the DuckDB manifest when available, selecting only the parquet parts
+  needed for the requested channel, market, outcome, and date range.
+- `api:` downloads daily Telonex parquet payloads and writes both the raw
+  nested cache file and a faster `.fast.parquet` sidecar for subsequent runs.
 
-For concrete timings and source tiers, see [Vendor Fetch Sources And
-Timing](vendor-fetch-sources.md).
+For concrete source priority and timing output, see
+[Vendor Fetch Sources And Timing](vendor-fetch-sources.md).

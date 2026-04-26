@@ -72,14 +72,11 @@ class ParameterSearchConfig:
     holdout_top_k: int = 5
     initial_cash: float = 100.0
     probability_window: int = 256
-    min_trades: int = 0
-    min_quotes: int = 0
+    min_book_events: int = 0
     min_price_range: float = 0.0
     min_fills_per_window: int = 1
     execution: ExecutionModelConfig | None = None
     chart_resample_rule: str | None = None
-    emit_html: bool = False
-    chart_output_path: Path | str | None = None
     nautilus_log_level: str = "INFO"
     artifact_root: Path | str = Path("output")
     invalid_score: float = DEFAULT_INVALID_SCORE
@@ -403,8 +400,6 @@ def build_parameter_search_window_backtest(
     params: ParameterValues | Mapping[str, Any],
     trial_id: int = 1,
     name: str | None = None,
-    emit_html: bool | None = None,
-    chart_output_path: str | Path | None = None,
     return_summary_series: bool | None = None,
 ) -> PredictionMarketBacktest:
     from prediction_market_extensions.backtesting._prediction_market_backtest import (
@@ -417,10 +412,6 @@ def build_parameter_search_window_backtest(
     )
     if name is not None:
         kwargs["name"] = name
-    if emit_html is not None:
-        kwargs["emit_html"] = emit_html
-    if chart_output_path is not None:
-        kwargs["chart_output_path"] = chart_output_path
     if return_summary_series is not None:
         kwargs["return_summary_series"] = return_summary_series
     return PredictionMarketBacktest(**kwargs)
@@ -443,14 +434,11 @@ def _build_backtest_kwargs(
         "strategy_configs": [bound_strategy_spec],
         "initial_cash": config.initial_cash,
         "probability_window": config.probability_window,
-        "min_trades": config.min_trades,
-        "min_quotes": config.min_quotes,
+        "min_book_events": config.min_book_events,
         "min_price_range": config.min_price_range,
         "nautilus_log_level": config.nautilus_log_level,
         "execution": config.execution,
         "chart_resample_rule": config.chart_resample_rule,
-        "emit_html": config.emit_html,
-        "chart_output_path": config.chart_output_path,
         "return_summary_series": True,
     }
 

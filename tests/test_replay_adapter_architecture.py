@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import asyncio
 from contextlib import nullcontext
 from dataclasses import dataclass
 from types import SimpleNamespace
 from typing import Any
 
+import pandas as pd
+import pytest
 from nautilus_trader.model.currencies import USD
 from nautilus_trader.model.enums import AccountType, OmsType
 from nautilus_trader.model.identifiers import Venue
@@ -27,6 +30,7 @@ from prediction_market_extensions.backtesting._market_data_support import (
     unregister_market_data_support,
 )
 from prediction_market_extensions.backtesting._prediction_market_runner import MarketDataConfig
+from prediction_market_extensions.backtesting.data_sources import replay_adapters
 
 
 @dataclass(frozen=True)
@@ -37,7 +41,7 @@ class FakeReplay:
 class FakeAdapter(HistoricalReplayAdapter):
     @property
     def key(self) -> ReplayAdapterKey:
-        return ReplayAdapterKey("demo", "fake", "trade_tick")
+        return ReplayAdapterKey("demo", "fake", "book")
 
     @property
     def replay_spec_type(self) -> type[FakeReplay]:
@@ -76,7 +80,7 @@ class _EngineStub:
 
 
 def test_new_adapter_registers_without_core_executor_changes(monkeypatch) -> None:
-    support = MarketDataSupport(key=("demo", "trade_tick", "fake"), adapter=FakeAdapter())
+    support = MarketDataSupport(key=("demo", "book", "fake"), adapter=FakeAdapter())
     register_market_data_support(support)
     monkeypatch.setattr(backtest_module, "BacktestEngine", _EngineStub)
 
@@ -88,7 +92,7 @@ def test_new_adapter_registers_without_core_executor_changes(monkeypatch) -> Non
             name="demo-fake-runner",
             description="Fake adapter acceptance test",
             data=MarketDataConfig(
-                platform="demo", data_type="trade_tick", vendor="fake", sources=("fake:memory",)
+                platform="demo", data_type="book", vendor="fake", sources=("fake:memory",)
             ),
             replays=(replay,),
             strategy_configs=[
@@ -100,8 +104,7 @@ def test_new_adapter_registers_without_core_executor_changes(monkeypatch) -> Non
             ],
             initial_cash=100.0,
             probability_window=5,
-            min_trades=1,
-            emit_html=False,
+            min_book_events=1,
         )
         backtest = build_backtest_for_experiment(experiment)
 
@@ -111,4 +114,93 @@ def test_new_adapter_registers_without_core_executor_changes(monkeypatch) -> Non
         assert engine.venues[0]["venue"] == Venue("FAKE")
         assert engine.venues[0]["account_type"] == AccountType.CASH
     finally:
-        unregister_market_data_support(("demo", "trade_tick", "fake"))
+        unregister_market_data_support(("demo", "book", "fake"))
+
+
+def test_preflight_midpoints_apply_l2_book_state(monkeypatch) -> None:
+    class FakeDeltas:
+        def __init__(self, updates: tuple[tuple[str, float], ...]) -> None:
+            self.updates = updates
+
+    class FakeOrderBook:
+        def __init__(self, instrument_id, book_type):  # type: ignore[no-untyped-def]
+            del instrument_id, book_type
+            self._bid: float | None = None
+            self._ask: float | None = None
+
+        def apply_deltas(self, deltas: FakeDeltas) -> None:
+            for side, price in deltas.updates:
+                if side == "bid":
+                    self._bid = price
+                else:
+                    self._ask = price
+
+        def best_bid_price(self) -> float | None:
+            return self._bid
+
+        def best_ask_price(self) -> float | None:
+            return self._ask
+
+    monkeypatch.setattr(replay_adapters, "OrderBook", FakeOrderBook)
+
+    count, midpoints = replay_adapters._book_event_count_and_midpoints(
+        instrument=SimpleNamespace(id="POLYMARKET.TEST"),
+        records=(
+            FakeDeltas((("bid", 0.49), ("ask", 0.51))),
+            FakeDeltas((("ask", 0.55),)),
+        ),
+        deltas_type=FakeDeltas,
+    )
+
+    assert count == 2
+    assert midpoints == (0.5, 0.52)
+    assert replay_adapters._price_range(midpoints) == pytest.approx(0.02)
+
+
+def test_trade_tick_loader_reports_api_and_cache_progress(
+    monkeypatch: pytest.MonkeyPatch, tmp_path, capsys
+) -> None:
+    class FakeTradeLoader:
+        condition_id = "0xcondition"
+        token_id = "token"
+        instrument = SimpleNamespace()
+
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def load_trades(self, start, end):  # type: ignore[no-untyped-def]
+            del start, end
+            self.calls += 1
+            return []
+
+    loader = FakeTradeLoader()
+    monkeypatch.setattr(replay_adapters, "_cache_home", lambda: tmp_path)
+
+    trades = asyncio.run(
+        replay_adapters._load_trade_ticks(
+            loader,
+            start=pd.Timestamp("2026-01-19T00:00:00Z"),
+            end=pd.Timestamp("2026-01-19T23:59:59Z"),
+            market_label="demo-market",
+        )
+    )
+    output = capsys.readouterr().out
+
+    assert trades == ()
+    assert loader.calls == 1
+    assert "Loading Polymarket trade ticks for execution demo-market" in output
+    assert "polymarket api" in output
+
+    cached_trades = asyncio.run(
+        replay_adapters._load_trade_ticks(
+            loader,
+            start=pd.Timestamp("2026-01-19T00:00:00Z"),
+            end=pd.Timestamp("2026-01-19T23:59:59Z"),
+            market_label="demo-market",
+        )
+    )
+    cached_output = capsys.readouterr().out
+
+    assert cached_trades == ()
+    assert loader.calls == 1
+    assert "cache 2026-01-19" in cached_output

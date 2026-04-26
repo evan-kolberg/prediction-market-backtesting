@@ -93,8 +93,8 @@ def main() -> int:
         default=[],
         help=(
             "Run only the selected runner(s). Accepts either the bare filename, "
-            "for example 'kalshi_trade_tick_breakout.py', or the repo-relative "
-            "path, for example 'backtests/kalshi_trade_tick_breakout.py'. "
+            "for example 'polymarket_book_ema_crossover.py', or the repo-relative "
+            "path, for example 'backtests/polymarket_book_ema_crossover.py'. "
             "Repeat to select multiple."
         ),
     )

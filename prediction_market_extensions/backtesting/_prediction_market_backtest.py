@@ -4,7 +4,6 @@ import asyncio
 import warnings
 from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime
-from pathlib import Path
 from typing import Any
 
 import pandas as pd
@@ -13,7 +12,6 @@ from nautilus_trader.backtest.engine import BacktestEngine
 from nautilus_trader.common.component import is_backtest_force_stop
 from nautilus_trader.config import LoggingConfig
 from nautilus_trader.config import StrategyFactory as NautilusStrategyFactory
-from nautilus_trader.model.data import QuoteTick
 from nautilus_trader.model.identifiers import InstrumentId, TraderId
 from nautilus_trader.model.objects import Money
 from nautilus_trader.risk.config import RiskEngineConfig
@@ -29,15 +27,10 @@ from prediction_market_extensions.adapters.prediction_market import (
 from prediction_market_extensions.adapters.prediction_market.fill_model import (
     PredictionMarketTakerFillModel,
 )
-from prediction_market_extensions.analysis.legacy_plot_adapter import DEFAULT_DETAIL_PLOT_PANELS
 from prediction_market_extensions.backtesting._backtest_runtime import build_backtest_run_state
 from prediction_market_extensions.backtesting._execution_config import ExecutionModelConfig
 from prediction_market_extensions.backtesting._market_data_config import MarketDataConfig
-from prediction_market_extensions.backtesting._replay_specs import (
-    MarketSimConfig,
-    ReplaySpec,
-    coerce_legacy_market_sim_config,
-)
+from prediction_market_extensions.backtesting._replay_specs import ReplaySpec
 from prediction_market_extensions.backtesting._result_policies import (
     apply_repo_research_disclosures,
 )
@@ -70,6 +63,7 @@ PolymarketPMXTDataLoader = RunnerPolymarketPMXTDataLoader
 type StrategyFactory = Callable[[InstrumentId], Strategy]
 
 LARGE_DATA_GAP_NS = 4 * 60 * 60 * 1_000_000_000
+REPO_STATUS_TOPIC = "prediction_market.backtest.status"
 
 
 def _record_ts_event(record: Any) -> int | None:
@@ -96,20 +90,42 @@ def _largest_record_gap_ns(records: Sequence[Any]) -> int | None:
     return largest_gap
 
 
+def _emit_engine_status(engine: BacktestEngine, message: str) -> None:
+    try:
+        msgbus = engine.kernel.msgbus
+        logger = engine.kernel.logger
+        if not getattr(engine, "_prediction_market_status_listener", False):
+            msgbus.subscribe(REPO_STATUS_TOPIC, lambda msg: logger.info(str(msg)))
+            setattr(engine, "_prediction_market_status_listener", True)
+        msgbus.publish(REPO_STATUS_TOPIC, message, external_pub=False)
+    except Exception:
+        print(message)
+
+
+def _serialize_engine_result_stats(engine_result: Any) -> dict[str, Any]:
+    return {
+        "iterations": int(getattr(engine_result, "iterations", 0) or 0),
+        "total_events": int(getattr(engine_result, "total_events", 0) or 0),
+        "total_orders": int(getattr(engine_result, "total_orders", 0) or 0),
+        "total_positions": int(getattr(engine_result, "total_positions", 0) or 0),
+        "elapsed_time": float(getattr(engine_result, "elapsed_time", 0.0) or 0.0),
+        "stats_pnls": dict(getattr(engine_result, "stats_pnls", {}) or {}),
+        "stats_returns": dict(getattr(engine_result, "stats_returns", {}) or {}),
+    }
+
+
 class PredictionMarketBacktest:
     def __init__(
         self,
         *,
         name: str,
         data: MarketDataConfig,
-        replays: Sequence[ReplaySpec] | None = None,
-        sims: Sequence[ReplaySpec | MarketSimConfig] | None = None,
+        replays: Sequence[ReplaySpec],
         strategy_configs: Sequence[StrategyConfigSpec] = (),
         strategy_factory: StrategyFactory | None = None,
         initial_cash: float,
         probability_window: int,
-        min_trades: int = 0,
-        min_quotes: int = 0,
+        min_book_events: int = 0,
         min_price_range: float = 0.0,
         default_lookback_days: int | None = None,
         default_lookback_hours: float | None = None,
@@ -118,34 +134,25 @@ class PredictionMarketBacktest:
         nautilus_log_level: str = "INFO",
         execution: ExecutionModelConfig | None = None,
         chart_resample_rule: str | None = None,
-        emit_html: bool = True,
-        chart_output_path: str | Path | None = None,
-        return_chart_layout: bool = False,
         return_summary_series: bool = False,
-        detail_plot_panels: Sequence[str] | None = None,
     ) -> None:
         if strategy_factory is not None and strategy_configs:
             raise ValueError("Use strategy_factory or strategy_configs, not both.")
         if strategy_factory is None and not strategy_configs:
             raise ValueError("strategy_configs is required when strategy_factory is not provided.")
-        if replays is not None and sims is not None:
-            raise ValueError("Use replays or sims, not both.")
-        raw_replays = replays if replays is not None else sims
-        if raw_replays is None:
+        if not replays:
             raise ValueError("replays is required.")
 
         self.name = name
         self.data = data
-        self._sims = tuple(raw_replays)
-        self.replays = self._normalize_replays(self._sims)
+        self.replays = self._normalize_replays(tuple(replays))
         self.strategy_configs = tuple(strategy_configs)
         self.strategy_factory = strategy_factory
         if initial_cash <= 0:
             raise ValueError(f"initial_cash must be positive, got {initial_cash}")
         self.initial_cash = float(initial_cash)
         self.probability_window = int(probability_window)
-        self.min_trades = int(min_trades)
-        self.min_quotes = int(min_quotes)
+        self.min_book_events = int(min_book_events)
         self.min_price_range = float(min_price_range)
         self.default_lookback_days = default_lookback_days
         self.default_lookback_hours = default_lookback_hours
@@ -154,17 +161,7 @@ class PredictionMarketBacktest:
         self.nautilus_log_level = nautilus_log_level
         self.execution = execution if execution is not None else ExecutionModelConfig()
         self.chart_resample_rule = chart_resample_rule
-        self.emit_html = emit_html
-        self.chart_output_path = chart_output_path
-        self.return_chart_layout = return_chart_layout
         self.return_summary_series = return_summary_series
-        self.detail_plot_panels = tuple(
-            DEFAULT_DETAIL_PLOT_PANELS if detail_plot_panels is None else detail_plot_panels
-        )
-
-    @property
-    def sims(self) -> tuple[ReplaySpec | MarketSimConfig, ...]:
-        return self._sims
 
     def _strategy_summary_label(self) -> str:
         if self.strategy_configs:
@@ -214,8 +211,9 @@ class PredictionMarketBacktest:
                 for importable_config in self._build_importable_strategy_configs(loaded_sims):
                     engine.add_strategy(NautilusStrategyFactory.create(importable_config))
 
-            print(
-                f"Starting {self.name} with {len(loaded_sims)} sims and {self._strategy_summary_label()}..."
+            _emit_engine_status(
+                engine,
+                f"Starting {self.name} with {len(loaded_sims)} sims and {self._strategy_summary_label()}...",
             )
             engine.run()
             engine_result = engine.get_result()
@@ -248,6 +246,8 @@ class PredictionMarketBacktest:
                 )
                 for result_index, loaded_sim in enumerate(loaded_sims)
             ]
+            if results:
+                results[0]["portfolio_stats"] = _serialize_engine_result_stats(engine_result)
             return apply_repo_research_disclosures(results)
         finally:
             engine.reset()
@@ -264,12 +264,8 @@ class PredictionMarketBacktest:
             initial_cash=self.initial_cash,
             probability_window=self.probability_window,
             chart_resample_rule=self.chart_resample_rule,
-            emit_html=self.emit_html,
-            chart_output_path=self.chart_output_path,
-            return_chart_layout=self.return_chart_layout,
             return_summary_series=self.return_summary_series,
-            detail_plot_panels=self.detail_plot_panels,
-            sim_count=len(self.sims),
+            sim_count=len(self.replays),
         )
 
     def _build_result(
@@ -309,39 +305,22 @@ class PredictionMarketBacktest:
             engine=engine, loaded_sims=loaded_sims
         )
 
-    def _resolve_chart_output_path(self, *, market_id: str) -> Path:
-        return self._create_artifact_builder().resolve_chart_output_path(market_id=market_id)
-
-    def _normalize_replays(
-        self, replays: Sequence[ReplaySpec | MarketSimConfig]
-    ) -> tuple[ReplaySpec, ...]:
-        normalized: list[ReplaySpec] = []
+    def _normalize_replays(self, replays: Sequence[ReplaySpec]) -> tuple[ReplaySpec, ...]:
         adapter = resolve_replay_adapter(
             platform=self.data.platform, data_type=self.data.data_type, vendor=self.data.vendor
         )
         for replay in replays:
-            if isinstance(replay, MarketSimConfig):
-                replay = coerce_legacy_market_sim_config(
-                    platform=self.data.platform,
-                    data_type=self.data.data_type,
-                    vendor=self.data.vendor,
-                    sim=replay,
-                )
             if not isinstance(replay, adapter.replay_spec_type):
                 raise TypeError(
                     "Replay spec does not match selected adapter. "
                     f"Expected {adapter.replay_spec_type.__name__}, "
                     f"received {type(replay).__name__}."
                 )
-            normalized.append(replay)
-        return tuple(normalized)
+        return tuple(replays)
 
     def _load_request(self) -> ReplayLoadRequest:
-        min_record_count = (
-            self.min_quotes if self.data.data_type == "quote_tick" else self.min_trades
-        )
         return ReplayLoadRequest(
-            min_record_count=min_record_count,
+            min_record_count=self.min_book_events,
             min_price_range=self.min_price_range,
             default_lookback_days=self.default_lookback_days,
             default_lookback_hours=self.default_lookback_hours,
@@ -403,6 +382,8 @@ class PredictionMarketBacktest:
             latency_model=latency_model,
             liquidity_consumption=engine_profile.liquidity_consumption,
             queue_position=self.execution.queue_position,
+            bar_execution=False,
+            trade_execution=True,
         )
         return engine
 
@@ -524,7 +505,7 @@ class PredictionMarketBacktest:
 
 def _LoadedMarketSim(
     *,
-    spec: ReplaySpec | MarketSimConfig,
+    spec: ReplaySpec,
     instrument: Any,
     records: Sequence[Any],
     count: int,
@@ -563,11 +544,9 @@ __all__ = [
     "KalshiDataLoader",
     "LoadedReplay",
     "MarketReportConfig",
-    "MarketSimConfig",
     "PolymarketDataLoader",
     "PolymarketPMXTDataLoader",
     "PredictionMarketBacktest",
-    "QuoteTick",
     "_LoadedMarketSim",
     "finalize_market_results",
     "run_reported_backtest",

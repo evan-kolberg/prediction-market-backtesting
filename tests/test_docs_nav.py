@@ -130,24 +130,29 @@ def test_plotting_docs_distinguish_portfolio_and_comparison_summary_panels() -> 
     normalized = re.sub(r"\s+", " ", plotting_text)
 
     assert (
-        'Use the detail HTML when the question is "what happened in this one replay?"' in normalized
-    )
-    assert (
-        'Use the summary report when the question is "how did this basket behave overall?"'
+        "The repo now emits summary HTML reports only. Individual per-market HTML report generation has been removed."
         in normalized
     )
     assert (
-        "`total_equity`, `total_drawdown`, `total_rolling_sharpe`, `total_cash_equity`, `total_brier_advantage`, `periodic_pnl`, and `monthly_returns` collapse the basket into one aggregate series"
-    ) in normalized
+        "Per-market drilldown should happen through report panels and tables, not separate generated HTML files."
+        in normalized
+    )
+    for panel in (
+        "`total_equity`",
+        "`total_drawdown`",
+        "`total_rolling_sharpe`",
+        "`total_cash_equity`",
+        "`total_brier_advantage`",
+        "`periodic_pnl`",
+        "`monthly_returns`",
+    ):
+        assert panel in normalized
     assert (
-        "`equity`, `allocation`, `drawdown`, `rolling_sharpe`, `cash_equity`, "
-        "and `brier_advantage` keep one line per market or sim"
-    ) in normalized
+        "Add per-market panels like `equity`, `market_pnl`, `yes_price`, and `allocation` only when the basket is small enough"
+        in normalized
+    )
     assert (
-        "`market_pnl` and `yes_price` are detail-heavy panels; they are usually better in per-sim charts"
-    ) in normalized
-    assert (
-        "Some public runners deliberately opt `market_pnl` and `yes_price` into summary reports"
+        "Expected artifacts: - one terminal summary table - one summary HTML report when `MarketReportConfig(summary_report=True)` is set - no per-market HTML files"
         in normalized
     )
 

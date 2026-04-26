@@ -7,7 +7,8 @@
 - [x] fee modeling [PR#4](https://github.com/ben-gramling/nautilus_pm/pull/4), [PR#42](https://github.com/evan-kolberg/prediction-market-backtesting/pull/42)
 - [ ] fuller slippage modeling for maker realism still needs L3 data [PR#6](https://github.com/ben-gramling/nautilus_pm/pull/6), [PR#9](https://github.com/evan-kolberg/prediction-market-backtesting/pull/9), [PR#50](https://github.com/evan-kolberg/prediction-market-backtesting/pull/50)
 - [x] Polymarket L2 order-book backtests [PR#10](https://github.com/evan-kolberg/prediction-market-backtesting/pull/10), [PR#45](https://github.com/evan-kolberg/prediction-market-backtesting/pull/45), [PR#57](https://github.com/evan-kolberg/prediction-market-backtesting/pull/57)
-- [x] public PMXT raw-mirror relay on a VPS for faster backtests [PR#17](https://github.com/evan-kolberg/prediction-market-backtesting/pull/17), [PR#22](https://github.com/evan-kolberg/prediction-market-backtesting/pull/22), [PR#40](https://github.com/evan-kolberg/prediction-market-backtesting/pull/40), [PR#47](https://github.com/evan-kolberg/prediction-market-backtesting/pull/47), [PR#56](https://github.com/evan-kolberg/prediction-market-backtesting/pull/56), [PR#61](https://github.com/evan-kolberg/prediction-market-backtesting/pull/61), [PR#64](https://github.com/evan-kolberg/prediction-market-backtesting/pull/64)
+- [x] PMXT raw archive workflow: local raw mirrors, direct archive fallback,
+  filtered replay cache, and incremental downloader reruns [PR#17](https://github.com/evan-kolberg/prediction-market-backtesting/pull/17), [PR#22](https://github.com/evan-kolberg/prediction-market-backtesting/pull/22), [PR#40](https://github.com/evan-kolberg/prediction-market-backtesting/pull/40), [PR#47](https://github.com/evan-kolberg/prediction-market-backtesting/pull/47), [PR#56](https://github.com/evan-kolberg/prediction-market-backtesting/pull/56), [PR#61](https://github.com/evan-kolberg/prediction-market-backtesting/pull/61), [PR#64](https://github.com/evan-kolberg/prediction-market-backtesting/pull/64)
 - [ ] Kalshi L2 order-book backtests need data we do not have yet
 - [x] richer charting and honest multi-run HTML/report outputs [PR#5](https://github.com/ben-gramling/nautilus_pm/pull/5), [PR#52](https://github.com/evan-kolberg/prediction-market-backtesting/pull/52), [PR#68](https://github.com/evan-kolberg/prediction-market-backtesting/pull/68), [PR#74](https://github.com/evan-kolberg/prediction-market-backtesting/pull/74), [PR#80](https://github.com/evan-kolberg/prediction-market-backtesting/pull/80), [PR#83](https://github.com/evan-kolberg/prediction-market-backtesting/pull/83)
 - [x] manifest-based runner architecture and repo-level optimizer surface [PR#67](https://github.com/evan-kolberg/prediction-market-backtesting/pull/67)
@@ -19,6 +20,19 @@ No repo-level open issues are tracked here right now.
 
 ## Recently Fixed
 
+- [x] PR#119 upgrades public Polymarket runners to L2-native `BookReplay`
+  semantics with `OrderBookDeltas` plus real `TradeTick` execution evidence,
+  keeps Nautilus on `BookType.L2_MBP` with `trade_execution=True`, removes
+  standalone quote/trade replay framing, speeds Telonex API-day cache reads with
+  `.fast.parquet` sidecars, prunes local Telonex mirror scans through the DuckDB
+  manifest, bounds and periodically flushes the Telonex downloader writer queue,
+  and makes PMXT raw downloads incremental by skipping existing local files
+  [PR#119](https://github.com/evan-kolberg/prediction-market-backtesting/pull/119)
+- [x] PR#119 now also materializes Telonex `OrderBookDeltas` under
+  `book-deltas-v1`, prints richer terminal statistics from per-market result
+  payloads plus portfolio-level Nautilus `BacktestResult` stats, and keeps
+  public Python runner inputs inline inside `run()` instead of module-level
+  constants [PR#119](https://github.com/evan-kolberg/prediction-market-backtesting/pull/119)
 - [x] prediction-market backtests now use settlement-aware result assembly,
   finite synthetic taker depth, lower default touched-limit fill probability,
   fill-time Kalshi fee waivers, zero-fee Polymarket maker modeling, safer
@@ -32,9 +46,9 @@ No repo-level open issues are tracked here right now.
   downloader, Hive-partitioned Parquet output with a DuckDB resume manifest,
   and daily-file timing output for Telonex `local:` / `api:` sources [PR#104](https://github.com/evan-kolberg/prediction-market-backtesting/pull/104)
 - [x] v3 removes the active PMXT relay path, relay badges, and relay service
-  package. PMXT quote-tick runners now use local raw files plus direct
-  `r2v2.pmxt.dev` / `r2.pmxt.dev` archive fallback, and Telonex is available
-  as a separate Polymarket quote-tick vendor [PR#103](https://github.com/evan-kolberg/prediction-market-backtesting/pull/103)
+  package. PMXT runners now use local raw files plus direct `r2v2.pmxt.dev` /
+  `r2.pmxt.dev` archive fallback, and Telonex is available as a separate
+  Polymarket vendor [PR#103](https://github.com/evan-kolberg/prediction-market-backtesting/pull/103)
 - [x] relay schema-bootstrap now commits its `UPDATE` so a second writer can
   take the WAL lock instead of deadlocking on first start [PR#102](https://github.com/evan-kolberg/prediction-market-backtesting/pull/102)
 - [x] PMXT relay latest-hour badge now prints the mirrored filename
@@ -49,8 +63,9 @@ No repo-level open issues are tracked here right now.
   metrics, mirrored-vs-archive accounting, and clearer empty-hour handling
   [PR#100](https://github.com/evan-kolberg/prediction-market-backtesting/pull/100), [PR#95](https://github.com/evan-kolberg/prediction-market-backtesting/pull/95), [PR#94](https://github.com/evan-kolberg/prediction-market-backtesting/pull/94), [PR#93](https://github.com/evan-kolberg/prediction-market-backtesting/pull/93), [PR#90](https://github.com/evan-kolberg/prediction-market-backtesting/pull/90), [PR#89](https://github.com/evan-kolberg/prediction-market-backtesting/pull/89)
 - [x] PMXT runners support full per-entry source ordering and split raw-archive
-  sources, so `DATA.sources` can interleave `local:` and `archive:` entries in
-  any order the runner needs [PR#98](https://github.com/evan-kolberg/prediction-market-backtesting/pull/98), [PR#92](https://github.com/evan-kolberg/prediction-market-backtesting/pull/92)
+  sources, so `MarketDataConfig.sources` can interleave `local:` and `archive:`
+  entries in any order the runner needs
+  [PR#98](https://github.com/evan-kolberg/prediction-market-backtesting/pull/98), [PR#92](https://github.com/evan-kolberg/prediction-market-backtesting/pull/92)
 - [x] public runner validation harness covers every flat runner under
   `backtests/` to keep direct script paths and the menu deterministic
   [PR#91](https://github.com/evan-kolberg/prediction-market-backtesting/pull/91)
@@ -84,12 +99,18 @@ No repo-level open issues are tracked here right now.
   window so direct script paths and the repo pytest gate stay deterministic,
   the docs/examples now point at current runnable entrypoints, and shared
   startup reporting no longer understates factory-backed runs [PR#76](https://github.com/evan-kolberg/prediction-market-backtesting/pull/76), [PR#77](https://github.com/evan-kolberg/prediction-market-backtesting/pull/77)
-- [x] public runners now use typed `REPLAYS` plus one `EXPERIMENT`, adapter-owned replay loading, and a repo-layer optimizer surface instead of the older shared `SIMS` / `BACKTEST` contract [PR#67](https://github.com/evan-kolberg/prediction-market-backtesting/pull/67)
+- [x] public runners now use typed replay specs plus one experiment builder,
+  adapter-owned replay loading, and a repo-layer optimizer surface instead of
+  the older shared `SIMS` / `BACKTEST` contract
+  [PR#67](https://github.com/evan-kolberg/prediction-market-backtesting/pull/67)
 - [x] plotting now scales as one detailed HTML per loaded sim plus one aggregate summary HTML per basket, the repo no longer relies on concatenated mega-pages, and the prediction-market runner internals are split into clearer execution, artifact, reporting, and data-source seams [Issue #73](https://github.com/evan-kolberg/prediction-market-backtesting/issues/73), [PR#74](https://github.com/evan-kolberg/prediction-market-backtesting/pull/74)
 - [x] direct script HTML outputs now resolve from the repo root, fixed-basket multi-market runners emit aggregate reports again, and the repo runner/report surface stays explicit about per-sim detail charts versus aggregate multi-market reports [PR#68](https://github.com/evan-kolberg/prediction-market-backtesting/pull/68)
-- [x] setup/backtest/fetch-source docs and screenshots now match the unified `main.py` launcher and current PMXT terminal/reporting output, and the orphaned `_trade_tick_ui.py` helper is gone [PR#69](https://github.com/evan-kolberg/prediction-market-backtesting/pull/69)
+- [x] setup/backtest/fetch-source docs now match the unified `main.py` launcher
+  and current PMXT terminal/reporting output, and the orphaned `_trade_tick_ui.py`
+  helper is gone [PR#69](https://github.com/evan-kolberg/prediction-market-backtesting/pull/69)
 - [x] root README scope and agent guidance now keep detailed operational docs out of the README body and in `docs/` instead [PR#70](https://github.com/evan-kolberg/prediction-market-backtesting/pull/70), [PR#71](https://github.com/evan-kolberg/prediction-market-backtesting/pull/71)
-- [x] PMXT L2 replay now orders book updates ahead of quote ticks so longer windows do not lose book state [PR#26](https://github.com/evan-kolberg/prediction-market-backtesting/pull/26)
+- [x] PMXT L2 replay now orders book updates deterministically so longer
+  windows do not lose book state [PR#26](https://github.com/evan-kolberg/prediction-market-backtesting/pull/26)
 - [x] relay misses fall back client-side to `r2.pmxt.dev`, trusted proxy clients keep distinct rate-limit buckets, and stale buckets are pruned instead of accumulating forever [PR#22](https://github.com/evan-kolberg/prediction-market-backtesting/pull/22), [PR#25](https://github.com/evan-kolberg/prediction-market-backtesting/pull/25), [PR#42](https://github.com/evan-kolberg/prediction-market-backtesting/pull/42)
 - [x] relay observability and survivability improved with progress badges, ClickHouse ingest, retry handling around transient lock contention, mirror pruning, and incremental raw-hour adoption [PR#34](https://github.com/evan-kolberg/prediction-market-backtesting/pull/34), [PR#35](https://github.com/evan-kolberg/prediction-market-backtesting/pull/35), [PR#36](https://github.com/evan-kolberg/prediction-market-backtesting/pull/36), [PR#40](https://github.com/evan-kolberg/prediction-market-backtesting/pull/40), [PR#56](https://github.com/evan-kolberg/prediction-market-backtesting/pull/56), [PR#64](https://github.com/evan-kolberg/prediction-market-backtesting/pull/64)
 - [x] PMXT public workflows are now raw-first: local raw mirrors, archive fallback, mirror-only relay behavior, and downloader output all line up across runners and docs [PR#45](https://github.com/evan-kolberg/prediction-market-backtesting/pull/45), [PR#47](https://github.com/evan-kolberg/prediction-market-backtesting/pull/47), [PR#57](https://github.com/evan-kolberg/prediction-market-backtesting/pull/57), [PR#60](https://github.com/evan-kolberg/prediction-market-backtesting/pull/60), [PR#64](https://github.com/evan-kolberg/prediction-market-backtesting/pull/64)

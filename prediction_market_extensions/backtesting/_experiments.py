@@ -4,8 +4,7 @@ import asyncio
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import datetime
-from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any
 
 import pandas as pd
 
@@ -31,9 +30,6 @@ if TYPE_CHECKING:
     from prediction_market_extensions.backtesting._market_data_config import MarketDataConfig
 
 
-type MultiReplayMode = Literal["joint_portfolio", "independent"]
-
-
 @dataclass(frozen=True)
 class ReplayExperiment:
     name: str
@@ -44,8 +40,7 @@ class ReplayExperiment:
     strategy_factory: Callable[..., Any] | None = None
     initial_cash: float = 100.0
     probability_window: int = 30
-    min_trades: int = 0
-    min_quotes: int = 0
+    min_book_events: int = 0
     min_price_range: float = 0.0
     default_lookback_days: int | None = None
     default_lookback_hours: float | None = None
@@ -54,12 +49,7 @@ class ReplayExperiment:
     nautilus_log_level: str = "INFO"
     execution: ExecutionModelConfig | None = None
     chart_resample_rule: str | None = None
-    emit_html: bool = True
-    chart_output_path: str | Path | None = None
-    return_chart_layout: bool = False
     return_summary_series: bool = False
-    detail_plot_panels: Sequence[str] | None = None
-    multi_replay_mode: MultiReplayMode = "joint_portfolio"
     report: MarketReportConfig | None = None
     empty_message: str | None = None
     partial_message: str | None = None
@@ -89,8 +79,7 @@ def build_backtest_for_experiment(experiment: ReplayExperiment) -> PredictionMar
         strategy_factory=experiment.strategy_factory,
         initial_cash=experiment.initial_cash,
         probability_window=experiment.probability_window,
-        min_trades=experiment.min_trades,
-        min_quotes=experiment.min_quotes,
+        min_book_events=experiment.min_book_events,
         min_price_range=experiment.min_price_range,
         default_lookback_days=experiment.default_lookback_days,
         default_lookback_hours=experiment.default_lookback_hours,
@@ -99,11 +88,7 @@ def build_backtest_for_experiment(experiment: ReplayExperiment) -> PredictionMar
         nautilus_log_level=experiment.nautilus_log_level,
         execution=experiment.execution,
         chart_resample_rule=experiment.chart_resample_rule,
-        emit_html=experiment.emit_html,
-        chart_output_path=experiment.chart_output_path,
-        return_chart_layout=experiment.return_chart_layout,
         return_summary_series=experiment.return_summary_series,
-        detail_plot_panels=experiment.detail_plot_panels,
     )
 
 
@@ -117,8 +102,7 @@ def build_replay_experiment(
     strategy_factory: Callable[..., Any] | None = None,
     initial_cash: float = 100.0,
     probability_window: int = 30,
-    min_trades: int = 0,
-    min_quotes: int = 0,
+    min_book_events: int = 0,
     min_price_range: float = 0.0,
     default_lookback_days: int | None = None,
     default_lookback_hours: float | None = None,
@@ -127,12 +111,7 @@ def build_replay_experiment(
     nautilus_log_level: str = "INFO",
     execution: ExecutionModelConfig | None = None,
     chart_resample_rule: str | None = None,
-    emit_html: bool = True,
-    chart_output_path: str | Path | None = None,
-    return_chart_layout: bool = False,
     return_summary_series: bool = False,
-    detail_plot_panels: Sequence[str] | None = None,
-    multi_replay_mode: MultiReplayMode = "joint_portfolio",
     report: MarketReportConfig | None = None,
     empty_message: str | None = None,
     partial_message: str | None = None,
@@ -147,8 +126,7 @@ def build_replay_experiment(
         strategy_factory=strategy_factory,
         initial_cash=initial_cash,
         probability_window=probability_window,
-        min_trades=min_trades,
-        min_quotes=min_quotes,
+        min_book_events=min_book_events,
         min_price_range=min_price_range,
         default_lookback_days=default_lookback_days,
         default_lookback_hours=default_lookback_hours,
@@ -157,12 +135,7 @@ def build_replay_experiment(
         nautilus_log_level=nautilus_log_level,
         execution=execution,
         chart_resample_rule=chart_resample_rule,
-        emit_html=emit_html,
-        chart_output_path=chart_output_path,
-        return_chart_layout=return_chart_layout,
         return_summary_series=return_summary_series,
-        detail_plot_panels=detail_plot_panels,
-        multi_replay_mode=multi_replay_mode,
         report=report,
         empty_message=empty_message,
         partial_message=partial_message,
@@ -188,8 +161,7 @@ def replay_experiment_from_backtest(
         strategy_factory=backtest.strategy_factory,
         initial_cash=backtest.initial_cash,
         probability_window=backtest.probability_window,
-        min_trades=backtest.min_trades,
-        min_quotes=backtest.min_quotes,
+        min_book_events=backtest.min_book_events,
         min_price_range=backtest.min_price_range,
         default_lookback_days=backtest.default_lookback_days,
         default_lookback_hours=backtest.default_lookback_hours,
@@ -198,12 +170,7 @@ def replay_experiment_from_backtest(
         nautilus_log_level=backtest.nautilus_log_level,
         execution=backtest.execution,
         chart_resample_rule=backtest.chart_resample_rule,
-        emit_html=backtest.emit_html,
-        chart_output_path=backtest.chart_output_path,
-        return_chart_layout=backtest.return_chart_layout,
         return_summary_series=backtest.return_summary_series,
-        detail_plot_panels=backtest.detail_plot_panels,
-        multi_replay_mode="joint_portfolio",
         report=report,
         empty_message=empty_message,
         partial_message=partial_message,
@@ -213,74 +180,13 @@ def replay_experiment_from_backtest(
 
 async def run_replay_experiment_async(experiment: ReplayExperiment) -> list[dict[str, Any]]:
     backtest = build_backtest_for_experiment(experiment)
-    results = await _run_replay_backtest_async(
-        backtest=backtest, multi_replay_mode=experiment.multi_replay_mode
-    )
-    if not results:
-        if experiment.empty_message:
-            print(experiment.empty_message)
-        return []
-
-    if experiment.result_policy is not None:
-        transformed = experiment.result_policy.apply(results)
-        if transformed is not None:
-            results = transformed
-
-    apply_repo_research_disclosures(results)
-
-    if experiment.partial_message and len(results) < len(experiment.replays):
-        print(
-            experiment.partial_message.format(completed=len(results), total=len(experiment.replays))
-        )
-
-    if experiment.report is not None:
-        finalize_market_results(
-            name=experiment.name,
-            results=results,
-            report=experiment.report,
-            multi_replay_mode=experiment.multi_replay_mode,
-        )
-    return results
-
-
-def _dispatch_multi_replay_runner(backtest: PredictionMarketBacktest) -> list[dict[str, Any]]:
-    from prediction_market_extensions.backtesting._independent_multi_replay_runner import (
-        run_independent_multi_replay_backtest_async,
-    )
-
-    return asyncio.run(run_independent_multi_replay_backtest_async(backtest=backtest))
-
-
-async def _dispatch_multi_replay_runner_async(
-    backtest: PredictionMarketBacktest,
-) -> list[dict[str, Any]]:
-    from prediction_market_extensions.backtesting._independent_multi_replay_runner import (
-        run_independent_multi_replay_backtest_async,
-    )
-
-    return await run_independent_multi_replay_backtest_async(backtest=backtest)
-
-
-def _run_replay_backtest(
-    backtest: PredictionMarketBacktest, *, multi_replay_mode: MultiReplayMode
-) -> list[dict[str, Any]]:
-    if multi_replay_mode == "independent" and len(backtest.replays) > 1:
-        return _dispatch_multi_replay_runner(backtest)
-    return backtest.run()
-
-
-async def _run_replay_backtest_async(
-    *, backtest: PredictionMarketBacktest, multi_replay_mode: MultiReplayMode
-) -> list[dict[str, Any]]:
-    if multi_replay_mode == "independent" and len(backtest.replays) > 1:
-        return await _dispatch_multi_replay_runner_async(backtest)
-    return await backtest.run_async()
+    results = await backtest.run_async()
+    return _finalize_replay_results(experiment, results)
 
 
 def _finalize_replay_results(
     experiment: ReplayExperiment, results: list[dict[str, Any]]
 ) -> list[dict[str, Any]]:
-    """Apply result policies, print status messages, and run report finalization."""
     if not results:
         if experiment.empty_message:
             print(experiment.empty_message)
@@ -303,7 +209,6 @@ def _finalize_replay_results(
             name=experiment.name,
             results=results,
             report=experiment.report,
-            multi_replay_mode=experiment.multi_replay_mode,
         )
 
     return results
@@ -323,7 +228,7 @@ def run_experiment(experiment: Experiment) -> list[dict[str, Any]] | ParameterSe
         )
 
     backtest = build_backtest_for_experiment(experiment)
-    results = _run_replay_backtest(backtest, multi_replay_mode=experiment.multi_replay_mode)
+    results = backtest.run()
     return _finalize_replay_results(experiment, results)
 
 
@@ -334,15 +239,12 @@ async def run_experiment_async(
         return await asyncio.to_thread(run_parameter_search, experiment.parameter_search)
 
     backtest = build_backtest_for_experiment(experiment)
-    results = await _run_replay_backtest_async(
-        backtest=backtest, multi_replay_mode=experiment.multi_replay_mode
-    )
+    results = await backtest.run_async()
     return _finalize_replay_results(experiment, results)
 
 
 __all__ = [
     "Experiment",
-    "MultiReplayMode",
     "ParameterSearchExperiment",
     "ReplayExperiment",
     "build_backtest_for_experiment",

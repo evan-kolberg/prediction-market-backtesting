@@ -37,6 +37,9 @@ from prediction_market_extensions.adapters.kalshi.providers import (
     KALSHI_REST_BASE,
     market_dict_to_instrument,
 )
+from prediction_market_extensions.adapters.prediction_market.info_sanitization import (
+    extract_resolution_metadata,
+)
 
 KALSHI_HTTP_RATE_LIMIT_RPS = 20  # Basic tier
 
@@ -166,10 +169,22 @@ class KalshiDataLoader:
         instrument: BinaryOption,
         series_ticker: str,
         http_client: nautilus_pyo3.HttpClient | None = None,
+        resolution_metadata: dict[str, Any] | None = None,
     ) -> None:
         self._instrument = instrument
         self._series_ticker = series_ticker
         self._http_client = http_client or self._create_http_client()
+        self._resolution_metadata: dict[str, Any] = dict(resolution_metadata or {})
+
+    @property
+    def resolution_metadata(self) -> dict[str, Any]:
+        """Resolution-bearing fields stripped from `instrument.info`.
+
+        Strategies must not see resolution data during simulation, so it lives
+        on the loader instead. Replay adapters and analytics read this to
+        populate Brier scoring and settlement PnL.
+        """
+        return dict(self._resolution_metadata)
 
     @staticmethod
     def _create_http_client() -> nautilus_pyo3.HttpClient:
@@ -219,6 +234,7 @@ class KalshiDataLoader:
 
         data = msgspec.json.decode(response.body)
         market = data["market"]
+        resolution_metadata = extract_resolution_metadata(market)
         instrument = market_dict_to_instrument(market)
 
         event_ticker = market["event_ticker"]
@@ -235,6 +251,7 @@ class KalshiDataLoader:
             instrument=instrument,
             series_ticker=series_ticker,
             http_client=client,
+            resolution_metadata=resolution_metadata,
         )
 
     async def fetch_trades(

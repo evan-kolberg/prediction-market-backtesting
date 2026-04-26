@@ -20,10 +20,6 @@ from prediction_market_extensions.adapters.prediction_market.backtest_utils impo
     extract_price_points,
     extract_realized_pnl,
 )
-from prediction_market_extensions.analysis.legacy_plot_adapter import (
-    build_legacy_backtest_layout,
-    save_legacy_backtest_layout,
-)
 from prediction_market_extensions.backtesting._backtest_runtime import apply_backtest_run_state
 from prediction_market_extensions.backtesting._result_policies import (
     apply_binary_settlement_pnl,
@@ -47,11 +43,7 @@ class PredictionMarketArtifactBuilder:
     initial_cash: float
     probability_window: int
     chart_resample_rule: str | None
-    emit_html: bool
-    chart_output_path: str | Path | None
-    return_chart_layout: bool
     return_summary_series: bool
-    detail_plot_panels: Sequence[str]
     sim_count: int
 
     def build_result(
@@ -141,7 +133,7 @@ class PredictionMarketArtifactBuilder:
         for loaded_sim in loaded_sims:
             price_points = extract_price_points(
                 loaded_sim.records,
-                price_attr="mid_price" if self.data_type == "quote_tick" else "price",
+                price_attr="price",
             )
             price_points = downsample_price_points(price_points, max_points=5000)
             market_prices_by_instrument_id[str(loaded_sim.instrument.id)] = build_market_prices(
@@ -186,14 +178,11 @@ class PredictionMarketArtifactBuilder:
         fills_report: pd.DataFrame,
         include_portfolio_series: bool,
     ) -> dict[str, Any]:
-        needs_detail_chart = self.emit_html or self.return_chart_layout
-        summary_only = self.return_summary_series and not needs_detail_chart
-
         price_points = extract_price_points(
             loaded_sim.records,
-            price_attr="mid_price" if self.data_type == "quote_tick" else "price",
+            price_attr="price",
         )
-        if summary_only:
+        if self.return_summary_series:
             price_points = downsample_price_points(price_points, max_points=5000)
 
         market_prices = build_market_prices(price_points, resample_rule=self.chart_resample_rule)
@@ -207,36 +196,6 @@ class PredictionMarketArtifactBuilder:
         artifacts: dict[str, Any] = {}
         if artifact_warnings:
             artifacts["warnings"] = artifact_warnings
-
-        chart_layout = None
-        chart_title = f"{self.name}:{loaded_sim.market_id} legacy chart"
-        if needs_detail_chart:
-            output_path = self.resolve_chart_output_path(market_id=loaded_sim.market_id)
-            output_path.parent.mkdir(parents=True, exist_ok=True)
-            try:
-                chart_layout, chart_title = build_legacy_backtest_layout(
-                    engine=engine,
-                    output_path=str(output_path),
-                    strategy_name=f"{self.name}:{loaded_sim.market_id}",
-                    platform=self.platform,
-                    initial_cash=self.initial_cash,
-                    market_prices={str(loaded_sim.instrument.id): market_prices},
-                    user_probabilities=user_probabilities,
-                    market_probabilities=market_probabilities,
-                    outcomes=outcomes,
-                    open_browser=False,
-                    plot_panels=self.detail_plot_panels,
-                )
-            except Exception as exc:
-                print(f"Unable to save legacy chart for {loaded_sim.market_id}: {exc}")
-            else:
-                if self.emit_html:
-                    artifacts["chart_path"] = save_legacy_backtest_layout(
-                        chart_layout, str(output_path), chart_title
-                    )
-                if self.return_chart_layout:
-                    artifacts["chart_layout"] = chart_layout
-                    artifacts["chart_title"] = chart_title
 
         if self.return_summary_series:
             artifacts.update(
@@ -253,34 +212,6 @@ class PredictionMarketArtifactBuilder:
             )
 
         return artifacts
-
-    def resolve_chart_output_path(self, *, market_id: str) -> Path:
-        default_filename = f"{self.name}_{market_id}_legacy.html"
-        configured_path = self.chart_output_path
-        if configured_path is None:
-            return resolve_repo_relative_path(Path("output") / default_filename)
-
-        raw_path = str(configured_path)
-        if "{" in raw_path:
-            try:
-                resolved = raw_path.format(name=self.name, market_id=market_id)
-            except KeyError as exc:
-                raise ValueError(
-                    "chart_output_path may only reference {name} and {market_id}."
-                ) from exc
-            path = Path(resolved)
-            if not path.suffix:
-                path = path / default_filename
-            return resolve_repo_relative_path(path)
-
-        path = Path(raw_path)
-        if path.suffix:
-            if self.sim_count == 1:
-                return resolve_repo_relative_path(path)
-            return resolve_repo_relative_path(
-                path.with_name(f"{path.stem}_{market_id}{path.suffix}")
-            )
-        return resolve_repo_relative_path(path / default_filename)
 
     def _build_market_summary_series(
         self,

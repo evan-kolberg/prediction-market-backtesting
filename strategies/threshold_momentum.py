@@ -8,8 +8,8 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Protocol
 
-from nautilus_trader.model.data import Bar, BarType, QuoteTick, TradeTick
-from nautilus_trader.model.enums import OrderSide
+from nautilus_trader.model.data import Bar, BarType
+from nautilus_trader.model.enums import BookType, OrderSide
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.trading.strategy import StrategyConfig
 
@@ -50,25 +50,7 @@ class BarThresholdMomentumConfig(StrategyConfig, frozen=True):  # type: ignore[c
         require_probability("stop_loss_price", self.stop_loss_price)
 
 
-class TradeTickThresholdMomentumConfig(StrategyConfig, frozen=True):  # type: ignore[call-arg]
-    instrument_id: InstrumentId
-    trade_size: Decimal = Decimal(100)
-    activation_start_time_ns: int = 0
-    market_close_time_ns: int = 0
-    entry_price: float = 0.80
-    take_profit_price: float = 0.92
-    stop_loss_price: float = 0.50
-
-    def __post_init__(self) -> None:
-        require_positive_decimal("trade_size", self.trade_size)
-        require_nonnegative_int("activation_start_time_ns", self.activation_start_time_ns)
-        require_nonnegative_int("market_close_time_ns", self.market_close_time_ns)
-        require_probability("entry_price", self.entry_price)
-        require_probability("take_profit_price", self.take_profit_price)
-        require_probability("stop_loss_price", self.stop_loss_price)
-
-
-class QuoteTickThresholdMomentumConfig(StrategyConfig, frozen=True):  # type: ignore[call-arg]
+class BookThresholdMomentumConfig(StrategyConfig, frozen=True):  # type: ignore[call-arg]
     instrument_id: InstrumentId
     trade_size: Decimal = Decimal(100)
     activation_start_time_ns: int = 0
@@ -177,34 +159,30 @@ class BarThresholdMomentumStrategy(_ThresholdMomentumBase):
         )
 
 
-class TradeTickThresholdMomentumStrategy(_ThresholdMomentumBase):
+class BookThresholdMomentumStrategy(_ThresholdMomentumBase):
     def _subscribe(self) -> None:
-        self.subscribe_trade_ticks(self.config.instrument_id)
-
-    def on_trade_tick(self, tick: TradeTick) -> None:
-        price = float(tick.price)
-        self._on_price(
-            price=price,
-            ts_event_ns=int(tick.ts_event),
-            entry_price=price,
-            visible_size=None,
+        self.subscribe_order_book_deltas(
+            instrument_id=self.config.instrument_id,
+            book_type=BookType.L2_MBP,
         )
 
-
-class QuoteTickThresholdMomentumStrategy(_ThresholdMomentumBase):
-    def _subscribe(self) -> None:
-        self.subscribe_quote_ticks(self.config.instrument_id)
-
-    def on_quote_tick(self, tick: QuoteTick) -> None:
+    def on_order_book(self, order_book) -> None:  # type: ignore[no-untyped-def]
+        bid = order_book.best_bid_price()
+        ask = order_book.best_ask_price()
+        if bid is None or ask is None:
+            return
+        mid = (float(bid) + float(ask)) / 2.0
+        ask_size = order_book.best_ask_size()
+        bid_size = order_book.best_bid_size()
         self._remember_market_context(
-            entry_reference_price=float(tick.ask_price),
-            entry_visible_size=float(tick.ask_size),
-            exit_visible_size=float(tick.bid_size),
+            entry_reference_price=float(ask),
+            entry_visible_size=float(ask_size) if ask_size is not None else None,
+            exit_visible_size=float(bid_size) if bid_size is not None else None,
         )
         self._on_price(
-            price=(float(tick.bid_price) + float(tick.ask_price)) / 2.0,
-            ts_event_ns=int(tick.ts_event),
-            entry_price=float(tick.ask_price),
-            visible_size=float(tick.ask_size),
-            exit_visible_size=float(tick.bid_size),
+            price=mid,
+            ts_event_ns=int(order_book.ts_event),
+            entry_price=float(ask),
+            visible_size=float(ask_size) if ask_size is not None else None,
+            exit_visible_size=float(bid_size) if bid_size is not None else None,
         )

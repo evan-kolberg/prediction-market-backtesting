@@ -1,20 +1,19 @@
 # -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2026 Nautech Systems Pty Ltd. All rights reserved.
-#  https://nautechsystems.io
+# Copyright (C) 2015-2026 Nautech Systems Pty Ltd. All rights reserved.
+# https://nautechsystems.io
 #
-#  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
-#  You may not use this file except in compliance with the License.
-#  You may obtain a copy of the License at https://www.gnu.org/licenses/lgpl-3.0.en.html
+# Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
+# You may not use this file except in compliance with the License.
+# You may obtain a copy of the License at https://www.gnu.org/licenses/lgpl-3.0.en.html
 #
-#  Unless required by applicable law or agreed to in writing, software distributed under the
-#  License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
-#  KIND, either express or implied. See the License for the specific language governing
-#  permissions and limitations under the License.
+# Unless required by applicable law or agreed to in writing, software distributed under the
+# License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied. See the License for the specific language governing
+# permissions and limitations under the License.
 # -------------------------------------------------------------------------------------------------
-#  Derived from NautilusTrader prediction-market example code.
-#  Modified by Evan Kolberg in this repository on 2026-03-11 and 2026-03-16.
-#  See the repository NOTICE file for provenance and licensing scope.
-#
+# Derived from NautilusTrader prediction-market example code.
+# Modified by Evan Kolberg in this repository on 2026-03-11 and 2026-03-16.
+# See the repository NOTICE file for provenance and licensing scope.
 
 from __future__ import annotations
 
@@ -23,8 +22,8 @@ from decimal import Decimal
 from math import sqrt
 from typing import Protocol
 
-from nautilus_trader.model.data import Bar, BarType, QuoteTick, TradeTick
-from nautilus_trader.model.enums import OrderSide
+from nautilus_trader.model.data import Bar, BarType
+from nautilus_trader.model.enums import BookType, OrderSide
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.trading.strategy import StrategyConfig
 
@@ -82,35 +81,7 @@ class BarBreakoutConfig(StrategyConfig, frozen=True):  # type: ignore[call-arg]
         require_finite_nonnegative_float("stop_loss", self.stop_loss)
 
 
-class TradeTickBreakoutConfig(StrategyConfig, frozen=True):  # type: ignore[call-arg]
-    instrument_id: InstrumentId
-    trade_size: Decimal = Decimal(1)
-    window: int = 120
-    breakout_std: float = 1.5
-    breakout_buffer: float = 0.0
-    mean_reversion_buffer: float = 0.0
-    min_holding_periods: int = 0
-    reentry_cooldown: int = 0
-    max_entry_price: float = 0.92
-    take_profit: float = 0.015
-    stop_loss: float = 0.02
-
-    def __post_init__(self) -> None:
-        require_positive_int("window", self.window)
-        require_positive_decimal("trade_size", self.trade_size)
-        require_finite_nonnegative_float("breakout_std", self.breakout_std)
-        if self.breakout_std <= 0:
-            raise ValueError(f"breakout_std must be > 0, got {self.breakout_std}")
-        require_finite_nonnegative_float("breakout_buffer", self.breakout_buffer)
-        require_finite_nonnegative_float("mean_reversion_buffer", self.mean_reversion_buffer)
-        require_nonnegative_int("min_holding_periods", self.min_holding_periods)
-        require_nonnegative_int("reentry_cooldown", self.reentry_cooldown)
-        require_probability("max_entry_price", self.max_entry_price)
-        require_finite_nonnegative_float("take_profit", self.take_profit)
-        require_finite_nonnegative_float("stop_loss", self.stop_loss)
-
-
-class QuoteTickBreakoutConfig(StrategyConfig, frozen=True):  # type: ignore[call-arg]
+class BookBreakoutConfig(StrategyConfig, frozen=True):  # type: ignore[call-arg]
     instrument_id: InstrumentId
     trade_size: Decimal = Decimal(1)
     window: int = 120
@@ -216,8 +187,8 @@ class _BreakoutBase(LongOnlyPredictionMarketStrategy):
                 and (crossed_breakout or not self._requires_fresh_breakout_cross())
             ):
                 self._submit_entry(reference_price=reference_price, visible_size=visible_size)
-            self._append_price(price)
-            return
+                self._append_price(price)
+                return
 
         self._holding_periods += 1
         if self._risk_exit(
@@ -256,28 +227,29 @@ class BarBreakoutStrategy(_BreakoutBase):
         self._on_price(close, entry_price=close)
 
 
-class TradeTickBreakoutStrategy(_BreakoutBase):
+class BookBreakoutStrategy(_BreakoutBase):
     def _subscribe(self) -> None:
-        self.subscribe_trade_ticks(self.config.instrument_id)
+        self.subscribe_order_book_deltas(
+            instrument_id=self.config.instrument_id,
+            book_type=BookType.L2_MBP,
+        )
 
-    def on_trade_tick(self, tick: TradeTick) -> None:
-        price = float(tick.price)
-        self._on_price(price, entry_price=price, visible_size=None)
-
-
-class QuoteTickBreakoutStrategy(_BreakoutBase):
-    def _subscribe(self) -> None:
-        self.subscribe_quote_ticks(self.config.instrument_id)
-
-    def on_quote_tick(self, tick: QuoteTick) -> None:
+    def on_order_book(self, order_book) -> None:  # type: ignore[no-untyped-def]
+        bid = order_book.best_bid_price()
+        ask = order_book.best_ask_price()
+        if bid is None or ask is None:
+            return
+        mid = (float(bid) + float(ask)) / 2.0
+        ask_size = order_book.best_ask_size()
+        bid_size = order_book.best_bid_size()
         self._remember_market_context(
-            entry_reference_price=float(tick.ask_price),
-            entry_visible_size=float(tick.ask_size),
-            exit_visible_size=float(tick.bid_size),
+            entry_reference_price=float(ask),
+            entry_visible_size=float(ask_size) if ask_size is not None else None,
+            exit_visible_size=float(bid_size) if bid_size is not None else None,
         )
         self._on_price(
-            (float(tick.bid_price) + float(tick.ask_price)) / 2.0,
-            entry_price=float(tick.ask_price),
-            visible_size=float(tick.ask_size),
-            exit_visible_size=float(tick.bid_size),
+            mid,
+            entry_price=float(ask),
+            visible_size=float(ask_size) if ask_size is not None else None,
+            exit_visible_size=float(bid_size) if bid_size is not None else None,
         )

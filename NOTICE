@@ -22,6 +22,11 @@ The following root files were copied or adapted from NautilusTrader
 prediction-market example, adapter, or plotting code and carry file-level LGPL
 provenance notices with file-specific change dates:
 
+
+- `backtests/polymarket_book_ema_crossover.py`
+- `backtests/polymarket_book_ema_optimizer.py`
+- `backtests/polymarket_book_joint_portfolio_runner.py`
+- `backtests/polymarket_telonex_book_joint_portfolio_runner.py`
 - `prediction_market_extensions/adapters/kalshi/data.py`
 - `prediction_market_extensions/adapters/kalshi/fee_model.py`
 - `prediction_market_extensions/adapters/kalshi/loaders.py`
@@ -47,18 +52,6 @@ provenance notices with file-specific change dates:
 - `prediction_market_extensions/analysis/legacy_backtesting/progress.py`
 - `prediction_market_extensions/analysis/legacy_plot_adapter.py`
 - `prediction_market_extensions/analysis/tearsheet.py`
-- `backtests/kalshi_trade_tick_breakout.py`
-- `backtests/kalshi_trade_tick_independent_multi_replay_runner.py`
-- `backtests/kalshi_trade_tick_joint_portfolio_runner.py`
-- `backtests/polymarket_quote_tick_independent_25_replay_runner.py`
-- `backtests/polymarket_quote_tick_ema_crossover.py`
-- `backtests/polymarket_quote_tick_ema_optimizer.py`
-- `backtests/polymarket_quote_tick_independent_multi_replay_runner.py`
-- `backtests/polymarket_quote_tick_joint_portfolio_runner.py`
-- `backtests/polymarket_telonex_quote_tick_joint_portfolio_runner.py`
-- `backtests/polymarket_trade_tick_independent_multi_replay_runner.py`
-- `backtests/polymarket_trade_tick_joint_portfolio_runner.py`
-- `backtests/polymarket_trade_tick_vwap_reversion.py`
 - `scripts/_script_helpers.py`
 - `strategies/__init__.py`
 - `strategies/breakout.py`
@@ -73,9 +66,9 @@ provenance notices with file-specific change dates:
 - `strategies/threshold_momentum.py`
 - `strategies/vwap_reversion.py`
 - `tests/test_backtest_utils.py`
+- `tests/test_book_strategy_configs.py`
 - `tests/test_downsample_html_size.py`
 - `tests/test_legacy_plot_fill_markers.py`
-- `tests/test_quote_tick_strategy_configs.py`
 
 Upstream lineage
 ----------------

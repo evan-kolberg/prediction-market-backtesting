@@ -20,7 +20,7 @@ def _loaded_replay(*, market_id: str, instrument_id: str) -> LoadedReplay:
     return LoadedReplay(
         replay=SimpleNamespace(market_slug=market_id),
         instrument=SimpleNamespace(id=instrument_id),
-        records=(SimpleNamespace(mid_price=0.40), SimpleNamespace(mid_price=0.50)),
+        records=(SimpleNamespace(price=0.40), SimpleNamespace(price=0.50)),
         outcome="Yes",
         realized_outcome=None,
         metadata={},
@@ -28,7 +28,7 @@ def _loaded_replay(*, market_id: str, instrument_id: str) -> LoadedReplay:
         loaded_window=None,
         coverage_stats=ReplayCoverageStats(
             count=2,
-            count_key="quotes",
+            count_key="book_events",
             market_key="slug",
             market_id=market_id,
             prices=(0.40, 0.50),
@@ -61,15 +61,11 @@ def test_joint_portfolio_dense_prices_are_keyed_by_instrument_id(monkeypatch) ->
     builder = PredictionMarketArtifactBuilder(
         name="joint-demo",
         platform="polymarket",
-        data_type="quote_tick",
+        data_type="book",
         initial_cash=100.0,
         probability_window=5,
         chart_resample_rule=None,
-        emit_html=False,
-        chart_output_path=None,
-        return_chart_layout=False,
         return_summary_series=True,
-        detail_plot_panels=(),
         sim_count=2,
     )
 
@@ -131,15 +127,11 @@ def test_single_summary_dense_prices_are_keyed_by_instrument_id(monkeypatch) -> 
     builder = PredictionMarketArtifactBuilder(
         name="single-demo",
         platform="polymarket",
-        data_type="quote_tick",
+        data_type="book",
         initial_cash=100.0,
         probability_window=5,
         chart_resample_rule=None,
-        emit_html=False,
-        chart_output_path=None,
-        return_chart_layout=False,
         return_summary_series=True,
-        detail_plot_panels=(),
         sim_count=1,
     )
 
@@ -179,15 +171,11 @@ def test_build_result_marks_open_positions_to_settlement(monkeypatch) -> None:
     builder = PredictionMarketArtifactBuilder(
         name="single-demo",
         platform="polymarket",
-        data_type="trade_tick",
+        data_type="book",
         initial_cash=100.0,
         probability_window=5,
         chart_resample_rule=None,
-        emit_html=False,
-        chart_output_path=None,
-        return_chart_layout=False,
         return_summary_series=False,
-        detail_plot_panels=(),
         sim_count=1,
     )
 

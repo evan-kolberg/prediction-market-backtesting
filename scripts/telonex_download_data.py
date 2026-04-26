@@ -71,7 +71,7 @@ def main() -> int:
         nargs="+",
         choices=VALID_CHANNELS,
         default=None,
-        help="Channels to download (default: quotes).",
+        help="Channels to download (default: book_snapshot_full).",
     )
     parser.add_argument("--start-date", default=None, help="Inclusive UTC start date YYYY-MM-DD.")
     parser.add_argument("--end-date", default=None, help="Inclusive UTC end date YYYY-MM-DD.")
@@ -101,13 +101,11 @@ def main() -> int:
     parser.add_argument(
         "--workers",
         type=int,
-        default=128,
+        default=16,
         help=(
-            "Concurrent in-flight downloads (default: 128). With the async httpx "
-            "client each in-flight request is a coroutine, not an OS thread, so "
-            "128 is usually the useful ceiling for the consolidated blob writer. "
-            "Try 64 or 256 only when benchmarking your host; transient 429/503 "
-            "are retried automatically."
+            "Concurrent in-flight downloads (default: 16). Increase only after "
+            "checking RSS on book_snapshot_full downloads; transient 429/503 are "
+            "retried automatically."
         ),
     )
     parser.add_argument(
@@ -118,6 +116,26 @@ def main() -> int:
             "Concurrent Arrow parquet decode workers (default: min(8, cpu_count); "
             "also configurable with TELONEX_PARSE_WORKERS). Increase only when "
             "RAM headroom is available."
+        ),
+    )
+    parser.add_argument(
+        "--writer-queue-items",
+        type=int,
+        default=None,
+        help=(
+            "Maximum parsed day results waiting for the writer before applying "
+            "backpressure (default: 128; also configurable with "
+            "TELONEX_WRITER_QUEUE_ITEMS)."
+        ),
+    )
+    parser.add_argument(
+        "--pending-commit-items",
+        type=int,
+        default=None,
+        help=(
+            "Maximum completed day results the writer holds before committing "
+            "to the manifest (default: 128; also configurable with "
+            "TELONEX_PENDING_COMMIT_ITEMS)."
         ),
     )
     parser.add_argument(
@@ -150,6 +168,8 @@ def main() -> int:
                 None if args.recheck_empty_after_days < 0 else args.recheck_empty_after_days
             ),
             parse_workers=args.parse_workers,
+            writer_queue_items=args.writer_queue_items,
+            pending_commit_items=args.pending_commit_items,
         )
     except KeyboardInterrupt:
         # SIGINT/SIGTERM landed in a blocking call outside the job loop (usually

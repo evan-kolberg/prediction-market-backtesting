@@ -10,6 +10,7 @@ import re
 import shutil
 import tempfile
 import time
+import warnings
 from collections.abc import Callable, Iterator
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import contextmanager, suppress
@@ -19,13 +20,11 @@ from pathlib import Path
 from typing import ClassVar
 from urllib.request import Request, urlopen
 
-import fsspec
 import msgspec
 import pandas as pd
 import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.dataset as ds
-import pyarrow.fs as pafs
 import pyarrow.parquet as pq
 from nautilus_trader.adapters.polymarket.common.enums import PolymarketOrderSide
 from nautilus_trader.adapters.polymarket.loaders import PolymarketDataLoader
@@ -36,7 +35,7 @@ from nautilus_trader.adapters.polymarket.schemas.book import (
     PolymarketQuotes,
 )
 from nautilus_trader.model.book import OrderBook
-from nautilus_trader.model.data import OrderBookDeltas, QuoteTick
+from nautilus_trader.model.data import OrderBookDeltas
 from nautilus_trader.model.enums import BookType
 
 
@@ -76,8 +75,7 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
     The PMXT archive stores one parquet file per UTC hour. Each row contains a
     market-scoped order-book event payload encoded as JSON. This loader filters
     to one market ID at parquet-scan time, then filters to the target token in
-    Python and converts the payloads into Nautilus `OrderBookDeltas` and
-    `QuoteTick` records.
+    Python and converts the payloads into Nautilus `OrderBookDeltas` records.
     """
 
     _PMXT_BASE_URL = "https://r2v2.pmxt.dev"
@@ -87,11 +85,7 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
     _PMXT_DISABLE_CACHE_ENV = "PMXT_DISABLE_CACHE"
     _PMXT_LOCAL_ARCHIVE_DIR_ENV = "PMXT_LOCAL_ARCHIVE_DIR"
     _PMXT_PREFETCH_WORKERS_ENV = "PMXT_PREFETCH_WORKERS"
-    _PMXT_HTTP_BLOCK_SIZE_MB_ENV = "PMXT_HTTP_BLOCK_SIZE_MB"
-    _PMXT_HTTP_CACHE_TYPE_ENV = "PMXT_HTTP_CACHE_TYPE"
     _PMXT_DEFAULT_PREFETCH_WORKERS = 16
-    _PMXT_DEFAULT_HTTP_BLOCK_SIZE = 32 * 1024 * 1024
-    _PMXT_DEFAULT_HTTP_CACHE_TYPE = "readahead"
     _PMXT_DOWNLOAD_CHUNK_SIZE = 4 * 1024 * 1024
     _PMXT_TEMP_DOWNLOAD_ROOT = Path(tempfile.gettempdir()) / "nautilus_trader" / "pmxt-downloads"
     _PMXT_TEMP_DOWNLOAD_STALE_SECONDS = 24 * 60 * 60
@@ -101,8 +95,6 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
         self._pmxt_cache_dir = self._resolve_cache_dir()
         self._pmxt_local_archive_dir = self._resolve_local_archive_dir()
         self._pmxt_prefetch_workers = self._resolve_prefetch_workers()
-        self._pmxt_http_block_size = self._resolve_http_block_size()
-        self._pmxt_http_cache_type = self._resolve_http_cache_type()
         self._pmxt_download_progress_callback: (
             Callable[[str, int, int | None, bool], None] | None
         ) = None
@@ -111,8 +103,17 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
         ) = None
         self._pmxt_progress_size_cache: dict[str, int | None] = {}
         self._pmxt_temp_download_root = self._PMXT_TEMP_DOWNLOAD_ROOT
+        # Hours that no source could supply during the most recent
+        # ``load_order_book_deltas`` call. Strategies and runners can read
+        # this to surface coverage gaps instead of silently trusting an
+        # apparently-continuous record stream.
+        self._pmxt_last_load_gap_hours: tuple[pd.Timestamp, ...] = ()
         self._cleanup_stale_temp_downloads()
-        self._reset_http_filesystem()
+
+    @property
+    def last_load_gap_hours(self) -> tuple[pd.Timestamp, ...]:
+        """UTC hour-floored timestamps of archive hours that failed to load."""
+        return self._pmxt_last_load_gap_hours
 
     @staticmethod
     def _normalize_timestamp(value: pd.Timestamp | str | None) -> pd.Timestamp | None:
@@ -203,36 +204,6 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
             return max(1, int(value))
         except ValueError:
             return cls._PMXT_DEFAULT_PREFETCH_WORKERS
-
-    @classmethod
-    def _resolve_http_block_size(cls) -> int:
-        configured = os.getenv(cls._PMXT_HTTP_BLOCK_SIZE_MB_ENV)
-        if configured is None:
-            return cls._PMXT_DEFAULT_HTTP_BLOCK_SIZE
-
-        value = configured.strip()
-        if not value:
-            return cls._PMXT_DEFAULT_HTTP_BLOCK_SIZE
-
-        try:
-            return max(1, int(value)) * 1024 * 1024
-        except ValueError:
-            return cls._PMXT_DEFAULT_HTTP_BLOCK_SIZE
-
-    @classmethod
-    def _resolve_http_cache_type(cls) -> str:
-        configured = os.getenv(cls._PMXT_HTTP_CACHE_TYPE_ENV)
-        if configured is None:
-            return cls._PMXT_DEFAULT_HTTP_CACHE_TYPE
-
-        value = configured.strip()
-        return value or cls._PMXT_DEFAULT_HTTP_CACHE_TYPE
-
-    def _reset_http_filesystem(self) -> None:
-        self._pmxt_http_fs = fsspec.filesystem(
-            "https", block_size=self._pmxt_http_block_size, cache_type=self._pmxt_http_cache_type
-        )
-        self._pmxt_fs = pafs.PyFileSystem(pafs.FSSpecHandler(self._pmxt_http_fs))
 
     @classmethod
     def _market_cache_path_for_hour(
@@ -812,28 +783,6 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
         return f"{timestamp_secs * 1000:.6f}"
 
     @staticmethod
-    def _quote_from_book(
-        *, instrument, local_book: OrderBook, ts_event_ns: int
-    ) -> QuoteTick | None:
-        bid_price = local_book.best_bid_price()
-        ask_price = local_book.best_ask_price()
-        bid_size = local_book.best_bid_size()
-        ask_size = local_book.best_ask_size()
-        if bid_price is None or ask_price is None or bid_size is None or ask_size is None:
-            return None
-
-        return QuoteTick(
-            instrument_id=instrument.id,
-            bid_price=bid_price,
-            ask_price=ask_price,
-            bid_size=bid_size,
-            ask_size=ask_size,
-            ts_event=ts_event_ns,
-            # Process the quote immediately after the associated book update.
-            ts_init=ts_event_ns + 1,
-        )
-
-    @staticmethod
     def _decode_book_snapshot(payload_text: str) -> _PMXTBookSnapshotPayload:
         return _PMXT_BOOK_SNAPSHOT_DECODER.decode(payload_text)
 
@@ -883,16 +832,10 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
         )
 
     @staticmethod
-    def _event_sort_key(record: OrderBookDeltas | QuoteTick) -> tuple[int, int, int]:
+    def _event_sort_key(record: OrderBookDeltas) -> tuple[int, int]:
         ts_event = int(getattr(record, "ts_event", getattr(record, "ts_init", 0)))
         ts_init = int(getattr(record, "ts_init", ts_event))
-        if isinstance(record, OrderBookDeltas):
-            priority = 0
-        elif isinstance(record, QuoteTick):
-            priority = 1
-        else:
-            priority = 2
-        return (ts_event, priority, ts_init)
+        return (ts_event, ts_init)
 
     def _payload_sort_key(self, update_type: str, payload_text: str) -> tuple[int, int]:
         if update_type == "book_snapshot":
@@ -914,11 +857,10 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
         instrument,
         local_book: OrderBook,
         has_snapshot: bool,
-        events: list[OrderBookDeltas | QuoteTick],
+        events: list[OrderBookDeltas],
         start_ns: int,
         end_ns: int,
         include_order_book: bool,
-        include_quotes: bool,
     ) -> tuple[OrderBook, bool]:
         payload = self._decode_book_snapshot(payload_text)
         if payload.token_id != token_id:
@@ -940,10 +882,6 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
 
         if include_order_book:
             events.append(deltas)
-        if include_quotes:
-            quote = snapshot.parse_to_quote(instrument=instrument, ts_init=deltas.ts_event + 1)
-            if quote is not None:
-                events.append(quote)
 
         return local_book, has_snapshot
 
@@ -955,11 +893,10 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
         instrument,
         local_book: OrderBook,
         has_snapshot: bool,
-        events: list[OrderBookDeltas | QuoteTick],
+        events: list[OrderBookDeltas],
         start_ns: int,
         end_ns: int,
         include_order_book: bool,
-        include_quotes: bool,
     ) -> OrderBook:
         if not has_snapshot:
             return local_book
@@ -980,24 +917,17 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
 
         if include_order_book:
             events.append(deltas)
-        if include_quotes:
-            quote = self._quote_from_book(
-                instrument=instrument, local_book=local_book, ts_event_ns=deltas.ts_event
-            )
-            if quote is not None:
-                events.append(quote)
 
         return local_book
 
-    def load_order_book_and_quotes(
+    def load_order_book_deltas(
         self,
         start: pd.Timestamp,
         end: pd.Timestamp,
         *,
         batch_size: int = 25_000,
         include_order_book: bool = True,
-        include_quotes: bool = True,
-    ) -> list[OrderBookDeltas | QuoteTick]:
+    ) -> list[OrderBookDeltas]:
         """
         Load one market's historical L2 updates from PMXT.
 
@@ -1020,11 +950,24 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
         instrument = self.instrument
         local_book = OrderBook(instrument.id, book_type=BookType.L2_MBP)
         has_snapshot = False
-        events: list[OrderBookDeltas | QuoteTick] = []
+        events: list[OrderBookDeltas] = []
         hours = self._archive_hours(start_ts, end_ts)
         last_payload_key: tuple[int, int] | None = None
+        gap_hours: list[pd.Timestamp] = []
+        self._pmxt_last_load_gap_hours = ()
 
-        for _hour, batches in self._iter_market_batches(hours, batch_size=batch_size):
+        for hour, batches in self._iter_market_batches(hours, batch_size=batch_size):
+            if batches is None:
+                # Distinguish "no source could supply this hour" from "hour
+                # loaded fine but had no events for this market". A None
+                # result is a coverage gap: warn loudly and invalidate the
+                # incremental book so subsequent price_change deltas wait for
+                # a fresh book_snapshot rather than applying against a
+                # potentially stale state.
+                gap_hours.append(hour)
+                has_snapshot = False
+                local_book = OrderBook(instrument.id, book_type=BookType.L2_MBP)
+                continue
             if not batches:
                 continue
 
@@ -1051,7 +994,6 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
                         start_ns=start_ns,
                         end_ns=end_ns,
                         include_order_book=include_order_book,
-                        include_quotes=include_quotes,
                     )
                     last_payload_key = payload_key
                     continue
@@ -1067,11 +1009,22 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
                         start_ns=start_ns,
                         end_ns=end_ns,
                         include_order_book=include_order_book,
-                        include_quotes=include_quotes,
                     )
                     last_payload_key = payload_key
 
         events.sort(key=self._event_sort_key)
+
+        if gap_hours:
+            self._pmxt_last_load_gap_hours = tuple(gap_hours)
+            gap_count = len(gap_hours)
+            warnings.warn(
+                f"PMXT: {gap_count} archive hour(s) missing for market "
+                f"{self.condition_id}/{self.token_id} between {start_ts.isoformat()} "
+                f"and {end_ts.isoformat()}; book state was reset on each gap. "
+                f"First gap hour: {gap_hours[0].isoformat()}.",
+                stacklevel=2,
+            )
+
         return events
 
     @staticmethod

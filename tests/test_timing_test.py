@@ -41,17 +41,27 @@ def test_transfer_label_identifies_r2_raw_urls() -> None:
 def test_transfer_label_identifies_telonex_sources() -> None:
     cache_label = _transfer_label(
         "telonex-cache::/Users/test/.cache/nautilus_trader/telonex/api-days/hash/"
-        "polymarket/quotes/slug/outcome_id=0/2026-03-01.parquet"
+        "polymarket/book_snapshot_full/slug/outcome_id=0/2026-03-01.parquet"
+    )
+    fast_cache_label = _transfer_label(
+        "telonex-cache-fast::/Users/test/.cache/nautilus_trader/telonex/api-days/hash/"
+        "polymarket/book_snapshot_full/slug/outcome_id=0/2026-03-01.fast.parquet"
+    )
+    deltas_cache_label = _transfer_label(
+        "telonex-deltas-cache::/Users/test/.cache/nautilus_trader/telonex/book-deltas-v1/"
+        "polymarket/book_snapshot_full/slug/outcome_id=0/instrument=abc/2026-03-01.parquet"
     )
     local_blob_label = _transfer_label("telonex-local::/Volumes/LaCie/telonex_data")
     local_label = _transfer_label(
-        "telonex-local::/Volumes/LaCie/telonex_data/polymarket/quotes/slug/0/2026-03-01.parquet"
+        "telonex-local::/Volumes/LaCie/telonex_data/polymarket/book_snapshot_full/slug/0/2026-03-01.parquet"
     )
     api_label = _transfer_label(
-        "telonex-api::https://api.telonex.io/v1/downloads/polymarket/quotes/2026-03-01?slug=slug&outcome_id=0"
+        "telonex-api::https://api.telonex.io/v1/downloads/polymarket/book_snapshot_full/2026-03-01?slug=slug&outcome_id=0"
     )
 
     assert cache_label == "telonex cache 2026-03-01.parquet"
+    assert fast_cache_label == "telonex cache 2026-03-01.fast.parquet"
+    assert deltas_cache_label == "telonex deltas cache 2026-03-01.parquet"
     assert local_blob_label == "telonex local telonex_data"
     assert local_label == "telonex local 2026-03-01.parquet"
     assert api_label == "telonex api 2026-03-01"
@@ -215,26 +225,21 @@ def test_install_timing_patches_runner_loader_override() -> None:
 def test_install_timing_patches_telonex_loader() -> None:
     from prediction_market_extensions.backtesting import _timing_test as timing_module
     from prediction_market_extensions.backtesting.data_sources.telonex import (
-        RunnerPolymarketTelonexQuoteDataLoader,
+        RunnerPolymarketTelonexBookDataLoader,
     )
 
     timing_module = importlib.reload(timing_module)
-    original_load_quotes = RunnerPolymarketTelonexQuoteDataLoader.load_quotes
-    original_load_order_book_and_quotes = (
-        RunnerPolymarketTelonexQuoteDataLoader.load_order_book_and_quotes
-    )
+    original_load_order_book_deltas = RunnerPolymarketTelonexBookDataLoader.load_order_book_deltas
 
     try:
         timing_module.install_timing()
 
-        assert RunnerPolymarketTelonexQuoteDataLoader.load_quotes is not original_load_quotes
         assert (
-            RunnerPolymarketTelonexQuoteDataLoader.load_order_book_and_quotes
-            is not original_load_order_book_and_quotes
+            RunnerPolymarketTelonexBookDataLoader.load_order_book_deltas
+            is not original_load_order_book_deltas
         )
     finally:
         timing_module._installed = False
-        RunnerPolymarketTelonexQuoteDataLoader.load_quotes = original_load_quotes
-        RunnerPolymarketTelonexQuoteDataLoader.load_order_book_and_quotes = (
-            original_load_order_book_and_quotes
+        RunnerPolymarketTelonexBookDataLoader.load_order_book_deltas = (
+            original_load_order_book_deltas
         )

@@ -6,31 +6,24 @@ from prediction_market_extensions.backtesting._market_data_support import (
     resolve_market_data_support,
     supported_market_data_keys,
 )
-from prediction_market_extensions.backtesting._replay_specs import QuoteReplay, TradeReplay
+from prediction_market_extensions.backtesting._replay_specs import BookReplay
 from prediction_market_extensions.backtesting.data_sources import (
     PMXT,
     TELONEX_VENDOR,
-    Kalshi,
-    Native,
+    Book,
     Polymarket,
-    QuoteTick,
-    TradeTick,
 )
 
 
 def test_support_matrix_matches_publicly_supported_combinations() -> None:
     assert set(supported_market_data_keys()) == {
-        ("kalshi", "trade_tick", "native"),
-        ("polymarket", "trade_tick", "native"),
-        ("polymarket", "quote_tick", "pmxt"),
-        ("polymarket", "quote_tick", "telonex"),
+        ("polymarket", "book", "pmxt"),
+        ("polymarket", "book", "telonex"),
     }
 
     for platform, data_type, vendor in (
-        (Kalshi, TradeTick, Native),
-        (Polymarket, TradeTick, Native),
-        (Polymarket, QuoteTick, PMXT),
-        (Polymarket, QuoteTick, TELONEX_VENDOR),
+        (Polymarket, Book, PMXT),
+        (Polymarket, Book, TELONEX_VENDOR),
     ):
         support = resolve_market_data_support(
             platform=platform,
@@ -44,26 +37,9 @@ def test_support_matrix_matches_publicly_supported_combinations() -> None:
 
 
 def test_single_market_replay_construction_is_adapter_owned() -> None:
-    kalshi = resolve_market_data_support(
-        platform=Kalshi,
-        data_type=TradeTick,
-        vendor=Native,
-    )
-
-    assert build_single_market_replay(
-        support=kalshi, field_values={"market_ticker": "KALSHI-TEST", "lookback_days": 2}
-    ) == TradeReplay(market_ticker="KALSHI-TEST", lookback_days=2)
-
-    polymarket = resolve_market_data_support(
-        platform=Polymarket, data_type=TradeTick, vendor=Native
-    )
-    assert build_single_market_replay(
-        support=polymarket, field_values={"market_slug": "demo-market", "token_index": 1}
-    ) == TradeReplay(market_slug="demo-market", token_index=1)
-
     pmxt = resolve_market_data_support(
         platform=Polymarket,
-        data_type=QuoteTick,
+        data_type=Book,
         vendor=PMXT,
     )
 
@@ -75,7 +51,7 @@ def test_single_market_replay_construction_is_adapter_owned() -> None:
             "start_time": "2026-03-24T03:00:00Z",
             "end_time": "2026-03-24T08:00:00Z",
         },
-    ) == QuoteReplay(
+    ) == BookReplay(
         market_slug="demo-market",
         token_index=1,
         start_time="2026-03-24T03:00:00Z",

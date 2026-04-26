@@ -2,14 +2,11 @@
 """Prediction market backtest runner.
 
 Discovers runnable modules in flat runner entrypoints under `backtests/` and
-`backtests/private/` and presents an interactive menu. Each backtest file must expose:
+`backtests/private/` and presents an interactive menu. Each backtest file must
+expose `run()` or an `EXPERIMENT` manifest.
 
-    EXPERIMENT  object — manifest executed by the shared experiment dispatcher,
-                         constructed with explicit `name=` and `description=` kwargs
-    run()       sync or async — optional thin entry point called when selected
-
-The display name and one-line description are pulled from the `name=` and
-`description=` kwargs of the EXPERIMENT constructor call via AST scanning so the
+The display name and one-line description are pulled from literal `name=` and
+`description=` kwargs in runner experiment constructors via AST scanning so the
 menu does not need to import each runner module on startup.
 
 Run via:
@@ -122,8 +119,26 @@ def _has_assignment(module_ast: ast.Module, target_name: str) -> bool:
     return False
 
 
+def _call_name(node: ast.AST) -> str | None:
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        return node.attr
+    return None
+
+
+def _literal_runner_kwargs(call: ast.Call) -> dict[str, str]:
+    kwargs: dict[str, str] = {}
+    for keyword in call.keywords:
+        if keyword.arg in {"name", "description"}:
+            literal = _literal_string(keyword.value)
+            if literal is not None:
+                kwargs[keyword.arg] = literal
+    return kwargs
+
+
 def _experiment_constructor_kwargs(module_ast: ast.Module) -> dict[str, str] | None:
-    """Extract `name=`/`description=` literal kwargs from the EXPERIMENT assignment call."""
+    """Extract literal runner name/description kwargs without importing the module."""
     for node in module_ast.body:
         if not isinstance(node, (ast.Assign, ast.AnnAssign)):
             continue
@@ -131,13 +146,17 @@ def _experiment_constructor_kwargs(module_ast: ast.Module) -> dict[str, str] | N
             continue
         if not isinstance(node.value, ast.Call):
             continue
-        kwargs: dict[str, str] = {}
-        for keyword in node.value.keywords:
-            if keyword.arg in {"name", "description"}:
-                literal = _literal_string(keyword.value)
-                if literal is not None:
-                    kwargs[keyword.arg] = literal
-        return kwargs
+        kwargs = _literal_runner_kwargs(node.value)
+        if kwargs:
+            return kwargs
+    for node in ast.walk(module_ast):
+        if not isinstance(node, ast.Call):
+            continue
+        if _call_name(node.func) not in {"build_replay_experiment", "ParameterSearchExperiment"}:
+            continue
+        kwargs = _literal_runner_kwargs(node)
+        if kwargs:
+            return kwargs
     return None
 
 

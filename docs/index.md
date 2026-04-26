@@ -2,16 +2,17 @@
 
 This repository is documented around two active operating assumptions:
 
-- vendor-backed historical data is local-first: mirror raw archive hours onto
-  local disk, replay those raws directly, and keep shared infrastructure
-  focused on raw mirroring and file serving
-- public backtest runners are flat experiment specs built around `DATA`,
-  `REPLAYS`, `STRATEGY_CONFIGS`, optional `EXECUTION` / `REPORT`, and a
-  top-level `EXPERIMENT` manifest
+- vendor-backed historical data is local-first: mirror PMXT raw archive hours
+  and Telonex full-book parquet parts onto local disk, then replay through
+  L2-native adapters
+- public Python backtest runners expose `run()` and build their explicit
+  experiment inputs inline: `MarketDataConfig`, `BookReplay`, strategy configs,
+  `ExecutionModelConfig`, `MarketReportConfig`, and either
+  `build_replay_experiment(...)` or `ParameterSearchExperiment(...)`
 
 PMXT uses local raw files plus remote archives instead of a separate service
-surface. Telonex uses local daily Parquet files first, with `api:` as an
-explicit fallback.
+surface. Telonex uses a local Hive-partitioned full-book mirror, materialized
+`OrderBookDeltas` replay cache, and `api:` as an explicit fallback.
 
 - [Setup](setup.md)
 - [Backtests And Runners](backtests.md)
@@ -27,6 +28,3 @@ explicit fallback.
 ### Acknowledgements
 
 I'd like to thank everybody who I talked to along the way, as well as everybody who has starred, forked, filed issues, and asked questions about this project. Being only 19, I started with very little knowledge about the inner workings of markets on a microstructure level, and now have a lot more experience in strategy research and optimization. This repository started when I wanted to test my friend's hypotheses, and serves as my attempt at an all-in-one backtesting solution for prediction markets, with easy access to data and abstractions around a well-known backtesting framework. 
-
-![159 stars in a single day on the repo](assets/stars-159-in-one-day.png)
-> 159 stars gained in a single day!

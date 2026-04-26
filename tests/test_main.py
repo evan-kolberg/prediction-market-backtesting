@@ -85,21 +85,21 @@ def test_show_menu_renders_folder_tree(capsys, monkeypatch):
     choice = main_module.show_menu(
         [
             {
-                "name": "kalshi_trade_tick_breakout",
-                "description": "Kalshi breakout",
-                "relative_parts": ("kalshi_trade_tick_breakout.py",),
+                "name": "polymarket_book_ema_crossover",
+                "description": "PMXT EMA",
+                "relative_parts": ("polymarket_book_ema_crossover.py",),
                 "run": object(),
             },
             {
-                "name": "kalshi_trade_tick_independent_multi_replay_runner",
-                "description": "Kalshi basket",
-                "relative_parts": ("kalshi_trade_tick_independent_multi_replay_runner.py",),
+                "name": "polymarket_book_joint_portfolio_runner",
+                "description": "PMXT basket",
+                "relative_parts": ("polymarket_book_joint_portfolio_runner.py",),
                 "run": object(),
             },
             {
-                "name": "polymarket_quote_tick_independent_25_replay_runner",
-                "description": "PMXT 25 sims",
-                "relative_parts": ("polymarket_quote_tick_independent_25_replay_runner.py",),
+                "name": "polymarket_telonex_book_joint_portfolio_runner",
+                "description": "Telonex basket",
+                "relative_parts": ("polymarket_telonex_book_joint_portfolio_runner.py",),
                 "run": object(),
             },
         ]
@@ -109,29 +109,29 @@ def test_show_menu_renders_folder_tree(capsys, monkeypatch):
 
     assert choice == 1
     assert "backtests/" in rendered
-    assert "├── 1. kalshi_trade_tick_breakout.py — Kalshi breakout" in rendered
-    assert "├── 2. kalshi_trade_tick_independent_multi_replay_runner.py — Kalshi basket" in rendered
-    assert "└── 3. polymarket_quote_tick_independent_25_replay_runner.py — PMXT 25 sims" in rendered
+    assert "├── 1. polymarket_book_ema_crossover.py — PMXT EMA" in rendered
+    assert "├── 2. polymarket_book_joint_portfolio_runner.py — PMXT basket" in rendered
+    assert "└── 3. polymarket_telonex_book_joint_portfolio_runner.py — Telonex basket" in rendered
 
 
 def test_assign_shortcuts_prefers_unique_letters_and_avoids_quit_key():
     backtests = [
         {
-            "name": "kalshi_trade_tick_breakout",
-            "description": "Kalshi breakout",
-            "relative_parts": ("kalshi_trade_tick_breakout.py",),
-            "run": object(),
-        },
-        {
-            "name": "polymarket_trade_tick_vwap_reversion",
-            "description": "Polymarket VWAP",
-            "relative_parts": ("polymarket_trade_tick_vwap_reversion.py",),
-            "run": object(),
-        },
-        {
-            "name": "polymarket_quote_tick_ema_crossover",
+            "name": "polymarket_book_ema_crossover",
             "description": "PMXT EMA",
-            "relative_parts": ("polymarket_quote_tick_ema_crossover.py",),
+            "relative_parts": ("polymarket_book_ema_crossover.py",),
+            "run": object(),
+        },
+        {
+            "name": "polymarket_book_joint_portfolio_runner",
+            "description": "PMXT basket",
+            "relative_parts": ("polymarket_book_joint_portfolio_runner.py",),
+            "run": object(),
+        },
+        {
+            "name": "polymarket_telonex_book_joint_portfolio_runner",
+            "description": "Telonex basket",
+            "relative_parts": ("polymarket_telonex_book_joint_portfolio_runner.py",),
             "run": object(),
         },
     ]
@@ -201,7 +201,7 @@ def test_discoverable_backtest_paths_stay_flat(tmp_path: Path) -> None:
 
     (backtests_root / "__init__.py").write_text("")
     (backtests_root / "_script_helpers.py").write_text("")
-    (backtests_root / "kalshi_trade_tick_breakout.py").write_text("")
+    (backtests_root / "polymarket_book_ema_crossover.py").write_text("")
     (backtests_root / "notebook_runner.ipynb").write_text("{}", encoding="utf-8")
     (backtests_root / "private" / "local_runner.py").write_text("")
     (backtests_root / "private" / "local_notebook.ipynb").write_text("{}", encoding="utf-8")
@@ -214,8 +214,8 @@ def test_discoverable_backtest_paths_stay_flat(tmp_path: Path) -> None:
     ]
 
     assert discovered == [
-        Path("kalshi_trade_tick_breakout.py"),
         Path("notebook_runner.ipynb"),
+        Path("polymarket_book_ema_crossover.py"),
         Path("private/local_notebook.ipynb"),
         Path("private/local_runner.py"),
     ]

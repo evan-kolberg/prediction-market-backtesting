@@ -1,27 +1,25 @@
 # -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2026 Nautech Systems Pty Ltd. All rights reserved.
-#  https://nautechsystems.io
+# Copyright (C) 2015-2026 Nautech Systems Pty Ltd. All rights reserved.
+# https://nautechsystems.io
 #
-#  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
-#  You may not use this file except in compliance with the License.
-#  You may obtain a copy of the License at https://www.gnu.org/licenses/lgpl-3.0.en.html
+# Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
+# You may not use this file except in compliance with the License.
+# You may obtain a copy of the License at https://www.gnu.org/licenses/lgpl-3.0.en.html
 #
-#  Unless required by applicable law or agreed to in writing, software distributed under the
-#  License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
-#  KIND, either express or implied. See the License for the specific language governing
-#  permissions and limitations under the License.
+# Unless required by applicable law or agreed to in writing, software distributed under the
+# License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied. See the License for the specific language governing
+# permissions and limitations under the License.
 # -------------------------------------------------------------------------------------------------
-#  Derived from NautilusTrader prediction-market example code.
-#  Modified by Evan Kolberg in this repository on 2026-03-11 and 2026-03-16.
-#  See the repository NOTICE file for provenance and licensing scope.
-#
+# Derived from NautilusTrader prediction-market example code.
+# Modified by Evan Kolberg in this repository on 2026-03-11 and 2026-03-16.
+# See the repository NOTICE file for provenance and licensing scope.
 
 from __future__ import annotations
 
 from decimal import Decimal
 
-from nautilus_trader.model.data import QuoteTick, TradeTick
-from nautilus_trader.model.enums import OrderSide
+from nautilus_trader.model.enums import BookType, OrderSide
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.trading.strategy import StrategyConfig
 
@@ -29,18 +27,7 @@ from strategies._validation import require_positive_decimal, require_probability
 from strategies.core import LongOnlyPredictionMarketStrategy
 
 
-class TradeTickDeepValueHoldConfig(StrategyConfig, frozen=True):  # type: ignore[call-arg]
-    instrument_id: InstrumentId
-    trade_size: Decimal = Decimal(1)
-    entry_price_max: float = 0.25
-    single_entry: bool = True
-
-    def __post_init__(self) -> None:
-        require_positive_decimal("trade_size", self.trade_size)
-        require_probability("entry_price_max", self.entry_price_max)
-
-
-class QuoteTickDeepValueHoldConfig(StrategyConfig, frozen=True):  # type: ignore[call-arg]
+class BookDeepValueHoldConfig(StrategyConfig, frozen=True):  # type: ignore[call-arg]
     instrument_id: InstrumentId
     trade_size: Decimal = Decimal(1)
     entry_price_max: float = 0.25
@@ -56,7 +43,7 @@ class _DeepValueHoldBase(LongOnlyPredictionMarketStrategy):
     Buy when price is below a threshold and hold until strategy stop.
     """
 
-    def __init__(self, config: TradeTickDeepValueHoldConfig | QuoteTickDeepValueHoldConfig) -> None:
+    def __init__(self, config: BookDeepValueHoldConfig) -> None:
         super().__init__(config)
         self._entered_once: bool = False
 
@@ -98,28 +85,29 @@ class _DeepValueHoldBase(LongOnlyPredictionMarketStrategy):
         self._entered_once = False
 
 
-class TradeTickDeepValueHoldStrategy(_DeepValueHoldBase):
+class BookDeepValueHoldStrategy(_DeepValueHoldBase):
     def _subscribe(self) -> None:
-        self.subscribe_trade_ticks(self.config.instrument_id)
+        self.subscribe_order_book_deltas(
+            instrument_id=self.config.instrument_id,
+            book_type=BookType.L2_MBP,
+        )
 
-    def on_trade_tick(self, tick: TradeTick) -> None:
-        price = float(tick.price)
-        self._on_price(price, entry_price=price, visible_size=None)
-
-
-class QuoteTickDeepValueHoldStrategy(_DeepValueHoldBase):
-    def _subscribe(self) -> None:
-        self.subscribe_quote_ticks(self.config.instrument_id)
-
-    def on_quote_tick(self, tick: QuoteTick) -> None:
+    def on_order_book(self, order_book) -> None:  # type: ignore[no-untyped-def]
+        bid = order_book.best_bid_price()
+        ask = order_book.best_ask_price()
+        if bid is None or ask is None:
+            return
+        mid = (float(bid) + float(ask)) / 2.0
+        ask_size = order_book.best_ask_size()
+        bid_size = order_book.best_bid_size()
         self._remember_market_context(
-            entry_reference_price=float(tick.ask_price),
-            entry_visible_size=float(tick.ask_size),
-            exit_visible_size=float(tick.bid_size),
+            entry_reference_price=float(ask),
+            entry_visible_size=float(ask_size) if ask_size is not None else None,
+            exit_visible_size=float(bid_size) if bid_size is not None else None,
         )
         self._on_price(
-            (float(tick.bid_price) + float(tick.ask_price)) / 2.0,
-            entry_price=float(tick.ask_price),
-            visible_size=float(tick.ask_size),
-            exit_visible_size=float(tick.bid_size),
+            mid,
+            entry_price=float(ask),
+            visible_size=float(ask_size) if ask_size is not None else None,
+            exit_visible_size=float(bid_size) if bid_size is not None else None,
         )

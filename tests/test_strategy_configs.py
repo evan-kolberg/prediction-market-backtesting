@@ -6,13 +6,13 @@ from types import SimpleNamespace
 from nautilus_trader.model.identifiers import InstrumentId, Symbol, Venue
 
 from prediction_market_extensions.backtesting._prediction_market_backtest import (
-    MarketSimConfig,
     PredictionMarketBacktest,
     _LoadedMarketSim,
 )
 from prediction_market_extensions.backtesting._prediction_market_runner import MarketDataConfig
+from prediction_market_extensions.backtesting._replay_specs import BookReplay
 from prediction_market_extensions.backtesting._strategy_configs import build_strategies_from_configs
-from strategies import QuoteTickBreakoutConfig, QuoteTickBreakoutStrategy
+from strategies import BookBreakoutConfig, BookBreakoutStrategy
 
 
 def test_strategy_configs_bind_primary_instrument_id() -> None:
@@ -20,8 +20,8 @@ def test_strategy_configs_bind_primary_instrument_id() -> None:
     strategies = build_strategies_from_configs(
         strategy_configs=[
             {
-                "strategy_path": "strategies:QuoteTickBreakoutStrategy",
-                "config_path": "strategies:QuoteTickBreakoutConfig",
+                "strategy_path": "strategies:BookBreakoutStrategy",
+                "config_path": "strategies:BookBreakoutConfig",
                 "config": {
                     "trade_size": Decimal(100),
                     "window": 20,
@@ -41,8 +41,8 @@ def test_strategy_configs_bind_primary_instrument_id() -> None:
 
     assert len(strategies) == 1
     strategy = strategies[0]
-    assert isinstance(strategy, QuoteTickBreakoutStrategy)
-    assert isinstance(strategy.config, QuoteTickBreakoutConfig)
+    assert isinstance(strategy, BookBreakoutStrategy)
+    assert isinstance(strategy.config, BookBreakoutConfig)
     assert strategy.config.instrument_id == instrument_id
 
 
@@ -51,21 +51,21 @@ def test_prediction_market_backtest_binds_strategy_configs_across_sims() -> None
     instrument_id_two = InstrumentId(Symbol("PM-TEST-NO"), Venue("POLYMARKET"))
     backtest = PredictionMarketBacktest(
         name="demo",
-        data=MarketDataConfig(platform="polymarket", data_type="trade_tick", vendor="native"),
-        sims=(
-            MarketSimConfig(
+        data=MarketDataConfig(platform="polymarket", data_type="book", vendor="pmxt"),
+        replays=(
+            BookReplay(
                 market_slug="market-one",
                 metadata={"market_close_time_ns": 111, "activation_start_time_ns": 11},
             ),
-            MarketSimConfig(
+            BookReplay(
                 market_slug="market-two",
                 metadata={"market_close_time_ns": 222, "activation_start_time_ns": 22},
             ),
         ),
         strategy_configs=[
             {
-                "strategy_path": "strategies:TradeTickLateFavoriteLimitHoldStrategy",
-                "config_path": "strategies:TradeTickLateFavoriteLimitHoldConfig",
+                "strategy_path": "strategies:BookLateFavoriteLimitHoldStrategy",
+                "config_path": "strategies:BookLateFavoriteLimitHoldConfig",
                 "config": {
                     "trade_size": Decimal(25),
                     "activation_start_time_ns": "__SIM_METADATA__:activation_start_time_ns",
@@ -84,11 +84,11 @@ def test_prediction_market_backtest_binds_strategy_configs_across_sims() -> None
     )
     loaded_sims = [
         _LoadedMarketSim(
-            spec=backtest.sims[0],
+            spec=backtest.replays[0],
             instrument=SimpleNamespace(id=instrument_id_one, outcome="Yes"),
             records=[],
             count=0,
-            count_key="trades",
+            count_key="book_events",
             market_key="slug",
             market_id="market-one",
             outcome="Yes",
@@ -99,11 +99,11 @@ def test_prediction_market_backtest_binds_strategy_configs_across_sims() -> None
             requested_end_ns=None,
         ),
         _LoadedMarketSim(
-            spec=backtest.sims[1],
+            spec=backtest.replays[1],
             instrument=SimpleNamespace(id=instrument_id_two, outcome="Yes"),
             records=[],
             count=0,
-            count_key="trades",
+            count_key="book_events",
             market_key="slug",
             market_id="market-two",
             outcome="Yes",

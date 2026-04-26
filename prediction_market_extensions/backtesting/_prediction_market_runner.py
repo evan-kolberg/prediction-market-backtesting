@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from datetime import datetime
-from pathlib import Path
 from typing import Any
 
 import pandas as pd
@@ -38,18 +37,13 @@ async def run_single_market_backtest(
     token_index: int = 0,
     lookback_days: int | None = None,
     lookback_hours: float | None = None,
-    min_trades: int = 0,
-    min_quotes: int = 0,
+    min_book_events: int = 0,
     min_price_range: float = 0.0,
     initial_cash: float = 100.0,
     nautilus_log_level: str = "INFO",
     chart_resample_rule: str | None = None,
     emit_summary: bool = True,
-    emit_html: bool = True,
-    chart_output_path: str | Path | None = None,
-    return_chart_layout: bool = False,
     return_summary_series: bool = False,
-    detail_plot_panels: Sequence[str] | None = None,
     report: MarketReportConfig | None = None,
     empty_message: str | None = None,
     partial_message: str | None = None,
@@ -83,17 +77,12 @@ async def run_single_market_backtest(
             strategy_configs=tuple(strategy_configs or ()),
             initial_cash=initial_cash,
             probability_window=probability_window,
-            min_trades=min_trades,
-            min_quotes=min_quotes,
+            min_book_events=min_book_events,
             min_price_range=min_price_range,
             nautilus_log_level=nautilus_log_level,
             execution=execution,
             chart_resample_rule=chart_resample_rule,
-            emit_html=emit_html,
-            chart_output_path=chart_output_path,
-            return_chart_layout=return_chart_layout,
             return_summary_series=return_summary_series,
-            detail_plot_panels=detail_plot_panels,
             report=report if emit_summary else None,
             empty_message=empty_message,
             partial_message=partial_message,

@@ -5,14 +5,14 @@ from types import SimpleNamespace
 
 from nautilus_trader.model.identifiers import InstrumentId, Symbol, Venue
 
-from strategies import QuoteTickLateFavoriteLimitHoldConfig, QuoteTickLateFavoriteLimitHoldStrategy
+from strategies import BookLateFavoriteLimitHoldConfig, BookLateFavoriteLimitHoldStrategy
 
 INSTRUMENT_ID = InstrumentId(Symbol("PM-TEST-YES"), Venue("POLYMARKET"))
 
 
 def test_late_favorite_limit_order_acceptance_unblocks_strategy_state() -> None:
-    strategy = QuoteTickLateFavoriteLimitHoldStrategy(
-        QuoteTickLateFavoriteLimitHoldConfig(
+    strategy = BookLateFavoriteLimitHoldStrategy(
+        BookLateFavoriteLimitHoldConfig(
             instrument_id=INSTRUMENT_ID,
             trade_size=Decimal(5),
             entry_price=0.9,

@@ -6,13 +6,13 @@ from types import SimpleNamespace
 from nautilus_trader.model.enums import OrderSide
 from nautilus_trader.model.identifiers import InstrumentId, Symbol, Venue
 
-from strategies import QuoteTickBreakoutConfig, QuoteTickBreakoutStrategy
+from strategies import BookBreakoutConfig, BookBreakoutStrategy
 
 INSTRUMENT_ID = InstrumentId(Symbol("PM-TEST-YES"), Venue("POLYMARKET"))
 
 
-class _BreakoutHarness(QuoteTickBreakoutStrategy):
-    def __init__(self, config: QuoteTickBreakoutConfig) -> None:
+class _BreakoutHarness(BookBreakoutStrategy):
+    def __init__(self, config: BookBreakoutConfig) -> None:
         super().__init__(config)
         self.entries = 0
         self.exits = 0
@@ -44,7 +44,7 @@ class _BreakoutHarness(QuoteTickBreakoutStrategy):
 
 def test_quote_breakout_requires_move_beyond_noise_before_entering() -> None:
     strategy = _BreakoutHarness(
-        QuoteTickBreakoutConfig(
+        BookBreakoutConfig(
             instrument_id=INSTRUMENT_ID,
             trade_size=Decimal(1),
             window=4,
@@ -68,7 +68,7 @@ def test_quote_breakout_requires_move_beyond_noise_before_entering() -> None:
 
 def test_quote_breakout_uses_hold_period_and_reentry_cooldown() -> None:
     strategy = _BreakoutHarness(
-        QuoteTickBreakoutConfig(
+        BookBreakoutConfig(
             instrument_id=INSTRUMENT_ID,
             trade_size=Decimal(1),
             window=4,

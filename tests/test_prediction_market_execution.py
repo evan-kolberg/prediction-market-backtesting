@@ -13,10 +13,31 @@ from prediction_market_extensions.backtesting._execution_config import (
     StaticLatencyConfig,
 )
 from prediction_market_extensions.backtesting._prediction_market_backtest import (
-    MarketSimConfig,
     PredictionMarketBacktest,
 )
 from prediction_market_extensions.backtesting._prediction_market_runner import MarketDataConfig
+from prediction_market_extensions.backtesting._replay_specs import BookReplay
+
+
+class _FakeMessageBus:
+    def __init__(self) -> None:
+        self.handlers = {}
+        self.published: list[tuple[str, str, bool]] = []
+
+    def subscribe(self, topic, handler):  # type: ignore[no-untyped-def]
+        self.handlers[topic] = handler
+
+    def publish(self, topic, message, external_pub=True):  # type: ignore[no-untyped-def]
+        self.published.append((topic, message, external_pub))
+        self.handlers[topic](message)
+
+
+class _FakeLogger:
+    def __init__(self) -> None:
+        self.messages: list[str] = []
+
+    def info(self, message: str) -> None:
+        self.messages.append(message)
 
 
 class _EngineStub:
@@ -33,8 +54,8 @@ def test_prediction_market_backtest_build_engine_forwards_execution(monkeypatch)
 
     backtest = PredictionMarketBacktest(
         name="demo",
-        data=MarketDataConfig(platform="polymarket", data_type="quote_tick", vendor="pmxt"),
-        sims=(MarketSimConfig(market_slug="demo-market"),),
+        data=MarketDataConfig(platform="polymarket", data_type="book", vendor="pmxt"),
+        replays=(BookReplay(market_slug="demo-market"),),
         strategy_factory=lambda instrument_id: SimpleNamespace(instrument_id=instrument_id),
         initial_cash=100.0,
         probability_window=16,
@@ -63,6 +84,19 @@ def test_prediction_market_backtest_build_engine_forwards_execution(monkeypatch)
     assert latency_model.update_latency_nanos == 30_000_000
     assert latency_model.cancel_latency_nanos == 27_000_000
     assert engine.config.risk_engine.bypass is False
+
+
+def test_emit_engine_status_uses_nautilus_message_bus() -> None:
+    msgbus = _FakeMessageBus()
+    logger = _FakeLogger()
+    engine = SimpleNamespace(kernel=SimpleNamespace(msgbus=msgbus, logger=logger))
+
+    backtest_module._emit_engine_status(engine, "demo status")
+
+    assert msgbus.published == [
+        (backtest_module.REPO_STATUS_TOPIC, "demo status", False),
+    ]
+    assert logger.messages == ["demo status"]
 
 
 def test_build_backtest_run_state_marks_forced_stop_with_partial_coverage():
@@ -103,12 +137,22 @@ def test_build_backtest_run_state_uses_requested_window_for_coverage():
     assert state["requested_coverage_ratio"] == 2 / 3
 
 
-def test_quote_tick_pmxt_runner_pins_passive_execution_heuristics():
-    module = importlib.import_module("backtests.polymarket_quote_tick_ema_crossover")
+def test_book_pmxt_runner_pins_passive_execution_heuristics(monkeypatch):
+    from prediction_market_extensions.backtesting import _experiments
 
-    assert module.EXPERIMENT.execution.queue_position is True
+    captured: dict[str, object] = {}
 
-    latency_model = module.EXPERIMENT.execution.build_latency_model()
+    def capture_run_experiment(experiment):  # type: ignore[no-untyped-def]
+        captured["experiment"] = experiment
+
+    monkeypatch.setattr(_experiments, "run_experiment", capture_run_experiment)
+    module = importlib.import_module("backtests.polymarket_book_ema_crossover")
+    module.run()
+    experiment = captured["experiment"]
+
+    assert experiment.execution.queue_position is True
+
+    latency_model = experiment.execution.build_latency_model()
     assert latency_model is not None
     assert latency_model.base_latency_nanos == 75_000_000
     assert latency_model.insert_latency_nanos == 85_000_000

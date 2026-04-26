@@ -36,17 +36,15 @@ def test_pmxt_runner_uses_l2_execution_settings(monkeypatch):
     result = asyncio.run(
         runner.run_single_market_backtest(
             name="pmxt_test",
-            data=MarketDataConfig(platform="polymarket", data_type="quote_tick", vendor="pmxt"),
+            data=MarketDataConfig(platform="polymarket", data_type="book", vendor="pmxt"),
             market_slug="demo-market",
             lookback_hours=1.0,
             end_time="1970-01-01T01:00:00Z",
-            min_quotes=2,
+            min_book_events=2,
             min_price_range=0.0,
             probability_window=5,
             initial_cash=100.0,
             emit_summary=False,
-            emit_html=False,
-            chart_output_path="output/pmxt_test_chart.html",
             strategy_factory=lambda instrument_id: SimpleNamespace(instrument_id=instrument_id),
         )
     )
@@ -54,10 +52,8 @@ def test_pmxt_runner_uses_l2_execution_settings(monkeypatch):
     assert result is not None
     backtest = captured["backtest"]
     assert backtest.data.platform == "polymarket"
-    assert backtest.data.data_type == "quote_tick"
+    assert backtest.data.data_type == "book"
     assert backtest.data.vendor == "pmxt"
-    assert backtest.emit_html is False
-    assert backtest.chart_output_path == "output/pmxt_test_chart.html"
     assert backtest.execution.queue_position is False
     assert backtest.execution.build_latency_model() is None
 
@@ -84,14 +80,13 @@ def test_pmxt_runner_forwards_queue_position_and_latency(monkeypatch):
     result = asyncio.run(
         runner.run_single_market_backtest(
             name="pmxt_test",
-            data=MarketDataConfig(platform="polymarket", data_type="quote_tick", vendor="pmxt"),
+            data=MarketDataConfig(platform="polymarket", data_type="book", vendor="pmxt"),
             market_slug="demo-market",
             lookback_hours=1.0,
             end_time="1970-01-01T01:00:00Z",
             probability_window=5,
             initial_cash=100.0,
             emit_summary=False,
-            emit_html=False,
             strategy_factory=lambda instrument_id: SimpleNamespace(instrument_id=instrument_id),
             execution=ExecutionModelConfig(
                 queue_position=True,
@@ -138,20 +133,19 @@ def test_pmxt_runner_respects_explicit_start_and_end_times(monkeypatch):
     result = asyncio.run(
         runner.run_single_market_backtest(
             name="pmxt_test",
-            data=MarketDataConfig(platform="polymarket", data_type="quote_tick", vendor="pmxt"),
+            data=MarketDataConfig(platform="polymarket", data_type="book", vendor="pmxt"),
             market_slug="demo-market",
             start_time="2026-03-22T09:00:00Z",
             end_time="2026-03-22T13:00:00Z",
             probability_window=5,
             initial_cash=100.0,
             emit_summary=False,
-            emit_html=False,
             strategy_factory=lambda instrument_id: SimpleNamespace(instrument_id=instrument_id),
         )
     )
 
     assert result is not None
-    sim = captured["backtest"].sims[0]
+    sim = captured["backtest"].replays[0]
     assert sim.start_time == "2026-03-22T09:00:00Z"
     assert sim.end_time == "2026-03-22T13:00:00Z"
     assert sim.lookback_hours is None
@@ -179,14 +173,13 @@ def test_pmxt_runner_forwards_nautilus_log_level(monkeypatch):
     result = asyncio.run(
         runner.run_single_market_backtest(
             name="pmxt_test",
-            data=MarketDataConfig(platform="polymarket", data_type="quote_tick", vendor="pmxt"),
+            data=MarketDataConfig(platform="polymarket", data_type="book", vendor="pmxt"),
             market_slug="demo-market",
             lookback_hours=1.0,
             end_time="1970-01-01T01:00:00Z",
             probability_window=5,
             initial_cash=100.0,
             emit_summary=False,
-            emit_html=False,
             nautilus_log_level="INFO",
             strategy_factory=lambda instrument_id: SimpleNamespace(instrument_id=instrument_id),
         )

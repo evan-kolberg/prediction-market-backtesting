@@ -16,8 +16,8 @@ from prediction_market_extensions.backtesting._prediction_market_backtest import
     PredictionMarketBacktest,
 )
 from prediction_market_extensions.backtesting._prediction_market_runner import MarketDataConfig
-from prediction_market_extensions.backtesting._replay_specs import QuoteReplay
-from prediction_market_extensions.backtesting.data_sources import PMXT, Polymarket, QuoteTick
+from prediction_market_extensions.backtesting._replay_specs import BookReplay
+from prediction_market_extensions.backtesting.data_sources import PMXT, Book, Polymarket
 from prediction_market_extensions.backtesting.optimizers import OPTIMIZER_TYPE_PARAMETER_SEARCH
 
 
@@ -82,9 +82,9 @@ def _make_config(
     return optimizer.ParameterSearchConfig(
         name=name,
         data=MarketDataConfig(
-            platform=Polymarket, data_type=QuoteTick, vendor=PMXT, sources=("local:/tmp/pmxt_raws",)
+            platform=Polymarket, data_type=Book, vendor=PMXT, sources=("local:/tmp/pmxt_raws",)
         ),
-        base_replay=QuoteReplay(market_slug="demo-market", token_index=0),
+        base_replay=BookReplay(market_slug="demo-market", token_index=0),
         strategy_spec=resolved_strategy_spec,
         parameter_grid=resolved_parameter_grid,
         parameter_space=resolved_parameter_space,
@@ -95,7 +95,7 @@ def _make_config(
         random_seed=random_seed,
         holdout_top_k=holdout_top_k,
         initial_cash=100.0,
-        min_quotes=500,
+        min_book_events=500,
         min_price_range=0.005,
         min_fills_per_window=min_fills_per_window,
         execution=ExecutionModelConfig(
@@ -208,7 +208,6 @@ def test_score_result_penalizes_drawdown_termination_low_coverage_and_low_fills(
 def test_optimizer_builds_repo_layer_backtest_with_summary_series_enabled(tmp_path: Path) -> None:
     config = replace(
         _make_config(tmp_path, parameter_grid={"edge": (5,)}, max_trials=1),
-        chart_output_path="output/optimizer_trial_chart.html",
     )
     window = config.train_windows[0]
 
@@ -220,16 +219,14 @@ def test_optimizer_builds_repo_layer_backtest_with_summary_series_enabled(tmp_pa
     assert backtest.name == "optimizer_test:train-a:trial-007"
     assert backtest.data is config.data
     assert backtest.initial_cash == 100.0
-    assert backtest.min_quotes == 500
+    assert backtest.min_book_events == 500
     assert backtest.min_price_range == 0.005
     assert backtest.execution == config.execution
-    assert backtest.emit_html is False
-    assert backtest.chart_output_path == "output/optimizer_trial_chart.html"
     assert backtest.return_summary_series is True
-    assert len(backtest.sims) == 1
-    assert backtest.sims[0].start_time == window.start_time
-    assert backtest.sims[0].end_time == window.end_time
-    assert backtest.sims[0].metadata == {"optimization_window": "train-a"}
+    assert len(backtest.replays) == 1
+    assert backtest.replays[0].start_time == window.start_time
+    assert backtest.replays[0].end_time == window.end_time
+    assert backtest.replays[0].metadata == {"optimization_window": "train-a"}
     assert backtest.strategy_configs[0]["config"]["edge"] == 5
 
 
@@ -245,19 +242,15 @@ def test_build_optimization_window_backtest_supports_generic_holdout_replays(
         params={"edge": 2},
         trial_id=11,
         name="generic_optimizer_research",
-        emit_html=True,
-        chart_output_path="output/generic_optimizer_research.html",
         return_summary_series=False,
     )
 
     assert isinstance(backtest, PredictionMarketBacktest)
     assert backtest.name == "generic_optimizer_research"
-    assert backtest.emit_html is True
-    assert backtest.chart_output_path == "output/generic_optimizer_research.html"
     assert backtest.return_summary_series is False
-    assert len(backtest.sims) == 1
-    assert backtest.sims[0].start_time == window.start_time
-    assert backtest.sims[0].end_time == window.end_time
+    assert len(backtest.replays) == 1
+    assert backtest.replays[0].start_time == window.start_time
+    assert backtest.replays[0].end_time == window.end_time
     assert backtest.strategy_configs[0]["strategy_path"] == "strategies:DemoStrategy"
     assert backtest.strategy_configs[0]["config_path"] == "strategies:DemoConfig"
     assert backtest.strategy_configs[0]["config"]["edge"] == 2
@@ -350,7 +343,7 @@ def test_optimizer_reruns_only_top_k_train_candidates_on_holdout_and_selects_by_
 
     def _evaluator(backtest: PredictionMarketBacktest) -> dict[str, object]:
         edge = backtest.strategy_configs[0]["config"]["edge"]
-        window_name = backtest.sims[0].metadata["optimization_window"]
+        window_name = backtest.replays[0].metadata["optimization_window"]
         calls.append((edge, window_name))
         return _result_for_score(scores[edge][window_name])
 
@@ -373,7 +366,7 @@ def test_optimizer_breaks_holdout_ties_with_train_median_score(tmp_path: Path) -
 
     def _evaluator(backtest: PredictionMarketBacktest) -> dict[str, object]:
         edge = backtest.strategy_configs[0]["config"]["edge"]
-        window_name = backtest.sims[0].metadata["optimization_window"]
+        window_name = backtest.replays[0].metadata["optimization_window"]
         return _result_for_score(scores[edge][window_name])
 
     summary = optimizer.run_parameter_optimization(config, evaluator=_evaluator)
@@ -413,7 +406,7 @@ def test_run_parameter_optimization_writes_artifacts(tmp_path: Path) -> None:
 
     def _evaluator(backtest: PredictionMarketBacktest) -> dict[str, object]:
         edge = backtest.strategy_configs[0]["config"]["edge"]
-        window_name = backtest.sims[0].metadata["optimization_window"]
+        window_name = backtest.replays[0].metadata["optimization_window"]
         holdout_bonus = 1.0 if window_name == "holdout-a" else 0.0
         return _result_for_score(float(edge) + holdout_bonus)
 
@@ -474,13 +467,13 @@ def test_parameter_search_config_accepts_base_replays_for_multi_market(
     tmp_path: Path,
 ) -> None:
     replays = (
-        QuoteReplay(market_slug="market-one", token_index=0),
-        QuoteReplay(market_slug="market-two", token_index=0),
+        BookReplay(market_slug="market-one", token_index=0),
+        BookReplay(market_slug="market-two", token_index=0),
     )
     config = optimizer.ParameterSearchConfig(
         name="joint_test",
         data=MarketDataConfig(
-            platform=Polymarket, data_type=QuoteTick, vendor=PMXT, sources=("local:/tmp",)
+            platform=Polymarket, data_type=Book, vendor=PMXT, sources=("local:/tmp",)
         ),
         base_replays=replays,
         strategy_spec={

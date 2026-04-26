@@ -45,3 +45,4 @@ crates/*/uv.lock
 .pytest_cache/
 .ruff_cache/
 .benchmarks/
+.claude/worktrees/

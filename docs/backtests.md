@@ -2,90 +2,48 @@
 
 ## Repo Layout
 
-- `strategies/` contains reusable strategy classes and configs
-- `strategies/private/` is for git-ignored local strategy modules
-- `backtests/` contains flat public runner entrypoints
-- `prediction_market_extensions/backtesting/` contains shared runner plumbing, data-source adapters,
-  strategy-config binding, timing, reporting, and replay helpers
-- `prediction_market_extensions/backtesting/optimizers/` is the extension-side
-  namespace for optimizer families such as parameter search
-- `backtests/private/` is for git-ignored local runners
+- `strategies/` contains reusable strategy classes and configs.
+- `strategies/private/` is for git-ignored local strategy modules.
+- `backtests/` contains flat public runner entrypoints.
+- `backtests/private/` is for git-ignored local runner entrypoints.
+- `prediction_market_extensions/backtesting/` contains shared runner plumbing,
+  data-source adapters, timing, reporting, artifacts, and optimizer helpers.
 
 Only flat `backtests/*.py`, `backtests/*.ipynb`, `backtests/private/*.py`, and
-`backtests/private/*.ipynb` files are discoverable runner entrypoints. Any
-other subdirectory under `backtests/` should be support code only.
+`backtests/private/*.ipynb` files are discoverable by the menu. Subdirectories
+under `backtests/` should be support code only.
 
-Good public examples:
+Current public Python runners:
 
-- reusable EMA logic:
-  [`strategies/ema_crossover.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/v2/strategies/ema_crossover.py)
-- reusable late-favorite limit-hold logic:
-  [`strategies/late_favorite_limit_hold.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/v2/strategies/late_favorite_limit_hold.py)
-- Kalshi native trade-tick runner:
-  [`backtests/kalshi_trade_tick_breakout.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/v2/backtests/kalshi_trade_tick_breakout.py)
-- Kalshi native trade-tick joint-portfolio basket runner:
-  [`backtests/kalshi_trade_tick_joint_portfolio_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/v2/backtests/kalshi_trade_tick_joint_portfolio_runner.py)
-- Kalshi native trade-tick independent basket runner:
-  [`backtests/kalshi_trade_tick_independent_multi_replay_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/v2/backtests/kalshi_trade_tick_independent_multi_replay_runner.py)
-- Polymarket native trade-tick runner:
-  [`backtests/polymarket_trade_tick_vwap_reversion.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/v2/backtests/polymarket_trade_tick_vwap_reversion.py)
-- Polymarket native trade-tick joint-portfolio basket runner:
-  [`backtests/polymarket_trade_tick_joint_portfolio_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/v2/backtests/polymarket_trade_tick_joint_portfolio_runner.py)
-- Polymarket native trade-tick independent basket runner:
-  [`backtests/polymarket_trade_tick_independent_multi_replay_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/v2/backtests/polymarket_trade_tick_independent_multi_replay_runner.py)
-- Polymarket quote-tick runner with PMXT vendor data:
-  [`backtests/polymarket_quote_tick_ema_crossover.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/v2/backtests/polymarket_quote_tick_ema_crossover.py)
-- PMXT joint-portfolio basket runner:
-  [`backtests/polymarket_quote_tick_joint_portfolio_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/v2/backtests/polymarket_quote_tick_joint_portfolio_runner.py)
-- Telonex joint-portfolio basket runner:
-  [`backtests/polymarket_telonex_quote_tick_joint_portfolio_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/v3/backtests/polymarket_telonex_quote_tick_joint_portfolio_runner.py)
-- PMXT independent basket runner:
-  [`backtests/polymarket_quote_tick_independent_multi_replay_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/v2/backtests/polymarket_quote_tick_independent_multi_replay_runner.py)
-- PMXT independent 25-replay basket runner:
-  [`backtests/polymarket_quote_tick_independent_25_replay_runner.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/v2/backtests/polymarket_quote_tick_independent_25_replay_runner.py)
-- PMXT optimizer runner:
-  [`backtests/polymarket_quote_tick_ema_optimizer.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/v2/backtests/polymarket_quote_tick_ema_optimizer.py)
-- generic optimizer notebook research runner:
-  [`backtests/generic_optimizer_research.ipynb`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/v2/backtests/generic_optimizer_research.ipynb)
+- `backtests/polymarket_book_ema_crossover.py`
+- `backtests/polymarket_book_ema_optimizer.py`
+- `backtests/polymarket_book_joint_portfolio_runner.py`
+- `backtests/polymarket_telonex_book_joint_portfolio_runner.py`
 
-Those public runners are intended as readable research demos, not profitability
-claims. Result payloads now separate the requested replay window from the data
-window that actually loaded, including `planned_start`, `planned_end`,
-`loaded_start`, `loaded_end`, `coverage_ratio` for loaded-data coverage, and
-`requested_coverage_ratio` for requested-window coverage.
+Current public notebook runners:
 
-Public Kalshi trade-tick runners use the same flat manifest pattern, but pin
-`end_time` to a known-good close window so the direct script path stays
-deterministic. If you adapt one for fresh research and remove that pin, the
-replay falls back to rolling-lookback behavior again.
+- `backtests/generic_optimizer_research.ipynb`
+- `backtests/generic_tpe_research.ipynb`
+- `backtests/pmxt_book_joint_portfolio_runner.ipynb`
+- `backtests/telonex_book_joint_portfolio_runner.ipynb`
+
+These are research demos, not profitability claims. They are pinned to concrete
+markets, windows, sources, strategy configs, and execution assumptions so direct
+script runs stay reproducible.
 
 ## Runner Contract
 
-Public runners should read like flat experiment specs.
-The public contract is manifest-first: typed replay specs plus one
-`EXPERIMENT` object. `PredictionMarketBacktest` is now an internal executor
-used by the shared experiment layer.
+Public Python runners are flat script entrypoints. Each runner exposes `run()`
+and builds its concrete experiment inline inside that function. This keeps the
+script import side effect small while preserving explicit inputs: platform,
+vendor, source priority, replay windows, strategy config, execution model, and
+report config are still visible in one file.
 
-`MarketDataConfig` owns platform, vendor, and data type selection.
-`TradeReplay` and `QuoteReplay` only describe which replay window or market to
-load. Generic executor surfaces such as
-`_prediction_market_runner.run_single_market_backtest(...)` and
-`_independent_multi_replay_runner.run_independent_multi_replay_backtest_async(...)` dispatch from that
-config instead of encoding platform or vendor names into the runner API.
+The menu discovers runner metadata by AST-scanning literal `name=` and
+`description=` fields in `build_replay_experiment(...)` or
+`ParameterSearchExperiment(...)`. Do not hide those behind variables.
 
-Multi-replay execution mode is explicit now:
-
-- `multi_replay_mode="joint_portfolio"` means one shared Nautilus engine run,
-  one shared account, and one true portfolio path across the whole basket
-- `multi_replay_mode="independent"` means one isolated run per replay and one
-  stitched aggregate report after the fact
-
-That distinction matters. Joint-portfolio charts answer "what happened to one
-bankroll trading this basket?" Independent charts answer "how did these replays
-perform if each one got its own bankroll?"
-
-Concrete files under `backtests/` can still stay explicit in their filenames
-when that helps humans scan examples quickly. The canonical shape is:
+The canonical book-runner shape is:
 
 ```python
 from decimal import Decimal
@@ -97,291 +55,198 @@ else:
 
 ensure_repo_root(__file__)
 
-from prediction_market_extensions.backtesting._execution_config import ExecutionModelConfig
-from prediction_market_extensions.backtesting._execution_config import StaticLatencyConfig
-from prediction_market_extensions.backtesting._experiments import build_replay_experiment
-from prediction_market_extensions.backtesting._experiments import run_experiment
-from prediction_market_extensions.backtesting._prediction_market_backtest import MarketReportConfig
-from prediction_market_extensions.backtesting._prediction_market_runner import MarketDataConfig
-from prediction_market_extensions.backtesting._replay_specs import QuoteReplay
+from prediction_market_extensions.backtesting._execution_config import (
+    ExecutionModelConfig,
+    StaticLatencyConfig,
+)
+from prediction_market_extensions.backtesting._experiments import (
+    build_replay_experiment,
+    run_experiment,
+)
+from prediction_market_extensions.backtesting._prediction_market_backtest import (
+    MarketReportConfig,
+)
+from prediction_market_extensions.backtesting._prediction_market_runner import (
+    MarketDataConfig,
+)
+from prediction_market_extensions.backtesting._replay_specs import BookReplay
 from prediction_market_extensions.backtesting._timing_harness import timing_harness
-from prediction_market_extensions.backtesting.data_sources import PMXT, Polymarket, QuoteTick
-
-DATA = MarketDataConfig(
-    platform=Polymarket,
-    data_type=QuoteTick,
-    vendor=PMXT,
-    sources=(
-        "local:/Volumes/LaCie/pmxt_data",
-        "archive:r2v2.pmxt.dev",
-        "archive:r2.pmxt.dev",
-    ),
-)
-
-REPLAYS = (
-    QuoteReplay(
-        market_slug="market-slug",
-        token_index=0,
-        start_time="2026-03-19T07:35:57.277659Z",
-        end_time="2026-03-24T07:35:57.277659Z",
-    ),
-)
-
-STRATEGY_CONFIGS = [
-    {
-        "strategy_path": "strategies:QuoteTickEMACrossoverStrategy",
-        "config_path": "strategies:QuoteTickEMACrossoverConfig",
-        "config": {
-            "trade_size": Decimal("100"),
-            "fast_period": 64,
-            "slow_period": 256,
-            "entry_buffer": 0.0005,
-            "take_profit": 0.010,
-            "stop_loss": 0.010,
-        },
-    },
-]
-
-REPORT = MarketReportConfig(
-    count_key="quotes",
-    count_label="Quotes",
-    pnl_label="PnL (USDC)",
-)
-
-EXECUTION = ExecutionModelConfig(
-    queue_position=True,
-    latency_model=StaticLatencyConfig(
-        base_latency_ms=75.0,
-        insert_latency_ms=10.0,
-        update_latency_ms=5.0,
-        cancel_latency_ms=5.0,
-    ),
-)
-
-EXPERIMENT = build_replay_experiment(
-    name="polymarket_quote_tick_ema_crossover",
-    description="EMA crossover momentum on one Polymarket market",
-    data=DATA,
-    replays=REPLAYS,
-    strategy_configs=STRATEGY_CONFIGS,
-    initial_cash=100.0,
-    probability_window=256,
-    min_quotes=500,
-    min_price_range=0.005,
-    execution=EXECUTION,
-    report=REPORT,
-    empty_message="No sims met the quote-tick requirements.",
-    emit_html=True,
-    chart_output_path="output",
-)
+from prediction_market_extensions.backtesting.data_sources import Book, PMXT, Polymarket
 
 @timing_harness
 def run() -> None:
-    run_experiment(EXPERIMENT)
+    run_experiment(
+        build_replay_experiment(
+            name="polymarket_book_ema_crossover",
+            description="EMA crossover momentum on one Polymarket market using L2 book data",
+            data=MarketDataConfig(
+                platform=Polymarket,
+                data_type=Book,
+                vendor=PMXT,
+                sources=(
+                    "local:/Volumes/LaCie/pmxt_raws",
+                    "archive:r2v2.pmxt.dev",
+                    "archive:r2.pmxt.dev",
+                ),
+            ),
+            replays=(
+                BookReplay(
+                    market_slug="market-slug",
+                    token_index=0,
+                    start_time="2026-03-19T07:35:57.277659Z",
+                    end_time="2026-03-24T07:35:57.277659Z",
+                ),
+            ),
+            strategy_configs=[
+                {
+                    "strategy_path": "strategies:BookEMACrossoverStrategy",
+                    "config_path": "strategies:BookEMACrossoverConfig",
+                    "config": {
+                        "trade_size": Decimal("100"),
+                        "fast_period": 64,
+                        "slow_period": 256,
+                        "entry_buffer": 0.0005,
+                        "take_profit": 0.010,
+                        "stop_loss": 0.010,
+                    },
+                },
+            ],
+            initial_cash=100.0,
+            probability_window=256,
+            min_book_events=500,
+            min_price_range=0.005,
+            execution=ExecutionModelConfig(
+                queue_position=True,
+                latency_model=StaticLatencyConfig(
+                    base_latency_ms=75.0,
+                    insert_latency_ms=10.0,
+                    update_latency_ms=5.0,
+                    cancel_latency_ms=5.0,
+                ),
+            ),
+            report=MarketReportConfig(
+                count_key="book_events",
+                count_label="Book Events",
+                pnl_label="PnL (USDC)",
+            ),
+            empty_message="No replays met the book requirements.",
+        )
+    )
 ```
 
-Every public runner should expose:
+Important contract details:
 
-- `DETAIL_PLOT_PANELS` when the runner emits per-sim legacy HTML charts
-- `SUMMARY_REPORT_PATH` when the runner emits one aggregate multi-market HTML page
-- `SUMMARY_PLOT_PANELS` when the runner emits an aggregate multi-market HTML page
-- `DATA`
-- `REPLAYS`
-- `STRATEGY_CONFIGS`
-- `multi_replay_mode` inside `EXPERIMENT` when `len(REPLAYS) > 1`
-- `REPORT` when the runner prints a summary table or writes aggregate reports
-- `EXECUTION` when the runner models non-default queue position or exchange latency
-- `EXPERIMENT`
-- `run()`
-
-The runner's `name`, `description`, `emit_html`, and `chart_output_path` are
-passed as literal kwargs directly into `build_replay_experiment(...)` rather
-than being exposed as top-level module constants. Use
-`chart_output_path="output"` for the normal public-runner default. The shared
-runner layer resolves that relative path from the repo root so it lands under
-this repo's `output/` directory consistently.
-
-Optimizer runners are the one deliberate variant in that contract. Parameter
-search runners expose `BASE_REPLAY`, `TRAIN_WINDOWS`, `HOLDOUT_WINDOWS`,
-`STRATEGY_SPEC`, `PARAMETER_GRID`, and `PARAMETER_SEARCH` instead of `REPLAYS`
-plus chart-summary report fields. They still keep `DATA`, `EXECUTION`,
-`EXPERIMENT`, and `run()` at top level so the menu, tests, and direct runner
-path stay uniform.
+- Use `BookReplay`, not `QuoteReplay` or `TradeReplay`.
+- Use `data_type=Book`, whose string value is `"book"`.
+- Gate replay coverage with `min_book_events`.
+- PMXT and Telonex adapters emit Nautilus `OrderBookDeltas` for L2 MBP book
+  state.
+- `TradeTick` records are execution-only and are loaded by the replay adapter,
+  not by runner strategy configs.
+- Public runners should preserve normal Nautilus output and timing output by
+  default.
 
 ## HTML And Report Modes
 
-The repo-layer runner contract distinguishes two different output shapes:
+Per-market HTML report generation has been removed. Public runners now use the
+summary-report path when HTML output is needed.
 
-- per-sim legacy chart:
-  controlled by `emit_html`, `chart_output_path`, and `DETAIL_PLOT_PANELS`
-- aggregate multi-market report:
-  controlled by `REPORT.summary_report=True`, `SUMMARY_REPORT_PATH`, and
-  `SUMMARY_PLOT_PANELS`
+The active HTML/report surface is inline `MarketReportConfig` with:
 
-Those are not interchangeable:
+- `summary_report=True`
+- `summary_report_path="output/<name>.html"`
+- `summary_plot_panels=(...)`
+- `return_summary_series=True` on `build_replay_experiment(...)`
 
-- per-sim legacy charts are one HTML file per loaded replay or labeled sim
-- an aggregate multi-market report is built from summary series and shows all
-  markets or labeled sims in one shared report
+The summary report can still contain per-market rows and comparison panels. The
+removed behavior is separate one-file-per-market detail HTML generation.
 
-The corresponding runner patterns are:
-
-- single-market runner:
-  `emit_html=True`, `chart_output_path="output"`, and
-  `DETAIL_PLOT_PANELS = (...)`
-- joint-portfolio runner:
-  the single-market settings plus `SUMMARY_REPORT_PATH`,
-  `SUMMARY_PLOT_PANELS = (...)`,
-  `REPORT.summary_report=True`, `return_summary_series=True`, and
-  `multi_replay_mode="joint_portfolio"`
-- independent multi-replay runner:
-  the single-market settings plus `SUMMARY_REPORT_PATH`,
-  `REPORT.summary_report=True`, `return_summary_series=True`, and
-  `multi_replay_mode="independent"`
-
-Keep the roles separate:
-
-- `DETAIL_PLOT_PANELS` is the drilldown surface for one replay, so it can stay
-  execution-heavy
-- `SUMMARY_PLOT_PANELS` is the basket overview surface, so it should stay
-  readable when more than one replay is present
-
-In practice:
-
-- single-market runs treat the detail HTML as the primary artifact
-- midsize baskets often want both the per-sim HTML files and the shared summary
-  report
-- large baskets rely on the summary report for the overview while the per-sim
-  HTML files remain the drilldown surface
-
-Panel selection guidance lives in [`plotting.md`](plotting.md#scaling-model).
-
-Minimal shapes:
+Typical basket config:
 
 ```python
-DETAIL_PLOT_PANELS = (
-    "equity",
-    "market_pnl",
-    "periodic_pnl",
-    "yes_price",
-    "allocation",
-    "total_drawdown",
-    "drawdown",
-    "total_rolling_sharpe",
-    "rolling_sharpe",
-    "total_cash_equity",
-    "cash_equity",
-    "monthly_returns",
-    "total_brier_advantage",
-    "brier_advantage",
+build_replay_experiment(
+    ...,
+    report=MarketReportConfig(
+        count_key="book_events",
+        count_label="Book Events",
+        pnl_label="PnL (USDC)",
+        summary_report=True,
+        summary_report_path="output/polymarket_book_joint_portfolio_runner_joint_portfolio.html",
+        summary_plot_panels=(
+            "total_equity",
+            "equity",
+            "market_pnl",
+            "periodic_pnl",
+            "yes_price",
+            "allocation",
+            "total_drawdown",
+            "drawdown",
+            "total_rolling_sharpe",
+            "rolling_sharpe",
+            "total_cash_equity",
+            "cash_equity",
+            "monthly_returns",
+            "total_brier_advantage",
+            "brier_advantage",
+        ),
+    ),
 )
 ```
 
-```python
-SUMMARY_REPORT_PATH = "output/polymarket_quote_tick_joint_portfolio_runner_joint_portfolio.html"
-SUMMARY_PLOT_PANELS = (
-    "total_equity",
-    "total_drawdown",
-    "total_rolling_sharpe",
-    "total_cash_equity",
-    "total_brier_advantage",
-    "periodic_pnl",
-    "monthly_returns",
-)
-
-REPORT = MarketReportConfig(
-    ...,
-    summary_report=True,
-    summary_report_path=SUMMARY_REPORT_PATH,
-    summary_plot_panels=SUMMARY_PLOT_PANELS,
-)
-
-EXPERIMENT = build_replay_experiment(
-    ...,
-    emit_html=False,
-    chart_output_path="output",
-    detail_plot_panels=DETAIL_PLOT_PANELS,
-    return_summary_series=True,
-    multi_replay_mode="joint_portfolio",
-)
-```
-
-Practical constraints:
-
-- `SUMMARY_REPORT_PATH` depends on summary-series data, so the experiment must
-  opt into `return_summary_series=True`
-- `chart_output_path` templates may reference `{name}` and `{market_id}`; independent
-  multi-replay detail charts may also reference `{sim_label}` for stable per-replay
-  names
-- panel lists are ordered tuples of stable ids, so inclusion and layout order
-  are explicit in the runner file
-- known-but-unavailable panels are skipped; unknown panel ids raise immediately
-- the shared summary report scales because it is built from summary-series data,
-  not by concatenating hundreds of per-sim legacy HTML files
+Known panel ids live in [Plotting](plotting.md).
 
 ## Optimization Runners
 
-Optimizer runners keep the same flat top-level manifest style, but they swap
-replay lists for an explicit search contract:
+Optimizer runners keep the same inline explicit-source style but build a
+`ParameterSearchExperiment`. The inline `ParameterSearchConfig` pins:
 
-- `BASE_REPLAY` defines the market and token the optimizer mutates across
-  windows
-- `TRAIN_WINDOWS` and `HOLDOUT_WINDOWS` pin the exact historical windows used
-  for scoring
-- `STRATEGY_SPEC` defines the strategy config payload with
-  `__SEARCH__:<name>` placeholders
-- `PARAMETER_GRID` provides the candidate values for those placeholders
-- `OPTIMIZER` is the generic optimizer handle consumed by notebooks and future
-  optimizer tooling
-- `PARAMETER_SEARCH` carries the explicit parameter-search config consumed by
-  `ParameterSearchExperiment`
+- the base replay market and token
+- train and holdout windows
+- strategy payload with `__SEARCH__:<name>` placeholders
+- `parameter_grid` for discrete random-grid values
+- `parameter_space` for TPE ranges when Optuna is used
+- scoring, sampler, coverage, and holdout settings
 
-Current parameter-search helpers live under
-`prediction_market_extensions.backtesting.optimizers`.
-
-The public optimizer example is:
-
-- [`backtests/polymarket_quote_tick_ema_optimizer.py`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/v2/backtests/polymarket_quote_tick_ema_optimizer.py)
-
-That runner is intentionally research-oriented. It writes leaderboard and
-summary artifacts under `output/` by default and keeps `emit_html=False` so
-one parameter sweep does not emit one legacy chart per trial.
+The scoring objective is documented in [Research](research.md).
 
 ## Designing Good Runner Files
 
-A runner file should answer the experiment questions directly:
+A runner should answer these questions directly in code:
 
-- which venue or platform is being replayed
-- which data modality is being used
-- which vendor supplies that modality
-- which source priority should be used
-- which market or basket of markets is being replayed
-- what the capital and execution assumptions are
-- which strategy config or configs should be bound into the run
+- Which platform is being replayed?
+- Which data type is being used?
+- Which vendor supplies that data?
+- Which source priority should be used?
+- Which market or basket is being replayed?
+- Which strategy config is bound into the run?
+- Which capital, latency, and queue-position assumptions apply?
+- Which report, if any, should be emitted?
 
-Keep the top-level file declarative. Keep shared mechanics in `prediction_market_extensions/backtesting/`.
+Keep shared mechanics out of runner files. The inline inputs should still be
+obvious:
 
-That division is deliberate:
-
-- `DATA` selects the platform, modality, vendor, and source priority
-- `REPLAYS` is the instrument basket, whether that basket contains one market or many
-- `STRATEGY_CONFIGS` is the stable strategy payload passed into the experiment
-- `EXECUTION` holds optional queue-position and latency assumptions
-- `EXPERIMENT` owns the replay manifest, reporting, and execution settings
+- `MarketDataConfig` selects platform, data type, vendor, and source priority.
+- `BookReplay` selects the instrument basket and windows.
+- `strategy_configs` binds strategy classes and parameters.
+- `ExecutionModelConfig` holds queue-position and latency assumptions.
+- `MarketReportConfig` controls terminal and HTML reporting.
+- `build_replay_experiment(...)` owns cash, probability window,
+  `min_book_events`, price-range filters, and log level.
 
 ## Multi-Market Strategy Configs
 
-The replay executor supports either one strategy instance per replay or one
-batch-level strategy config that references the full basket.
+The executor supports one strategy instance per replay or one batch-level
+strategy config that references the full basket.
 
-Useful config sentinels:
+Useful sentinels:
 
-- `__SIM_INSTRUMENT_ID__` binds to the current sim instrument
-- `__ALL_SIM_INSTRUMENT_IDS__` binds to every loaded sim instrument in the basket
-- `__SIM_METADATA__:<key>` binds metadata from replay `metadata`
+- `__SIM_INSTRUMENT_ID__` binds to the current replay instrument.
+- `__ALL_SIM_INSTRUMENT_IDS__` binds to every loaded replay instrument.
+- `__SIM_METADATA__:<key>` binds metadata from `BookReplay.metadata`.
 
-That lets a runner expose `REPLAYS` explicitly and still pass one clean
-`STRATEGY_CONFIGS` payload into the experiment.
+This lets a runner keep the replay basket and strategy payload explicit inside
+the `build_replay_experiment(...)` call without reintroducing module-level
+configuration constants.
 
 ## Running Backtests
 
@@ -391,180 +256,118 @@ Interactive menu:
 make backtest
 ```
 
-The menu uses `Textual`, so you get a scrollable runner list on the left and a
-details/preview pane on the right. Single-letter shortcuts still launch
-runners directly, `/` focuses the filter box, `Esc` clears the filter, and the
-highlighted runner's full file contents stay visible while you browse.
-
-![Unified backtest runner menu](assets/backtests-menu-textual.png)
-
-Use the menu when you want to browse what is runnable in the current worktree.
-The left pane is the discoverable runner list, while the right pane shows the
-exact file path, runner metadata, and source preview for the highlighted entry.
-
-Equivalent direct command:
+Equivalent direct menu command:
 
 ```bash
 uv run python main.py
 ```
 
-Direct script execution is usually better once you know the runner you want:
+Direct runner execution is usually better once you know what you want:
 
 ```bash
-uv run python backtests/kalshi_trade_tick_breakout.py
-uv run python backtests/polymarket_trade_tick_vwap_reversion.py
-uv run python backtests/polymarket_quote_tick_ema_crossover.py
-uv run python backtests/polymarket_quote_tick_joint_portfolio_runner.py
-uv run python backtests/polymarket_quote_tick_independent_multi_replay_runner.py
+uv run python backtests/polymarket_book_ema_crossover.py
+uv run python backtests/polymarket_book_ema_optimizer.py
+uv run python backtests/polymarket_book_joint_portfolio_runner.py
+uv run python backtests/polymarket_telonex_book_joint_portfolio_runner.py
 ```
 
-When a runner keeps `chart_output_path="output"`, those direct commands still
-write into this repo's `output/` directory. The shared runner layer resolves
-that relative path from the repo root rather than from your shell's current
-working directory.
+To run every public Python backtest entrypoint:
 
-Public runners keep their experiment inputs in code. PMXT quote-tick runners
-pin absolute sample windows; public Kalshi trade-tick runners also pin
-`end_time` so the bundled market stays directly runnable. Native trade-tick
-runners without that pin still use rolling lookbacks. If you want a different
-market, window, cash value, vendor source priority, or chart behavior, edit
-`DATA`, `REPLAYS`, `STRATEGY_CONFIGS`, or the `emit_html` / `chart_output_path` kwargs in
-the runner file, or copy the file into
-`backtests/private/` and customize it there.
+```bash
+uv run python scripts/run_all_backtests.py
+```
 
-That distinction matters for examples: runners with explicit `start_time` or
-`end_time` are the most durable direct-script demos, while rolling native
-runners can drift with venue activity and may need a refreshed market or window.
-
-Optimizer runners follow the same rule: the file itself should carry the train
-windows, holdout windows, parameter grid, chart-emission toggle, chart output
-path, and search scoring assumptions.
+The menu discovers flat Python and notebook runners. It uses `Textual`, supports
+filtering with `/`, and shows the current runner file contents so you can
+inspect the exact experiment before launching it.
 
 ## Notebook Runners
 
-Flat notebook files under `backtests/` and `backtests/private/` are also valid
-runner entrypoints.
+Flat notebook files under `backtests/` and `backtests/private/` are valid menu
+entrypoints.
 
-The notebook contract is intentionally thin:
+Notebook contract:
 
-- the notebook must live at a flat discoverable path, just like a `.py` runner
-- optional notebook metadata under `metadata.prediction_market_backtest` can set
-  `name` and `description` for the menu
-- if that metadata is absent, the menu falls back to the notebook filename and
-  first markdown heading
-- execution happens in place from the repo root through `nbclient`
+- The notebook must live at a flat discoverable path.
+- Optional metadata under `metadata.prediction_market_backtest` can set `name`
+  and `description`.
+- If metadata is absent, the menu falls back to the filename and first markdown
+  heading.
+- Execution happens from the repo root through `nbclient`.
 
-The public research example is:
+Public notebooks:
 
-- [`backtests/generic_optimizer_research.ipynb`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/v2/backtests/generic_optimizer_research.ipynb)
-
-That notebook is intentionally optimizer-contract driven rather than
-strategy-specific. Change the `OPTIMIZER_MODULE` cell to any runner module that
-exposes `OPTIMIZER`; today's public optimizer family is
-`optimizer_type="parameter_search"` and still also publishes `PARAMETER_SEARCH`
-plus the older `OPTIMIZATION` alias. The notebook runs a compact sweep, selects
-the winning params, and replays one train or holdout window with HTML enabled.
-
-After a notebook-backed run finishes, the runner scans `output/` for HTML files
-updated during that run and rewrites one autogenerated markdown cell at the end
-of the notebook. That cell embeds the primary HTML artifact, usually the
-joint-portfolio or independent summary report when one exists, and links any additional
-HTML artifacts from the same run.
-
-The public fixed-runner notebook examples are:
-
-- [`backtests/pmxt_quote_tick_joint_portfolio_runner.ipynb`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/v3/backtests/pmxt_quote_tick_joint_portfolio_runner.ipynb)
-- [`backtests/telonex_quote_tick_joint_portfolio_runner.ipynb`](https://github.com/evan-kolberg/prediction-market-backtesting/blob/v3/backtests/telonex_quote_tick_joint_portfolio_runner.ipynb)
+- `backtests/generic_optimizer_research.ipynb`
+- `backtests/generic_tpe_research.ipynb`
+- `backtests/pmxt_book_joint_portfolio_runner.ipynb`
+- `backtests/telonex_book_joint_portfolio_runner.ipynb`
 
 ## Editing Runner Inputs
 
-The public runner layer no longer depends on shell env vars for experiment
-definition. The file itself should carry the actual values.
+The public runner layer does not depend on shell env vars for experiment
+definition. Edit the runner file, or copy it into `backtests/private/`, when
+you want a different market, source priority, strategy, cash value, latency
+model, or report path.
 
-Use these top-level objects as the edit surface:
+Primary edit surface:
 
-- the `emit_html` kwarg on `build_replay_experiment(...)` to skip per-run HTML
-  output when you are sweeping many runners
-- the `chart_output_path` kwarg for an explicit file, directory, or `{name}` /
-  `{market_id}` template
-- `DETAIL_PLOT_PANELS` for explicit per-sim panel inclusion and ordering
-- `SUMMARY_REPORT_PATH` for one aggregate HTML report when the runner should
-  show all markets or labeled sims in one shared report
-- `SUMMARY_PLOT_PANELS` for explicit aggregate panel inclusion and ordering
-- `DATA` for platform, modality, vendor, and source priority
-- `REPLAYS` for one market or a basket of markets
-- `STRATEGY_CONFIGS` for strategy paths and parameter payloads
-- `EXECUTION` for optional queue-position and latency heuristics
-- `EXPERIMENT` for shared execution requirements like cash, quote/trade minimums,
-  probability window, report policy, and Nautilus log level
+- the `MarketDataConfig(...)` passed as `data`
+- the `BookReplay(...)` entries passed as `replays`
+- the `strategy_configs=(...)` tuple
+- the `ExecutionModelConfig(...)` passed as `execution`
+- the `MarketReportConfig(...)` passed as `report`
+- the optimizer or experiment windows passed to the runner factory
 
-Low-level loader env vars still exist for custom integrations and private
-workflows:
+Low-level env vars still exist for custom workflows:
 
-- `KALSHI_REST_BASE_URL`
-- `POLYMARKET_GAMMA_BASE_URL`, `POLYMARKET_TRADE_API_BASE_URL`,
-  `POLYMARKET_CLOB_BASE_URL`
-- `PMXT_RAW_ROOT`, `PMXT_REMOTE_BASE_URL`, `PMXT_CACHE_DIR`,
-  `PMXT_DISABLE_CACHE`
-- `TELONEX_LOCAL_DIR`, `TELONEX_API_BASE_URL`, `TELONEX_API_KEY`,
-  `TELONEX_CHANNEL`, `TELONEX_CACHE_ROOT`
+- `POLYMARKET_GAMMA_BASE_URL`
+- `POLYMARKET_TRADE_API_BASE_URL`
+- `POLYMARKET_CLOB_BASE_URL`
+- `PMXT_RAW_ROOT`
+- `PMXT_REMOTE_BASE_URL`
+- `PMXT_CACHE_DIR`
+- `PMXT_DISABLE_CACHE`
+- `TELONEX_LOCAL_DIR`
+- `TELONEX_API_BASE_URL`
+- `TELONEX_API_KEY`
+- `TELONEX_CHANNEL`
+- `TELONEX_CACHE_ROOT`
 - `BACKTEST_ENABLE_TIMING=0`
 
 ## Data Vendor Notes
 
 ### Native Vendors
 
-- `native` means the loader is using venue-native APIs or venue-native historical
-  adapters
-- public runners pin native source selection in `DATA.sources`
-- Kalshi native runners use explicit `rest:` source entries in `DATA.sources`
-- Polymarket native runners use explicit `gamma:`, `trades:`, and `clob:`
-  source entries in `DATA.sources`
-- low-level native loader URLs can still be overridden outside the public runner
-  layer if you are building a custom workflow
+The public v3 runner surface is focused on Polymarket book replay through PMXT
+and Telonex. Native source env vars remain available for lower-level extension
+work, but public direct-runner examples should not reintroduce standalone
+trade-tick replay.
 
 ### PMXT
 
-- PMXT is the first documented quote-tick vendor adapter in this repo
-- the preferred sustained workflow is raw-first: point runners at a local raw
-  mirror when you have one, otherwise let them pull from archive
-- use `archive:archive.example.com` when you want the runner to fetch raw
-  archive hours explicitly
-- use `local:/path/to/raw-hours` when you want the runner to fetch from a
-  local PMXT raw mirror explicitly
-- after the cache layer, PMXT quote-tick runners try the explicit raw sources
-  in the exact order you list them
-- PMXT source parsing is strict on purpose; only `local:` and `archive:` are
-  accepted in `DATA.sources`
-- the local PMXT filtered cache is enabled by default at
-  `~/.cache/nautilus_trader/pmxt`
-- direct script execution keeps normal Nautilus output visible, and runners that
-  opt into `@timing_harness` keep timing output too
+- PMXT is the raw-hourly Polymarket L2 vendor path.
+- Public runners usually list `local:/Volumes/LaCie/pmxt_raws` first, then
+  `archive:r2v2.pmxt.dev`, then `archive:r2.pmxt.dev`.
+- PMXT source parsing is strict: only `local:` and `archive:` entries are
+  supported in `MarketDataConfig.sources`.
+- The local filtered cache is enabled by default at
+  `~/.cache/nautilus_trader/pmxt`.
+- Timing output is enabled by default unless `BACKTEST_ENABLE_TIMING=0` is set.
 
 ### Telonex
 
-- `telonex` is a Polymarket quote-tick runner surface backed by Telonex
-  Parquet files; the adapter reads `book_snapshot_full` and replays L2
-  `OrderBookDeltas` plus derived quotes
-- Telonex source parsing accepts `local:` and `api:` only
-- `api:` reads `TELONEX_API_KEY` from the environment and constructs Telonex
-  download URLs; never commit keys or put them in `DATA.sources`
+- Telonex is the full-snapshot Polymarket L2 vendor path.
+- Public Telonex runners use `data_type=Book`, `vendor=Telonex`, and
+  `book_snapshot_full`.
+- Telonex source parsing accepts `local:` and `api:` only.
+- `api:` reads `TELONEX_API_KEY` from the environment or from
+  `api:<key>` in runner source config. Do not commit private keys.
 - API-day payloads are cached by default at
-  `~/.cache/nautilus_trader/telonex`; set `TELONEX_CACHE_ROOT=0` to disable or
-  `TELONEX_CACHE_ROOT=/path/to/cache` to move it
-- when the cache is enabled, the `Telonex source:` line includes `cache` before
-  the configured `local:` and `api:` entries
-- prefer `local:/Volumes/LaCie/telonex_data` for repeatable research once files
-  have been downloaded with `scripts/telonex_download_data.py` or
-  `make download-telonex-data`
-- the local downloader consolidates by default to
-  `polymarket/<market_slug>/<outcome>/<channel>.parquet`
-- Telonex timing output is daily-file based: the `@timing_harness` progress bar
-  reports active `telonex local`, `telonex cache`, or `telonex api` loads,
-  byte progress when the API response exposes a size, scan rows, and completed
-  per-day lines
+  `~/.cache/nautilus_trader/telonex`.
+- Prefer `local:/Volumes/LaCie/telonex_data` for repeated research once the
+  downloader has warmed the mirror.
 
-For vendor-specific data-source behavior and timings, use:
+For vendor-specific behavior and timings, use:
 
 - [Data Vendors And Local Mirrors](data-vendors.md)
 - [Vendor Fetch Sources And Timing](vendor-fetch-sources.md)

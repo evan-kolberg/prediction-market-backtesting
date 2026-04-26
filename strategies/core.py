@@ -21,7 +21,8 @@ from __future__ import annotations
 from decimal import Decimal, InvalidOperation
 from typing import Protocol
 
-from nautilus_trader.model.enums import OrderSide, TimeInForce
+from nautilus_trader.model.book import OrderBook
+from nautilus_trader.model.enums import BookType, OrderSide, TimeInForce
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.trading.strategy import Strategy
 
@@ -117,6 +118,7 @@ class LongOnlyPredictionMarketStrategy(Strategy):
         self._last_entry_visible_size: float | None = None
         self._last_exit_visible_size: float | None = None
         self._entry_warning_emitted: bool = False
+        self._order_book: OrderBook | None = None
 
     def _warn_entry_unfillable(
         self,
@@ -144,6 +146,13 @@ class LongOnlyPredictionMarketStrategy(Strategy):
             self.stop()
             return
         self._subscribe()
+
+    def on_order_book_deltas(self, deltas) -> None:  # type: ignore[no-untyped-def]
+        instrument_id = getattr(deltas, "instrument_id", self.config.instrument_id)
+        if self._order_book is None:
+            self._order_book = OrderBook(instrument_id, book_type=BookType.L2_MBP)
+        self._order_book.apply_deltas(deltas)
+        self.on_order_book(self._order_book)
 
     def _in_position(self) -> bool:
         return not self.portfolio.is_flat(self.config.instrument_id)
@@ -395,3 +404,4 @@ class LongOnlyPredictionMarketStrategy(Strategy):
         self._last_exit_visible_size = None
         self._entry_warning_emitted = False
         self._instrument = None
+        self._order_book = None

@@ -1,159 +1,117 @@
 # Data Vendors And Local Mirrors
 
-This page is intentionally strict about what is supported today.
+This page documents the active local-first vendor paths. Both public vendor
+adapters are Polymarket book adapters: they produce `OrderBookDeltas` for L2
+book state and the replay adapter interleaves real `TradeTick` records for
+execution.
 
 ## PMXT
 
-The repository direction is raw-first:
+PMXT is the hourly raw archive path for Polymarket L2 order-book data.
 
-- mirror raw PMXT archive hours onto local disk when you want local-first replay
-- point runners at those raws directly
-- use the public PMXT archive URLs when local raw files are missing
+The preferred workflow is raw-first:
+
+- Mirror raw PMXT archive hours onto local disk.
+- Point runners at those raw hours with `local:/...`.
+- Let public archive sources fill gaps when the local mirror is incomplete.
+- Let the filtered PMXT cache make repeated market/token/hour slices fast.
 
 ### Runner Source Modes
 
-The preferred PMXT quote-tick path is runner-side source selection through
-`MarketDataConfig(..., sources=...)`. Public runners pin those source values
-directly in code so the file is self-contained and directly runnable.
-
-Example:
+Public PMXT runners select sources directly in their inline `MarketDataConfig`:
 
 ```python
-DATA = MarketDataConfig(
+MarketDataConfig(
     platform=Polymarket,
-    data_type=QuoteTick,
+    data_type=Book,
     vendor=PMXT,
     sources=(
-        "local:/data/pmxt/raw",
+        "local:/Volumes/LaCie/pmxt_raws",
         "archive:r2v2.pmxt.dev",
         "archive:r2.pmxt.dev",
     ),
 )
 ```
 
-With PMXT, the active public contract is:
+Lookup order:
 
-1. local filtered cache
-2. each explicit raw source in the order you list it
+1. Local filtered cache at `~/.cache/nautilus_trader/pmxt`.
+2. Explicit raw sources in `MarketDataConfig.sources`, left to right.
+3. Confirmed miss.
 
-`DATA.sources` is intentionally strict here: use only `local:` and `archive:`.
-Unprefixed hosts, paths, and legacy alias prefixes are rejected.
-
-The vendored Nautilus PMXT loader still exposes lower-level env switches for
-custom integrations. In this repository's v3 setup, the supported remote path
-is direct raw archive parquet.
+`MarketDataConfig.sources` is intentionally strict: use only `local:` and
+`archive:` for PMXT. Bare hosts, bare paths, and legacy aliases are rejected.
 
 ### Lower-Level Loader Env Vars
 
-The public runner layer is pinned in code, but the underlying loader env vars
-still work for custom integrations:
+Runner files should carry their source priority inline. These lower-level env
+vars remain available for custom integrations:
 
 - `PMXT_LOCAL_ARCHIVE_DIR`
 - `PMXT_RAW_ROOT`
-- `PMXT_REMOTE_BASE_URL` (comma-separate multiple archives, e.g. `https://r2v2.pmxt.dev,https://r2.pmxt.dev`)
+- `PMXT_REMOTE_BASE_URL`
 - `PMXT_CACHE_DIR`
 - `PMXT_DISABLE_CACHE`
 
 ### What Works Today
 
-The public PMXT runner layer reads one market/token/hour from these places:
+The public PMXT path loads one market/token/hour from raw archives and converts
+those rows into Nautilus `OrderBookDeltas`.
 
-1. local filtered cache
-2. each explicit raw source in the order you list it in `DATA.sources`
+The loader decodes:
 
-The current "bring your own data" story is therefore:
+- `book_snapshot` as a fresh full book snapshot.
+- `price_change` as an incremental price-level update.
 
-- set `DATA.sources` in your runner to
-  `("local:/path/to/raw-hours", "archive:r2v2.pmxt.dev", "archive:r2.pmxt.dev")`
-- or point `PMXT_LOCAL_ARCHIVE_DIR` / `PMXT_RAW_ROOT` at a directory of raw
-  PMXT hour files you already mirrored locally
+If an hour is missing, the loader warns and resets local book state. It does
+not apply later incremental `price_change` rows across a missing-hour gap until
+a fresh `book_snapshot` rebuilds the book.
 
-When the runner falls back to a remote raw source, it downloads that hour to a
-temporary local parquet file, filters it locally, and deletes the temp
-artifact afterward. Persistent raw disk growth only happens when you
-intentionally configure a local raw mirror.
-
-If you want local-only PMXT replays, set `PMXT_LOCAL_ARCHIVE_DIR` or
-`PMXT_RAW_ROOT` to your raw-hour directory and leave remote archive sources out
-of `DATA.sources`.
-
-The loader still does not expose a first-class runner flag for arbitrary vendor
-raw dumps or automatic normalization from other vendors.
-
-To mirror raw archive hours locally for this repo's runners, use:
+To mirror raw archive hours locally:
 
 ```bash
 make download-pmxt-raws DESTINATION=/path/to/pmxt_raws
 ```
 
 The downloader walks direct hourly filenames from `2026-02-21T16:00:00Z`
-through the current floored UTC hour newest-first, probes `r2v2.pmxt.dev` and
-`r2.pmxt.dev`, and keeps the larger archive object when both exist for the same
-hour. It reports the direct-hour count, hours missing from all configured
-sources, and requested hours still missing locally. Existing local files are
-refreshed when they are empty or when an upstream source advertises a larger
-object. It also prints per-hour completion lines plus the active transfer.
-Example output:
+through the current floored UTC hour newest-first. It probes `r2v2.pmxt.dev`
+and `r2.pmxt.dev`, chooses the larger archive object when both exist, and
+writes the same archive filename under a dated local path.
 
-```text
-PMXT raw source: direct hour probes (archive best-of https://r2v2.pmxt.dev, https://r2.pmxt.dev)
-Downloading PMXT raw hours to /path/to/pmxt_raws (requested_hours=3, window_start=2026-02-27T11, window_end=2026-02-27T13)...
-  2026-02-27T13  12.431s   445.9 MiB  archive
-  2026-02-27T12   0.000s    existing  skip
-Downloading raw hours (2/3 done, 1 active):  67%|████████████████████████████████████████████████████████████▏                              | [00:41<00:20]active: archive 2026-02-27T11 392.0/445.9 MiB 14.8s
-```
-
-Those values vary with the direct-hour window and whatever hour is currently in
-flight.
+The downloader is incremental. Without `--overwrite`, an existing local hour is
+treated as complete and skipped before any network transfer is attempted. This
+keeps reruns safe for large mirrors and prevents accidental replacement of
+already-downloaded raws.
 
 ### Supported Local File Layout
 
-The loader-managed filtered cache still lives at:
+The filtered cache lives at:
 
 ```text
 ~/.cache/nautilus_trader/pmxt
 ```
 
-You can override it with:
+Override it with:
 
 ```bash
 PMXT_CACHE_DIR=/custom/path
 ```
 
-Or disable it with:
+Disable it with either:
 
 ```bash
 PMXT_CACHE_DIR=0
 PMXT_DISABLE_CACHE=1
 ```
 
-For local raw PMXT archive hours, the loader accepts either of these layouts:
+For local raw PMXT archive hours, the loader accepts:
 
 ```text
 <raw_root>/polymarket_orderbook_YYYY-MM-DDTHH.parquet
 <raw_root>/YYYY/MM/DD/polymarket_orderbook_YYYY-MM-DDTHH.parquet
 ```
 
-Enable that source with low-level env vars:
-
-```bash
-PMXT_LOCAL_ARCHIVE_DIR=/custom/raw-hours
-```
-
-The lower-level loader `raw-local` mode expects the archive-style layout:
-
-```text
-/data/pmxt/raw/YYYY/MM/DD/polymarket_orderbook_YYYY-MM-DDTHH.parquet
-```
-
-Enable that mode with:
-
-```bash
-PMXT_DATA_SOURCE=raw-local
-PMXT_LOCAL_RAWS_DIR=/data/pmxt/raw
-```
-
-Or pin it directly in a runner:
+Pin it in a runner with:
 
 ```python
 sources=("local:/data/pmxt/raw",)
@@ -161,7 +119,7 @@ sources=("local:/data/pmxt/raw",)
 
 ### Required Parquet Columns
 
-Local raw PMXT archive parquet must contain:
+Raw PMXT archive parquet must contain:
 
 - `market_id`
 - `update_type`
@@ -172,32 +130,26 @@ the remaining rows to `token_id` inside the JSON payload.
 
 ### Required JSON Payload Shape
 
-For `book_snapshot`, the loader decodes `data` with these fields:
+For `book_snapshot`, the loader expects the `data` JSON to include:
 
 ```json
 {
   "update_type": "book_snapshot",
   "market_id": "0x...",
   "token_id": "123...",
-  "side": "buy",
-  "best_bid": "0.45",
-  "best_ask": "0.47",
   "timestamp": 1710000000.123,
   "bids": [["0.45", "100.0"]],
   "asks": [["0.47", "120.0"]]
 }
 ```
 
-For `price_change`, the loader decodes `data` with these fields:
+For `price_change`, the loader expects:
 
 ```json
 {
   "update_type": "price_change",
   "market_id": "0x...",
   "token_id": "123...",
-  "side": "buy",
-  "best_bid": "0.45",
-  "best_ask": "0.47",
   "timestamp": 1710000001.456,
   "change_price": "0.46",
   "change_size": "25.0",
@@ -205,157 +157,133 @@ For `price_change`, the loader decodes `data` with these fields:
 }
 ```
 
-The loader filters to `token_id` by regex-matching inside the `data` JSON, so
-that field must be present and string-encoded exactly as expected.
+Prices and sizes are preserved as decimal strings until the Nautilus instrument
+constructs typed prices and quantities.
 
 ## Telonex
 
-Telonex is a separate Polymarket vendor path. The public runner surface still
-uses `data_type=quote_tick`, but the Telonex adapter pins the
-`book_snapshot_full` channel, converts full-depth book snapshots into L2
-`OrderBookDeltas`, and emits derived `QuoteTick`s for strategies and reports.
-It does not use PMXT hourly raw files or the PMXT filtered cache. Runner API
-downloads use a separate Telonex API-day cache at
-`~/.cache/nautilus_trader/telonex` by default.
+Telonex is a Polymarket full-book snapshot vendor path. Public Telonex runners
+use `data_type=Book`, `vendor=Telonex`, and the `book_snapshot_full` channel.
 
-Telonex source syntax is also explicit:
+Telonex source syntax:
 
-- `local:/path/to/telonex` reads already-downloaded Telonex Parquet files from
-  disk
-- `api:` uses the default `https://api.telonex.io` download endpoint
-- `api:https://host.example` points the adapter at a custom compatible base URL
+- `local:/path/to/telonex` reads the local blob mirror.
+- `api:` uses `https://api.telonex.io` with `TELONEX_API_KEY`.
+- `api:https://host.example` points at a compatible custom base URL.
 
-The API path reads the key from `TELONEX_API_KEY`. Do not put API keys in
-`DATA.sources`, notebooks, docs, or committed files. Telonex free trials count
-each daily Parquet download, so warm local files first when you are experimenting
-and use `api:` only for intentional downloads.
+The API path reads the key from `TELONEX_API_KEY` unless the runner source
+provides an explicit `api:<key>` value. Do not commit private keys.
 
-When a runner falls back to `api:`, the downloaded daily Parquet payload is
-written to the Telonex API-day cache before it is parsed. A second run for the
-same base URL, channel, market, outcome, and date reads that cache without
-asking Telonex for another presigned URL. Override the cache root with
-`TELONEX_CACHE_ROOT=/path/to/cache`, disable it with `TELONEX_CACHE_ROOT=0`, or
-clear only that cache with:
+API-day downloads are cached by default at:
+
+```text
+~/.cache/nautilus_trader/telonex
+```
+
+Each cached API day has two forms:
+
+- `<YYYY-MM-DD>.parquet`: the raw nested Telonex API payload.
+- `<YYYY-MM-DD>.fast.parquet`: a flat list-string sidecar optimized for replay
+  reads.
+
+The fast sidecar preserves price and size strings while avoiding expensive
+pandas materialization of nested list-of-struct columns. If a raw cache file is
+encountered without a sidecar, the loader migrates it lazily.
+
+Replay conversion has a separate materialized cache under:
+
+```text
+~/.cache/nautilus_trader/telonex/book-deltas-v1
+```
+
+That cache stores Nautilus `OrderBookDeltas` after full-book snapshots have
+already been diffed. It is keyed by exchange, channel, market slug, outcome,
+instrument id, day, and clipped replay window. Warm runs report
+`telonex deltas cache` and skip local/API snapshot decoding entirely.
+
+Clear only the API cache with:
 
 ```bash
 make clear-telonex-cache
 ```
 
-Do not point `TELONEX_CACHE_ROOT` at a local mirror. The clear target refuses
-the configured local Telonex data destination, the PMXT raw mirror root, paths
-inside those stores, and parents containing those stores.
+Do not point `TELONEX_CACHE_ROOT` at the local mirror. The clear target refuses
+configured local data stores and parents containing those stores.
 
-Recommended local layout:
+Recommended local mirror root:
 
 ```text
-/path/to/telonex/
-  polymarket/
-    market-slug/
-      0/
-        quotes.parquet
-        trades.parquet
-        book_snapshot_5.parquet
-        book_snapshot_25.parquet
-        book_snapshot_full.parquet
-        onchain_fills.parquet
-      1/
-        quotes.parquet
+/Volumes/LaCie/telonex_data/
+  telonex.duckdb
+  data/
+    channel=book_snapshot_full/
+      year=2026/
+        month=04/
+          part-000001.parquet
 ```
 
-The downloader consolidates each `(market, outcome, channel)` group by default
-so a full mirror does not create one tiny file per market/outcome/day. With
-`--no-consolidate`, daily files are kept under
-`polymarket/<market_slug>/<outcome>/<channel>/<YYYY-MM-DD>.parquet`. The loader
-also accepts the earlier channel-first daily layout and a few flat filename
-fallbacks for test fixtures and ad hoc downloads.
+The DuckDB manifest records completed and empty market/outcome/channel/day
+jobs. The loader uses it to select only readable parquet parts for the requested
+market, outcome, channel, and date range. If the manifest is missing or invalid,
+the loader falls back to legacy path scans.
 
 ### Download Local Telonex Files
 
-Use the local downloader to warm the same directory the public Telonex runner
-uses by default:
+Small window:
 
 ```bash
 TELONEX_API_KEY=... make download-telonex-data TELONEX_DOWNLOAD_FLAGS='\
   --market-slug us-recession-by-end-of-2026 \
   --outcome-id 0 \
+  --channels book_snapshot_full \
   --start-date 2026-01-19 \
   --end-date 2026-02-01'
 ```
 
-To mirror every Telonex Polymarket market without storing redundant shallow
-book snapshots, download the quote, trade, full-depth book, and onchain-fill
-channels into Hive-partitioned Parquet (with a DuckDB manifest for
-resumability):
+Full Polymarket mirror:
 
 ```bash
 uv run python scripts/telonex_download_data.py \
   --destination /Volumes/LaCie/telonex_data \
   --all-markets \
-  --channels quotes trades book_snapshot_full onchain_fills
+  --channels book_snapshot_full
 ```
 
-`book_snapshot_full` carries full-depth snapshots. Use it as the canonical
-book-snapshot source and derive 5-level or 25-level views from it when needed;
-downloading `book_snapshot_5` and `book_snapshot_25` alongside
-`book_snapshot_full` duplicates the same book-state family.
+`book_snapshot_full` is the canonical book source. Do not download
+`book_snapshot_5` and `book_snapshot_25` unless you intentionally want the
+shallow vendor files too; they duplicate the same book-state family at lower
+depth.
 
-The default `--workers 128` is the in-flight coroutine ceiling in the shared
-async `httpx` pool. The downloader decodes day Parquet payloads directly into
-Arrow tables and writes consolidated blob parts that roll around 512 MiB on
-disk, 64 GiB of Arrow data, or 10,000 pending manifest days; it does not create
-millions of tiny day files or keep one huge manifest batch in RAM until
-shutdown. On a fast host, benchmark `--workers 64`, `128`, and `256` before
-scaling up because high concurrency can hit socket/file descriptor pressure or
-outrun the single consolidated Parquet writer.
-`--parse-workers` controls the bounded Arrow decode pool (default:
-`min(8, cpu_count)`, also configurable with `TELONEX_PARSE_WORKERS`). Transient
-`408/425/429/5xx` responses retry with exponential backoff. Hit `Ctrl-C` once
-to stop gracefully; the same command resumes. Five interrupt signals are
-required to force-exit before the graceful drain finishes.
+Downloader behavior:
 
-The downloader fetches the Telonex markets catalog on every run, so newly
-listed markets and extended channel availability windows are planned on resume.
-Cached 404 day markers are rechecked after 7 days by default; use
-`--recheck-empty-after-days 0` to recheck 404s every run, or
-`--recheck-empty-after-days -1` to keep 404s forever unless `--overwrite` is
-used.
-
-The default destination is `/Volumes/LaCie/telonex_data`. Override it with
-`TELONEX_DATA_DESTINATION=/path/to/telonex_data` or call the script directly:
-
-```bash
-uv run python scripts/telonex_download_data.py \
-  --destination /Volumes/LaCie/telonex_data \
-  --market-slug us-recession-by-end-of-2026 \
-  --outcome-id 0 \
-  --start-date 2026-01-19 \
-  --end-date 2026-02-01
-```
-
-The script reads the API key only from `TELONEX_API_KEY` and writes data under
-`<destination>/data/` with a DuckDB manifest at
-`<destination>/telonex.duckdb`. The manifest tracks `completed_days` and
-`empty_days` for crash-safe resume. The `local:/Volumes/LaCie/telonex_data`
-source reads back through the same blob.
-
-For `--all-markets`, progress is visible in three phases: loading the markets
-dataset, planning concrete day-file downloads from each market availability
-window, and downloading straight into the blob. The process is resumable:
-`Ctrl-C` once to stop gracefully, then re-run the same command to skip
-everything already recorded and continue. Five interrupt signals are required
-to force-exit before the graceful drain finishes. Transient HTTP failures
-(408/425/429/5xx) and connection errors are retried with exponential backoff.
+- Default destination is `/Volumes/LaCie/telonex_data`.
+- Default channel is `book_snapshot_full`.
+- Default `--workers` is 16.
+- `--parse-workers` or `TELONEX_PARSE_WORKERS` controls the bounded Arrow
+  decode pool.
+- `--writer-queue-items` or `TELONEX_WRITER_QUEUE_ITEMS` bounds parsed day
+  results waiting for the writer. Default: `128`.
+- `--pending-commit-items` or `TELONEX_PENDING_COMMIT_ITEMS` bounds completed
+  day results held before manifest commit. Default: `128`.
+- Transient `408`, `425`, `429`, and `5xx` responses retry with exponential
+  backoff.
+- Completed days and empty days are tracked in `telonex.duckdb` for crash-safe
+  resume.
+- The writer queue and pending-commit list are bounded, and an hourly forced
+  writer drain releases Arrow memory and prints RSS. Raising the queue limits
+  can improve throughput on high-RAM machines while still preventing unbounded
+  growth.
+- Hit `Ctrl-C` once to stop gracefully; in-flight work drains and the manifest
+  is flushed before exit.
 
 ## What Is Not Plug-And-Play Yet
 
-- arbitrary third-party vendor raw formats
-- automatic normalization from another vendor into PMXT raw archive hours
+- Arbitrary third-party vendor raw formats.
+- Automatic normalization from another vendor into PMXT raw archive hours.
+- True L3/MBO priority reconstruction from public Polymarket L2 data.
 
-If you have your own global raw dumps today, the safe path is:
+If you have custom global raw dumps, the safe paths are:
 
-1. if they are already PMXT raw archive hours, point `PMXT_LOCAL_ARCHIVE_DIR`
-   at them directly
-2. otherwise normalize them into the PMXT raw archive shape outside this repo
-3. or add a new vendor adapter that knows how to read them directly
-
-That keeps the strategy and runner layer unchanged.
+1. If they already match PMXT raw archive shape, point `local:/...` at them.
+2. Otherwise normalize them outside this repo into the PMXT raw schema.
+3. Or add a new vendor adapter that directly emits `OrderBookDeltas`.

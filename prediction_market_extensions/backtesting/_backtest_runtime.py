@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import os
 from collections.abc import Sequence
-from pathlib import Path
 from typing import Any
 
 import pandas as pd
@@ -29,10 +27,6 @@ from prediction_market_extensions.adapters.prediction_market.backtest_utils impo
 )
 from prediction_market_extensions.adapters.prediction_market.fill_model import (
     PredictionMarketTakerFillModel,
-)
-from prediction_market_extensions.analysis.legacy_plot_adapter import (
-    build_legacy_backtest_layout,
-    save_legacy_backtest_layout,
 )
 from prediction_market_extensions.backtesting._result_policies import (
     apply_binary_settlement_pnl,
@@ -207,11 +201,7 @@ def run_market_backtest(
     data_count: int | None = None,
     chart_resample_rule: str | None = None,
     market_key: str = "market",
-    open_browser: bool = False,
-    emit_html: bool = True,
-    return_chart_layout: bool = False,
     return_summary_series: bool = False,
-    chart_output_path: str | Path | None = None,
     book_type: BookType = BookType.L1_MBP,
     liquidity_consumption: bool = False,
     queue_position: bool = False,
@@ -290,28 +280,6 @@ def run_market_backtest(
         )
         chart_market_prices = build_market_prices(price_points, resample_rule=chart_resample_rule)
 
-        chart_path = str(chart_output_path or f"output/{output_prefix}_{market_id}_legacy.html")
-        chart_layout = None
-        chart_title = f"{strategy_name} legacy chart"
-        if emit_html or return_chart_layout:
-            os.makedirs("output", exist_ok=True)
-            chart_layout, chart_title = build_legacy_backtest_layout(
-                engine=engine,
-                output_path=chart_path,
-                strategy_name=strategy_name,
-                platform=platform,
-                initial_cash=initial_cash,
-                market_prices={str(instrument.id): chart_market_prices},
-                user_probabilities=user_probabilities,
-                market_probabilities=market_probabilities,
-                outcomes=outcomes,
-                open_browser=open_browser,
-            )
-            if emit_html:
-                chart_path = save_legacy_backtest_layout(chart_layout, chart_path, chart_title)
-        else:
-            chart_path = None
-
         summary_price_series = None
         summary_pnl_series = None
         summary_equity_series = None
@@ -386,11 +354,6 @@ def run_market_backtest(
         }
         result = apply_backtest_run_state(result=result, run_state=run_state)
         result = apply_binary_settlement_pnl(result)
-        if chart_path is not None:
-            result["chart_path"] = chart_path
-        if return_chart_layout and chart_layout is not None:
-            result["chart_layout"] = chart_layout
-            result["chart_title"] = chart_title
         if return_summary_series:
             result["price_series"] = summary_price_series or []
             result["pnl_series"] = summary_pnl_series or []
