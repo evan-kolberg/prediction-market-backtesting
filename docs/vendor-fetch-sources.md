@@ -36,7 +36,7 @@ A representative PMXT run prints:
 PMXT source: explicit priority (cache -> local /Volumes/LaCie/pmxt_raws -> archive https://r2v2.pmxt.dev -> archive https://r2.pmxt.dev)
 Loading PMXT Polymarket market will-ludvig-aberg-win-the-2026-masters-tournament (token_index=0, window_start=2026-04-05T00:00:00+00:00, window_end=2026-04-07T23:59:59+00:00)...
   2026-04-05T00:00:00+00:00      ...          ... rows  cache 2026-04-05T00
-  2026-04-06T12:00:00+00:00      ...          ... rows  local raw 2026-04-06T12
+  2026-04-06T12:00:00+00:00      ...          ... rows  local raw
   2026-04-07T23:00:00+00:00      ...            0 rows  none
 Fetching hours (69/72 done, 3 active): ...
 ```

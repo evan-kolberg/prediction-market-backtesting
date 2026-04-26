@@ -70,6 +70,8 @@ def _transfer_label(source: str) -> str:
         ("telonex-api::", "telonex api"),
     ):
         if source.startswith(prefix):
+            if prefix in {"local-raw::", "telonex-local::", "telonex-api::"}:
+                return label
             return f"{label} {_hour_label(source.removeprefix(prefix))}"
 
     if source in {"none", "unknown", "local raw"}:
@@ -78,7 +80,7 @@ def _transfer_label(source: str) -> str:
     parsed = urlparse(source)
     hour_label = _hour_label(source)
     if parsed.scheme == "file" or source.startswith("/"):
-        return f"local raw {hour_label}"
+        return "local raw"
     return f"r2 raw {hour_label}"
 
 
