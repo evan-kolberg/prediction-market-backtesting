@@ -45,6 +45,12 @@ def _hour_label(source: str) -> str:
     return filename or path
 
 
+def _filename_label(source: str) -> str:
+    parsed = urlparse(source)
+    path = parsed.path or source
+    return Path(path).name or path
+
+
 def _format_bytes(size: int | None) -> str:
     if size is None:
         return "? B"
@@ -70,9 +76,12 @@ def _transfer_label(source: str) -> str:
         ("telonex-api::", "telonex api"),
     ):
         if source.startswith(prefix):
+            remainder = source.removeprefix(prefix)
+            if prefix == "cache::":
+                return f"{label} {_filename_label(remainder)}"
             if prefix in {"local-raw::", "telonex-local::", "telonex-api::"}:
                 return label
-            return f"{label} {_hour_label(source.removeprefix(prefix))}"
+            return f"{label} {_hour_label(remainder)}"
 
     if source in {"none", "unknown", "local raw"}:
         return source

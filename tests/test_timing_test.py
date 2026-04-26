@@ -29,7 +29,7 @@ def test_transfer_label_identifies_cache_paths() -> None:
         "cache::/Users/example/.cache/nautilus_trader/pmxt/cond/token/polymarket_orderbook_2026-02-22T11.parquet"
     )
 
-    assert label == "cache 2026-02-22T11"
+    assert label == "cache polymarket_orderbook_2026-02-22T11.parquet"
 
 
 def test_transfer_label_identifies_r2_raw_urls() -> None:
