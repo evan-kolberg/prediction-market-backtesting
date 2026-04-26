@@ -1,8 +1,8 @@
 # Codebase UML Inventory
 
 This file is generated from Python AST metadata and excludes `tests/`.
-Generated: 2026-04-26T07:05:32+00:00
-Modules: 100 | Classes: 148 | Functions/methods: 1129
+Generated: 2026-04-26T07:38:08+00:00
+Modules: 100 | Classes: 148 | Functions/methods: 1128
 
 ## Backtesting Data Flow
 
@@ -40,13 +40,12 @@ flowchart TD
 - Function L18: `run() -> None`
 
 ### `backtests/polymarket_book_joint_portfolio_runner.py`
-- Imports: `__future__, decimal, prediction_market_extensions`
-- Function L170: `run() -> None`
+- Imports: `__future__, decimal`
+- Function L18: `run() -> None`
 
 ### `backtests/polymarket_telonex_book_joint_portfolio_runner.py`
-- Imports: `__future__, decimal, dotenv, os, prediction_market_extensions`
-- Function L47: `_telonex_sources() -> tuple[str, ...]`
-- Function L180: `run() -> None`
+- Imports: `__future__, decimal`
+- Function L18: `run() -> None`
 
 ### `backtests/sitecustomize.py`
 - Imports: `__future__, importlib, pathlib, sys`
