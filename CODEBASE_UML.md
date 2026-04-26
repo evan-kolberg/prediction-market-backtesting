@@ -1,8 +1,8 @@
 # Codebase UML Inventory
 
 This file is generated from Python AST metadata and excludes `tests/`.
-Generated: 2026-04-26T06:42:13+00:00
-Modules: 100 | Classes: 148 | Functions/methods: 1126
+Generated: 2026-04-26T07:05:32+00:00
+Modules: 100 | Classes: 148 | Functions/methods: 1129
 
 ## Backtesting Data Flow
 
@@ -636,16 +636,17 @@ flowchart TD
 - Function L1034: `_remove_yes_price_profitability_legend_items(fig) -> set[Any]`
 - Function L1050: `_remove_yes_price_profitability_connectors(layout) -> None`
 - Function L1076: `_limit_yes_price_fill_markers(layout, max_yes_price_fill_markers: int | None) -> None`
-- Function L1119: `_limit_market_pnl_fill_markers(layout, max_market_pnl_fill_markers: int | None) -> None`
-- Function L1163: `_standardize_periodic_pnl_panel(layout) -> None`
-- Function L1211: `_relabel_market_pnl_panel(layout, axis_label: str = 'Market P&L') -> None`
-- Function L1238: `_build_multi_market_brier_panel(brier_frames: Mapping[str, pd.DataFrame], *, axis_label: str = 'Cumulative Brier Advantage', color_by_market: Mapping[str, Any] | None = None) -> Any | None`
-- Function L1372: `_standardize_yes_price_hover(layout) -> None`
-- Function L1403: `_focus_allocation_panel(layout) -> None`
-- Function L1440: `_apply_layout_overrides(layout, initial_cash: float, *, relabel_market_pnl: bool = False, max_yes_price_fill_markers: int | None = None, max_market_pnl_fill_markers: int | None = None) -> Any`
-- Function L1461: `_save_layout(layout, output_path: Path, title: str) -> None`
-- Function L1474: `save_legacy_backtest_layout(layout, output_path: str | Path, title: str) -> str`
-- Function L1484: `build_legacy_backtest_layout(engine, output_path: str | Path, strategy_name: str, platform: str, initial_cash: float, market_prices: Mapping[str, Sequence[tuple[Any, float]]] | None = None, user_probabilities: pd.Series | None = None, market_probabilities: pd.Series | None = None, outcomes: pd.Series | None = None, legacy_repo_path: str | Path | None = None, open_browser: bool = False, max_markets: int = 30, progress: bool = False, plot_panels: Sequence[str] | None = None) -> tuple[Any, str]`
+- Function L1119: `_subset_bokeh_source_values(values, indexes: np.ndarray) -> Any`
+- Function L1129: `_limit_market_pnl_fill_markers(layout, max_market_pnl_fill_markers: int | None) -> None`
+- Function L1173: `_standardize_periodic_pnl_panel(layout) -> None`
+- Function L1221: `_relabel_market_pnl_panel(layout, axis_label: str = 'Market P&L') -> None`
+- Function L1248: `_build_multi_market_brier_panel(brier_frames: Mapping[str, pd.DataFrame], *, axis_label: str = 'Cumulative Brier Advantage', color_by_market: Mapping[str, Any] | None = None) -> Any | None`
+- Function L1382: `_standardize_yes_price_hover(layout) -> None`
+- Function L1413: `_focus_allocation_panel(layout) -> None`
+- Function L1450: `_apply_layout_overrides(layout, initial_cash: float, *, relabel_market_pnl: bool = False, max_yes_price_fill_markers: int | None = None, max_market_pnl_fill_markers: int | None = None) -> Any`
+- Function L1471: `_save_layout(layout, output_path: Path, title: str) -> None`
+- Function L1484: `save_legacy_backtest_layout(layout, output_path: str | Path, title: str) -> str`
+- Function L1494: `build_legacy_backtest_layout(engine, output_path: str | Path, strategy_name: str, platform: str, initial_cash: float, market_prices: Mapping[str, Sequence[tuple[Any, float]]] | None = None, user_probabilities: pd.Series | None = None, market_probabilities: pd.Series | None = None, outcomes: pd.Series | None = None, legacy_repo_path: str | Path | None = None, open_browser: bool = False, max_markets: int = 30, progress: bool = False, plot_panels: Sequence[str] | None = None) -> tuple[Any, str]`
 
 ### `prediction_market_extensions/analysis/tearsheet.py`
 - Imports: `__future__, collections, difflib, nautilus_trader, numbers, pandas, typing`
@@ -771,7 +772,9 @@ flowchart TD
 - Function L108: `snapshot_html_artifacts(output_root: Path) -> dict[Path, tuple[int, int]]`
 - Function L122: `find_updated_html_artifacts(output_root: Path, before: Mapping[Path, tuple[int, int]]) -> list[Path]`
 - Function L143: `partition_html_artifacts(html_artifacts: Sequence[Path]) -> tuple[list[Path], list[Path]]`
-- Function L156: `display_html_artifacts(html_artifacts: Sequence[Path], *, repo_root: Path, iframe_height: int = 820) -> None`
+- Function L159: `_embed_html_as_iframe(html_text: str, *, height: int = 820) -> str`
+- Function L170: `_display_html_suppressing_iframe_warning(html_text: str) -> None`
+- Function L184: `display_html_artifacts(html_artifacts: Sequence[Path], *, repo_root: Path, iframe_height: int = 820) -> None`
 
 ### `prediction_market_extensions/backtesting/_optimizer.py`
 - Imports: `__future__, collections, contextlib, csv, dataclasses, datetime, itertools, json, multiprocessing, pathlib, pickle, prediction_market_extensions, random, statistics, tempfile, traceback, types, typing, warnings`
