@@ -229,7 +229,7 @@ def test_apply_layout_overrides_limits_yes_price_fill_markers() -> None:
         def __init__(self) -> None:
             self.data = {
                 "index": np.arange(6),
-                "datetime": np.arange(6),
+                "datetime": pd.date_range("2026-01-01", periods=6).to_numpy(),
                 "price": np.arange(6, dtype=float),
                 "fill_color": np.array(["1", "0", "1", "0", "1", "0"]),
                 "market_id": np.array(["m"] * 6),
@@ -270,6 +270,17 @@ def test_apply_layout_overrides_limits_yes_price_fill_markers() -> None:
     )
 
     assert source.data["price"].tolist() == [0.0, 2.0, 5.0]
+    assert np.issubdtype(source.data["datetime"].dtype, np.datetime64)
+    assert np.array_equal(
+        source.data["datetime"],
+        np.array(
+            [
+                pd.Timestamp("2026-01-01T00:00:00").to_datetime64(),
+                pd.Timestamp("2026-01-03T00:00:00").to_datetime64(),
+                pd.Timestamp("2026-01-06T00:00:00").to_datetime64(),
+            ]
+        ),
+    )
     assert legend_item.label == {"value": "Fills (3 of 6)"}
 
 
@@ -284,7 +295,7 @@ def test_apply_layout_overrides_limits_market_pnl_fill_markers() -> None:
         def __init__(self) -> None:
             self.data = {
                 "index": np.arange(6),
-                "datetime": np.arange(6),
+                "datetime": pd.date_range("2026-01-01", periods=6).to_numpy(),
                 "pnl_long": np.arange(6, dtype=float),
                 "pnl_short": np.arange(6, dtype=float),
                 "positive": np.array(["1", "0", "1", "0", "1", "0"]),
@@ -314,6 +325,17 @@ def test_apply_layout_overrides_limits_market_pnl_fill_markers() -> None:
     )
 
     assert source.data["index"].tolist() == [0, 2, 5]
+    assert np.issubdtype(source.data["datetime"].dtype, np.datetime64)
+    assert np.array_equal(
+        source.data["datetime"],
+        np.array(
+            [
+                pd.Timestamp("2026-01-01T00:00:00").to_datetime64(),
+                pd.Timestamp("2026-01-03T00:00:00").to_datetime64(),
+                pd.Timestamp("2026-01-06T00:00:00").to_datetime64(),
+            ]
+        ),
+    )
     assert source.data["pnl_long"].tolist() == [0.0, 2.0, 5.0]
 
 

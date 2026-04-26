@@ -1101,7 +1101,7 @@ def _limit_yes_price_fill_markers(layout: Any, max_yes_price_fill_markers: int |
         limited: dict[str, Any] = {}
         for key, values in data.items():
             if hasattr(values, "__len__") and len(values) == row_count:
-                limited[key] = np.asarray(values, dtype=object)[indexes]
+                limited[key] = _subset_bokeh_source_values(values, indexes)
             else:
                 limited[key] = values
         source.data = limited
@@ -1114,6 +1114,16 @@ def _limit_yes_price_fill_markers(layout: Any, max_yes_price_fill_markers: int |
                     item.label = {
                         "value": f"Fills ({len(indexes):,} of {row_count:,})",
                     }
+
+
+def _subset_bokeh_source_values(values: Any, indexes: np.ndarray) -> Any:
+    if isinstance(values, np.ndarray):
+        return values[indexes]
+    if isinstance(values, pd.Series):
+        return values.iloc[indexes].to_numpy()
+    if isinstance(values, pd.Index):
+        return values.take(indexes).to_numpy()
+    return [values[int(index)] for index in indexes]
 
 
 def _limit_market_pnl_fill_markers(layout: Any, max_market_pnl_fill_markers: int | None) -> None:
@@ -1154,7 +1164,7 @@ def _limit_market_pnl_fill_markers(layout: Any, max_market_pnl_fill_markers: int
         limited: dict[str, Any] = {}
         for key, values in data.items():
             if hasattr(values, "__len__") and len(values) == row_count:
-                limited[key] = np.asarray(values, dtype=object)[indexes]
+                limited[key] = _subset_bokeh_source_values(values, indexes)
             else:
                 limited[key] = values
         source.data = limited
