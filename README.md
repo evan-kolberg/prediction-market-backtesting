@@ -88,6 +88,7 @@ Detailed guides have been filed away in the [docs index](https://evan-kolberg.gi
   - [Notebook Output Persistence](https://evan-kolberg.github.io/prediction-market-backtesting/research/#notebook-output-persistence)
 - [Execution Modeling](https://evan-kolberg.github.io/prediction-market-backtesting/execution-modeling/)
   - [Fees](https://evan-kolberg.github.io/prediction-market-backtesting/execution-modeling/#fees)
+    - [Maker Rebates](https://evan-kolberg.github.io/prediction-market-backtesting/execution-modeling/#maker-rebates)
   - [Slippage](https://evan-kolberg.github.io/prediction-market-backtesting/execution-modeling/#slippage)
   - [Passive Orders And Queue Position](https://evan-kolberg.github.io/prediction-market-backtesting/execution-modeling/#passive-orders-and-queue-position)
   - [Latency](https://evan-kolberg.github.io/prediction-market-backtesting/execution-modeling/#latency)
