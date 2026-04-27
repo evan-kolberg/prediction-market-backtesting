@@ -25,6 +25,10 @@ from strategies.breakout import (
     BookBreakoutConfig,
     BookBreakoutStrategy,
 )
+from strategies.binary_pair_arbitrage import (
+    BookBinaryPairArbitrageConfig,
+    BookBinaryPairArbitrageStrategy,
+)
 from strategies.deep_value import (
     BookDeepValueHoldConfig,
     BookDeepValueHoldStrategy,
@@ -44,6 +48,8 @@ from strategies.final_period_momentum import (
 from strategies.late_favorite_limit_hold import (
     BookLateFavoriteLimitHoldConfig,
     BookLateFavoriteLimitHoldStrategy,
+    BookLateFavoriteTakerHoldConfig,
+    BookLateFavoriteTakerHoldStrategy,
 )
 from strategies.mean_reversion import (
     BarMeanReversionConfig,
@@ -93,6 +99,8 @@ __all__ = [
     "BarRSIReversionStrategy",
     "BarThresholdMomentumConfig",
     "BarThresholdMomentumStrategy",
+    "BookBinaryPairArbitrageConfig",
+    "BookBinaryPairArbitrageStrategy",
     "BookBreakoutConfig",
     "BookBreakoutStrategy",
     "BookDeepValueHoldConfig",
@@ -103,6 +111,8 @@ __all__ = [
     "BookFinalPeriodMomentumStrategy",
     "BookLateFavoriteLimitHoldConfig",
     "BookLateFavoriteLimitHoldStrategy",
+    "BookLateFavoriteTakerHoldConfig",
+    "BookLateFavoriteTakerHoldStrategy",
     "BookMeanReversionConfig",
     "BookMeanReversionStrategy",
     "BookMicropriceImbalanceConfig",

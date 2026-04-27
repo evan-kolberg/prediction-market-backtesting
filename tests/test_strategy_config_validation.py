@@ -10,6 +10,7 @@ from strategies import (
     BookDeepValueHoldConfig,
     BookEMACrossoverConfig,
     BookFinalPeriodMomentumConfig,
+    BookLateFavoriteTakerHoldConfig,
     BookMicropriceImbalanceConfig,
     BookPanicFadeConfig,
     BookRSIReversionConfig,
@@ -56,6 +57,21 @@ BAR_TYPE = "unused-bar-type"
             BookFinalPeriodMomentumConfig,
             {"final_period_minutes": 0},
             "final_period_minutes",
+        ),
+        (
+            BookLateFavoriteTakerHoldConfig,
+            {"max_cheap_no_entry_price": 1.1},
+            "max_cheap_no_entry_price",
+        ),
+        (
+            BookLateFavoriteTakerHoldConfig,
+            {"max_cheap_no_midpoint": 1.1},
+            "max_cheap_no_midpoint",
+        ),
+        (
+            BookLateFavoriteTakerHoldConfig,
+            {"max_cheap_no_spread": 1.1},
+            "max_cheap_no_spread",
         ),
     ],
 )

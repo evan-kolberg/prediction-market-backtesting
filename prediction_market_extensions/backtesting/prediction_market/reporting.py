@@ -15,6 +15,9 @@ from prediction_market_extensions.analysis.legacy_backtesting.models import (
 from prediction_market_extensions.backtesting._backtest_runtime import (
     print_backtest_result_warnings,
 )
+from prediction_market_extensions.backtesting._result_policies import (
+    apply_joint_portfolio_settlement_pnl,
+)
 from prediction_market_extensions.backtesting.prediction_market.artifacts import (
     resolve_repo_relative_path,
 )
@@ -42,6 +45,7 @@ def finalize_market_results(
     results: Sequence[dict[str, object]],
     report: MarketReportConfig,
 ) -> None:
+    results = apply_joint_portfolio_settlement_pnl(list(results))
     market_key = _resolve_report_market_key(results=results, configured_key=report.market_key)
     print_backtest_summary(
         results=list(results),

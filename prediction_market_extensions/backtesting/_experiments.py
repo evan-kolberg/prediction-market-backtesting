@@ -17,6 +17,7 @@ from prediction_market_extensions.backtesting._prediction_market_backtest import
 from prediction_market_extensions.backtesting._replay_specs import ReplaySpec
 from prediction_market_extensions.backtesting._result_policies import (
     ResultPolicy,
+    apply_joint_portfolio_settlement_pnl,
     apply_repo_research_disclosures,
 )
 from prediction_market_extensions.backtesting._strategy_configs import StrategyConfigSpec
@@ -202,6 +203,7 @@ def _finalize_replay_results(
         if transformed is not None:
             results = transformed
 
+    apply_joint_portfolio_settlement_pnl(results)
     apply_repo_research_disclosures(results)
 
     if experiment.report is not None:

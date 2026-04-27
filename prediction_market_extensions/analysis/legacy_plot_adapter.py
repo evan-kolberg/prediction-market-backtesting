@@ -367,6 +367,29 @@ def _dense_cash_series(
     return dense_df["cash"].to_numpy(dtype=float)
 
 
+def _fill_cash_delta(fill: Any) -> float:
+    action = str(fill.action.value).lower()
+    gross = float(fill.price) * float(fill.quantity)
+    cash_delta = -gross if action == "buy" else gross
+    return cash_delta - float(getattr(fill, "commission", 0.0) or 0.0)
+
+
+def _dense_cash_series_from_fills(
+    fills: list[Any], dense_dts: np.ndarray, initial_cash: float
+) -> np.ndarray:
+    cash_changes = np.zeros(len(dense_dts), dtype=float)
+    if len(dense_dts) == 0:
+        return cash_changes
+
+    for fill in sorted(fills, key=lambda item: item.timestamp):
+        ts64 = pd.Timestamp(fill.timestamp).to_datetime64()
+        bar_idx = int(np.searchsorted(dense_dts, ts64, side="left"))
+        bar_idx = max(0, min(len(dense_dts) - 1, bar_idx))
+        cash_changes[bar_idx] += _fill_cash_delta(fill)
+
+    return float(initial_cash) + np.cumsum(cash_changes)
+
+
 def _replay_fill_position_deltas(
     fills: list[Any], dense_dts: np.ndarray
 ) -> tuple[dict[str, np.ndarray], dict[str, float]]:
@@ -483,7 +506,11 @@ def _build_dense_portfolio_snapshots(
 
     dense_dts = dense_dt.to_numpy(dtype="datetime64[ns]")
     n_bars = len(dense_dt)
-    cash_series = _dense_cash_series(sparse_snapshots, dense_dt, initial_cash=initial_cash)
+    cash_series = (
+        _dense_cash_series_from_fills(fills, dense_dts, initial_cash=initial_cash)
+        if fills
+        else _dense_cash_series(sparse_snapshots, dense_dt, initial_cash=initial_cash)
+    )
     pos_changes, fill_price_map = _replay_fill_position_deltas(fills, dense_dts)
 
     if not pos_changes:

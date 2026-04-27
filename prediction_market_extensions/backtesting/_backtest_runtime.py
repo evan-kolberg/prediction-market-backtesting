@@ -177,6 +177,14 @@ def print_backtest_result_warnings(*, results: Sequence[dict[str, Any]], market_
             print(line)
 
 
+def add_engine_data_by_type(engine: BacktestEngine, records: Sequence[Any]) -> None:
+    records_by_type: dict[type[Any], list[Any]] = {}
+    for record in records:
+        records_by_type.setdefault(type(record), []).append(record)
+    for typed_records in records_by_type.values():
+        engine.add_data(typed_records)
+
+
 def run_market_backtest(
     *,
     market_id: str,
@@ -240,7 +248,7 @@ def run_market_backtest(
         queue_position=queue_position,
     )
     engine.add_instrument(instrument)
-    engine.add_data(data_records)
+    add_engine_data_by_type(engine, data_records)
     engine.add_strategy(strategy)
     try:
         engine.run()
@@ -353,7 +361,6 @@ def run_market_backtest(
             ),
         }
         result = apply_backtest_run_state(result=result, run_state=run_state)
-        result = apply_binary_settlement_pnl(result)
         if return_summary_series:
             result["price_series"] = summary_price_series or []
             result["pnl_series"] = summary_pnl_series or []
@@ -363,7 +370,7 @@ def run_market_backtest(
             result["market_probability_series"] = summary_market_probability_series or []
             result["outcome_series"] = summary_outcome_series or []
             result["fill_events"] = summary_fill_events or []
-        return result
+        return apply_binary_settlement_pnl(result)
     finally:
         engine.reset()
         engine.dispose()

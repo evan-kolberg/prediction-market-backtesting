@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 from prediction_market_extensions.backtesting import _prediction_market_backtest as backtest_module
 from prediction_market_extensions.backtesting._backtest_runtime import (
+    add_engine_data_by_type,
     build_backtest_run_state,
     print_backtest_result_warnings,
 )
@@ -47,6 +48,30 @@ class _EngineStub:
 
     def add_venue(self, **kwargs) -> None:  # type: ignore[no-untyped-def]
         self.venues.append(kwargs)
+
+
+def test_add_engine_data_by_type_splits_mixed_replay_records() -> None:
+    class _BookRecord:
+        pass
+
+    class _TradeRecord:
+        pass
+
+    class _DataEngineStub:
+        def __init__(self) -> None:
+            self.added: list[list[object]] = []
+
+        def add_data(self, records):  # type: ignore[no-untyped-def]
+            self.added.append(list(records))
+
+    trade = _TradeRecord()
+    first_book = _BookRecord()
+    second_book = _BookRecord()
+    engine = _DataEngineStub()
+
+    add_engine_data_by_type(engine, [trade, first_book, second_book])
+
+    assert engine.added == [[trade], [first_book, second_book]]
 
 
 def test_prediction_market_backtest_build_engine_forwards_execution(monkeypatch):

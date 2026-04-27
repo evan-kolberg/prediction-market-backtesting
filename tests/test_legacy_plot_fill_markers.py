@@ -158,6 +158,47 @@ def test_build_portfolio_snapshots_truncates_nanoseconds_without_warning() -> No
     assert not any("Discarding nonzero nanoseconds" in str(warning.message) for warning in caught)
 
 
+def test_dense_portfolio_snapshots_apply_fill_cash_and_position_atomically() -> None:
+    start = datetime(2026, 4, 26, 18, 4, 42)
+    fill_time = datetime(2026, 4, 26, 18, 4, 42, 993000)
+    cash_report_time = datetime(2026, 4, 26, 18, 4, 43, 43000)
+    models_module = SimpleNamespace(PortfolioSnapshot=lambda **kwargs: SimpleNamespace(**kwargs))
+    sparse_snapshots = [
+        SimpleNamespace(timestamp=start, cash=100.0),
+        SimpleNamespace(timestamp=cash_report_time, cash=95.25),
+    ]
+    fills = [
+        Fill(
+            order_id="fill-1",
+            market_id="late-favorite",
+            action=OrderAction.BUY,
+            side=Side.YES,
+            price=0.95,
+            quantity=5.0,
+            timestamp=fill_time,
+        )
+    ]
+
+    snapshots = adapter._build_dense_portfolio_snapshots(
+        models_module=models_module,
+        sparse_snapshots=sparse_snapshots,
+        fills=fills,
+        market_prices={
+            "late-favorite": [
+                (start, 0.95),
+                (fill_time, 0.95),
+                (cash_report_time, 0.95),
+            ]
+        },
+        initial_cash=100.0,
+    )
+
+    fill_snapshot = next(snapshot for snapshot in snapshots if snapshot.timestamp == fill_time)
+    assert fill_snapshot.cash == pytest.approx(95.25)
+    assert fill_snapshot.total_equity == pytest.approx(100.0)
+    assert max(snapshot.total_equity for snapshot in snapshots) == pytest.approx(100.0)
+
+
 @pytest.mark.parametrize("fill_count", [250, 251, 1_667])
 def test_build_legacy_backtest_layout_never_auto_limits_yes_price_fill_markers(
     monkeypatch: pytest.MonkeyPatch, tmp_path, fill_count: int

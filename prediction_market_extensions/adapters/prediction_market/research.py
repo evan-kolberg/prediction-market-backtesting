@@ -258,6 +258,19 @@ def _align_series_to_timeline(
     return aligned.astype(float)
 
 
+def _extend_active_range(
+    active_ranges: dict[str, tuple[pd.Timestamp, pd.Timestamp]],
+    label: str,
+    start: pd.Timestamp,
+    end: pd.Timestamp,
+) -> None:
+    if label not in active_ranges:
+        active_ranges[label] = (start, end)
+        return
+    current_start, current_end = active_ranges[label]
+    active_ranges[label] = (min(current_start, start), max(current_end, end))
+
+
 def _parse_float_like(value: Any, default: float = 0.0) -> float:
     if value is None:
         return default
@@ -765,7 +778,6 @@ def run_market_backtest(
             else None
         ),
     }
-    result = apply_binary_settlement_pnl(result)
     if return_summary_series:
         result["price_series"] = summary_price_series or []
         result["pnl_series"] = summary_pnl_series or []
@@ -775,7 +787,7 @@ def run_market_backtest(
         result["market_probability_series"] = summary_market_probability_series or []
         result["outcome_series"] = summary_outcome_series or []
         result["fill_events"] = summary_fill_events or []
-    return result
+    return apply_binary_settlement_pnl(result)
 
 
 def save_combined_backtest_report(
@@ -875,7 +887,9 @@ def save_aggregate_backtest_report(
                 market_prices[label] = [
                     (_to_legacy_datetime(ts), float(value)) for ts, value in price_series.items()
                 ]
-            active_ranges[label] = (price_series.index[0], price_series.index[-1])
+            _extend_active_range(
+                active_ranges, label, price_series.index[0], price_series.index[-1]
+            )
             timeline_points.update(price_series.index.to_list())
 
         if include_fill_events:
@@ -928,17 +942,16 @@ def save_aggregate_backtest_report(
         if not equity_series.empty:
             equity_series_by_market[label] = equity_series.astype(float)
             timeline_points.update(equity_series.index.to_list())
-            if label not in active_ranges:
-                active_ranges[label] = (equity_series.index[0], equity_series.index[-1])
+            _extend_active_range(
+                active_ranges, label, equity_series.index[0], equity_series.index[-1]
+            )
         if not cash_series.empty:
             cash_series_by_market[label] = cash_series.astype(float)
             timeline_points.update(cash_series.index.to_list())
-            if label not in active_ranges:
-                active_ranges[label] = (cash_series.index[0], cash_series.index[-1])
+            _extend_active_range(active_ranges, label, cash_series.index[0], cash_series.index[-1])
         if not pnl_series.empty:
             timeline_points.update(pnl_series.index.to_list())
-            if label not in active_ranges:
-                active_ranges[label] = (pnl_series.index[0], pnl_series.index[-1])
+            _extend_active_range(active_ranges, label, pnl_series.index[0], pnl_series.index[-1])
 
     if timeline_points:
         timeline = pd.DatetimeIndex(sorted(timeline_points))
@@ -1126,7 +1139,9 @@ def save_joint_portfolio_backtest_report(
                 market_prices[label] = [
                     (_to_legacy_datetime(ts), float(value)) for ts, value in price_series.items()
                 ]
-            active_ranges[label] = (price_series.index[0], price_series.index[-1])
+            _extend_active_range(
+                active_ranges, label, price_series.index[0], price_series.index[-1]
+            )
             timeline_points.update(price_series.index.to_list())
 
         if include_overlay_series:
@@ -1135,13 +1150,15 @@ def save_joint_portfolio_backtest_report(
             if not equity_series.empty:
                 equity_series_by_market[label] = equity_series.astype(float)
                 timeline_points.update(equity_series.index.to_list())
-                if label not in active_ranges:
-                    active_ranges[label] = (equity_series.index[0], equity_series.index[-1])
+                _extend_active_range(
+                    active_ranges, label, equity_series.index[0], equity_series.index[-1]
+                )
             if not cash_series.empty:
                 cash_series_by_market[label] = cash_series.astype(float)
                 timeline_points.update(cash_series.index.to_list())
-                if label not in active_ranges:
-                    active_ranges[label] = (cash_series.index[0], cash_series.index[-1])
+                _extend_active_range(
+                    active_ranges, label, cash_series.index[0], cash_series.index[-1]
+                )
 
         if include_fill_events:
             fills.extend(
