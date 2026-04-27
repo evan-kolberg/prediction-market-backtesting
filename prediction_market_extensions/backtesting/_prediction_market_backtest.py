@@ -27,11 +27,15 @@ from prediction_market_extensions.adapters.prediction_market import (
 from prediction_market_extensions.adapters.prediction_market.fill_model import (
     PredictionMarketTakerFillModel,
 )
-from prediction_market_extensions.backtesting._backtest_runtime import build_backtest_run_state
+from prediction_market_extensions.backtesting._backtest_runtime import (
+    add_engine_data_by_type,
+    build_backtest_run_state,
+)
 from prediction_market_extensions.backtesting._execution_config import ExecutionModelConfig
 from prediction_market_extensions.backtesting._market_data_config import MarketDataConfig
 from prediction_market_extensions.backtesting._replay_specs import ReplaySpec
 from prediction_market_extensions.backtesting._result_policies import (
+    apply_joint_portfolio_settlement_pnl,
     apply_repo_research_disclosures,
 )
 from prediction_market_extensions.backtesting._strategy_configs import (
@@ -202,7 +206,7 @@ class PredictionMarketBacktest:
         try:
             for loaded_sim in loaded_sims:
                 engine.add_instrument(loaded_sim.instrument)
-                engine.add_data(list(loaded_sim.records))
+                add_engine_data_by_type(engine, list(loaded_sim.records))
 
             if self.strategy_factory is not None:
                 for loaded_sim in loaded_sims:
@@ -221,7 +225,7 @@ class PredictionMarketBacktest:
 
             fills_report = engine.trader.generate_order_fills_report()
             positions_report = engine.trader.generate_positions_report()
-            market_artifacts_by_market_id = self._build_market_artifacts(
+            market_artifacts_by_instrument_id = self._build_market_artifacts(
                 engine=engine, loaded_sims=loaded_sims, fills_report=fills_report
             )
             joint_portfolio_artifacts = self._build_joint_portfolio_artifacts(
@@ -232,7 +236,9 @@ class PredictionMarketBacktest:
                     loaded_sim=loaded_sim,
                     fills_report=fills_report,
                     positions_report=positions_report,
-                    market_artifacts=market_artifacts_by_market_id.get(loaded_sim.market_id),
+                    market_artifacts=market_artifacts_by_instrument_id.get(
+                        str(loaded_sim.instrument.id)
+                    ),
                     joint_portfolio_artifacts=joint_portfolio_artifacts
                     if result_index == 0
                     else None,
@@ -246,6 +252,7 @@ class PredictionMarketBacktest:
                 )
                 for result_index, loaded_sim in enumerate(loaded_sims)
             ]
+            apply_joint_portfolio_settlement_pnl(results)
             if results:
                 results[0]["portfolio_stats"] = _serialize_engine_result_stats(engine_result)
             return apply_repo_research_disclosures(results)

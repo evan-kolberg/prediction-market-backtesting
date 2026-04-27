@@ -85,6 +85,58 @@ def test_joint_portfolio_dense_prices_are_keyed_by_instrument_id(monkeypatch) ->
     ]
 
 
+def test_market_artifacts_are_keyed_by_instrument_id_for_shared_slug(monkeypatch) -> None:
+    def _fake_build_market_artifacts_for_loaded_sim(
+        self, *, engine, loaded_sim, fills_report, include_portfolio_series
+    ):
+        return {
+            "instrument_id": str(loaded_sim.instrument.id),
+            "fill_count": len(fills_report),
+        }
+
+    monkeypatch.setattr(
+        PredictionMarketArtifactBuilder,
+        "_build_market_artifacts_for_loaded_sim",
+        _fake_build_market_artifacts_for_loaded_sim,
+    )
+    builder = PredictionMarketArtifactBuilder(
+        name="shared-slug-demo",
+        platform="polymarket",
+        data_type="book",
+        initial_cash=100.0,
+        probability_window=5,
+        chart_resample_rule=None,
+        return_summary_series=True,
+        sim_count=2,
+    )
+
+    result = builder.build_market_artifacts(
+        engine=SimpleNamespace(),
+        loaded_sims=(
+            _loaded_replay(market_id="shared-slug", instrument_id="PM-SHARED-UP.POLYMARKET"),
+            _loaded_replay(market_id="shared-slug", instrument_id="PM-SHARED-DOWN.POLYMARKET"),
+        ),
+        fills_report=pd.DataFrame(
+            {
+                "instrument_id": [
+                    "PM-SHARED-UP.POLYMARKET",
+                    "PM-SHARED-DOWN.POLYMARKET",
+                ]
+            }
+        ),
+    )
+
+    assert set(result) == {"PM-SHARED-UP.POLYMARKET", "PM-SHARED-DOWN.POLYMARKET"}
+    assert result["PM-SHARED-UP.POLYMARKET"] == {
+        "instrument_id": "PM-SHARED-UP.POLYMARKET",
+        "fill_count": 1,
+    }
+    assert result["PM-SHARED-DOWN.POLYMARKET"] == {
+        "instrument_id": "PM-SHARED-DOWN.POLYMARKET",
+        "fill_count": 1,
+    }
+
+
 def test_single_summary_dense_prices_are_keyed_by_instrument_id(monkeypatch) -> None:
     start = datetime(2026, 3, 14, 17, 57, tzinfo=UTC)
     price_points = [(start, 0.40), (start + timedelta(minutes=1), 0.50)]

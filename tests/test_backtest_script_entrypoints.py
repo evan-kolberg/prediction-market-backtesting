@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib
 import runpy
 import sys
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
@@ -34,6 +35,8 @@ EXPECTED_PUBLIC_RUNNER_PATHS = [
     Path("backtests/polymarket_book_ema_crossover.py"),
     Path("backtests/polymarket_book_ema_optimizer.py"),
     Path("backtests/polymarket_book_joint_portfolio_runner.py"),
+    Path("backtests/polymarket_btc_5m_late_favorite_taker_hold.py"),
+    Path("backtests/polymarket_btc_5m_pair_arbitrage.py"),
     Path("backtests/polymarket_telonex_book_joint_portfolio_runner.py"),
     Path("backtests/telonex_book_joint_portfolio_runner.ipynb"),
 ]
@@ -260,6 +263,95 @@ def test_pmxt_book_joint_runners_build_inline_summary_contract(
     assert experiment.strategy_configs[0]["config"]["max_entry_price"] == 0.20
     assert "yes_price" in experiment.report.summary_plot_panels
     assert "allocation" in experiment.report.summary_plot_panels
+    assert experiment.return_summary_series is True
+
+
+def test_btc_5m_pair_arbitrage_runner_builds_pmxt_book_pairs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    experiment = _capture_script_experiment(
+        monkeypatch, Path("backtests/polymarket_btc_5m_pair_arbitrage.py")
+    )
+
+    assert experiment.name == "polymarket_btc_5m_pair_arbitrage"
+    assert experiment.data.platform == "polymarket"
+    assert experiment.data.data_type == "book"
+    assert experiment.data.vendor == "pmxt"
+    assert experiment.data.sources == (
+        "local:/Volumes/LaCie/pmxt_data",
+        "archive:r2v2.pmxt.dev",
+        "archive:r2.pmxt.dev",
+    )
+    assert len(experiment.replays) == 8
+    assert experiment.replays[0].market_slug == "btc-updown-5m-1777226400"
+    assert experiment.replays[0].token_index == 0
+    assert experiment.replays[1].market_slug == "btc-updown-5m-1777226400"
+    assert experiment.replays[1].token_index == 1
+    assert experiment.replays[-1].market_slug == "btc-updown-5m-1777227300"
+    assert experiment.replays[-1].token_index == 1
+    assert all(replay.market_slug.startswith("btc-updown-5m-") for replay in experiment.replays)
+    assert experiment.strategy_configs[0]["config"]["trade_size"] == Decimal("5")
+    assert experiment.strategy_configs[0]["config"]["min_net_edge"] == 0.0
+    assert experiment.strategy_configs[0]["config"]["max_total_cost"] == 1.0
+    assert experiment.strategy_configs[0]["config"]["include_taker_fees_in_signal"] is False
+    assert experiment.report.market_key == "sim_label"
+    assert experiment.report.summary_report is True
+    assert (
+        experiment.report.summary_report_path
+        == "output/polymarket_btc_5m_pair_arbitrage_summary.html"
+    )
+    assert experiment.return_summary_series is True
+
+
+def test_btc_5m_late_favorite_taker_runner_builds_pmxt_book_replays(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    experiment = _capture_script_experiment(
+        monkeypatch, Path("backtests/polymarket_btc_5m_late_favorite_taker_hold.py")
+    )
+
+    assert experiment.name == "polymarket_btc_5m_late_favorite_taker_hold"
+    assert experiment.data.platform == "polymarket"
+    assert experiment.data.data_type == "book"
+    assert experiment.data.vendor == "pmxt"
+    assert experiment.data.sources == (
+        "local:/Volumes/LaCie/pmxt_data",
+        "archive:r2v2.pmxt.dev",
+        "archive:r2.pmxt.dev",
+    )
+    assert len(experiment.replays) == 48
+    assert experiment.replays[0].market_slug == "btc-updown-5m-1777226400"
+    assert experiment.replays[0].token_index == 0
+    assert experiment.replays[0].metadata["activation_start_time_ns"] == 1777226640000000000
+    assert experiment.replays[0].metadata["market_close_time_ns"] == 1777226700000000000
+    assert experiment.replays[-1].market_slug == "btc-updown-5m-1777233300"
+    assert experiment.replays[-1].token_index == 1
+    assert experiment.strategy_configs[0]["strategy_path"] == (
+        "strategies:BookLateFavoriteTakerHoldStrategy"
+    )
+    assert experiment.strategy_configs[0]["config_path"] == (
+        "strategies:BookLateFavoriteTakerHoldConfig"
+    )
+    assert experiment.strategy_configs[0]["config"]["trade_size"] == Decimal("5")
+    assert experiment.strategy_configs[0]["config"]["min_midpoint"] == 0.90
+    assert experiment.strategy_configs[0]["config"]["min_bid_price"] == 0.88
+    assert experiment.strategy_configs[0]["config"]["max_entry_price"] == 0.95
+    assert experiment.strategy_configs[0]["config"]["max_spread"] == 0.04
+    assert experiment.strategy_configs[0]["config"]["min_visible_size"] == 5.0
+    assert experiment.strategy_configs[0]["config"]["enable_cheap_no_entry"] is True
+    assert experiment.strategy_configs[0]["config"]["max_cheap_no_entry_price"] == 0.05
+    assert experiment.strategy_configs[0]["config"]["max_cheap_no_midpoint"] == 0.10
+    assert experiment.strategy_configs[0]["config"]["max_cheap_no_spread"] == 0.05
+    assert (
+        experiment.strategy_configs[0]["config"]["activation_start_time_ns"]
+        == "__SIM_METADATA__:activation_start_time_ns"
+    )
+    assert experiment.report.market_key == "sim_label"
+    assert experiment.report.summary_report is True
+    assert (
+        experiment.report.summary_report_path
+        == "output/polymarket_btc_5m_late_favorite_taker_hold_summary.html"
+    )
     assert experiment.return_summary_series is True
 
 

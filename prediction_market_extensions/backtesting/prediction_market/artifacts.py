@@ -112,7 +112,7 @@ class PredictionMarketArtifactBuilder:
     ) -> dict[str, dict[str, Any]]:
         include_portfolio_series = self.return_summary_series
         return {
-            loaded_sim.market_id: self._build_market_artifacts_for_loaded_sim(
+            str(loaded_sim.instrument.id): self._build_market_artifacts_for_loaded_sim(
                 engine=engine,
                 loaded_sim=loaded_sim,
                 fills_report=self._filter_report_rows(
