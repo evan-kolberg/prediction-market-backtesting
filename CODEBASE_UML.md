@@ -1,8 +1,8 @@
 # Codebase UML Inventory
 
 This file is generated from Python AST metadata and excludes `tests/`.
-Generated: 2026-04-26T07:38:08+00:00
-Modules: 100 | Classes: 148 | Functions/methods: 1128
+Generated: 2026-04-27T04:38:25+00:00
+Modules: 100 | Classes: 148 | Functions/methods: 1134
 
 ## Backtesting Data Flow
 
@@ -254,9 +254,15 @@ flowchart TD
   - Method L1741: `_handle_user_trade_in_ws_trade_msg(self, msg: PolymarketUserTrade, trade_id: TradeId, wait_for_ack: bool, order_id: str) -> Any`
 
 ### `prediction_market_extensions/adapters/polymarket/fee_model.py`
-- Imports: `__future__, decimal, nautilus_trader, prediction_market_extensions`
-- Class L29: `PolymarketFeeModel(FeeModel)`
-  - Method L50: `get_commission(self, order, fill_qty, fill_px, instrument) -> Money`
+- Imports: `__future__, collections, decimal, nautilus_trader, prediction_market_extensions, typing`
+- Function L62: `_normalize_label(value: object) -> str | None`
+- Function L71: `_iter_tag_labels(tags: object) -> Iterable[str]`
+- Function L93: `_market_labels(info: Mapping[str, Any] | None) -> set[str]`
+- Function L121: `infer_maker_rebate_rate(*, market_info: Mapping[str, Any] | None, fee_rate_bps: Decimal) -> Decimal`
+- Function L151: `calculate_maker_rebate(*, quantity: Decimal, price: Decimal, fee_rate_bps: Decimal, maker_rebate_rate: Decimal) -> float`
+- Class L176: `PolymarketFeeModel(FeeModel)`
+  - Method L200: `__init__(self, *, maker_rebates_enabled: bool = True) -> None`
+  - Method L203: `get_commission(self, order, fill_qty, fill_px, instrument) -> Money`
 
 ### `prediction_market_extensions/adapters/polymarket/gamma_markets.py`
 - Imports: `__future__, collections, math, msgspec, nautilus_trader, os, typing`

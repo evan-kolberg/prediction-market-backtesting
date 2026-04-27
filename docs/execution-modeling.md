@@ -22,10 +22,46 @@ repo-level interpretation is:
 - Polymarket uses the current taker fee curve from venue metadata, plus CLOB
   fee-rate enrichment when the market payload itself still reports zero fees.
 - Polymarket maker fees are treated as zero.
+- Polymarket maker rebates are modeled for passive limit-order fills as a
+  negative commission. The credit uses the same fee-equivalent curve as taker
+  fees, then applies the documented rebate share: 20% for crypto markets and
+  25% for other fee-enabled categories.
 - If a venue reports zero fees for a market, the backtest applies zero fees
-  rather than inventing a fallback.
+  and zero maker rebates rather than inventing a fallback.
+- If a fee-enabled market cannot be mapped to a documented rebate category from
+  market metadata or a documented fee rate, the backtest applies no maker
+  rebate for that market.
 - Kalshi fee logic remains in the extension layer, but the public v3 runner
   surface is Polymarket book replay.
+
+### Maker Rebates
+
+Polymarket's Maker Rebates program pays daily USDC rebates to liquidity
+providers whose resting orders are taken. The documented fee-equivalent value
+for each filled maker order is:
+
+```text
+fee_equivalent = C x feeRate x p x (1 - p)
+```
+
+The backtest credits maker fills with:
+
+```text
+maker_rebate = fee_equivalent x maker_rebate_share
+```
+
+This is represented as a negative commission on `LIMIT` fills. It preserves the
+per-fill economics of the rebate pool without pretending to know wallet-level
+daily payout timing or the complete set of competing makers.
+
+Two important realism boundaries remain:
+
+- The Polymarket $1 minimum accrued payout threshold is not modeled because
+  Nautilus fee callbacks do not maintain wallet/day-level settlement state.
+- Polymarket Liquidity Rewards are separate from Maker Rebates. They depend on
+  resting-order scoring, market-wide samples, min-size/max-spread configs, and
+  daily reward allocations. They are not credited as PnL until the framework can
+  reconstruct that market-wide state without look-ahead.
 
 ## Slippage
 
