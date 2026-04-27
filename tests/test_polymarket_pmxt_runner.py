@@ -54,8 +54,13 @@ def test_pmxt_runner_uses_l2_execution_settings(monkeypatch):
     assert backtest.data.platform == "polymarket"
     assert backtest.data.data_type == "book"
     assert backtest.data.vendor == "pmxt"
-    assert backtest.execution.queue_position is False
-    assert backtest.execution.build_latency_model() is None
+    assert backtest.execution.queue_position is True
+    latency_model = backtest.execution.build_latency_model()
+    assert latency_model is not None
+    assert latency_model.base_latency_nanos == 75_000_000
+    assert latency_model.insert_latency_nanos == 85_000_000
+    assert latency_model.update_latency_nanos == 80_000_000
+    assert latency_model.cancel_latency_nanos == 80_000_000
 
 
 def test_pmxt_runner_forwards_queue_position_and_latency(monkeypatch):

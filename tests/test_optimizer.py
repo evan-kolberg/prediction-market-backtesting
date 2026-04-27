@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import csv
 import json
+import math
 import warnings
 from dataclasses import replace
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -37,6 +40,13 @@ def _result_for_score(score: float) -> dict[str, object]:
         "terminated_early": False,
         "equity_series": [(0, 100.0), (1, 100.0 + score)],
     }
+
+
+def _strict_json_loads(text: str) -> object:
+    def _reject_constant(value: str) -> None:
+        raise ValueError(f"non-strict JSON constant {value}")
+
+    return json.loads(text, parse_constant=_reject_constant)
 
 
 def _make_config(
@@ -136,6 +146,34 @@ def test_sample_parameter_sets_is_deterministic_and_unique(tmp_path: Path) -> No
 
     full_grid_config = replace(config, max_trials=10)
     assert optimizer._sample_parameter_sets(full_grid_config) == candidates
+
+
+def test_parameter_candidates_preserve_typed_distinct_values(tmp_path: Path) -> None:
+    config = _make_config(
+        tmp_path,
+        parameter_grid={"edge": (Path("models/calibration.json"), "models/calibration.json")},
+        max_trials=10,
+    )
+
+    candidates = optimizer._parameter_candidates(config.parameter_grid)
+
+    assert candidates == [
+        (("edge", Path("models/calibration.json")),),
+        (("edge", "models/calibration.json"),),
+    ]
+
+
+def test_discrete_search_rejects_string_values(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="parameter_grid"):
+        _make_config(tmp_path, parameter_grid={"edge": "abc"})  # type: ignore[arg-type]
+
+    with pytest.raises(ValueError, match="parameter_space"):
+        _make_config(
+            tmp_path,
+            parameter_grid={},
+            parameter_space={"edge": {"type": "categorical", "choices": "abc"}},
+            sampler="random",
+        )
 
 
 def test_replace_search_placeholders_binds_nested_payloads() -> None:
@@ -328,6 +366,45 @@ def test_tpe_step_rejects_log_sampling(tmp_path: Path) -> None:
         )
 
 
+def test_tpe_int_space_rejects_silent_bound_truncation(tmp_path: Path) -> None:
+    for spec, match in (
+        ({"type": "int", "low": 1.5, "high": 8}, "int low must be an integer"),
+        ({"type": "int", "low": 1, "high": 8.5}, "int high must be an integer"),
+        ({"type": "int", "low": 1, "high": 10, "step": 4}, "divisible by step"),
+    ):
+        with pytest.raises(ValueError, match=match):
+            _make_config(
+                tmp_path,
+                strategy_spec={
+                    "strategy_path": "strategies:DemoStrategy",
+                    "config_path": "strategies:DemoConfig",
+                    "config": {"lookback": "__SEARCH__:lookback"},
+                },
+                parameter_grid={},
+                parameter_space={"lookback": spec},
+                sampler="tpe",
+            )
+
+
+def test_tpe_float_space_rejects_silent_bound_adjustment(tmp_path: Path) -> None:
+    for spec, match in (
+        ({"type": "float", "low": 0.0, "high": 1.0, "log": True}, "low > 0"),
+        ({"type": "float", "low": 0.0, "high": 1.0, "step": 0.3}, "divisible by step"),
+    ):
+        with pytest.raises(ValueError, match=match):
+            _make_config(
+                tmp_path,
+                strategy_spec={
+                    "strategy_path": "strategies:DemoStrategy",
+                    "config_path": "strategies:DemoConfig",
+                    "config": {"edge": "__SEARCH__:edge"},
+                },
+                parameter_grid={},
+                parameter_space={"edge": spec},
+                sampler="tpe",
+            )
+
+
 def test_optimizer_reruns_only_top_k_train_candidates_on_holdout_and_selects_by_holdout(
     tmp_path: Path,
 ) -> None:
@@ -395,6 +472,310 @@ def test_optimizer_keeps_failed_trials_visible_on_leaderboard(tmp_path: Path) ->
     assert failed_row.train_median_score == config.invalid_score
 
 
+def test_optimizer_makes_any_invalid_train_window_fatal(tmp_path: Path) -> None:
+    config = _make_config(
+        tmp_path,
+        parameter_grid={"edge": (1, 2)},
+        max_trials=2,
+        holdout_windows=(),
+        train_windows=(
+            _window("train-a", "2026-01-01T00:00:00Z", "2026-01-01T02:00:00Z"),
+            _window("train-b", "2026-01-02T00:00:00Z", "2026-01-02T02:00:00Z"),
+            _window("train-c", "2026-01-03T00:00:00Z", "2026-01-03T02:00:00Z"),
+        ),
+    )
+
+    def _evaluator(backtest: PredictionMarketBacktest) -> dict[str, object]:
+        edge = backtest.strategy_configs[0]["config"]["edge"]
+        window_name = backtest.replays[0].metadata["optimization_window"]
+        if edge == 1 and window_name == "train-b":
+            raise RuntimeError("simulated missing train window")
+        return _result_for_score(1_000.0 if edge == 1 else 10.0)
+
+    summary = optimizer.run_parameter_optimization(config, evaluator=_evaluator)
+
+    assert dict(summary.selected_params) == {"edge": 2}
+    invalid_row = next(row for row in summary.leaderboard if dict(row.params) == {"edge": 1})
+    assert invalid_row.train_median_score == config.invalid_score
+
+
+def test_optimizer_does_not_rescue_invalid_train_candidate_on_holdout(tmp_path: Path) -> None:
+    config = _make_config(
+        tmp_path,
+        parameter_grid={"edge": (1, 2)},
+        max_trials=2,
+        holdout_top_k=2,
+        train_windows=(
+            _window("train-a", "2026-01-01T00:00:00Z", "2026-01-01T02:00:00Z"),
+            _window("train-b", "2026-01-02T00:00:00Z", "2026-01-02T02:00:00Z"),
+        ),
+        holdout_windows=(_window("holdout-a", "2026-01-03T00:00:00Z", "2026-01-03T02:00:00Z"),),
+    )
+    calls: list[tuple[int, str]] = []
+
+    def _evaluator(backtest: PredictionMarketBacktest) -> dict[str, object]:
+        edge = backtest.strategy_configs[0]["config"]["edge"]
+        window_name = backtest.replays[0].metadata["optimization_window"]
+        calls.append((edge, window_name))
+        if edge == 1 and window_name == "train-b":
+            raise RuntimeError("simulated missing train window")
+        if window_name.startswith("holdout"):
+            return _result_for_score(1_000.0 if edge == 1 else 10.0)
+        return _result_for_score(100.0 if edge == 1 else 20.0)
+
+    summary = optimizer.run_parameter_optimization(config, evaluator=_evaluator)
+
+    assert dict(summary.selected_params) == {"edge": 2}
+    invalid_row = next(row for row in summary.leaderboard if dict(row.params) == {"edge": 1})
+    assert invalid_row.train_median_score == config.invalid_score
+    assert invalid_row.holdout_scores == ()
+    assert (1, "holdout-a") not in calls
+
+
+def test_optimizer_makes_any_invalid_holdout_window_fatal(tmp_path: Path) -> None:
+    config = _make_config(
+        tmp_path,
+        parameter_grid={"edge": (1, 2)},
+        max_trials=2,
+        holdout_top_k=2,
+        train_windows=(_window("train-a", "2026-01-01T00:00:00Z", "2026-01-01T02:00:00Z"),),
+        holdout_windows=(
+            _window("holdout-a", "2026-01-04T00:00:00Z", "2026-01-04T02:00:00Z"),
+            _window("holdout-b", "2026-01-05T00:00:00Z", "2026-01-05T02:00:00Z"),
+            _window("holdout-c", "2026-01-06T00:00:00Z", "2026-01-06T02:00:00Z"),
+        ),
+    )
+
+    def _evaluator(backtest: PredictionMarketBacktest) -> dict[str, object]:
+        edge = backtest.strategy_configs[0]["config"]["edge"]
+        window_name = backtest.replays[0].metadata["optimization_window"]
+        if window_name.startswith("train"):
+            return _result_for_score(20.0 if edge == 1 else 19.0)
+        if edge == 1 and window_name == "holdout-b":
+            raise RuntimeError("simulated missing holdout window")
+        return _result_for_score(1_000.0 if edge == 1 else 10.0)
+
+    summary = optimizer.run_parameter_optimization(config, evaluator=_evaluator)
+
+    assert dict(summary.selected_params) == {"edge": 2}
+    invalid_row = next(row for row in summary.leaderboard if dict(row.params) == {"edge": 1})
+    assert invalid_row.holdout_median_score == config.invalid_score
+
+
+def test_optimizer_maps_nonfinite_metrics_to_invalid_score(tmp_path: Path) -> None:
+    config = _make_config(
+        tmp_path,
+        parameter_grid={"edge": (1, 2, 3, 4)},
+        max_trials=4,
+        holdout_windows=(),
+        train_windows=(_window("train-a", "2026-01-01T00:00:00Z", "2026-01-01T02:00:00Z"),),
+    )
+
+    def _evaluator(backtest: PredictionMarketBacktest) -> dict[str, object]:
+        edge = backtest.strategy_configs[0]["config"]["edge"]
+        if edge == 1:
+            return _result_for_score(float("nan"))
+        if edge == 2:
+            return _result_for_score(float("inf"))
+        if edge == 3:
+            result = _result_for_score(1_000.0)
+            result["equity_series"] = [
+                ("2026-01-01T00:00:00Z", float("nan")),
+                ("2026-01-01T00:01:00Z", float("inf")),
+            ]
+            return result
+        return _result_for_score(1.0)
+
+    summary = optimizer.run_parameter_optimization(config, evaluator=_evaluator)
+
+    assert dict(summary.selected_params) == {"edge": 4}
+    invalid_rows = [
+        row
+        for row in summary.leaderboard
+        if dict(row.params) in ({"edge": 1}, {"edge": 2}, {"edge": 3})
+    ]
+    assert len(invalid_rows) == 3
+    assert all(row.train_scores == (config.invalid_score,) for row in invalid_rows)
+
+
+def test_optimizer_maps_empty_and_wrong_result_counts_to_invalid_score(tmp_path: Path) -> None:
+    config = _make_config(
+        tmp_path,
+        parameter_grid={"edge": (1, 2, 3)},
+        max_trials=3,
+        holdout_windows=(),
+        train_windows=(_window("train-a", "2026-01-01T00:00:00Z", "2026-01-01T02:00:00Z"),),
+    )
+
+    def _evaluator(backtest: PredictionMarketBacktest) -> object:
+        edge = backtest.strategy_configs[0]["config"]["edge"]
+        if edge == 1:
+            return []
+        if edge == 2:
+            return [_result_for_score(1.0), _result_for_score(2.0)]
+        return _result_for_score(3.0)
+
+    summary = optimizer.run_parameter_optimization(config, evaluator=_evaluator)
+
+    assert dict(summary.selected_params) == {"edge": 3}
+    invalid_rows = [
+        row for row in summary.leaderboard if dict(row.params) in ({"edge": 1}, {"edge": 2})
+    ]
+    assert len(invalid_rows) == 2
+    assert all(row.train_scores == (config.invalid_score,) for row in invalid_rows)
+
+
+def test_optimizer_requires_equity_series_for_scoring(tmp_path: Path) -> None:
+    config = _make_config(
+        tmp_path,
+        parameter_grid={"edge": (1, 2, 3)},
+        max_trials=3,
+        holdout_windows=(),
+        train_windows=(_window("train-a", "2026-01-01T00:00:00Z", "2026-01-01T02:00:00Z"),),
+    )
+
+    def _evaluator(backtest: PredictionMarketBacktest) -> dict[str, object]:
+        edge = backtest.strategy_configs[0]["config"]["edge"]
+        if edge == 1:
+            result = _result_for_score(1_000.0)
+            result.pop("equity_series")
+            return result
+        if edge == 2:
+            result = _result_for_score(900.0)
+            result["equity_series"] = []
+            return result
+        return _result_for_score(3.0)
+
+    summary = optimizer.run_parameter_optimization(config, evaluator=_evaluator)
+
+    assert dict(summary.selected_params) == {"edge": 3}
+    invalid_rows = [
+        row for row in summary.leaderboard if dict(row.params) in ({"edge": 1}, {"edge": 2})
+    ]
+    assert len(invalid_rows) == 2
+    assert all(row.train_scores == (config.invalid_score,) for row in invalid_rows)
+
+
+def test_optimizer_rejects_duplicate_multi_replay_result_identifiers(tmp_path: Path) -> None:
+    replays = (
+        BookReplay(market_slug="market-one", token_index=0),
+        BookReplay(market_slug="market-two", token_index=0),
+    )
+    config = _make_config(
+        tmp_path,
+        parameter_grid={"edge": (1, 2)},
+        max_trials=2,
+        holdout_windows=(),
+        train_windows=(_window("train-a", "2026-01-01T00:00:00Z", "2026-01-01T02:00:00Z"),),
+    )
+    config = replace(config, base_replays=replays, base_replay=config.base_replay)
+
+    def _market_result(score: float, slug: str) -> dict[str, object]:
+        result = _result_for_score(score)
+        result["slug"] = slug
+        result["token_index"] = 0
+        return result
+
+    def _evaluator(backtest: PredictionMarketBacktest) -> list[dict[str, object]]:
+        edge = backtest.strategy_configs[0]["config"]["edge"]
+        if edge == 1:
+            return [_market_result(100.0, "market-one"), _market_result(100.0, "market-one")]
+        return [_market_result(10.0, "market-one"), _market_result(10.0, "market-two")]
+
+    summary = optimizer.run_parameter_optimization(config, evaluator=_evaluator)
+
+    assert dict(summary.selected_params) == {"edge": 2}
+    invalid_row = next(row for row in summary.leaderboard if dict(row.params) == {"edge": 1})
+    assert invalid_row.train_scores == (config.invalid_score,)
+
+
+def test_optimizer_rejects_missing_multi_replay_result_identifiers(
+    tmp_path: Path,
+) -> None:
+    replays = (
+        BookReplay(market_slug="market-one", token_index=0),
+        BookReplay(market_slug="market-two", token_index=0),
+    )
+    config = _make_config(
+        tmp_path,
+        parameter_grid={"edge": (1, 2)},
+        max_trials=2,
+        holdout_windows=(),
+        train_windows=(_window("train-a", "2026-01-01T00:00:00Z", "2026-01-01T02:00:00Z"),),
+    )
+    config = replace(config, base_replays=replays, base_replay=config.base_replay)
+
+    def _market_result(score: float, slug: str | None) -> dict[str, object]:
+        result = _result_for_score(score)
+        if slug is not None:
+            result["slug"] = slug
+            result["token_index"] = 0
+        return result
+
+    def _evaluator(backtest: PredictionMarketBacktest) -> list[dict[str, object]]:
+        edge = backtest.strategy_configs[0]["config"]["edge"]
+        if edge == 1:
+            return [_market_result(100.0, None), _market_result(100.0, None)]
+        return [_market_result(10.0, "market-one"), _market_result(10.0, "market-two")]
+
+    summary = optimizer.run_parameter_optimization(config, evaluator=_evaluator)
+
+    assert dict(summary.selected_params) == {"edge": 2}
+    invalid_row = next(row for row in summary.leaderboard if dict(row.params) == {"edge": 1})
+    assert invalid_row.train_scores == (config.invalid_score,)
+
+
+def test_optimizer_treats_backtest_realism_invalid_as_invalid_score(tmp_path: Path) -> None:
+    config = _make_config(
+        tmp_path,
+        parameter_grid={"edge": (1, 2)},
+        max_trials=2,
+        holdout_windows=(),
+        train_windows=(_window("train-a", "2026-01-01T00:00:00Z", "2026-01-01T02:00:00Z"),),
+    )
+
+    def _evaluator(backtest: PredictionMarketBacktest) -> dict[str, object]:
+        edge = backtest.strategy_configs[0]["config"]["edge"]
+        if edge == 1:
+            result = _result_for_score(1_000.0)
+            result["backtest_realism_invalid"] = True
+            return result
+        return _result_for_score(10.0)
+
+    summary = optimizer.run_parameter_optimization(config, evaluator=_evaluator)
+
+    assert dict(summary.selected_params) == {"edge": 2}
+    invalid_row = next(row for row in summary.leaderboard if dict(row.params) == {"edge": 1})
+    assert invalid_row.train_scores == (config.invalid_score,)
+    assert invalid_row.train_median_pnl == 1_000.0
+
+
+def test_random_sampler_accepts_all_categorical_parameter_space(tmp_path: Path) -> None:
+    config = _make_config(
+        tmp_path,
+        parameter_grid={},
+        parameter_space={"edge": {"type": "categorical", "choices": (2, 1)}},
+        sampler="random",
+        max_trials=2,
+        holdout_windows=(),
+    )
+
+    assert optimizer._parameter_candidates(config.parameter_grid) == [
+        (("edge", 2),),
+        (("edge", 1),),
+    ]
+
+
+def test_random_sampler_rejects_continuous_parameter_space(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="sampler='random'"):
+        _make_config(
+            tmp_path,
+            parameter_grid={},
+            parameter_space={"edge": {"type": "float", "low": 0.001, "high": 0.01}},
+            sampler="random",
+        )
+
+
 def test_run_parameter_optimization_writes_artifacts(tmp_path: Path) -> None:
     config = _make_config(
         tmp_path,
@@ -426,6 +807,77 @@ def test_run_parameter_optimization_writes_artifacts(tmp_path: Path) -> None:
     assert set(payload["best_candidate"]["params"]) == {"edge"}
 
 
+def test_run_parameter_optimization_serializes_json_safe_params(tmp_path: Path) -> None:
+    config = _make_config(
+        tmp_path,
+        name="optimizer_json_safe_params",
+        parameter_grid={
+            "edge": (
+                Path("models/calibration.json"),
+                datetime(2026, 1, 1, 12, 30, tzinfo=UTC),
+            )
+        },
+        max_trials=2,
+        holdout_windows=(),
+    )
+
+    def _evaluator(backtest: PredictionMarketBacktest) -> dict[str, object]:
+        value = backtest.strategy_configs[0]["config"]["edge"]
+        return _result_for_score(2.0 if isinstance(value, datetime) else 1.0)
+
+    summary = optimizer.run_parameter_optimization(config, evaluator=_evaluator)
+
+    payload = json.loads(Path(summary.summary_json_path).read_text(encoding="utf-8"))
+    assert payload["selected_params"] == {"edge": "2026-01-01T12:30:00+00:00"}
+    assert payload["best_candidate"]["params"] == {"edge": "2026-01-01T12:30:00+00:00"}
+    csv_text = Path(summary.leaderboard_csv_path).read_text(encoding="utf-8")
+    assert '"models/calibration.json"' in csv_text
+    assert '"2026-01-01T12:30:00+00:00"' in csv_text
+
+
+def test_run_parameter_optimization_serializes_nonfinite_params_as_strict_json(
+    tmp_path: Path,
+) -> None:
+    config = _make_config(
+        tmp_path,
+        name="optimizer_nonfinite_json_safe_params",
+        parameter_grid={
+            "edge": (
+                Path("models/calibration.json"),
+                datetime(2026, 1, 1, 12, 30, tzinfo=UTC),
+                float("nan"),
+                float("inf"),
+            )
+        },
+        max_trials=4,
+        holdout_windows=(),
+    )
+
+    def _evaluator(backtest: PredictionMarketBacktest) -> dict[str, object]:
+        value = backtest.strategy_configs[0]["config"]["edge"]
+        if isinstance(value, float) and math.isnan(value):
+            return _result_for_score(4.0)
+        if isinstance(value, float) and math.isinf(value):
+            return _result_for_score(3.0)
+        if isinstance(value, datetime):
+            return _result_for_score(2.0)
+        return _result_for_score(1.0)
+
+    summary = optimizer.run_parameter_optimization(config, evaluator=_evaluator)
+
+    summary_text = Path(summary.summary_json_path).read_text(encoding="utf-8")
+    payload = _strict_json_loads(summary_text)
+    assert payload["selected_params"] == {"edge": "nan"}  # type: ignore[index]
+    assert "NaN" not in summary_text
+    assert "Infinity" not in summary_text
+
+    with Path(summary.leaderboard_csv_path).open(encoding="utf-8", newline="") as handle:
+        rows = list(csv.DictReader(handle))
+    params = [_strict_json_loads(row["params_json"]) for row in rows]
+    assert {"edge": "nan"} in params
+    assert {"edge": "inf"} in params
+
+
 def test_joint_portfolio_drawdown_captures_diversification() -> None:
     # Two anti-correlated equity curves: market A dips while B rises, and
     # vice versa. Joint portfolio drawdown should be much smaller than the
@@ -451,6 +903,198 @@ def test_joint_portfolio_drawdown_captures_diversification() -> None:
     assert joint == pytest.approx(0.0, abs=1e-9)
 
 
+def test_joint_portfolio_drawdown_rejects_nonfinite_values() -> None:
+    for value in (float("nan"), float("inf"), -float("inf")):
+        joint = optimizer._joint_portfolio_drawdown(
+            [
+                [
+                    ("2026-01-01T00:00:00Z", 100.0),
+                    ("2026-01-01T01:00:00Z", value),
+                    ("2026-01-01T02:00:00Z", 90.0),
+                ]
+            ]
+        )
+
+        assert not math.isfinite(joint)
+
+
+def test_optimizer_rejects_malformed_joint_equity_timestamps(tmp_path: Path) -> None:
+    replays = (
+        BookReplay(market_slug="market-one", token_index=0),
+        BookReplay(market_slug="market-two", token_index=0),
+    )
+    config = _make_config(
+        tmp_path,
+        parameter_grid={"edge": (1,)},
+        max_trials=1,
+        holdout_windows=(),
+        train_windows=(_window("train-a", "2026-01-01T00:00:00Z", "2026-01-01T02:00:00Z"),),
+    )
+    config = replace(config, base_replays=replays, base_replay=config.base_replay)
+
+    def _market_result(score: float, slug: str, equity_series: object) -> dict[str, object]:
+        result = _result_for_score(score)
+        result["slug"] = slug
+        result["token_index"] = 0
+        result["equity_series"] = equity_series
+        return result
+
+    evaluation = optimizer._evaluate_window(
+        config=config,
+        evaluator=lambda _backtest: [
+            _market_result(100.0, "market-one", [("not-a-timestamp", 100.0)]),
+            _market_result(
+                100.0,
+                "market-two",
+                [
+                    ("2026-01-01T00:00:00Z", 100.0),
+                    ("2026-01-01T01:00:00Z", 90.0),
+                ],
+            ),
+        ],
+        trial_id=1,
+        params=(("edge", 1),),
+        window=config.train_windows[0],
+    )
+
+    assert evaluation.status == "invalid_nonfinite_metric"
+    assert evaluation.score == config.invalid_score
+    assert evaluation.error == "max_drawdown_currency is non-finite: nan"
+
+
+def test_optimizer_uses_returned_joint_portfolio_equity_series_for_drawdown(
+    tmp_path: Path,
+) -> None:
+    replays = (
+        BookReplay(market_slug="market-one", token_index=0),
+        BookReplay(market_slug="market-two", token_index=0),
+    )
+    config = _make_config(
+        tmp_path,
+        parameter_grid={"edge": (1, 2)},
+        max_trials=2,
+        holdout_windows=(),
+        train_windows=(_window("train-a", "2026-01-01T00:00:00Z", "2026-01-01T02:00:00Z"),),
+    )
+    config = replace(config, base_replays=replays, base_replay=config.base_replay)
+
+    def _market_result(
+        score: float,
+        *,
+        slug: str,
+        equity_series: object,
+        joint_portfolio_equity_series: object | None = None,
+    ) -> dict[str, object]:
+        result = _result_for_score(score)
+        result["slug"] = slug
+        result["token_index"] = 0
+        result["equity_series"] = equity_series
+        if joint_portfolio_equity_series is not None:
+            result["joint_portfolio_equity_series"] = joint_portfolio_equity_series
+        return result
+
+    def _evaluator(backtest: PredictionMarketBacktest) -> list[dict[str, object]]:
+        edge = backtest.strategy_configs[0]["config"]["edge"]
+        if edge == 1:
+            return [
+                _market_result(
+                    3.0,
+                    slug="market-one",
+                    equity_series=[
+                        ("2026-01-01T00:00:00Z", 100.0),
+                        ("2026-01-01T01:00:00Z", 70.0),
+                        ("2026-01-01T02:00:00Z", 103.0),
+                    ],
+                    joint_portfolio_equity_series=[
+                        ("2026-01-01T00:00:00Z", 200.0),
+                        ("2026-01-01T01:00:00Z", 200.0),
+                        ("2026-01-01T02:00:00Z", 206.0),
+                    ],
+                ),
+                _market_result(
+                    3.0,
+                    slug="market-two",
+                    equity_series=[
+                        ("2026-01-01T00:00:00Z", 100.0),
+                        ("2026-01-01T01:00:00Z", 70.0),
+                        ("2026-01-01T02:00:00Z", 103.0),
+                    ],
+                ),
+            ]
+        return [
+            _market_result(
+                2.0,
+                slug="market-one",
+                equity_series=[("2026-01-01T00:00:00Z", 100.0)],
+            ),
+            _market_result(
+                2.0,
+                slug="market-two",
+                equity_series=[("2026-01-01T00:00:00Z", 100.0)],
+            ),
+        ]
+
+    summary = optimizer.run_parameter_optimization(config, evaluator=_evaluator)
+
+    assert dict(summary.selected_params) == {"edge": 1}
+    best_row = summary.best_row
+    assert best_row.train_median_pnl == pytest.approx(6.0)
+    assert best_row.train_median_drawdown == pytest.approx(0.0)
+    assert best_row.train_scores == (6.0,)
+
+
+def test_optimizer_rejects_nonfinite_returned_joint_portfolio_equity_series(
+    tmp_path: Path,
+) -> None:
+    replays = (
+        BookReplay(market_slug="market-one", token_index=0),
+        BookReplay(market_slug="market-two", token_index=0),
+    )
+    config = _make_config(
+        tmp_path,
+        parameter_grid={"edge": (1, 2)},
+        max_trials=2,
+        holdout_windows=(),
+        train_windows=(_window("train-a", "2026-01-01T00:00:00Z", "2026-01-01T02:00:00Z"),),
+    )
+    config = replace(config, base_replays=replays, base_replay=config.base_replay)
+
+    def _market_result(
+        score: float,
+        *,
+        slug: str,
+        joint_portfolio_equity_series: object | None = None,
+    ) -> dict[str, object]:
+        result = _result_for_score(score)
+        result["slug"] = slug
+        result["token_index"] = 0
+        if joint_portfolio_equity_series is not None:
+            result["joint_portfolio_equity_series"] = joint_portfolio_equity_series
+        return result
+
+    def _evaluator(backtest: PredictionMarketBacktest) -> list[dict[str, object]]:
+        edge = backtest.strategy_configs[0]["config"]["edge"]
+        if edge == 1:
+            return [
+                _market_result(
+                    1_000.0,
+                    slug="market-one",
+                    joint_portfolio_equity_series=[
+                        ("2026-01-01T00:00:00Z", 200.0),
+                        ("2026-01-01T01:00:00Z", float("nan")),
+                    ],
+                ),
+                _market_result(1_000.0, slug="market-two"),
+            ]
+        return [_market_result(1.0, slug="market-one"), _market_result(1.0, slug="market-two")]
+
+    summary = optimizer.run_parameter_optimization(config, evaluator=_evaluator)
+
+    assert dict(summary.selected_params) == {"edge": 2}
+    invalid_row = next(row for row in summary.leaderboard if dict(row.params) == {"edge": 1})
+    assert invalid_row.train_scores == (config.invalid_score,)
+
+
 def test_joint_portfolio_drawdown_tracks_concurrent_losses() -> None:
     # Two correlated curves that drop at the same time should produce a
     # joint drawdown equal to the sum of individual drawdowns.
@@ -461,6 +1105,22 @@ def test_joint_portfolio_drawdown_tracks_concurrent_losses() -> None:
     ]
     joint = optimizer._joint_portfolio_drawdown([series, series])
     assert joint == pytest.approx(40.0)
+
+
+def test_joint_portfolio_drawdown_backfills_later_market_starts() -> None:
+    market_a = [
+        ("2026-01-01T00:00:00Z", 100.0),
+        ("2026-01-01T01:00:00Z", 90.0),
+        ("2026-01-01T02:00:00Z", 90.0),
+    ]
+    market_b = [
+        ("2026-01-01T01:00:00Z", 100.0),
+        ("2026-01-01T02:00:00Z", 100.0),
+    ]
+
+    joint = optimizer._joint_portfolio_drawdown([market_a, market_b])
+
+    assert joint == pytest.approx(10.0)
 
 
 def test_parameter_search_config_accepts_base_replays_for_multi_market(

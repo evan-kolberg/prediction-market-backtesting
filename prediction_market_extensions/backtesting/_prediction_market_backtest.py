@@ -31,10 +31,17 @@ from prediction_market_extensions.backtesting._backtest_runtime import (
     add_engine_data_by_type,
     build_backtest_run_state,
 )
-from prediction_market_extensions.backtesting._execution_config import ExecutionModelConfig
+from prediction_market_extensions.backtesting._execution_config import (
+    ExecutionModelConfig,
+    StaticLatencyConfig,
+)
 from prediction_market_extensions.backtesting._market_data_config import MarketDataConfig
+from prediction_market_extensions.backtesting._prediction_market_order_guard import (
+    PredictionMarketOrderGuard,
+)
 from prediction_market_extensions.backtesting._replay_specs import ReplaySpec
 from prediction_market_extensions.backtesting._result_policies import (
+    append_result_warning,
     apply_joint_portfolio_settlement_pnl,
     apply_repo_research_disclosures,
 )
@@ -68,6 +75,19 @@ type StrategyFactory = Callable[[InstrumentId], Strategy]
 
 LARGE_DATA_GAP_NS = 4 * 60 * 60 * 1_000_000_000
 REPO_STATUS_TOPIC = "prediction_market.backtest.status"
+DEFAULT_PREDICTION_MARKET_LATENCY = StaticLatencyConfig(
+    base_latency_ms=75.0,
+    insert_latency_ms=10.0,
+    update_latency_ms=5.0,
+    cancel_latency_ms=5.0,
+)
+
+
+def _default_prediction_market_execution() -> ExecutionModelConfig:
+    return ExecutionModelConfig(
+        queue_position=True,
+        latency_model=DEFAULT_PREDICTION_MARKET_LATENCY,
+    )
 
 
 def _record_ts_event(record: Any) -> int | None:
@@ -118,6 +138,75 @@ def _serialize_engine_result_stats(engine_result: Any) -> dict[str, Any]:
     }
 
 
+def _install_prediction_market_order_guard(
+    strategy: Strategy, order_guard: PredictionMarketOrderGuard
+) -> Strategy:
+    order_guard.install(strategy)
+    return strategy
+
+
+def _apply_order_guard_warnings(
+    results: list[dict[str, Any]],
+    order_guard: PredictionMarketOrderGuard,
+) -> None:
+    if not results:
+        return
+    for warning in order_guard.warnings:
+        append_result_warning(results[0], warning)
+
+
+def _timestamp_ns_from_iso(value: object | None) -> int | None:
+    if value is None:
+        return None
+    try:
+        timestamp = pd.Timestamp(value)
+    except (TypeError, ValueError):
+        return None
+    if pd.isna(timestamp):
+        return None
+    if timestamp.tzinfo is None:
+        timestamp = timestamp.tz_localize("UTC")
+    else:
+        timestamp = timestamp.tz_convert("UTC")
+    return int(timestamp.value)
+
+
+def _iso_from_nanos(timestamp_ns: int) -> str:
+    return pd.Timestamp(timestamp_ns, unit="ns", tz="UTC").isoformat()
+
+
+def _run_state_for_loaded_sim(
+    *,
+    data: Sequence[Any],
+    backtest_end_ns: int | None,
+    forced_stop: bool,
+    loaded_sim: LoadedReplay,
+) -> dict[str, Any]:
+    run_state = build_backtest_run_state(
+        data=data,
+        backtest_end_ns=backtest_end_ns,
+        forced_stop=forced_stop,
+        requested_start_ns=loaded_sim.requested_window.start_ns,
+        requested_end_ns=loaded_sim.requested_window.end_ns,
+    )
+    if forced_stop:
+        return run_state
+
+    expiration_ns_value = loaded_sim.metadata.get("records_clipped_at_expiration_ns")
+    try:
+        expiration_ns = int(expiration_ns_value)
+    except (TypeError, ValueError):
+        return run_state
+    requested_end_ns = loaded_sim.requested_window.end_ns
+    if requested_end_ns is None or requested_end_ns < expiration_ns:
+        return run_state
+
+    simulated_through_ns = _timestamp_ns_from_iso(run_state.get("simulated_through"))
+    if simulated_through_ns is None or simulated_through_ns < expiration_ns:
+        run_state["simulated_through"] = _iso_from_nanos(expiration_ns)
+    return run_state
+
+
 class PredictionMarketBacktest:
     def __init__(
         self,
@@ -163,7 +252,9 @@ class PredictionMarketBacktest:
         self.default_start_time = default_start_time
         self.default_end_time = default_end_time
         self.nautilus_log_level = nautilus_log_level
-        self.execution = execution if execution is not None else ExecutionModelConfig()
+        self.execution = (
+            execution if execution is not None else _default_prediction_market_execution()
+        )
         self.chart_resample_rule = chart_resample_rule
         self.return_summary_series = return_summary_series
 
@@ -208,12 +299,23 @@ class PredictionMarketBacktest:
                 engine.add_instrument(loaded_sim.instrument)
                 add_engine_data_by_type(engine, list(loaded_sim.records))
 
+            order_guard = PredictionMarketOrderGuard()
             if self.strategy_factory is not None:
                 for loaded_sim in loaded_sims:
-                    engine.add_strategy(self.strategy_factory(loaded_sim.instrument.id))
+                    engine.add_strategy(
+                        _install_prediction_market_order_guard(
+                            self.strategy_factory(loaded_sim.instrument.id),
+                            order_guard,
+                        )
+                    )
             else:
                 for importable_config in self._build_importable_strategy_configs(loaded_sims):
-                    engine.add_strategy(NautilusStrategyFactory.create(importable_config))
+                    engine.add_strategy(
+                        _install_prediction_market_order_guard(
+                            NautilusStrategyFactory.create(importable_config),
+                            order_guard,
+                        )
+                    )
 
             _emit_engine_status(
                 engine,
@@ -242,16 +344,16 @@ class PredictionMarketBacktest:
                     joint_portfolio_artifacts=joint_portfolio_artifacts
                     if result_index == 0
                     else None,
-                    run_state=build_backtest_run_state(
+                    run_state=_run_state_for_loaded_sim(
                         data=loaded_sim.records,
                         backtest_end_ns=engine_result.backtest_end,
                         forced_stop=forced_stop,
-                        requested_start_ns=loaded_sim.requested_window.start_ns,
-                        requested_end_ns=loaded_sim.requested_window.end_ns,
+                        loaded_sim=loaded_sim,
                     ),
                 )
                 for result_index, loaded_sim in enumerate(loaded_sims)
             ]
+            _apply_order_guard_warnings(results, order_guard)
             apply_joint_portfolio_settlement_pnl(results)
             if results:
                 results[0]["portfolio_stats"] = _serialize_engine_result_stats(engine_result)

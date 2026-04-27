@@ -19,6 +19,7 @@ from prediction_market_extensions.analysis.legacy_backtesting.models import (
     PANEL_BRIER_ADVANTAGE,
     PANEL_DRAWDOWN,
     PANEL_EQUITY,
+    PANEL_MARKET_PNL,
     PANEL_TOTAL_BRIER_ADVANTAGE,
     PANEL_TOTAL_CASH_EQUITY,
     PANEL_TOTAL_DRAWDOWN,
@@ -72,6 +73,241 @@ def test_select_display_markets_prioritizes_filled_markets_when_limited() -> Non
     )
 
     assert display_markets == ["filled-market"]
+
+
+def test_allocation_values_no_token_at_its_own_price() -> None:
+    start = pd.Timestamp("2026-03-14T18:00:00")
+    eq = pd.DataFrame(
+        {
+            "datetime": [start, start + pd.Timedelta(minutes=1)],
+            "cash": [97.0, 97.0],
+            "equity": [100.0, 101.0],
+            "drawdown_pct": [0.0, 0.0],
+        }
+    )
+    fills_df = pd.DataFrame(
+        {
+            "datetime": [start],
+            "market_id": ["no-token"],
+            "action": ["buy"],
+            "side": ["no"],
+            "price": [0.30],
+            "quantity": [10.0],
+            "commission": [0.0],
+            "bar": [0],
+        }
+    )
+
+    allocation = plotting._build_allocation_data(
+        eq,
+        fills_df,
+        {"no-token": [(start, 0.30), (start + pd.Timedelta(minutes=1), 0.40)]},
+    )
+
+    assert allocation["no-token"].tolist() == pytest.approx([3.0, 4.0])
+
+
+def test_allocation_preserves_short_liability_sign() -> None:
+    start = pd.Timestamp("2026-04-01T00:00:00")
+    eq = pd.DataFrame(
+        {
+            "datetime": [start, start + pd.Timedelta(minutes=1)],
+            "cash": [106.0, 106.0],
+            "equity": [100.0, 100.0],
+            "drawdown_pct": [0.0, 0.0],
+        }
+    )
+    fills_df = pd.DataFrame(
+        {
+            "datetime": [start],
+            "market_id": ["short-yes-market"],
+            "action": ["sell"],
+            "side": ["yes"],
+            "price": [0.60],
+            "quantity": [10.0],
+            "commission": [0.0],
+            "bar": [0],
+        }
+    )
+
+    allocation = plotting._build_allocation_data(
+        eq,
+        fills_df,
+        {"short-yes-market": [(start, 0.60), (start + pd.Timedelta(minutes=1), 0.60)]},
+    )
+
+    assert allocation["short-yes-market"].tolist() == pytest.approx([-6.0, -6.0])
+    assert allocation["Cash"].tolist() == pytest.approx([106.0, 106.0])
+
+
+def test_allocation_zeroes_settled_position_on_price_feed_final_bar() -> None:
+    start = pd.Timestamp("2026-04-01T00:00:00")
+    settlement = start + pd.Timedelta(minutes=5)
+    eq = pd.DataFrame(
+        {
+            "datetime": [start, settlement],
+            "cash": [995.25, 1000.25],
+            "equity": [1000.0, 1000.25],
+            "drawdown_pct": [0.0, 0.0],
+        }
+    )
+    fills_df = pd.DataFrame(
+        {
+            "datetime": [start],
+            "market_id": ["yes-winner"],
+            "action": ["buy"],
+            "side": ["yes"],
+            "price": [0.95],
+            "quantity": [5.0],
+            "commission": [0.0],
+            "bar": [0],
+        }
+    )
+
+    allocation = plotting._build_allocation_data(
+        eq,
+        fills_df,
+        {"yes-winner": [(start, 0.95), (settlement, 0.95)]},
+    )
+
+    assert allocation["yes-winner"].tolist() == pytest.approx([4.75, 0.0])
+    assert allocation["Cash"].tolist() == pytest.approx([995.25, 1000.25])
+
+
+def test_market_pnl_panel_plots_one_final_marker_per_market(tmp_path) -> None:
+    pytest.importorskip("bokeh")
+    from bokeh.models import ColumnDataSource
+
+    start = datetime(2026, 4, 1, tzinfo=UTC)
+    result = BacktestResult(
+        equity_curve=[
+            PortfolioSnapshot(
+                timestamp=start,
+                cash=99.0,
+                total_equity=100.0,
+                unrealized_pnl=1.0,
+                num_positions=1,
+            ),
+            PortfolioSnapshot(
+                timestamp=start.replace(minute=1),
+                cash=98.0,
+                total_equity=102.0,
+                unrealized_pnl=4.0,
+                num_positions=1,
+            ),
+        ],
+        fills=[
+            Fill(
+                order_id="fill-1",
+                market_id="repeat-market",
+                action=OrderAction.BUY,
+                side=Side.YES,
+                price=0.40,
+                quantity=2.0,
+                timestamp=start,
+            ),
+            Fill(
+                order_id="fill-2",
+                market_id="repeat-market",
+                action=OrderAction.BUY,
+                side=Side.YES,
+                price=0.45,
+                quantity=2.0,
+                timestamp=start.replace(minute=1),
+            ),
+        ],
+        metrics={},
+        strategy_name="market-pnl-repeat",
+        platform=Platform.POLYMARKET,
+        start_time=start,
+        end_time=start.replace(minute=1),
+        initial_cash=100.0,
+        final_equity=102.0,
+        num_markets_traded=1,
+        num_markets_resolved=1,
+        market_prices={
+            "repeat-market": [
+                (start, 0.40),
+                (start.replace(minute=1), 0.45),
+            ]
+        },
+        market_pnls={"repeat-market": 2.0},
+    )
+
+    layout = plotting.plot(
+        result,
+        filename=str(tmp_path / "market_pnl_repeat.html"),
+        open_browser=False,
+        progress=False,
+        plot_panels=("market_pnl",),
+    )
+
+    marker_sources = [
+        source
+        for source in layout.select({"type": ColumnDataSource})
+        if {"pnl_long", "pnl_short", "market_id"}.issubset(source.data)
+    ]
+
+    assert len(marker_sources) == 1
+    assert marker_sources[0].data["market_id"].tolist() == ["repeat-market"]
+    assert marker_sources[0].data["pnl_long"].tolist() == pytest.approx([2.0])
+
+
+def test_dense_adapter_replays_no_token_buy_as_long_token_quantity() -> None:
+    assert adapter._signed_quantity("buy", "no", 10.0) == pytest.approx(10.0)
+    assert adapter._signed_quantity("sell", "no", 4.0) == pytest.approx(-4.0)
+
+
+def test_monthly_returns_use_prior_month_end_for_sparse_equity(tmp_path) -> None:
+    pytest.importorskip("bokeh")
+    from bokeh.models import ColumnDataSource
+
+    snapshots = [
+        ("2026-01-31T23:59:00Z", 100.0),
+        ("2026-02-28T23:59:00Z", 110.0),
+        ("2026-03-31T23:59:00Z", 99.0),
+    ]
+    result = BacktestResult(
+        equity_curve=[
+            PortfolioSnapshot(
+                timestamp=pd.Timestamp(ts).to_pydatetime(),
+                cash=equity,
+                total_equity=equity,
+                unrealized_pnl=0.0,
+                num_positions=0,
+            )
+            for ts, equity in snapshots
+        ],
+        fills=[],
+        metrics={},
+        strategy_name="monthly-sparse",
+        platform=Platform.POLYMARKET,
+        start_time=pd.Timestamp(snapshots[0][0]).to_pydatetime(),
+        end_time=pd.Timestamp(snapshots[-1][0]).to_pydatetime(),
+        initial_cash=100.0,
+        final_equity=99.0,
+        num_markets_traded=0,
+        num_markets_resolved=0,
+        market_prices={},
+    )
+
+    layout = plotting.plot(
+        result,
+        filename=str(tmp_path / "monthly_sparse.html"),
+        open_browser=False,
+        progress=False,
+        plot_panels=("monthly_returns",),
+    )
+
+    source = next(
+        source
+        for source in layout.select({"type": ColumnDataSource})
+        if {"month", "year", "ret"}.issubset(source.data)
+    )
+    returns_by_month = dict(zip(source.data["month"], source.data["ret"], strict=True))
+
+    assert returns_by_month["Feb"] == pytest.approx(0.10)
+    assert returns_by_month["Mar"] == pytest.approx(-0.10)
 
 
 def test_yes_price_plot_renders_market_with_prices_but_no_fills(tmp_path) -> None:
@@ -662,6 +898,104 @@ def test_zero_fill_zero_cash_report_panels_do_not_crash(tmp_path) -> None:
 
     assert layout is not None
     assert output_path.exists()
+
+
+def test_market_pnl_panel_uses_resolved_market_pnl_for_fill_markers(tmp_path) -> None:
+    pytest.importorskip("bokeh")
+    from bokeh.models import ColumnDataSource
+
+    start = datetime(2026, 3, 14, 18, tzinfo=UTC)
+    result = BacktestResult(
+        equity_curve=[
+            PortfolioSnapshot(
+                timestamp=start,
+                cash=99.75,
+                total_equity=100.0,
+                unrealized_pnl=0.25,
+                num_positions=1,
+            ),
+            PortfolioSnapshot(
+                timestamp=start.replace(minute=1),
+                cash=104.75,
+                total_equity=104.75,
+                unrealized_pnl=0.0,
+                num_positions=0,
+            ),
+        ],
+        fills=[
+            Fill(
+                order_id="fill-1",
+                market_id="winning-market",
+                action=OrderAction.BUY,
+                side=Side.YES,
+                price=0.05,
+                quantity=5.0,
+                timestamp=start,
+            )
+        ],
+        metrics={},
+        strategy_name="resolved-pnl-marker",
+        platform=Platform.POLYMARKET,
+        start_time=start,
+        end_time=start.replace(minute=1),
+        initial_cash=100.0,
+        final_equity=104.75,
+        num_markets_traded=1,
+        num_markets_resolved=1,
+        market_prices={"winning-market": [(start, 0.05), (start.replace(minute=1), 1.0)]},
+        market_pnls={"winning-market": 4.75},
+    )
+
+    layout = plotting.plot(
+        result,
+        filename=str(tmp_path / "resolved_pnl_marker.html"),
+        open_browser=False,
+        progress=False,
+        plot_panels=(PANEL_MARKET_PNL,),
+    )
+
+    sources = list(layout.select({"type": ColumnDataSource}))
+    pnl_source = next(source for source in sources if "pnl_long" in source.data)
+    assert pnl_source.data["pnl_long"].tolist() == [4.75]
+    assert np.isnan(pnl_source.data["pnl_short"][0])
+    assert pnl_source.data["positive"].tolist() == ["1"]
+
+
+def test_build_dataframes_does_not_compute_percent_returns_from_negative_initial_cash() -> None:
+    start = datetime(2026, 3, 14, 18, tzinfo=UTC)
+    result = BacktestResult(
+        equity_curve=[
+            PortfolioSnapshot(
+                timestamp=start,
+                cash=-100.0,
+                total_equity=-100.0,
+                unrealized_pnl=0.0,
+                num_positions=0,
+            ),
+            PortfolioSnapshot(
+                timestamp=start.replace(minute=1),
+                cash=-90.0,
+                total_equity=-90.0,
+                unrealized_pnl=0.0,
+                num_positions=0,
+            ),
+        ],
+        fills=[],
+        metrics={},
+        strategy_name="negative-initial",
+        platform=Platform.POLYMARKET,
+        start_time=start,
+        end_time=start.replace(minute=1),
+        initial_cash=-100.0,
+        final_equity=-90.0,
+        num_markets_traded=0,
+        num_markets_resolved=1,
+    )
+
+    eq, _, _, _ = plotting._build_dataframes(result)
+
+    assert eq["equity_pct"].tolist() == [1.0, 1.0]
+    assert eq["return_pct"].tolist() == [0.0, 0.0]
 
 
 def test_total_rolling_sharpe_uses_equity_timestamps(

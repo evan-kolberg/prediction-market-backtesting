@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import time
+import warnings
 from collections.abc import Callable, Mapping
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
@@ -95,6 +96,115 @@ def _loaded_window(records: tuple[object, ...]) -> ReplayWindow | None:
     if start_ns is None and end_ns is None:
         return None
     return ReplayWindow(start_ns=start_ns, end_ns=end_ns)
+
+
+def _instrument_expiration_ns(instrument: Any) -> int | None:
+    value = getattr(instrument, "expiration_ns", None)
+    try:
+        expiration_ns = int(value)
+    except (TypeError, ValueError):
+        return None
+    return expiration_ns if expiration_ns > 0 else None
+
+
+def _clip_records_at_instrument_expiration(
+    *,
+    instrument: Any,
+    records: tuple[object, ...],
+    market_label: str,
+) -> tuple[tuple[object, ...], dict[str, Any]]:
+    expiration_ns = _instrument_expiration_ns(instrument)
+    if expiration_ns is None:
+        return records, {}
+
+    clipped = tuple(
+        record
+        for record in records
+        if (timestamp_ns := _record_timestamp_ns(record)) is None or timestamp_ns <= expiration_ns
+    )
+    dropped = len(records) - len(clipped)
+    if dropped <= 0:
+        return records, {}
+
+    warnings.warn(
+        f"Dropped {dropped} post-expiration replay record(s) for {market_label}; "
+        "prediction-market orders cannot fill after the instrument expiration.",
+        RuntimeWarning,
+        stacklevel=2,
+    )
+    return clipped, {
+        "post_expiration_records_dropped": dropped,
+        "records_clipped_at_expiration_ns": expiration_ns,
+    }
+
+
+def _book_is_crossed(book: OrderBook) -> bool:
+    best_bid = book.best_bid_price()
+    best_ask = book.best_ask_price()
+    return best_bid is not None and best_ask is not None and float(best_bid) >= float(best_ask)
+
+
+def _drop_crossed_l2_book_records(
+    *,
+    instrument: Any,
+    records: tuple[object, ...],
+    deltas_type: type[Any],
+    market_label: str,
+) -> tuple[tuple[object, ...], dict[str, Any]]:
+    book_records_seen = any(isinstance(record, deltas_type) for record in records)
+    if not book_records_seen:
+        return records, {}
+
+    local_book = OrderBook(instrument.id, book_type=BookType.L2_MBP)
+    has_valid_book = False
+    dropped_crossed = 0
+    dropped_without_snapshot = 0
+    sanitized: list[object] = []
+
+    for record in records:
+        if not isinstance(record, deltas_type):
+            sanitized.append(record)
+            continue
+
+        is_snapshot = bool(getattr(record, "is_snapshot", False))
+        if is_snapshot:
+            local_book = OrderBook(instrument.id, book_type=BookType.L2_MBP)
+            has_valid_book = False
+        elif not has_valid_book:
+            dropped_without_snapshot += 1
+            continue
+
+        try:
+            local_book.apply_deltas(record)
+        except Exception:
+            dropped_crossed += 1
+            local_book = OrderBook(instrument.id, book_type=BookType.L2_MBP)
+            has_valid_book = False
+            continue
+
+        if _book_is_crossed(local_book):
+            dropped_crossed += 1
+            local_book = OrderBook(instrument.id, book_type=BookType.L2_MBP)
+            has_valid_book = False
+            continue
+
+        has_valid_book = True
+        sanitized.append(record)
+
+    metadata: dict[str, Any] = {}
+    if dropped_crossed:
+        metadata["crossed_book_records_dropped"] = dropped_crossed
+    if dropped_without_snapshot:
+        metadata["book_delta_records_without_snapshot_dropped"] = dropped_without_snapshot
+    if metadata:
+        warnings.warn(
+            f"Dropped invalid L2 replay record(s) for {market_label}: "
+            f"{dropped_crossed} crossed/invalid book record(s), "
+            f"{dropped_without_snapshot} delta record(s) before a valid snapshot.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+    return tuple(sanitized), metadata
 
 
 def _requested_window(start: pd.Timestamp, end: pd.Timestamp) -> ReplayWindow:
@@ -470,6 +580,23 @@ class PolymarketPMXTBookReplayAdapter(_BaseReplayAdapter):
             return None
 
         deltas_type = _resolve_backtest_compat_symbol("OrderBookDeltas", OrderBookDeltas)
+        metadata = dict(replay.metadata or {})
+        records, clip_metadata = _clip_records_at_instrument_expiration(
+            instrument=loader.instrument,
+            records=records,
+            market_label=replay.market_slug,
+        )
+        metadata.update(clip_metadata)
+        records, invalid_book_metadata = _drop_crossed_l2_book_records(
+            instrument=loader.instrument,
+            records=records,
+            deltas_type=deltas_type,
+            market_label=replay.market_slug,
+        )
+        metadata.update(invalid_book_metadata)
+        if not records:
+            print(f"Skip {replay.market_slug}: no valid PMXT L2 book data remained")
+            return None
         book_event_count, prices_tuple = _book_event_count_and_midpoints(
             instrument=loader.instrument,
             records=records,
@@ -496,7 +623,7 @@ class PolymarketPMXTBookReplayAdapter(_BaseReplayAdapter):
             prices=prices_tuple,
             outcome=str(loader.instrument.outcome or replay.outcome or ""),
             realized_outcome=_loader_realized_outcome(loader),
-            metadata=dict(replay.metadata or {}),
+            metadata=metadata,
             requested_window=_requested_window(start, end),
         )
 
@@ -593,6 +720,23 @@ class PolymarketTelonexBookReplayAdapter(_BaseReplayAdapter):
             return None
 
         deltas_type = _resolve_backtest_compat_symbol("OrderBookDeltas", OrderBookDeltas)
+        metadata = dict(replay.metadata or {})
+        records, clip_metadata = _clip_records_at_instrument_expiration(
+            instrument=loader.instrument,
+            records=records,
+            market_label=replay.market_slug,
+        )
+        metadata.update(clip_metadata)
+        records, invalid_book_metadata = _drop_crossed_l2_book_records(
+            instrument=loader.instrument,
+            records=records,
+            deltas_type=deltas_type,
+            market_label=replay.market_slug,
+        )
+        metadata.update(invalid_book_metadata)
+        if not records:
+            print(f"Skip {replay.market_slug}: no valid Telonex L2 book data remained")
+            return None
         book_event_count, prices_tuple = _book_event_count_and_midpoints(
             instrument=loader.instrument,
             records=records,
@@ -619,7 +763,7 @@ class PolymarketTelonexBookReplayAdapter(_BaseReplayAdapter):
             prices=prices_tuple,
             outcome=selected_outcome,
             realized_outcome=_loader_realized_outcome(loader),
-            metadata=dict(replay.metadata or {}),
+            metadata=metadata,
             requested_window=_requested_window(start, end),
         )
 

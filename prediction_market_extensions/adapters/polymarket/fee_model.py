@@ -23,6 +23,7 @@ from typing import Any
 
 from nautilus_trader.backtest.models import FeeModel
 from nautilus_trader.core.rust.model import OrderType
+from nautilus_trader.model.enums import LiquiditySide
 from nautilus_trader.model.objects import Money
 
 from prediction_market_extensions.adapters.polymarket.parsing import calculate_commission
@@ -173,6 +174,29 @@ def calculate_maker_rebate(
     return float(rebate.quantize(_REBATE_QUANTUM, rounding=ROUND_HALF_UP))
 
 
+def _order_liquidity_side(order: object) -> LiquiditySide | None:
+    try:
+        liquidity_side = getattr(order, "liquidity_side")
+    except AttributeError:
+        return None
+    if callable(liquidity_side):
+        liquidity_side = liquidity_side()
+
+    if isinstance(liquidity_side, LiquiditySide):
+        return liquidity_side
+
+    name = getattr(liquidity_side, "name", None)
+    if isinstance(name, str):
+        normalized = name.strip().upper()
+        if normalized in LiquiditySide.__members__:
+            return LiquiditySide[normalized]
+
+    try:
+        return LiquiditySide(int(liquidity_side))
+    except (TypeError, ValueError):
+        return None
+
+
 class PolymarketFeeModel(FeeModel):
     """
     Polymarket fee model for backtesting.
@@ -233,10 +257,8 @@ class PolymarketFeeModel(FeeModel):
         fill_quantity = Decimal(str(fill_qty))
         fill_price = Decimal(str(fill_px))
 
-        if order.order_type == OrderType.LIMIT:
-            # The fee callback does not expose realized maker/taker liquidity.
-            # Repo-owned Polymarket book backtests use passive-posting limit
-            # orders, so treat their limit fills as maker-side rebates.
+        liquidity_side = _order_liquidity_side(order)
+        if order.order_type == OrderType.LIMIT and liquidity_side == LiquiditySide.MAKER:
             if not self._maker_rebates_enabled:
                 return Money(Decimal("0"), instrument.quote_currency)
 

@@ -111,6 +111,31 @@ def test_prediction_market_backtest_build_engine_forwards_execution(monkeypatch)
     assert engine.config.risk_engine.bypass is False
 
 
+def test_prediction_market_backtest_default_execution_is_not_zero_latency(monkeypatch):
+    monkeypatch.setattr(backtest_module, "BacktestEngine", _EngineStub)
+
+    backtest = PredictionMarketBacktest(
+        name="demo",
+        data=MarketDataConfig(platform="polymarket", data_type="book", vendor="pmxt"),
+        replays=(BookReplay(market_slug="demo-market"),),
+        strategy_factory=lambda instrument_id: SimpleNamespace(instrument_id=instrument_id),
+        initial_cash=100.0,
+        probability_window=16,
+    )
+
+    engine = backtest._build_engine()
+
+    assert len(engine.venues) == 1
+    venue_kwargs = engine.venues[0]
+    assert venue_kwargs["queue_position"] is True
+    latency_model = venue_kwargs["latency_model"]
+    assert latency_model is not None
+    assert latency_model.base_latency_nanos == 75_000_000
+    assert latency_model.insert_latency_nanos == 85_000_000
+    assert latency_model.update_latency_nanos == 80_000_000
+    assert latency_model.cancel_latency_nanos == 80_000_000
+
+
 def test_emit_engine_status_uses_nautilus_message_bus() -> None:
     msgbus = _FakeMessageBus()
     logger = _FakeLogger()

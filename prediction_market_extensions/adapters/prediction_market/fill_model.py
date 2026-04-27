@@ -69,12 +69,12 @@ def _order_quantity(order) -> float | None:
 
 
 def _is_entry_order(order) -> bool:
+    if getattr(order, "reduce_only", False):
+        return False
     intent = parse_order_intent(getattr(order, "tags", None))
     if intent == "entry":
         return True
     if intent == "exit":
-        return False
-    if getattr(order, "reduce_only", False):
         return False
     return order.side == OrderSideEnum.BUY
 

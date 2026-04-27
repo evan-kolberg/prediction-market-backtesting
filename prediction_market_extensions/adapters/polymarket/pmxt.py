@@ -11,7 +11,8 @@ import shutil
 import tempfile
 import time
 import warnings
-from collections.abc import Callable, Iterator
+import json
+from collections.abc import Callable, Iterator, Mapping
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import contextmanager, suppress
 from decimal import Decimal
@@ -35,7 +36,7 @@ from nautilus_trader.adapters.polymarket.schemas.book import (
     PolymarketQuotes,
 )
 from nautilus_trader.model.book import OrderBook
-from nautilus_trader.model.data import OrderBookDeltas
+from nautilus_trader.model.data import OrderBookDelta, OrderBookDeltas
 from nautilus_trader.model.enums import BookType
 
 
@@ -89,6 +90,7 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
     _PMXT_DOWNLOAD_CHUNK_SIZE = 4 * 1024 * 1024
     _PMXT_TEMP_DOWNLOAD_ROOT = Path(tempfile.gettempdir()) / "nautilus_trader" / "pmxt-downloads"
     _PMXT_TEMP_DOWNLOAD_STALE_SECONDS = 24 * 60 * 60
+    _PMXT_FILTERED_CACHE_METADATA_VERSION = 2
 
     def __init__(self, *args, **kwargs) -> None:  # type: ignore[no-untyped-def]
         super().__init__(*args, **kwargs)
@@ -219,6 +221,62 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
             self._pmxt_cache_dir, self.condition_id, self.token_id, hour
         )
 
+    @staticmethod
+    def _cache_metadata_path(cache_path: Path) -> Path:
+        return cache_path.with_name(f"{cache_path.name}.metadata.json")
+
+    @staticmethod
+    def _local_file_fingerprint(path: Path) -> dict[str, object] | None:
+        try:
+            stat = path.expanduser().resolve().stat()
+        except OSError:
+            return None
+        return {
+            "kind": "local",
+            "path": str(path.expanduser().resolve()),
+            "size": int(stat.st_size),
+            "mtime_ns": int(stat.st_mtime_ns),
+            "ctime_ns": int(stat.st_ctime_ns),
+        }
+
+    def _source_cache_fingerprint_for_hour(self, hour: pd.Timestamp) -> dict[str, object] | None:
+        for archive_path in self._local_archive_paths_for_hour(hour):
+            fingerprint = self._local_file_fingerprint(archive_path)
+            if fingerprint is not None:
+                return fingerprint
+        try:
+            return {"kind": "remote", "url": self._archive_url_for_hour(hour)}
+        except Exception:
+            return None
+
+    def _cache_metadata_for_hour(self, hour: pd.Timestamp) -> dict[str, object] | None:
+        source = self._source_cache_fingerprint_for_hour(hour)
+        return self._cache_metadata_payload(hour, source=source)
+
+    def _cache_metadata_payload(
+        self, hour: pd.Timestamp, *, source: Mapping[str, object] | None
+    ) -> dict[str, object] | None:
+        if source is None or self.condition_id is None or self.token_id is None:
+            return None
+        return {
+            "version": self._PMXT_FILTERED_CACHE_METADATA_VERSION,
+            "condition_id": self.condition_id,
+            "token_id": self.token_id,
+            "hour": hour.tz_convert(UTC).isoformat(),
+            "source": dict(source),
+        }
+
+    def _cache_metadata_matches(self, hour: pd.Timestamp, cache_path: Path) -> bool:
+        expected = self._cache_metadata_for_hour(hour)
+        if expected is None:
+            return False
+        metadata_path = self._cache_metadata_path(cache_path)
+        try:
+            actual = json.loads(metadata_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return False
+        return actual == expected
+
     @classmethod
     def _local_archive_candidate_paths_for_hour(
         cls, archive_dir: Path, hour: pd.Timestamp
@@ -283,6 +341,8 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
         cache_path = self._cache_path_for_hour(hour)
         if cache_path is None or not cache_path.exists():
             return None
+        if not self._cache_metadata_matches(hour, cache_path):
+            return None
 
         try:
             dataset = ds.dataset(str(cache_path), format="parquet")
@@ -295,6 +355,8 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
         cache_path = self._cache_path_for_hour(hour)
         if cache_path is None or not cache_path.exists():
             return None
+        if not self._cache_metadata_matches(hour, cache_path):
+            return None
 
         try:
             dataset = ds.dataset(str(cache_path), format="parquet")
@@ -304,18 +366,37 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
             cache_path.unlink(missing_ok=True)
             return None
 
-    def _write_market_cache(self, hour: pd.Timestamp, table: pa.Table) -> None:
+    def _write_market_cache(
+        self,
+        hour: pd.Timestamp,
+        table: pa.Table,
+        *,
+        metadata: Mapping[str, object] | None = None,
+    ) -> None:
         cache_path = self._cache_path_for_hour(hour)
         if cache_path is None:
             return
+        cache_metadata = dict(metadata) if metadata is not None else None
 
         cache_path.parent.mkdir(parents=True, exist_ok=True)
         tmp_path = cache_path.with_name(f"{cache_path.name}.tmp.{os.getpid()}")
+        metadata_path = self._cache_metadata_path(cache_path)
+        metadata_tmp_path = metadata_path.with_name(f"{metadata_path.name}.tmp.{os.getpid()}")
         try:
             pq.write_table(table, tmp_path)
+            if cache_metadata is not None:
+                metadata_tmp_path.write_text(
+                    json.dumps(cache_metadata, sort_keys=True) + "\n",
+                    encoding="utf-8",
+                )
             os.replace(tmp_path, cache_path)
+            if cache_metadata is not None:
+                os.replace(metadata_tmp_path, metadata_path)
+            else:
+                metadata_path.unlink(missing_ok=True)
         finally:
             tmp_path.unlink(missing_ok=True)
+            metadata_tmp_path.unlink(missing_ok=True)
 
     def _scan_raw_market_batches(
         self,
@@ -457,7 +538,9 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
             )
             if self._pmxt_cache_dir is not None:
                 with suppress(OSError, pa.ArrowException):
-                    self._write_market_cache(hour, table)
+                    self._write_market_cache(
+                        hour, table, metadata=self._cache_metadata_for_hour(hour)
+                    )
             return table
 
         remote_table = self._load_remote_market_table(hour, batch_size=batch_size)
@@ -465,7 +548,9 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
             remote_table = self._filter_table_to_token(remote_table)
             if self._pmxt_cache_dir is not None:
                 with suppress(OSError, pa.ArrowException):
-                    self._write_market_cache(hour, remote_table)
+                    self._write_market_cache(
+                        hour, remote_table, metadata=self._cache_metadata_for_hour(hour)
+                    )
             return remote_table
 
         return None
@@ -482,7 +567,9 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
             if self._pmxt_cache_dir is not None:
                 table = pa.Table.from_batches(batches) if batches else self._empty_market_table()
                 with suppress(OSError, pa.ArrowException):
-                    self._write_market_cache(hour, table)
+                    self._write_market_cache(
+                        hour, table, metadata=self._cache_metadata_for_hour(hour)
+                    )
             return batches
 
         batches = self._load_remote_market_batches(hour, batch_size=batch_size)
@@ -490,7 +577,9 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
             if self._pmxt_cache_dir is not None:
                 table = pa.Table.from_batches(batches) if batches else self._empty_market_table()
                 with suppress(OSError, pa.ArrowException):
-                    self._write_market_cache(hour, table)
+                    self._write_market_cache(
+                        hour, table, metadata=self._cache_metadata_for_hour(hour)
+                    )
             return batches
 
         return None
@@ -780,7 +869,7 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
 
     @staticmethod
     def _timestamp_to_ms_string(timestamp_secs: float) -> str:
-        return f"{timestamp_secs * 1000:.6f}"
+        return format(Decimal(str(timestamp_secs)) * Decimal("1000"), "f")
 
     @staticmethod
     def _decode_book_snapshot(payload_text: str) -> _PMXTBookSnapshotPayload:
@@ -837,6 +926,22 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
         ts_init = int(getattr(record, "ts_init", ts_event))
         return (ts_event, ts_init)
 
+    @staticmethod
+    def _retimestamp_deltas(deltas: OrderBookDeltas, *, ts_event: int) -> OrderBookDeltas:
+        exact_deltas = [
+            OrderBookDelta(
+                instrument_id=delta.instrument_id,
+                action=delta.action,
+                order=delta.order,
+                flags=delta.flags,
+                sequence=delta.sequence,
+                ts_event=ts_event,
+                ts_init=ts_event,
+            )
+            for delta in deltas.deltas
+        ]
+        return OrderBookDeltas(deltas.instrument_id, exact_deltas)
+
     def _payload_sort_key(self, update_type: str, payload_text: str) -> tuple[int, int]:
         if update_type == "book_snapshot":
             timestamp = self._decode_book_snapshot(payload_text).timestamp
@@ -872,6 +977,10 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
         )
         if deltas is None:
             return local_book, has_snapshot
+        deltas = self._retimestamp_deltas(
+            deltas,
+            ts_event=self._timestamp_to_ns(payload.timestamp),
+        )
 
         event_ns = deltas.ts_event
         local_book = OrderBook(instrument.id, book_type=BookType.L2_MBP)
@@ -908,6 +1017,10 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
         quotes = self._to_price_change(payload)
         deltas = quotes.parse_to_deltas(
             instrument=instrument, ts_init=self._timestamp_to_ns(payload.timestamp)
+        )
+        deltas = self._retimestamp_deltas(
+            deltas,
+            ts_event=self._timestamp_to_ns(payload.timestamp),
         )
         local_book.apply_deltas(deltas)
 
@@ -953,6 +1066,8 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
         events: list[OrderBookDeltas] = []
         hours = self._archive_hours(start_ts, end_ts)
         last_payload_key: tuple[int, int] | None = None
+        emitted_snapshot = False
+        seen_price_change_payloads: set[str] = set()
         gap_hours: list[pd.Timestamp] = []
         self._pmxt_last_load_gap_hours = ()
 
@@ -966,6 +1081,7 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
                 # potentially stale state.
                 gap_hours.append(hour)
                 has_snapshot = False
+                emitted_snapshot = False
                 local_book = OrderBook(instrument.id, book_type=BookType.L2_MBP)
                 continue
             if not batches:
@@ -984,6 +1100,7 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
                 if last_payload_key is not None and payload_key < last_payload_key:
                     continue
                 if update_type == "book_snapshot":
+                    event_count_before = len(events)
                     local_book, has_snapshot = self._process_book_snapshot(
                         payload_text,
                         token_id=token_id,
@@ -995,10 +1112,19 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
                         end_ns=end_ns,
                         include_order_book=include_order_book,
                     )
+                    if len(events) > event_count_before and bool(
+                        getattr(events[-1], "is_snapshot", False)
+                    ):
+                        emitted_snapshot = True
                     last_payload_key = payload_key
                     continue
 
                 if update_type == "price_change":
+                    if has_snapshot and payload_text in seen_price_change_payloads:
+                        continue
+                    if has_snapshot:
+                        seen_price_change_payloads.add(payload_text)
+                    event_count_before = len(events)
                     local_book = self._process_price_change(
                         payload_text,
                         token_id=token_id,
@@ -1010,6 +1136,21 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
                         end_ns=end_ns,
                         include_order_book=include_order_book,
                     )
+                    if len(events) > event_count_before:
+                        if not emitted_snapshot:
+                            first_delta = events.pop()
+                            try:
+                                events.append(
+                                    local_book.to_deltas_c(
+                                        int(first_delta.ts_event),
+                                        int(getattr(first_delta, "ts_init", first_delta.ts_event)),
+                                    )
+                                )
+                                emitted_snapshot = True
+                            except Exception:
+                                events.append(first_delta)
+                        else:
+                            emitted_snapshot = True
                     last_payload_key = payload_key
 
         events.sort(key=self._event_sort_key)

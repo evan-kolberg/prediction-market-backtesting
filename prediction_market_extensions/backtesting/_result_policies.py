@@ -21,6 +21,7 @@ _CURATED_REPLAY_WARNING = (
 _PORTFOLIO_RISK_WARNING = (
     "No portfolio-level drawdown or daily-loss circuit breaker is configured for this run."
 )
+_REALISM_EPSILON = 1e-9
 
 
 def _timestamp_ns(value: object | None) -> int | None:
@@ -44,7 +45,17 @@ def _timestamp_ns(value: object | None) -> int | None:
         else:
             timestamp = timestamp.tz_convert("UTC")
         return int(timestamp.value)
-    return None
+    try:
+        timestamp = pd.Timestamp(value)
+    except (TypeError, ValueError):
+        return None
+    if pd.isna(timestamp):
+        return None
+    if timestamp.tzinfo is None:
+        timestamp = timestamp.tz_localize("UTC")
+    else:
+        timestamp = timestamp.tz_convert("UTC")
+    return int(timestamp.value)
 
 
 def _timestamp_utc(value: object | None) -> pd.Timestamp | None:
@@ -131,6 +142,74 @@ def _fill_event_timestamp(event: Mapping[object, object]) -> pd.Timestamp | None
     return None
 
 
+def _explicit_settlement_cutoff_timestamp(
+    result: Mapping[str, Any],
+    *,
+    settlement_observable_ns_key: str,
+    settlement_observable_time_key: str,
+) -> pd.Timestamp | None:
+    timestamps: list[pd.Timestamp] = []
+    for key in (
+        "market_close_time_ns",
+        settlement_observable_time_key,
+        settlement_observable_ns_key,
+    ):
+        timestamp = _timestamp_utc(result.get(key))
+        if timestamp is not None:
+            timestamps.append(timestamp)
+    return max(timestamps) if timestamps else None
+
+
+def _settlement_observable_timestamp(
+    result: Mapping[str, Any],
+    *,
+    settlement_observable_ns_key: str,
+    settlement_observable_time_key: str,
+) -> pd.Timestamp | None:
+    timestamps: list[pd.Timestamp] = []
+    for key in (settlement_observable_time_key, settlement_observable_ns_key):
+        timestamp = _timestamp_utc(result.get(key))
+        if timestamp is not None:
+            timestamps.append(timestamp)
+    return max(timestamps) if timestamps else None
+
+
+def _fill_events_at_or_before(
+    fill_events: object, timestamp: pd.Timestamp | None
+) -> tuple[object, int]:
+    if (
+        timestamp is None
+        or not isinstance(fill_events, Sequence)
+        or isinstance(fill_events, str | bytes)
+    ):
+        return fill_events, 0
+
+    filtered: list[object] = []
+    ignored = 0
+    for event in fill_events:
+        if not isinstance(event, Mapping):
+            filtered.append(event)
+            continue
+        fill_timestamp = _fill_event_timestamp(event)
+        if fill_timestamp is not None and fill_timestamp > timestamp:
+            ignored += 1
+            continue
+        filtered.append(event)
+    return filtered, ignored
+
+
+def _fill_event_count(fill_events: object) -> int | None:
+    if not isinstance(fill_events, Sequence) or isinstance(fill_events, str | bytes):
+        return None
+    return len(fill_events)
+
+
+def _mapping_fill_events(fill_events: object) -> list[Mapping[object, object]]:
+    if not isinstance(fill_events, Sequence) or isinstance(fill_events, str | bytes):
+        return []
+    return [event for event in fill_events if isinstance(event, Mapping)]
+
+
 def _binary_mark_to_market_pnl_at_settlement(
     *,
     fill_events: object,
@@ -182,10 +261,90 @@ def _binary_mark_to_market_pnl_at_settlement(
     if market_price is None:
         return None
 
-    position_value = (
-        open_qty * market_price if open_qty >= 0.0 else abs(open_qty) * (1.0 - market_price)
-    )
-    return float(cash_pnl + max(position_value, 0.0)), float(cash_pnl)
+    position_value = open_qty * market_price
+    return float(cash_pnl + position_value), float(cash_pnl)
+
+
+def _fill_inventory_bounds(fill_events: object) -> tuple[float, float] | None:
+    if not isinstance(fill_events, Sequence) or isinstance(fill_events, str | bytes):
+        return None
+
+    position = 0.0
+    min_position = 0.0
+    saw_fill = False
+    for event in sorted(
+        (event for event in fill_events if isinstance(event, Mapping)),
+        key=lambda item: _fill_event_timestamp(item) or pd.Timestamp.min.tz_localize("UTC"),
+    ):
+        action = str(event.get("action") or "").strip().lower()
+        quantity = _coerce_float(event.get("quantity")) or 0.0
+        if quantity <= 0.0:
+            continue
+        if action == "buy":
+            position += quantity
+        elif action == "sell":
+            position -= quantity
+        else:
+            continue
+        min_position = min(min_position, position)
+        saw_fill = True
+
+    if not saw_fill:
+        return None
+    return min_position, position
+
+
+def _set_realism_invalid(
+    result: dict[str, Any],
+    *,
+    stop_reason: str,
+    warning: str,
+) -> None:
+    result["backtest_realism_invalid"] = True
+    append_result_warning(result, warning)
+    if not bool(result.get("terminated_early")):
+        result["terminated_early"] = True
+    if not result.get("stop_reason"):
+        result["stop_reason"] = stop_reason
+
+
+def _apply_result_integrity_checks(
+    result: dict[str, Any],
+    *,
+    fill_events_key: str,
+) -> dict[str, Any]:
+    inventory_bounds = _fill_inventory_bounds(result.get(fill_events_key, []))
+    if inventory_bounds is not None:
+        min_position, final_position = inventory_bounds
+        result["min_signed_position"] = float(min_position)
+        result["final_signed_position"] = float(final_position)
+        if min_position < -_REALISM_EPSILON:
+            _set_realism_invalid(
+                result,
+                stop_reason="invalid_short_position",
+                warning=(
+                    "Token inventory went negative during replay. This backtest does not "
+                    "model collateralized naked short exposure, so the result is not "
+                    "realistic enough to trust as executable."
+                ),
+            )
+
+    cash_series = _pairs_to_series(result.get("cash_series"))
+    if not cash_series.empty:
+        min_cash = float(cash_series.min())
+        result["min_cash"] = min_cash
+        if min_cash < -_REALISM_EPSILON:
+            _set_realism_invalid(
+                result,
+                stop_reason="account_error",
+                warning=(
+                    "Cash balance went negative during replay. The backtest filled orders "
+                    "without sufficient cash, so the result is not realistic enough to trust "
+                    "as executable."
+                ),
+            )
+
+    return result
 
 
 def _series_bounds(*series_values: object) -> tuple[pd.Timestamp | None, pd.Timestamp | None]:
@@ -265,10 +424,13 @@ def _settlement_timestamp(
         result.get("pnl_series"),
         result.get("price_series"),
     )
+    explicit_settlement_time = _explicit_settlement_cutoff_timestamp(
+        result,
+        settlement_observable_ns_key=settlement_observable_ns_key,
+        settlement_observable_time_key=settlement_observable_time_key,
+    )
     candidates = (
-        result.get("market_close_time_ns"),
-        result.get(settlement_observable_time_key),
-        result.get(settlement_observable_ns_key),
+        explicit_settlement_time,
         result.get("planned_end"),
         result.get("simulated_through"),
         series_end,
@@ -290,6 +452,7 @@ def _apply_settlement_to_summary_series(
     result: dict[str, Any],
     *,
     settlement_pnl: float,
+    fill_events_key: str,
     settlement_observable_ns_key: str,
     settlement_observable_time_key: str,
 ) -> None:
@@ -313,15 +476,25 @@ def _apply_settlement_to_summary_series(
     )
 
     result["settlement_series_time"] = timestamp.isoformat()
+    final_equity: float | None = None
+    final_cash: float | None = None
     mark_to_market_pnl = _binary_mark_to_market_pnl_at_settlement(
-        fill_events=result.get("fill_events"),
+        fill_events=result.get(fill_events_key),
         price_series=result.get("price_series"),
         timestamp=timestamp,
     )
     if mark_to_market_pnl is not None:
         current_mtm_pnl, current_cash_pnl = mark_to_market_pnl
-        result["settlement_equity_adjustment"] = float(settlement_pnl - current_mtm_pnl)
-        result["settlement_cash_adjustment"] = float(settlement_pnl - current_cash_pnl)
+        settlement_equity_adjustment = float(settlement_pnl - current_mtm_pnl)
+        settlement_cash_adjustment = float(settlement_pnl - current_cash_pnl)
+        result["settlement_equity_adjustment"] = settlement_equity_adjustment
+        result["settlement_cash_adjustment"] = settlement_cash_adjustment
+        current_equity = _series_value_at_or_before(equity_series, timestamp)
+        if current_equity is not None:
+            final_equity = float(current_equity + settlement_equity_adjustment)
+        current_cash = _series_value_at_or_before(cash_series, timestamp)
+        if current_cash is not None:
+            final_cash = float(current_cash + settlement_cash_adjustment)
 
     if initial_equity is None:
         if not pnl_series.empty:
@@ -335,7 +508,8 @@ def _apply_settlement_to_summary_series(
             )
         return
 
-    final_equity = float(initial_equity + settlement_pnl)
+    if final_equity is None:
+        final_equity = float(initial_equity + settlement_pnl)
 
     if not equity_series.empty:
         current_equity = _series_value_at_or_before(equity_series, timestamp)
@@ -351,10 +525,12 @@ def _apply_settlement_to_summary_series(
 
     if not cash_series.empty:
         current_cash = _series_value_at_or_before(cash_series, timestamp)
+        if final_cash is None:
+            final_cash = final_equity
         if current_cash is not None and "settlement_cash_adjustment" not in result:
-            result["settlement_cash_adjustment"] = float(final_equity - current_cash)
+            result["settlement_cash_adjustment"] = float(final_cash - current_cash)
         result["cash_series"] = _series_to_pairs(
-            _set_series_value_at_and_after(cash_series, timestamp=timestamp, value=final_equity)
+            _set_series_value_at_and_after(cash_series, timestamp=timestamp, value=final_cash)
         )
 
     if not pnl_series.empty:
@@ -396,26 +572,73 @@ def apply_binary_settlement_pnl(
     settlement_observable_ns_key: str = "settlement_observable_ns",
     settlement_observable_time_key: str = "settlement_observable_time",
     simulated_through_key: str = "simulated_through",
+    planned_end_key: str = "planned_end",
 ) -> dict[str, Any]:
-    settlement_observable_ns = _timestamp_ns(
-        result.get(settlement_observable_ns_key) or result.get(settlement_observable_time_key)
+    settlement_cutoff_timestamp = _explicit_settlement_cutoff_timestamp(
+        result,
+        settlement_observable_ns_key=settlement_observable_ns_key,
+        settlement_observable_time_key=settlement_observable_time_key,
+    )
+    settlement_observable_timestamp = _settlement_observable_timestamp(
+        result,
+        settlement_observable_ns_key=settlement_observable_ns_key,
+        settlement_observable_time_key=settlement_observable_time_key,
+    )
+    settlement_cutoff_ns = _timestamp_ns(settlement_cutoff_timestamp)
+    settlement_observable_ns = _timestamp_ns(settlement_observable_timestamp)
+    settlement_required_ns = (
+        settlement_cutoff_ns
+        if settlement_observable_ns is not None and settlement_cutoff_ns is not None
+        else settlement_observable_ns
     )
     simulated_through_ns = _timestamp_ns(result.get(simulated_through_key))
-    if settlement_observable_ns is not None and simulated_through_ns is None:
+    planned_end_ns = _timestamp_ns(result.get(planned_end_key))
+    if result.get(realized_outcome_key) is not None and settlement_required_ns is None:
+        append_result_warning(
+            result,
+            "Settlement outcome metadata exists but no settlement observable timestamp was "
+            "provided; keeping mark-to-market PnL because resolution observability cannot "
+            "be verified.",
+        )
+        result["settlement_pnl_applied"] = False
+        return _apply_result_integrity_checks(result, fill_events_key=fill_events_key)
+    if (
+        settlement_required_ns is not None
+        and planned_end_ns is not None
+        and planned_end_ns < settlement_required_ns
+    ):
+        observable_time = (
+            settlement_cutoff_timestamp.isoformat()
+            if settlement_cutoff_timestamp is not None
+            else result.get(settlement_observable_time_key)
+            or result.get(settlement_observable_ns_key)
+        )
+        append_result_warning(
+            result,
+            f"Settlement outcome exists after the requested replay window; keeping "
+            f"mark-to-market PnL instead of resolved settlement because the planned end "
+            f"was {result.get(planned_end_key)} (observable at {observable_time}).",
+        )
+        result["settlement_pnl_applied"] = False
+        return _apply_result_integrity_checks(result, fill_events_key=fill_events_key)
+    if settlement_required_ns is not None and simulated_through_ns is None:
         append_result_warning(
             result,
             "Settlement outcome metadata exists but simulated_through is missing; keeping "
             "mark-to-market PnL because settlement observability cannot be verified.",
         )
         result["settlement_pnl_applied"] = False
-        return result
+        return _apply_result_integrity_checks(result, fill_events_key=fill_events_key)
     if (
-        settlement_observable_ns is not None
+        settlement_required_ns is not None
         and simulated_through_ns is not None
-        and simulated_through_ns < settlement_observable_ns
+        and simulated_through_ns < settlement_required_ns
     ):
-        observable_time = result.get(settlement_observable_time_key) or result.get(
-            settlement_observable_ns_key
+        observable_time = (
+            settlement_cutoff_timestamp.isoformat()
+            if settlement_cutoff_timestamp is not None
+            else result.get(settlement_observable_time_key)
+            or result.get(settlement_observable_ns_key)
         )
         append_result_warning(
             result,
@@ -424,15 +647,32 @@ def apply_binary_settlement_pnl(
             f"{result.get(simulated_through_key)} (observable at {observable_time}).",
         )
         result["settlement_pnl_applied"] = False
-        return result
+        return _apply_result_integrity_checks(result, fill_events_key=fill_events_key)
+
+    settlement_fill_events, ignored_post_settlement_fills = _fill_events_at_or_before(
+        result.get(fill_events_key, []), settlement_cutoff_timestamp
+    )
+    if ignored_post_settlement_fills:
+        result[fill_events_key] = settlement_fill_events
+        result["post_settlement_fill_events_ignored"] = ignored_post_settlement_fills
+        pruned_fill_count = _fill_event_count(settlement_fill_events)
+        if pruned_fill_count is not None:
+            if "fills" in result and result.get("fills") != pruned_fill_count:
+                result["fills_before_post_settlement_pruning"] = result.get("fills")
+            result["fills"] = pruned_fill_count
+        append_result_warning(
+            result,
+            f"Ignored {ignored_post_settlement_fills} fill event(s) after the settlement cutoff "
+            f"when computing resolved settlement PnL and downstream reports.",
+        )
 
     settlement_pnl = settlement_pnl_fn(
-        result.get(fill_events_key, []),
+        _mapping_fill_events(settlement_fill_events),
         result.get(realized_outcome_key),
     )
     if settlement_pnl is None:
         result["settlement_pnl_applied"] = False
-        return result
+        return _apply_result_integrity_checks(result, fill_events_key=fill_events_key)
 
     result[market_exit_pnl_key] = float(result.get(pnl_key, 0.0))
     result[pnl_key] = float(settlement_pnl)
@@ -440,10 +680,11 @@ def apply_binary_settlement_pnl(
     _apply_settlement_to_summary_series(
         result,
         settlement_pnl=float(settlement_pnl),
+        fill_events_key=fill_events_key,
         settlement_observable_ns_key=settlement_observable_ns_key,
         settlement_observable_time_key=settlement_observable_time_key,
     )
-    return result
+    return _apply_result_integrity_checks(result, fill_events_key=fill_events_key)
 
 
 def apply_joint_portfolio_settlement_pnl(results: Results) -> Results:

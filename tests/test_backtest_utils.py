@@ -45,14 +45,24 @@ def test_compute_binary_settlement_pnl_returns_none_without_fills() -> None:
     assert compute_binary_settlement_pnl([], 1.0) is None
 
 
-def test_compute_binary_settlement_pnl_marks_no_contracts_to_inverse_outcome() -> None:
+def test_compute_binary_settlement_pnl_marks_no_contracts_with_token_level_outcome() -> None:
+    fill_events = [
+        {"action": "buy", "side": "no", "price": 0.30, "quantity": 10, "commission": 0.0}
+    ]
+
+    pnl = compute_binary_settlement_pnl(fill_events, 1.0)
+
+    assert pnl == 7.0
+
+
+def test_compute_binary_settlement_pnl_marks_no_contract_loss_with_token_level_outcome() -> None:
     fill_events = [
         {"action": "buy", "side": "no", "price": 0.30, "quantity": 10, "commission": 0.0}
     ]
 
     pnl = compute_binary_settlement_pnl(fill_events, 0.0)
 
-    assert pnl == 7.0
+    assert pnl == -3.0
 
 
 class _QuoteStub:

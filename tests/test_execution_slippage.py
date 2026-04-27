@@ -165,7 +165,7 @@ def test_reduce_only_sell_uses_exit_slippage_even_when_tagged_entry_side() -> No
         _make_order(
             OrderSideEnum.SELL,
             reduce_only=True,
-            tags=[format_order_intent_tag("exit")],
+            tags=[format_order_intent_tag("entry")],
         ),
         best_bid=0.50,
         best_ask=0.50,

@@ -304,7 +304,7 @@ def _build_dataframes(
     eq = eq.sort_values("datetime").reset_index(drop=True)
 
     initial = result.initial_cash
-    if initial:
+    if initial > 0.0:
         eq["equity_pct"] = eq["equity"] / initial
         eq["return_pct"] = (eq["equity"] - initial) / initial
     else:
@@ -429,6 +429,13 @@ def _finite_idxmax(series: pd.Series) -> int | None:
     return int(finite.idxmax())
 
 
+def _finite_idxmin(series: pd.Series) -> int | None:
+    finite = series.replace([np.inf, -np.inf], np.nan).dropna()
+    if finite.empty:
+        return None
+    return int(finite.idxmin())
+
+
 def _downsample(
     eq: pd.DataFrame,
     fills_df: pd.DataFrame,
@@ -460,23 +467,50 @@ def _downsample(
         drawdown_peak = _finite_idxmax(eq["drawdown_pct"])
         if drawdown_peak is not None:
             must_keep.add(drawdown_peak)
+    if "num_positions" in eq.columns:
+        position_counts = pd.to_numeric(eq["num_positions"], errors="coerce")
+        changed = position_counts.ne(position_counts.shift())
+        if len(changed):
+            changed.iloc[0] = False
+        must_keep.update(int(idx) for idx in np.flatnonzero(changed.to_numpy()))
+    if not market_df.empty:
+        for column in market_df.columns:
+            values = pd.to_numeric(market_df[column], errors="coerce")
+            market_peak = _finite_idxmax(values)
+            if market_peak is not None:
+                must_keep.add(market_peak)
+            market_trough = _finite_idxmin(values)
+            if market_trough is not None:
+                must_keep.add(market_trough)
+    if alloc_df is not None and not alloc_df.empty:
+        for column in alloc_df.columns:
+            values = pd.to_numeric(alloc_df[column], errors="coerce")
+            allocation_peak = _finite_idxmax(values)
+            if allocation_peak is not None:
+                must_keep.add(allocation_peak)
+            allocation_trough = _finite_idxmin(values)
+            if allocation_trough is not None:
+                must_keep.add(allocation_trough)
     # Always keep first and last
     must_keep.add(0)
     must_keep.add(n - 1)
 
-    # Stride-based selection for the rest
-    budget = max(100, max_points - len(must_keep))
-    stride = max(1, n // budget)
-    strided = set(range(0, n, stride))
-
-    selected = sorted(must_keep | strided)
-    if len(selected) > max_points:
-        # If must_keep pushed us over, thin the strided points
-        must_list = sorted(must_keep)
-        remaining_budget = max_points - len(must_list)
-        stride2 = max(1, len(strided) // remaining_budget) if remaining_budget > 0 else n
-        thinned_strided = set(sorted(strided)[::stride2])
-        selected = sorted(must_keep | thinned_strided)
+    remaining_budget = max_points - len(must_keep)
+    if remaining_budget <= 0:
+        selected = sorted(must_keep)
+    else:
+        optional_indices = sorted(set(range(n)) - must_keep)
+        if len(optional_indices) > remaining_budget:
+            sampled_positions = np.linspace(
+                0,
+                len(optional_indices) - 1,
+                remaining_budget,
+                dtype=int,
+            )
+            optional_keep = {optional_indices[int(idx)] for idx in sampled_positions}
+        else:
+            optional_keep = set(optional_indices)
+        selected = sorted(must_keep | optional_keep)
 
     idx_arr = np.array(selected)
 
@@ -535,14 +569,10 @@ def _build_allocation_data(
         bar_idx = int(f["bar"])
         if mid not in pos_changes:
             pos_changes[mid] = np.zeros(n_bars)
-        if f["action"] == "buy" and f["side"] == "yes":
+        if f["action"] == "buy":
             pos_changes[mid][bar_idx] += f["quantity"]
-        elif (f["action"] == "sell" and f["side"] == "yes") or (
-            f["action"] == "buy" and f["side"] == "no"
-        ):
+        elif f["action"] == "sell":
             pos_changes[mid][bar_idx] -= f["quantity"]
-        elif f["action"] == "sell" and f["side"] == "no":
-            pos_changes[mid][bar_idx] += f["quantity"]
 
     pos_qty: dict[str, np.ndarray] = {}
     for mid, deltas in pos_changes.items():
@@ -597,12 +627,21 @@ def _build_allocation_data(
             fp = fill_price_map.get(mid, 0.5)
             price_on_bar[mid] = np.full(n_bars, fp)
 
+    flat_equity_mask: np.ndarray | None = None
+    if {"cash", "equity"}.issubset(eq.columns):
+        equity_values = pd.to_numeric(eq["equity"], errors="coerce").to_numpy(dtype=float)
+        cash_values = pd.to_numeric(eq["cash"], errors="coerce").to_numpy(dtype=float)
+        flat_equity_mask = np.isclose(equity_values, cash_values, rtol=0.0, atol=1e-9)
+
     # Zero out position qty after the market's price feed ends.
     # This handles market resolution: once there is no more price data,
     # the position was settled and should not contribute to allocation.
     for mid in pos_qty:
         last_ts = market_last_ts.get(mid)
         if last_ts is not None:
+            if flat_equity_mask is not None:
+                settled_on_bar = (eq_dts >= last_ts) & flat_equity_mask
+                pos_qty[mid][settled_on_bar] = 0.0
             # Zero out all bars after the last price observation
             cutoff = np.searchsorted(eq_dts, last_ts, side="right")
             if 0 < cutoff < n_bars:
@@ -622,12 +661,11 @@ def _build_allocation_data(
         if pr is None:
             continue
         safe_pr = np.nan_to_num(pr, nan=0.0)
-        val = np.where(qty >= 0, qty * safe_pr, np.abs(qty) * (1.0 - safe_pr))
-        val = np.maximum(val, 0.0)
+        val = qty * safe_pr
         pos_values[mid] = val
 
     # 4. Keep all positions (or top-N with "Other" bucket) ----------------
-    peak = {mid: float(np.max(v)) for mid, v in pos_values.items()}
+    peak = {mid: float(np.max(np.abs(v))) for mid, v in pos_values.items()}
     ranked = sorted(peak, key=peak.get, reverse=True)  # type: ignore[arg-type]
 
     # Keep individual columns for top markets, aggregate the rest into
@@ -649,7 +687,7 @@ def _build_allocation_data(
         col_data[label] = pos_values[mid]
     if other_ids:
         col_data["Other"] = np.sum([pos_values[m] for m in other_ids], axis=0)
-    col_data["Cash"] = np.maximum(eq["cash"].values, 0.0)
+    col_data["Cash"] = eq["cash"].values
     return pd.DataFrame(col_data, index=eq.index)
 
 
@@ -1221,11 +1259,36 @@ return this.labels[index] || "";
             )
             if relevant_fills.empty:
                 relevant_fills = fills_df
-            pnl_vals = np.where(
-                relevant_fills["action"] == "sell",
-                relevant_fills["price"] * relevant_fills["quantity"],
-                -relevant_fills["price"] * relevant_fills["quantity"],
-            )
+            market_pnls = getattr(result, "market_pnls", {}) or {}
+            if market_pnls:
+                market_pnls_by_id = {
+                    str(market_id): float(pnl) for market_id, pnl in market_pnls.items()
+                }
+                pnl_rows: list[pd.Series] = []
+                pnl_values: list[float] = []
+                for market_id, group in relevant_fills.groupby("market_id", sort=False):
+                    key = str(market_id)
+                    if key in market_pnls_by_id:
+                        pnl_rows.append(group.sort_values("bar").iloc[-1].copy())
+                        pnl_values.append(market_pnls_by_id[key])
+                        continue
+                    for _, row in group.iterrows():
+                        pnl_rows.append(row.copy())
+                        cashflow = float(row["price"]) * float(row["quantity"])
+                        pnl_values.append(cashflow if row["action"] == "sell" else -cashflow)
+                relevant_fills = (
+                    pd.DataFrame(pnl_rows).reset_index(drop=True)
+                    if pnl_rows
+                    else relevant_fills.iloc[0:0].copy()
+                )
+                pnl_vals = np.array(pnl_values, dtype=float)
+            else:
+                cashflow_vals = np.where(
+                    relevant_fills["action"] == "sell",
+                    relevant_fills["price"] * relevant_fills["quantity"],
+                    -relevant_fills["price"] * relevant_fills["quantity"],
+                )
+                pnl_vals = cashflow_vals
             positive = (pnl_vals > 0).astype(int).astype(str)
             sz = np.abs(pnl_vals).astype(float)
             if sz.max() > sz.min():
@@ -1368,16 +1431,32 @@ return this.labels[index] || "";
 
         dts = pd.to_datetime(eq["datetime"])
         eqv = eq["equity"].values.copy()
-        monthly = pd.DataFrame({"datetime": dts, "equity": eqv})
-        monthly["year"] = monthly["datetime"].dt.year.astype(str)
-        monthly["month"] = monthly["datetime"].dt.month
+        equity_by_time = pd.Series(eqv, index=pd.DatetimeIndex(dts)).sort_index()
+        equity_by_time = pd.to_numeric(equity_by_time, errors="coerce").dropna()
+        if equity_by_time.empty:
+            return None
 
-        # Compute return for each calendar month
-        first_last = monthly.groupby(["year", "month"]).agg(
-            eq_start=("equity", "first"), eq_end=("equity", "last")
+        month_start = equity_by_time.resample("ME").first().dropna()
+        month_end = equity_by_time.resample("ME").last().dropna()
+        if month_end.empty:
+            return None
+
+        returns = month_end.pct_change(fill_method=None)
+        first_month = month_end.index[0]
+        first_start = float(month_start.loc[first_month])
+        returns.loc[first_month] = (
+            0.0
+            if abs(first_start) < 1e-12
+            else (float(month_end.loc[first_month]) / first_start) - 1.0
         )
-        first_last["ret"] = (first_last["eq_end"] - first_last["eq_start"]) / first_last["eq_start"]  # type: ignore[reportIndexIssue]
-        first_last = first_last.reset_index()
+        returns = returns.replace([np.inf, -np.inf], np.nan).fillna(0.0)
+        first_last = pd.DataFrame(
+            {
+                "year": month_end.index.year.astype(str),
+                "month": month_end.index.month,
+                "ret": returns.to_numpy(dtype=float),
+            }
+        )
 
         if first_last.empty:
             return None
@@ -1867,16 +1946,15 @@ return this.labels[index] || "";
         other_col = "Other" if "Other" in alloc_df.columns else None
         all_cols = pos_cols + ([other_col] if other_col else []) + ["Cash"]
 
-        # Normalise against actual equity (from the equity curve) so allocation
-        # fractions stay consistent with the Cash/Equity panel.
+        # Normalise signed components against actual equity so short liabilities
+        # remain visible instead of being turned into positive long exposure.
         equity_total = eq["equity"].values.copy()
-        # Fallback: if equity is zero or unavailable, use sum of components
         component_total = alloc_df[all_cols].sum(axis=1).values
-        row_total = pd.Series(
-            np.where(equity_total > 0, np.maximum(equity_total, component_total), component_total),
-            index=alloc_df.index,
-        ).replace(0, 1.0)
-        normed = alloc_df[all_cols].div(row_total, axis=0).fillna(0.0).clip(0.0, 1.0)
+        row_total_values = np.where(np.abs(equity_total) > 1e-12, equity_total, component_total)
+        row_total = pd.Series(row_total_values, index=alloc_df.index).replace(0, 1.0)
+        normed = (
+            alloc_df[all_cols].div(row_total, axis=0).replace([np.inf, -np.inf], np.nan).fillna(0.0)
+        )
 
         # Allocation is downsampled to the same rows as eq, so use eq's index.
         alloc_src_data: dict[str, Any] = {"index": eq.index.values}
@@ -1947,7 +2025,11 @@ return this.labels[index] || "";
             legend_items.append(LegendItem(label=f"+{n_hidden} more", renderers=[]))
         fig.legend.items = legend_items
 
-        fig.y_range = Range1d(0, 1)
+        cumulative = normed[all_cols].cumsum(axis=1)
+        lower = min(0.0, float(np.nanmin(cumulative.to_numpy(dtype=float))))
+        upper = max(1.0, float(np.nanmax(cumulative.to_numpy(dtype=float))))
+        padding = max(0.02, (upper - lower) * 0.05)
+        fig.y_range = Range1d(lower - padding, upper + padding)
         fig.yaxis.formatter = NumeralTickFormatter(format="0%")
 
         return fig

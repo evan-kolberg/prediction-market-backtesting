@@ -129,8 +129,7 @@ class TestDownsample:
 
         eq_ds, _, _, _ = _downsample(eq, fills_df, market_df, max_points=3000)
 
-        # Allow small overshoot from must-keep points (fills, peaks, endpoints)
-        assert len(eq_ds) <= 3100
+        assert len(eq_ds) <= 3000
 
     def test_small_eq_not_touched(self) -> None:
         n = 500
@@ -186,7 +185,7 @@ class TestDownsample:
 
         eq_ds, fills_ds, _, _ = _downsample(eq, fills_df, market_df, max_points=2000)
 
-        assert len(eq_ds) <= 2100
+        assert len(eq_ds) <= 2000
         assert len(fills_ds) == 1
         bar = int(fills_ds.iloc[0]["bar"])
         assert 0 <= bar < len(eq_ds)
@@ -283,6 +282,112 @@ class TestDownsample:
         eq_ds, _, _, _ = _downsample(eq, fills_df, market_df, max_points=2000)
 
         assert 999.0 in eq_ds["equity"].values
+
+    def test_position_count_change_timestamp_preserved(self) -> None:
+        n = 20_000
+        settlement_idx = 12_345
+        datetimes = pd.date_range("2026-01-01", periods=n, freq="s")
+        cash = np.full(n, 100.0)
+        equity = np.full(n, 100.0)
+        num_positions = np.ones(n, dtype=int)
+        cash[settlement_idx:] = 105.0
+        equity[settlement_idx:] = 105.0
+        num_positions[settlement_idx:] = 0
+        eq = pd.DataFrame(
+            {
+                "datetime": datetimes,
+                "cash": cash,
+                "equity": equity,
+                "drawdown_pct": np.zeros(n),
+                "num_positions": num_positions,
+            }
+        )
+        fills_df = pd.DataFrame(
+            columns=[
+                "datetime",
+                "market_id",
+                "action",
+                "side",
+                "price",
+                "quantity",
+                "commission",
+                "bar",
+            ]
+        )
+        market_df = pd.DataFrame(index=eq.index)
+
+        eq_ds, _, _, _ = _downsample(eq, fills_df, market_df, max_points=5000)
+
+        assert len(eq_ds) <= 5000
+        assert datetimes[settlement_idx] in set(eq_ds["datetime"])
+
+    def test_market_price_extrema_preserved(self) -> None:
+        n = 10_007
+        spike_idx = 4_321
+        eq = pd.DataFrame(
+            {
+                "datetime": pd.date_range("2026-01-01", periods=n, freq="s"),
+                "cash": np.full(n, 100.0),
+                "equity": np.full(n, 100.0),
+                "drawdown_pct": np.zeros(n),
+                "num_positions": np.zeros(n, dtype=int),
+            }
+        )
+        fills_df = pd.DataFrame(
+            columns=[
+                "datetime",
+                "market_id",
+                "action",
+                "side",
+                "price",
+                "quantity",
+                "commission",
+                "bar",
+            ]
+        )
+        prices = np.full(n, 0.50)
+        prices[spike_idx] = 0.99
+        market_df = pd.DataFrame({"spiky-market": prices}, index=eq.index)
+
+        _, _, market_ds, _ = _downsample(eq, fills_df, market_df, max_points=1000)
+
+        assert float(market_ds["spiky-market"].max()) == 0.99
+
+    def test_allocation_extrema_preserved(self) -> None:
+        n = 10_007
+        spike_idx = 4_321
+        eq = pd.DataFrame(
+            {
+                "datetime": pd.date_range("2026-01-01", periods=n, freq="s"),
+                "cash": np.full(n, 100.0),
+                "equity": np.full(n, 100.0),
+                "drawdown_pct": np.zeros(n),
+                "num_positions": np.zeros(n, dtype=int),
+            }
+        )
+        fills_df = pd.DataFrame(
+            columns=[
+                "datetime",
+                "market_id",
+                "action",
+                "side",
+                "price",
+                "quantity",
+                "commission",
+                "bar",
+            ]
+        )
+        market_df = pd.DataFrame(index=eq.index)
+        exposure = np.zeros(n)
+        exposure[spike_idx] = 25.0
+        alloc_df = pd.DataFrame(
+            {"market-exposure": exposure, "Cash": np.full(n, 100.0)}, index=eq.index
+        )
+
+        _, _, _, alloc_ds = _downsample(eq, fills_df, market_df, max_points=1000, alloc_df=alloc_df)
+
+        assert alloc_ds is not None
+        assert float(alloc_ds["market-exposure"].max()) == 25.0
 
 
 # ---------------------------------------------------------------------------

@@ -184,6 +184,82 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
     def _raw_paths_for_hour_at_root(self, raw_root: Path, hour) -> tuple[Path, ...]:  # type: ignore[no-untyped-def]
         return self._local_archive_candidate_paths_for_hour(raw_root, hour)
 
+    def _local_source_fingerprint_for_hour(self, raw_root: Path, hour) -> dict[str, object] | None:  # type: ignore[no-untyped-def]
+        for raw_path in self._raw_paths_for_hour_at_root(raw_root, hour):
+            fingerprint = self._local_file_fingerprint(raw_path)
+            if fingerprint is not None:
+                fingerprint["source_stage"] = _PMXT_SOURCE_STAGE_RAW_LOCAL
+                return fingerprint
+        return None
+
+    def _remote_source_fingerprint_for_hour(self, base_url: str, hour) -> dict[str, object]:  # type: ignore[no-untyped-def]
+        url = self._archive_url_for_base_url(base_url, hour)
+        fingerprint: dict[str, object] = {
+            "kind": "remote",
+            "source_stage": _PMXT_SOURCE_STAGE_RAW_REMOTE,
+            "url": url,
+        }
+        request = Request(url, method="HEAD", headers={"User-Agent": _PMXT_RUNNER_HTTP_USER_AGENT})
+        try:
+            with urlopen(request, timeout=_PMXT_RUNNER_HTTP_TIMEOUT_SECS) as response:
+                content_length = self._content_length_from_response(response)
+                if content_length is not None:
+                    fingerprint["content_length"] = int(content_length)
+                headers = getattr(response, "headers", {})
+                for header, key in (
+                    ("ETag", "etag"),
+                    ("Last-Modified", "last_modified"),
+                    ("Content-MD5", "content_md5"),
+                ):
+                    value = None
+                    if hasattr(headers, "get"):
+                        value = headers.get(header) or headers.get(header.lower())
+                    if value:
+                        fingerprint[key] = str(value)
+        except Exception:
+            fingerprint["remote_fingerprint_unavailable_ns"] = time.time_ns()
+        return fingerprint
+
+    def _source_fingerprint_for_entry(
+        self, kind: str, target: str, hour
+    ) -> dict[str, object] | None:  # type: ignore[no-untyped-def]
+        if kind == _PMXT_SOURCE_STAGE_RAW_LOCAL:
+            return self._local_source_fingerprint_for_hour(Path(target).expanduser(), hour)
+        if kind == _PMXT_SOURCE_STAGE_RAW_REMOTE:
+            return self._remote_source_fingerprint_for_hour(str(target), hour)
+        return None
+
+    def _source_cache_fingerprint_for_hour(self, hour):  # type: ignore[override,no-untyped-def]
+        ordered_entries = getattr(self, "_pmxt_ordered_source_entries", ()) or ()
+        if ordered_entries:
+            for kind, target in ordered_entries:
+                fingerprint = self._source_fingerprint_for_entry(kind, target, hour)
+                if fingerprint is not None:
+                    return fingerprint
+            return None
+
+        for stage in self._pmxt_source_priority:
+            if stage == _PMXT_SOURCE_STAGE_RAW_LOCAL:
+                raw_root = getattr(self, "_pmxt_raw_root", None)
+                if raw_root is None:
+                    continue
+                fingerprint = self._local_source_fingerprint_for_hour(
+                    Path(raw_root).expanduser(),
+                    hour,
+                )
+                if fingerprint is not None:
+                    return fingerprint
+                continue
+
+            if stage == _PMXT_SOURCE_STAGE_RAW_REMOTE:
+                urls = getattr(self, "_pmxt_remote_base_urls", ()) or ()
+                if not urls and getattr(self, "_pmxt_remote_base_url", None) is not None:
+                    urls = (self._pmxt_remote_base_url,)
+                if urls:
+                    return self._remote_source_fingerprint_for_hour(str(urls[0]), hour)
+
+        return None
+
     def _load_local_raw_market_batches_from_root(
         self,
         raw_root: Path,
@@ -365,10 +441,20 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
             )
         return None
 
-    def _write_cache_if_enabled(self, hour, table) -> None:  # type: ignore[no-untyped-def]
+    def _write_cache_if_enabled(
+        self,
+        hour,
+        table,
+        *,
+        source: dict[str, object] | None,
+    ) -> None:  # type: ignore[no-untyped-def]
         if self._pmxt_cache_dir is not None:
             with suppress(OSError, pa.ArrowException):
-                self._write_market_cache(hour, table)
+                self._write_market_cache(
+                    hour,
+                    table,
+                    metadata=self._cache_metadata_payload(hour, source=source),
+                )
 
     def _load_market_table(self, hour, *, batch_size: int):  # type: ignore[no-untyped-def]
         table = self._load_cached_market_table(hour)
@@ -386,6 +472,7 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
                 )
                 if entry_batches is None:
                     continue
+                source = self._source_fingerprint_for_entry(kind, target, hour)
                 if kind == _PMXT_SOURCE_STAGE_RAW_REMOTE:
                     table = (
                         pa.Table.from_batches(entry_batches)
@@ -399,7 +486,7 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
                         if entry_batches
                         else self._empty_market_table()
                     )
-                self._write_cache_if_enabled(hour, table)
+                self._write_cache_if_enabled(hour, table, source=source)
                 return table
             return None
 
@@ -409,20 +496,34 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
                     hour, batch_size=batch_size
                 )
                 if local_archive_batches is not None:
+                    raw_root = getattr(self, "_pmxt_raw_root", None)
+                    source = (
+                        self._local_source_fingerprint_for_hour(Path(raw_root).expanduser(), hour)
+                        if raw_root is not None
+                        else None
+                    )
                     table = (
                         pa.Table.from_batches(local_archive_batches)
                         if local_archive_batches
                         else self._empty_market_table()
                     )
-                    self._write_cache_if_enabled(hour, table)
+                    self._write_cache_if_enabled(hour, table, source=source)
                     return table
                 continue
 
             if stage == _PMXT_SOURCE_STAGE_RAW_REMOTE:
                 remote_table = self._load_remote_market_table(hour, batch_size=batch_size)
                 if remote_table is not None:
+                    urls = getattr(self, "_pmxt_remote_base_urls", ()) or ()
+                    if not urls and getattr(self, "_pmxt_remote_base_url", None) is not None:
+                        urls = (self._pmxt_remote_base_url,)
+                    source = (
+                        self._remote_source_fingerprint_for_hour(str(urls[0]), hour)
+                        if urls
+                        else None
+                    )
                     remote_table = self._filter_table_to_token(remote_table)
-                    self._write_cache_if_enabled(hour, remote_table)
+                    self._write_cache_if_enabled(hour, remote_table, source=source)
                     return remote_table
                 continue
 
@@ -443,13 +544,14 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
                     batch_size=batch_size,
                 )
                 if entry_batches is not None:
+                    source = self._source_fingerprint_for_entry(kind, target, hour)
                     if self._pmxt_cache_dir is not None:
                         table = (
                             pa.Table.from_batches(entry_batches)
                             if entry_batches
                             else self._empty_market_table()
                         )
-                        self._write_cache_if_enabled(hour, table)
+                        self._write_cache_if_enabled(hour, table, source=source)
                     return entry_batches
             return None
 
@@ -457,26 +559,40 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
             if stage == _PMXT_SOURCE_STAGE_RAW_LOCAL:
                 batches = self._load_local_archive_market_batches(hour, batch_size=batch_size)
                 if batches is not None:
+                    raw_root = getattr(self, "_pmxt_raw_root", None)
+                    source = (
+                        self._local_source_fingerprint_for_hour(Path(raw_root).expanduser(), hour)
+                        if raw_root is not None
+                        else None
+                    )
                     if self._pmxt_cache_dir is not None:
                         table = (
                             pa.Table.from_batches(batches)
                             if batches
                             else self._empty_market_table()
                         )
-                        self._write_cache_if_enabled(hour, table)
+                        self._write_cache_if_enabled(hour, table, source=source)
                     return batches
                 continue
 
             if stage == _PMXT_SOURCE_STAGE_RAW_REMOTE:
                 batches = self._load_remote_market_batches(hour, batch_size=batch_size)
                 if batches is not None:
+                    urls = getattr(self, "_pmxt_remote_base_urls", ()) or ()
+                    if not urls and getattr(self, "_pmxt_remote_base_url", None) is not None:
+                        urls = (self._pmxt_remote_base_url,)
+                    source = (
+                        self._remote_source_fingerprint_for_hour(str(urls[0]), hour)
+                        if urls
+                        else None
+                    )
                     if self._pmxt_cache_dir is not None:
                         table = (
                             pa.Table.from_batches(batches)
                             if batches
                             else self._empty_market_table()
                         )
-                        self._write_cache_if_enabled(hour, table)
+                        self._write_cache_if_enabled(hour, table, source=source)
                     return batches
                 continue
 

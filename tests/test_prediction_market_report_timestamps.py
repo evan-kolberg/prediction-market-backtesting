@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
@@ -77,6 +78,290 @@ def test_save_aggregate_backtest_report_accepts_mixed_iso_timestamp_precision(tm
     html = output_path.read_text(encoding="utf-8")
     assert "mixed timestamp precision chart" in html
     assert "market-mixed" in html
+
+
+def test_save_aggregate_backtest_report_uses_initial_capital_basis(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    captured_results: list[dict[str, object]] = []
+
+    class _BacktestResult:
+        def __init__(self, **kwargs) -> None:
+            captured_results.append(kwargs)
+
+    def _snapshot(**kwargs):
+        return SimpleNamespace(**kwargs)
+
+    monkeypatch.setattr(
+        research.legacy_plot_adapter,
+        "_load_legacy_modules",
+        lambda: (
+            SimpleNamespace(
+                BacktestResult=_BacktestResult,
+                PortfolioSnapshot=_snapshot,
+                Platform=SimpleNamespace(POLYMARKET="POLYMARKET"),
+            ),
+            SimpleNamespace(plot=lambda *args, **kwargs: object()),
+        ),
+    )
+    monkeypatch.setattr(
+        research,
+        "_configure_summary_report_downsampling",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        research.legacy_plot_adapter,
+        "_apply_layout_overrides",
+        lambda layout, initial_cash, **kwargs: layout,
+    )
+    monkeypatch.setattr(
+        research,
+        "save_legacy_backtest_layout",
+        lambda layout, output_path, title: str(output_path),
+    )
+
+    save_aggregate_backtest_report(
+        results=[
+            {
+                "slug": "first-point-after-fill",
+                "book_events": 2,
+                "fills": 2,
+                "pnl": 1.0,
+                "equity_series": [
+                    ("2026-04-01T00:01:00+00:00", 100.5),
+                    ("2026-04-01T00:02:00+00:00", 101.0),
+                ],
+                "cash_series": [
+                    ("2026-04-01T00:01:00+00:00", 100.5),
+                    ("2026-04-01T00:02:00+00:00", 101.0),
+                ],
+                "pnl_series": [
+                    ("2026-04-01T00:01:00+00:00", 0.5),
+                    ("2026-04-01T00:02:00+00:00", 1.0),
+                ],
+            }
+        ],
+        output_path=tmp_path / "aggregate_initial_basis.html",
+        title="aggregate initial basis",
+        market_key="slug",
+        pnl_label="PnL (USDC)",
+        plot_panels=("total_equity", "total_cash_equity"),
+    )
+
+    assert len(captured_results) == 1
+    result_kwargs = captured_results[0]
+    assert result_kwargs["initial_cash"] == pytest.approx(100.0)
+    assert result_kwargs["final_equity"] == pytest.approx(101.0)
+    assert result_kwargs["metrics"]["total_return"] == pytest.approx(0.01)
+    assert result_kwargs["equity_curve"][0].total_equity == pytest.approx(100.0)
+
+
+def test_save_aggregate_backtest_report_uses_initial_cash_for_pnl_only_series(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    captured_results: list[dict[str, object]] = []
+
+    class _BacktestResult:
+        def __init__(self, **kwargs) -> None:
+            captured_results.append(kwargs)
+
+    def _snapshot(**kwargs):
+        return SimpleNamespace(**kwargs)
+
+    monkeypatch.setattr(
+        research.legacy_plot_adapter,
+        "_load_legacy_modules",
+        lambda: (
+            SimpleNamespace(
+                BacktestResult=_BacktestResult,
+                PortfolioSnapshot=_snapshot,
+                Platform=SimpleNamespace(POLYMARKET="POLYMARKET"),
+            ),
+            SimpleNamespace(plot=lambda *args, **kwargs: object()),
+        ),
+    )
+    monkeypatch.setattr(
+        research,
+        "_configure_summary_report_downsampling",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        research.legacy_plot_adapter,
+        "_apply_layout_overrides",
+        lambda layout, initial_cash, **kwargs: layout,
+    )
+    monkeypatch.setattr(
+        research,
+        "save_legacy_backtest_layout",
+        lambda layout, output_path, title: str(output_path),
+    )
+
+    save_aggregate_backtest_report(
+        results=[
+            {
+                "slug": "pnl-only",
+                "book_events": 2,
+                "fills": 0,
+                "pnl": 25.0,
+                "initial_cash": 1000.0,
+                "pnl_series": [
+                    ("2026-04-01T00:00:00+00:00", 0.0),
+                    ("2026-04-01T00:01:00+00:00", 25.0),
+                ],
+            }
+        ],
+        output_path=tmp_path / "aggregate_pnl_only.html",
+        title="aggregate pnl only",
+        market_key="slug",
+        pnl_label="PnL (USDC)",
+        plot_panels=("total_equity", "total_cash_equity"),
+    )
+
+    result_kwargs = captured_results[0]
+    assert result_kwargs["initial_cash"] == pytest.approx(1000.0)
+    assert result_kwargs["final_equity"] == pytest.approx(1025.0)
+    assert result_kwargs["metrics"]["total_return"] == pytest.approx(0.025)
+
+
+def test_save_aggregate_backtest_report_marks_zero_capital_return_unavailable(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    captured_results: list[dict[str, object]] = []
+
+    class _BacktestResult:
+        def __init__(self, **kwargs) -> None:
+            captured_results.append(kwargs)
+
+    def _snapshot(**kwargs):
+        return SimpleNamespace(**kwargs)
+
+    monkeypatch.setattr(
+        research.legacy_plot_adapter,
+        "_load_legacy_modules",
+        lambda: (
+            SimpleNamespace(
+                BacktestResult=_BacktestResult,
+                PortfolioSnapshot=_snapshot,
+                Platform=SimpleNamespace(POLYMARKET="POLYMARKET"),
+            ),
+            SimpleNamespace(plot=lambda *args, **kwargs: object()),
+        ),
+    )
+    monkeypatch.setattr(
+        research,
+        "_configure_summary_report_downsampling",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        research.legacy_plot_adapter,
+        "_apply_layout_overrides",
+        lambda layout, initial_cash, **kwargs: layout,
+    )
+    monkeypatch.setattr(
+        research,
+        "save_legacy_backtest_layout",
+        lambda layout, output_path, title: str(output_path),
+    )
+
+    save_aggregate_backtest_report(
+        results=[
+            {
+                "slug": "zero-capital",
+                "book_events": 2,
+                "fills": 0,
+                "pnl": 10.0,
+                "initial_cash": 0.0,
+                "equity_series": [
+                    ("2026-04-01T00:00:00+00:00", 0.0),
+                    ("2026-04-01T00:01:00+00:00", 10.0),
+                ],
+            }
+        ],
+        output_path=tmp_path / "aggregate_zero_capital.html",
+        title="aggregate zero capital",
+        market_key="slug",
+        pnl_label="PnL (USDC)",
+        plot_panels=("total_equity", "total_cash_equity"),
+    )
+
+    result_kwargs = captured_results[0]
+    assert math.isnan(result_kwargs["metrics"]["total_return"])
+
+
+def test_save_joint_portfolio_backtest_report_uses_initial_capital_basis(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    captured_results: list[dict[str, object]] = []
+
+    class _BacktestResult:
+        def __init__(self, **kwargs) -> None:
+            captured_results.append(kwargs)
+
+    def _snapshot(**kwargs):
+        return SimpleNamespace(**kwargs)
+
+    monkeypatch.setattr(
+        research.legacy_plot_adapter,
+        "_load_legacy_modules",
+        lambda: (
+            SimpleNamespace(
+                BacktestResult=_BacktestResult,
+                PortfolioSnapshot=_snapshot,
+                Platform=SimpleNamespace(POLYMARKET="POLYMARKET"),
+            ),
+            SimpleNamespace(plot=lambda *args, **kwargs: object()),
+        ),
+    )
+    monkeypatch.setattr(
+        research,
+        "_configure_summary_report_downsampling",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        research.legacy_plot_adapter,
+        "_apply_layout_overrides",
+        lambda layout, initial_cash, **kwargs: layout,
+    )
+    monkeypatch.setattr(
+        research,
+        "save_legacy_backtest_layout",
+        lambda layout, output_path, title: str(output_path),
+    )
+
+    save_joint_portfolio_backtest_report(
+        results=[
+            {
+                "slug": "joint-first-point-after-fill",
+                "book_events": 2,
+                "fills": 1,
+                "pnl": 1.0,
+                "joint_portfolio_equity_series": [
+                    ("2026-04-01T00:01:00+00:00", 200.5),
+                    ("2026-04-01T00:02:00+00:00", 201.0),
+                ],
+                "joint_portfolio_cash_series": [
+                    ("2026-04-01T00:01:00+00:00", 200.5),
+                    ("2026-04-01T00:02:00+00:00", 201.0),
+                ],
+                "joint_portfolio_pnl_series": [
+                    ("2026-04-01T00:01:00+00:00", 0.5),
+                    ("2026-04-01T00:02:00+00:00", 1.0),
+                ],
+            }
+        ],
+        output_path=tmp_path / "joint_initial_basis.html",
+        title="joint initial basis",
+        market_key="slug",
+        pnl_label="PnL (USDC)",
+        plot_panels=("total_equity", "total_cash_equity"),
+    )
+
+    assert len(captured_results) == 1
+    result_kwargs = captured_results[0]
+    assert result_kwargs["initial_cash"] == pytest.approx(200.0)
+    assert result_kwargs["final_equity"] == pytest.approx(201.0)
+    assert result_kwargs["metrics"]["total_return"] == pytest.approx(0.005)
+    assert result_kwargs["equity_curve"][0].total_equity == pytest.approx(200.0)
 
 
 def test_save_joint_portfolio_backtest_report_accepts_mixed_iso_timestamp_precision(
@@ -1022,6 +1307,599 @@ def test_save_joint_portfolio_backtest_report_keeps_market_overlays_when_needed(
         "total_brier_advantage": total_brier_panel,
         "brier_advantage": market_brier_panel,
     }
+
+
+def test_summary_brier_panels_exclude_settlement_and_post_settlement_points(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+    total_brier_panel = object()
+    market_brier_panel = object()
+    t_pre = "2026-04-01T00:00:00+00:00"
+    t_settle = "2026-04-01T00:01:00+00:00"
+    t_post = "2026-04-01T00:02:00+00:00"
+
+    def _capture_total(frame):
+        captured["total"] = frame.copy()
+        return total_brier_panel
+
+    def _capture_market(frames, **kwargs):
+        captured["market"] = {key: frame.copy() for key, frame in frames.items()}
+        return market_brier_panel
+
+    monkeypatch.setattr(research.legacy_plot_adapter, "_build_total_brier_panel", _capture_total)
+    monkeypatch.setattr(research, "_build_summary_brier_panel", _capture_market)
+
+    panels = research._build_summary_brier_extra_panels(
+        results=[
+            {
+                "slug": "settlement-brier",
+                "fills": 0,
+                "pnl": 0.0,
+                "user_probability_series": [(t_pre, 0.55), (t_settle, 0.55), (t_post, 0.55)],
+                "market_probability_series": [(t_pre, 0.60), (t_settle, 1.0), (t_post, 1.0)],
+                "outcome_series": [(t_pre, 1.0), (t_settle, 1.0), (t_post, 1.0)],
+                "settlement_pnl_applied": True,
+                "settlement_series_time": t_settle,
+            }
+        ],
+        market_key="slug",
+        resolved_plot_panels=("total_brier_advantage", "brier_advantage"),
+        max_points_per_market=400,
+    )
+
+    expected_advantage = (0.60 - 1.0) ** 2 - (0.55 - 1.0) ** 2
+    total_frame = captured["total"]
+    market_frame = captured["market"]["settlement-brier"]
+
+    assert panels == {
+        "total_brier_advantage": total_brier_panel,
+        "brier_advantage": market_brier_panel,
+    }
+    assert len(total_frame) == 1
+    assert len(market_frame) == 1
+    assert total_frame["cumulative_brier_advantage"].iloc[-1] == pytest.approx(expected_advantage)
+    assert market_frame["cumulative_brier_advantage"].iloc[-1] == pytest.approx(expected_advantage)
+
+
+def test_save_joint_portfolio_backtest_report_disambiguates_duplicate_market_labels(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    captured_results: list[dict[str, object]] = []
+
+    class _BacktestResult:
+        def __init__(self, **kwargs) -> None:
+            captured_results.append(kwargs)
+
+    def _snapshot(**kwargs):
+        return SimpleNamespace(**kwargs)
+
+    monkeypatch.setattr(
+        research.legacy_plot_adapter,
+        "_load_legacy_modules",
+        lambda: (
+            SimpleNamespace(
+                BacktestResult=_BacktestResult,
+                PortfolioSnapshot=_snapshot,
+                Platform=SimpleNamespace(POLYMARKET="POLYMARKET"),
+                Side=SimpleNamespace(YES="yes", NO="no"),
+            ),
+            SimpleNamespace(plot=lambda *args, **kwargs: object()),
+        ),
+    )
+    monkeypatch.setattr(
+        research.legacy_plot_adapter,
+        "_apply_layout_overrides",
+        lambda layout, initial_cash, **kwargs: layout,
+    )
+    monkeypatch.setattr(
+        research,
+        "save_legacy_backtest_layout",
+        lambda layout, output_path, title: str(output_path),
+    )
+
+    save_joint_portfolio_backtest_report(
+        results=[
+            {
+                "slug": "same-market",
+                "instrument_id": "PM-SAME-YES.POLYMARKET",
+                "outcome": "Yes",
+                "fills": 0,
+                "pnl": 1.0,
+                "price_series": [
+                    ("2026-03-14T17:57:40+00:00", 0.40),
+                    ("2026-03-14T17:58:40+00:00", 0.42),
+                ],
+                "equity_series": [
+                    ("2026-03-14T17:57:40+00:00", 100.0),
+                    ("2026-03-14T17:58:40+00:00", 101.0),
+                ],
+                "cash_series": [
+                    ("2026-03-14T17:57:40+00:00", 96.0),
+                    ("2026-03-14T17:58:40+00:00", 96.0),
+                ],
+                "joint_portfolio_equity_series": [
+                    ("2026-03-14T17:57:40+00:00", 100.0),
+                    ("2026-03-14T17:58:40+00:00", 103.0),
+                ],
+                "joint_portfolio_cash_series": [
+                    ("2026-03-14T17:57:40+00:00", 96.0),
+                    ("2026-03-14T17:58:40+00:00", 96.0),
+                ],
+            },
+            {
+                "slug": "same-market",
+                "instrument_id": "PM-SAME-NO.POLYMARKET",
+                "outcome": "No",
+                "fills": 0,
+                "pnl": 2.0,
+                "price_series": [
+                    ("2026-03-14T17:57:40+00:00", 0.60),
+                    ("2026-03-14T17:58:40+00:00", 0.58),
+                ],
+                "equity_series": [
+                    ("2026-03-14T17:57:40+00:00", 100.0),
+                    ("2026-03-14T17:58:40+00:00", 102.0),
+                ],
+                "cash_series": [
+                    ("2026-03-14T17:57:40+00:00", 99.0),
+                    ("2026-03-14T17:58:40+00:00", 99.0),
+                ],
+            },
+        ],
+        output_path=tmp_path / "joint_duplicate_labels.html",
+        title="joint duplicate labels",
+        market_key="slug",
+        pnl_label="PnL (USDC)",
+        plot_panels=("yes_price", "equity", "cash_equity"),
+    )
+
+    result_kwargs = captured_results[0]
+    expected_labels = {"same-market (Yes)", "same-market (No)"}
+    assert set(result_kwargs["market_prices"]) == expected_labels
+    assert set(result_kwargs["overlay_series"]["equity"]) == expected_labels
+    assert set(result_kwargs["overlay_series"]["cash"]) == expected_labels
+    assert result_kwargs["market_pnls"] == {
+        "same-market (Yes)": 1.0,
+        "same-market (No)": 2.0,
+    }
+
+
+def test_save_joint_portfolio_backtest_report_stops_counting_settled_market_active(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    captured_results: list[dict[str, object]] = []
+
+    class _BacktestResult:
+        def __init__(self, **kwargs) -> None:
+            captured_results.append(kwargs)
+
+    def _snapshot(**kwargs):
+        return SimpleNamespace(**kwargs)
+
+    monkeypatch.setattr(
+        research.legacy_plot_adapter,
+        "_load_legacy_modules",
+        lambda: (
+            SimpleNamespace(
+                BacktestResult=_BacktestResult,
+                PortfolioSnapshot=_snapshot,
+                Platform=SimpleNamespace(POLYMARKET="POLYMARKET"),
+            ),
+            SimpleNamespace(plot=lambda *args, **kwargs: object()),
+        ),
+    )
+    monkeypatch.setattr(
+        research.legacy_plot_adapter,
+        "_apply_layout_overrides",
+        lambda layout, initial_cash, **kwargs: layout,
+    )
+    monkeypatch.setattr(
+        research,
+        "save_legacy_backtest_layout",
+        lambda layout, output_path, title: str(output_path),
+    )
+
+    times = [
+        "2026-03-14T12:00:00+00:00",
+        "2026-03-14T12:01:00+00:00",
+        "2026-03-14T12:02:00+00:00",
+        "2026-03-14T12:03:00+00:00",
+    ]
+    save_joint_portfolio_backtest_report(
+        results=[
+            {
+                "slug": "settled-market",
+                "fills": 1,
+                "pnl": 1.0,
+                "settlement_pnl_applied": True,
+                "settlement_series_time": times[1],
+                "equity_series": [(ts, 100.0) for ts in times],
+                "cash_series": [(ts, 100.0) for ts in times],
+                "joint_portfolio_equity_series": [(ts, 200.0) for ts in times],
+                "joint_portfolio_cash_series": [(ts, 200.0) for ts in times],
+            },
+            {
+                "slug": "open-market",
+                "fills": 1,
+                "pnl": 0.0,
+                "equity_series": [(ts, 100.0) for ts in times],
+                "cash_series": [(ts, 100.0) for ts in times],
+            },
+        ],
+        output_path=tmp_path / "joint_settled_active_count.html",
+        title="joint settled active count",
+        market_key="slug",
+        pnl_label="PnL (USDC)",
+        plot_panels=("equity", "cash_equity"),
+    )
+
+    snapshots = captured_results[0]["equity_curve"]
+    counts_by_time = {
+        snapshot.timestamp.replace(tzinfo=UTC).isoformat(): snapshot.num_positions
+        for snapshot in snapshots
+    }
+    assert counts_by_time == {
+        times[0]: 2,
+        times[1]: 1,
+        times[2]: 1,
+        times[3]: 1,
+    }
+    settled_overlay = captured_results[0]["overlay_series"]["equity"]["settled-market"]
+    assert settled_overlay.iloc[0] == pytest.approx(100.0)
+    assert settled_overlay.iloc[1] == pytest.approx(100.0)
+    assert settled_overlay.iloc[2:].isna().all()
+
+
+def test_save_joint_portfolio_backtest_report_starts_active_count_at_first_fill(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    captured_results: list[dict[str, object]] = []
+
+    class _BacktestResult:
+        def __init__(self, **kwargs) -> None:
+            captured_results.append(kwargs)
+
+    def _snapshot(**kwargs):
+        return SimpleNamespace(**kwargs)
+
+    monkeypatch.setattr(
+        research.legacy_plot_adapter,
+        "_load_legacy_modules",
+        lambda: (
+            SimpleNamespace(
+                BacktestResult=_BacktestResult,
+                PortfolioSnapshot=_snapshot,
+                Platform=SimpleNamespace(POLYMARKET="POLYMARKET"),
+            ),
+            SimpleNamespace(plot=lambda *args, **kwargs: object()),
+        ),
+    )
+    monkeypatch.setattr(
+        research.legacy_plot_adapter,
+        "_apply_layout_overrides",
+        lambda layout, initial_cash, **kwargs: layout,
+    )
+    monkeypatch.setattr(
+        research,
+        "save_legacy_backtest_layout",
+        lambda layout, output_path, title: str(output_path),
+    )
+
+    times = [
+        "2026-03-14T12:00:00+00:00",
+        "2026-03-14T12:01:00+00:00",
+        "2026-03-14T12:02:00+00:00",
+    ]
+    save_joint_portfolio_backtest_report(
+        results=[
+            {
+                "slug": "filled-after-start",
+                "fills": 1,
+                "pnl": 1.0,
+                "settlement_pnl_applied": True,
+                "settlement_series_time": times[2],
+                "fill_events": [
+                    {
+                        "action": "buy",
+                        "side": "yes",
+                        "price": 0.5,
+                        "quantity": 1.0,
+                        "timestamp": times[1],
+                    }
+                ],
+                "price_series": [(ts, 0.5) for ts in times],
+                "equity_series": [(ts, 100.0) for ts in times],
+                "cash_series": [(ts, 100.0) for ts in times],
+                "joint_portfolio_equity_series": [(ts, 100.0) for ts in times],
+                "joint_portfolio_cash_series": [(ts, 100.0) for ts in times],
+            }
+        ],
+        output_path=tmp_path / "joint_fill_start_active_count.html",
+        title="joint fill start active count",
+        market_key="slug",
+        pnl_label="PnL (USDC)",
+        plot_panels=("equity", "cash_equity"),
+    )
+
+    snapshots = captured_results[0]["equity_curve"]
+    counts_by_time = {
+        snapshot.timestamp.replace(tzinfo=UTC).isoformat(): snapshot.num_positions
+        for snapshot in snapshots
+    }
+    assert counts_by_time[times[0]] == 0
+    assert counts_by_time[times[1]] == 1
+    assert counts_by_time[times[2]] == 0
+
+
+def test_save_joint_portfolio_backtest_report_does_not_count_no_fill_market_as_position(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    captured_results: list[dict[str, object]] = []
+
+    class _BacktestResult:
+        def __init__(self, **kwargs) -> None:
+            captured_results.append(kwargs)
+
+    def _snapshot(**kwargs):
+        return SimpleNamespace(**kwargs)
+
+    monkeypatch.setattr(
+        research.legacy_plot_adapter,
+        "_load_legacy_modules",
+        lambda: (
+            SimpleNamespace(
+                BacktestResult=_BacktestResult,
+                PortfolioSnapshot=_snapshot,
+                Platform=SimpleNamespace(POLYMARKET="POLYMARKET"),
+            ),
+            SimpleNamespace(plot=lambda *args, **kwargs: object()),
+        ),
+    )
+    monkeypatch.setattr(
+        research.legacy_plot_adapter,
+        "_apply_layout_overrides",
+        lambda layout, initial_cash, **kwargs: layout,
+    )
+    monkeypatch.setattr(
+        research,
+        "save_legacy_backtest_layout",
+        lambda layout, output_path, title: str(output_path),
+    )
+
+    times = [
+        "2026-03-14T12:00:00+00:00",
+        "2026-03-14T12:01:00+00:00",
+        "2026-03-14T12:02:00+00:00",
+    ]
+    save_joint_portfolio_backtest_report(
+        results=[
+            {
+                "slug": "traded-market",
+                "fills": 1,
+                "pnl": 1.0,
+                "settlement_pnl_applied": True,
+                "settlement_series_time": times[1],
+                "fill_events": [
+                    {
+                        "action": "buy",
+                        "side": "yes",
+                        "price": 0.5,
+                        "quantity": 1.0,
+                        "timestamp": times[0],
+                    }
+                ],
+                "equity_series": [(ts, 100.0) for ts in times],
+                "cash_series": [(ts, 100.0) for ts in times],
+                "joint_portfolio_equity_series": [(ts, 200.0) for ts in times],
+                "joint_portfolio_cash_series": [(ts, 200.0) for ts in times],
+            },
+            {
+                "slug": "no-fill-market",
+                "fills": 0,
+                "pnl": 0.0,
+                "fill_events": [],
+                "price_series": [(ts, 0.5) for ts in times],
+                "equity_series": [(ts, 100.0) for ts in times],
+                "cash_series": [(ts, 100.0) for ts in times],
+            },
+        ],
+        output_path=tmp_path / "joint_no_fill_position_count.html",
+        title="joint no-fill position count",
+        market_key="slug",
+        pnl_label="PnL (USDC)",
+        plot_panels=("equity", "cash_equity"),
+    )
+
+    snapshots = captured_results[0]["equity_curve"]
+    counts_by_time = {
+        snapshot.timestamp.replace(tzinfo=UTC).isoformat(): snapshot.num_positions
+        for snapshot in snapshots
+    }
+    assert counts_by_time == {
+        times[0]: 1,
+        times[1]: 0,
+        times[2]: 0,
+    }
+
+
+def test_save_aggregate_backtest_report_does_not_count_no_fill_market_as_position(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    captured_results: list[dict[str, object]] = []
+
+    class _BacktestResult:
+        def __init__(self, **kwargs) -> None:
+            captured_results.append(kwargs)
+
+    def _snapshot(**kwargs):
+        return SimpleNamespace(**kwargs)
+
+    monkeypatch.setattr(
+        research.legacy_plot_adapter,
+        "_load_legacy_modules",
+        lambda: (
+            SimpleNamespace(
+                BacktestResult=_BacktestResult,
+                PortfolioSnapshot=_snapshot,
+                Platform=SimpleNamespace(POLYMARKET="POLYMARKET"),
+            ),
+            SimpleNamespace(plot=lambda *args, **kwargs: object()),
+        ),
+    )
+    monkeypatch.setattr(
+        research.legacy_plot_adapter,
+        "_apply_layout_overrides",
+        lambda layout, initial_cash, **kwargs: layout,
+    )
+    monkeypatch.setattr(
+        research,
+        "_build_summary_brier_extra_panels",
+        lambda **kwargs: {},
+    )
+    monkeypatch.setattr(
+        research,
+        "save_legacy_backtest_layout",
+        lambda layout, output_path, title: str(output_path),
+    )
+
+    times = [
+        "2026-03-14T12:00:00+00:00",
+        "2026-03-14T12:01:00+00:00",
+        "2026-03-14T12:02:00+00:00",
+    ]
+    save_aggregate_backtest_report(
+        results=[
+            {
+                "slug": "traded-market",
+                "fills": 1,
+                "pnl": 1.0,
+                "settlement_pnl_applied": True,
+                "settlement_series_time": times[1],
+                "fill_events": [
+                    {
+                        "action": "buy",
+                        "side": "yes",
+                        "price": 0.5,
+                        "quantity": 1.0,
+                        "timestamp": times[0],
+                    }
+                ],
+                "equity_series": [(ts, 100.0) for ts in times],
+                "cash_series": [(ts, 100.0) for ts in times],
+                "pnl_series": [(ts, 0.0) for ts in times],
+            },
+            {
+                "slug": "no-fill-market",
+                "fills": 0,
+                "pnl": 0.0,
+                "fill_events": [],
+                "price_series": [(ts, 0.5) for ts in times],
+                "equity_series": [(ts, 100.0) for ts in times],
+                "cash_series": [(ts, 100.0) for ts in times],
+                "pnl_series": [(ts, 0.0) for ts in times],
+            },
+        ],
+        output_path=tmp_path / "aggregate_no_fill_position_count.html",
+        title="aggregate no-fill position count",
+        market_key="slug",
+        pnl_label="PnL (USDC)",
+        plot_panels=("equity", "cash_equity"),
+    )
+
+    snapshots = captured_results[0]["equity_curve"]
+    counts_by_time = {
+        snapshot.timestamp.replace(tzinfo=UTC).isoformat(): snapshot.num_positions
+        for snapshot in snapshots
+    }
+    assert counts_by_time[times[0]] == 1
+    assert counts_by_time[times[1]] == 0
+    assert counts_by_time[times[2]] == 0
+
+
+def test_save_aggregate_backtest_report_starts_active_count_at_first_fill(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    captured_results: list[dict[str, object]] = []
+
+    class _BacktestResult:
+        def __init__(self, **kwargs) -> None:
+            captured_results.append(kwargs)
+
+    def _snapshot(**kwargs):
+        return SimpleNamespace(**kwargs)
+
+    monkeypatch.setattr(
+        research.legacy_plot_adapter,
+        "_load_legacy_modules",
+        lambda: (
+            SimpleNamespace(
+                BacktestResult=_BacktestResult,
+                PortfolioSnapshot=_snapshot,
+                Platform=SimpleNamespace(POLYMARKET="POLYMARKET"),
+            ),
+            SimpleNamespace(plot=lambda *args, **kwargs: object()),
+        ),
+    )
+    monkeypatch.setattr(
+        research.legacy_plot_adapter,
+        "_apply_layout_overrides",
+        lambda layout, initial_cash, **kwargs: layout,
+    )
+    monkeypatch.setattr(
+        research,
+        "_build_summary_brier_extra_panels",
+        lambda **kwargs: {},
+    )
+    monkeypatch.setattr(
+        research,
+        "save_legacy_backtest_layout",
+        lambda layout, output_path, title: str(output_path),
+    )
+
+    times = [
+        "2026-03-14T12:00:00+00:00",
+        "2026-03-14T12:01:00+00:00",
+        "2026-03-14T12:02:00+00:00",
+    ]
+    save_aggregate_backtest_report(
+        results=[
+            {
+                "slug": "filled-after-start",
+                "fills": 1,
+                "pnl": 1.0,
+                "settlement_pnl_applied": True,
+                "settlement_series_time": times[2],
+                "fill_events": [
+                    {
+                        "action": "buy",
+                        "side": "yes",
+                        "price": 0.5,
+                        "quantity": 1.0,
+                        "timestamp": times[1],
+                    }
+                ],
+                "price_series": [(ts, 0.5) for ts in times],
+                "equity_series": [(ts, 100.0) for ts in times],
+                "cash_series": [(ts, 100.0) for ts in times],
+                "pnl_series": [(ts, 0.0) for ts in times],
+            }
+        ],
+        output_path=tmp_path / "aggregate_fill_start_active_count.html",
+        title="aggregate fill start active count",
+        market_key="slug",
+        pnl_label="PnL (USDC)",
+        plot_panels=("equity", "cash_equity"),
+    )
+
+    snapshots = captured_results[0]["equity_curve"]
+    counts_by_time = {
+        snapshot.timestamp.replace(tzinfo=UTC).isoformat(): snapshot.num_positions
+        for snapshot in snapshots
+    }
+    assert counts_by_time[times[0]] == 0
+    assert counts_by_time[times[1]] == 1
+    assert counts_by_time[times[2]] == 0
 
 
 def test_save_joint_portfolio_backtest_report_renders_market_overlay_labels(tmp_path) -> None:

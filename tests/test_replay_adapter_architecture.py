@@ -157,6 +157,73 @@ def test_preflight_midpoints_apply_l2_book_state(monkeypatch) -> None:
     assert replay_adapters._price_range(midpoints) == pytest.approx(0.02)
 
 
+def test_replay_records_clip_at_instrument_expiration() -> None:
+    records = (
+        SimpleNamespace(ts_event=10),
+        SimpleNamespace(ts_event=15),
+        SimpleNamespace(ts_event=16),
+    )
+
+    with pytest.warns(RuntimeWarning, match="post-expiration"):
+        clipped, metadata = replay_adapters._clip_records_at_instrument_expiration(
+            instrument=SimpleNamespace(expiration_ns=15),
+            records=records,
+            market_label="demo-market",
+        )
+
+    assert clipped == records[:2]
+    assert metadata == {
+        "post_expiration_records_dropped": 1,
+        "records_clipped_at_expiration_ns": 15,
+    }
+
+
+def test_replay_records_drop_crossed_l2_books_until_fresh_snapshot(monkeypatch) -> None:
+    class FakeDeltas:
+        def __init__(self, updates: tuple[tuple[str, float], ...], *, is_snapshot: bool) -> None:
+            self.updates = updates
+            self.is_snapshot = is_snapshot
+            self.ts_event = 0
+
+    class FakeOrderBook:
+        def __init__(self, instrument_id, book_type):  # type: ignore[no-untyped-def]
+            del instrument_id, book_type
+            self._bid: float | None = None
+            self._ask: float | None = None
+
+        def apply_deltas(self, deltas: FakeDeltas) -> None:
+            for side, price in deltas.updates:
+                if side == "bid":
+                    self._bid = price
+                else:
+                    self._ask = price
+
+        def best_bid_price(self) -> float | None:
+            return self._bid
+
+        def best_ask_price(self) -> float | None:
+            return self._ask
+
+    monkeypatch.setattr(replay_adapters, "OrderBook", FakeOrderBook)
+    crossed_snapshot = FakeDeltas((("bid", 0.55), ("ask", 0.50)), is_snapshot=True)
+    stale_delta = FakeDeltas((("ask", 0.52),), is_snapshot=False)
+    valid_snapshot = FakeDeltas((("bid", 0.49), ("ask", 0.51)), is_snapshot=True)
+
+    with pytest.warns(RuntimeWarning, match="invalid L2"):
+        sanitized, metadata = replay_adapters._drop_crossed_l2_book_records(
+            instrument=SimpleNamespace(id="POLYMARKET.TEST"),
+            records=(crossed_snapshot, stale_delta, valid_snapshot),
+            deltas_type=FakeDeltas,
+            market_label="demo-market",
+        )
+
+    assert sanitized == (valid_snapshot,)
+    assert metadata == {
+        "crossed_book_records_dropped": 1,
+        "book_delta_records_without_snapshot_dropped": 1,
+    }
+
+
 def test_trade_tick_loader_reports_api_and_cache_progress(
     monkeypatch: pytest.MonkeyPatch, tmp_path, capsys
 ) -> None:

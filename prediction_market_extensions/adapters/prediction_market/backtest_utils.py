@@ -358,6 +358,11 @@ def compute_binary_settlement_pnl(
 ) -> float | None:
     """
     Compute binary-market PnL by marking any remaining position to settlement.
+
+    ``resolved_outcome`` is token-level for the instrument being settled:
+    ``1.0`` means the traded token pays out, ``0.0`` means it expires
+    worthless. Fill ``side`` values are retained for display compatibility and
+    do not invert the payout.
     """
     if resolved_outcome is None:
         return None
@@ -367,7 +372,6 @@ def compute_binary_settlement_pnl(
     cash = 0.0
     open_qty = 0.0
     commissions = 0.0
-    contract_side = "yes"
     saw_fill = False
 
     for event in fill_events:
@@ -377,9 +381,6 @@ def compute_binary_settlement_pnl(
         commission = _parse_numeric(event.get("commission"), default=0.0)
         if quantity <= 0.0 or price is None:
             continue
-        event_side = str(event.get("side") or "").strip().casefold()
-        if event_side in {"yes", "no"}:
-            contract_side = event_side
         saw_fill = True
 
         commissions += commission
@@ -392,9 +393,7 @@ def compute_binary_settlement_pnl(
 
     if not saw_fill:
         return None
-    settlement_value = (
-        float(resolved_outcome) if contract_side == "yes" else 1.0 - float(resolved_outcome)
-    )
+    settlement_value = float(resolved_outcome)
     return cash + (settlement_value * open_qty) - commissions
 
 

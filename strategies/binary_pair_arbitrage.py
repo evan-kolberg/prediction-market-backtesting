@@ -279,6 +279,11 @@ class BookBinaryPairArbitrageStrategy(Strategy):
             return
         avg_price_decimals = [Decimal(str(avg_prices[i])) for i in range(2)]
 
+        if any(
+            float(avg_price) > float(self.config.max_leg_price) for avg_price in avg_price_decimals
+        ):
+            return
+
         expected_slippages = [float(avg_price_decimals[i] - asks[i]) for i in range(2)]
         if any(
             slippage > float(self.config.max_expected_slippage) for slippage in expected_slippages
@@ -357,6 +362,8 @@ class BookBinaryPairArbitrageStrategy(Strategy):
                 self.submit_order(order)
         except Exception:
             self._pending_by_pair[pair] = 0
+            self._entries_by_pair[pair] = max(0, self._entries_by_pair.get(pair, 0) - 1)
+            self._cooldown_by_pair[pair] = 0
             raise
 
     def _event_order_is_closed(self, event) -> bool:  # type: ignore[no-untyped-def]
@@ -382,20 +389,34 @@ class BookBinaryPairArbitrageStrategy(Strategy):
         if self._event_order_is_closed(event):
             self._pending_by_pair[pair] = max(0, self._pending_by_pair.get(pair, 0) - 1)
 
+    def _rollback_empty_failed_pair_entry(self, event) -> None:  # type: ignore[no-untyped-def]
+        instrument_id = getattr(event, "instrument_id", None)
+        pair = self._pair_by_instrument.get(instrument_id)
+        if pair is None:
+            return
+        if self._pending_by_pair.get(pair, 0) > 0 or self._pair_has_position(pair):
+            return
+        self._entries_by_pair[pair] = max(0, self._entries_by_pair.get(pair, 0) - 1)
+        self._cooldown_by_pair[pair] = 0
+
     def on_order_filled(self, event) -> None:  # type: ignore[no-untyped-def]
         self._mark_order_event(event)
 
     def on_order_rejected(self, event) -> None:  # type: ignore[no-untyped-def]
         self._mark_order_event(event)
+        self._rollback_empty_failed_pair_entry(event)
 
     def on_order_denied(self, event) -> None:  # type: ignore[no-untyped-def]
         self._mark_order_event(event)
+        self._rollback_empty_failed_pair_entry(event)
 
     def on_order_canceled(self, event) -> None:  # type: ignore[no-untyped-def]
         self._mark_order_event(event)
+        self._rollback_empty_failed_pair_entry(event)
 
     def on_order_expired(self, event) -> None:  # type: ignore[no-untyped-def]
         self._mark_order_event(event)
+        self._rollback_empty_failed_pair_entry(event)
 
     def on_stop(self) -> None:
         for instrument_id in self.config.instrument_ids:

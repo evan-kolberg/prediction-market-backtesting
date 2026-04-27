@@ -81,6 +81,37 @@ def test_polymarket_token_winner_is_redacted_in_simulation_info() -> None:
     assert infer_realized_outcome_from_metadata(metadata, "No") == 0.0
 
 
+def test_nested_resolution_fields_are_redacted_in_simulation_info() -> None:
+    market_info = {
+        "condition_id": "0x" + "1" * 64,
+        "events": [
+            {
+                "title": "Nested event",
+                "result": "yes",
+                "settlement_value": 1.0,
+                "tokens": [
+                    {"outcome": "Yes", "winner": True, "token_id": "1"},
+                    {"outcome": "No", "winner": False, "token_id": "2"},
+                ],
+            }
+        ],
+        "nested": {
+            "uma_resolution_status": "resolved",
+            "payload": {"expiration_value": 1.0, "safe": "kept"},
+        },
+    }
+
+    sanitized = sanitize_info_for_simulation(market_info)
+
+    event = sanitized["events"][0]
+    assert "result" not in event
+    assert "settlement_value" not in event
+    assert all("winner" not in token for token in event["tokens"])
+    assert "uma_resolution_status" not in sanitized["nested"]
+    assert "expiration_value" not in sanitized["nested"]["payload"]
+    assert sanitized["nested"]["payload"]["safe"] == "kept"
+
+
 def test_sanitize_does_not_mutate_caller_payload() -> None:
     market = _kalshi_market()
     snapshot = dict(market)

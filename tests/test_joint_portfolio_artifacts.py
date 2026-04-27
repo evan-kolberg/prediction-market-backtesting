@@ -4,6 +4,7 @@ from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import pandas as pd
+from nautilus_trader.model.identifiers import InstrumentId, Symbol, Venue
 
 from prediction_market_extensions.adapters.prediction_market import (
     LoadedReplay,
@@ -137,6 +138,18 @@ def test_market_artifacts_are_keyed_by_instrument_id_for_shared_slug(monkeypatch
     }
 
 
+def test_market_artifact_filter_accepts_instrument_id_objects() -> None:
+    instrument_id = InstrumentId(Symbol("PM-A-YES"), Venue("POLYMARKET"))
+    report = pd.DataFrame({"instrument_id": [instrument_id], "last_qty": [5]})
+
+    filtered = PredictionMarketArtifactBuilder._filter_report_rows(
+        report, instrument_id=str(instrument_id)
+    )
+
+    assert len(filtered) == 1
+    assert filtered.iloc[0]["last_qty"] == 5
+
+
 def test_single_summary_dense_prices_are_keyed_by_instrument_id(monkeypatch) -> None:
     start = datetime(2026, 3, 14, 17, 57, tzinfo=UTC)
     price_points = [(start, 0.40), (start + timedelta(minutes=1), 0.50)]
@@ -232,12 +245,22 @@ def test_build_result_marks_open_positions_to_settlement(monkeypatch) -> None:
     )
 
     loaded_sim = _loaded_replay(market_id="market-a", instrument_id="PM-A-YES.POLYMARKET")
-    loaded_sim = loaded_sim.__class__(**{**loaded_sim.__dict__, "realized_outcome": 1.0})
+    loaded_sim = loaded_sim.__class__(
+        **{
+            **loaded_sim.__dict__,
+            "instrument": SimpleNamespace(id=loaded_sim.instrument.id, expiration_ns=1_000),
+            "realized_outcome": 1.0,
+        }
+    )
 
     result = builder.build_result(
         loaded_sim=loaded_sim,
         fills_report=pd.DataFrame({"instrument_id": ["PM-A-YES.POLYMARKET"]}),
         positions_report=pd.DataFrame({"instrument_id": ["PM-A-YES.POLYMARKET"]}),
+        run_state={
+            "simulated_through": "1970-01-01T00:00:00.000001+00:00",
+            "planned_end": "1970-01-01T00:00:00.000001+00:00",
+        },
     )
 
     assert result["market_exit_pnl"] == -1.25

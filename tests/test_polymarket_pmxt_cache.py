@@ -9,6 +9,7 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.dataset as ds
 import pyarrow.parquet as pq
+from nautilus_trader.adapters.polymarket.common.parsing import parse_polymarket_instrument
 
 from prediction_market_extensions.adapters.polymarket import pmxt as pmxt_module
 from prediction_market_extensions.adapters.polymarket.pmxt import PolymarketPMXTDataLoader
@@ -108,7 +109,11 @@ def test_load_market_table_prefers_cached_table(tmp_path):
             "data": ['{"token_id":"token-yes-123","payload":"cached"}'],
         }
     )
-    loader._write_market_cache(hour, cached_table)
+    loader._write_market_cache(
+        hour,
+        cached_table,
+        metadata=loader._cache_metadata_for_hour(hour),
+    )
 
     def _fail_remote(*args, **kwargs):  # type: ignore[no-untyped-def]
         raise AssertionError("remote load should not run when cache exists")
@@ -346,6 +351,40 @@ def test_timestamp_to_ns_preserves_decimal_precision() -> None:
     assert PolymarketPMXTDataLoader._timestamp_to_ns(1771767624.001295) == 1_771_767_624_001_295_000
 
 
+def test_timestamp_to_ms_string_preserves_nautilus_event_precision() -> None:
+    instrument = parse_polymarket_instrument(
+        market_info={
+            "condition_id": "0x" + "1" * 64,
+            "question": "Synthetic PMXT precision market",
+            "minimum_tick_size": "0.01",
+            "minimum_order_size": "1",
+            "end_date_iso": "2026-12-31T00:00:00Z",
+            "maker_base_fee": "0",
+            "taker_base_fee": "0",
+        },
+        token_id="2" * 64,
+        outcome="Yes",
+        ts_init=0,
+    )
+    timestamp = 1771767624.001295
+    expected_ns = PolymarketPMXTDataLoader._timestamp_to_ns(timestamp)
+
+    snapshot = PolymarketPMXTDataLoader._to_book_snapshot(
+        PolymarketPMXTDataLoader._decode_book_snapshot(
+            '{"update_type":"book_snapshot","market_id":"0x1111111111111111111111111111111111111111111111111111111111111111",'
+            '"token_id":"2222222222222222222222222222222222222222222222222222222222222222",'
+            '"side":"YES","best_bid":"0.49","best_ask":"0.51","timestamp":1771767624.001295,'
+            '"bids":[["0.49","10"]],"asks":[["0.51","10"]]}'
+        )
+    )
+    deltas = snapshot.parse_to_snapshot(instrument=instrument, ts_init=expected_ns)
+    assert deltas is not None
+    deltas = PolymarketPMXTDataLoader._retimestamp_deltas(deltas, ts_event=expected_ns)
+
+    assert snapshot.timestamp == "1771767624001.295000"
+    assert int(deltas.ts_event) == expected_ns
+
+
 def test_to_book_snapshot_normalizes_book_level_ordering() -> None:
     snapshot = PolymarketPMXTDataLoader._to_book_snapshot(
         PolymarketPMXTDataLoader._decode_book_snapshot(
@@ -565,6 +604,237 @@ def test_load_order_book_deltas_sorts_payloads_before_book_mutation(monkeypatch,
     loader.load_order_book_deltas(hour, hour + pd.Timedelta(hours=1))
 
     assert processed == ["book_snapshot", "price_change"]
+
+
+def test_load_order_book_deltas_skips_exact_duplicate_price_changes(monkeypatch, tmp_path):
+    loader = _make_loader(tmp_path)
+    loader._instrument = SimpleNamespace(id="POLYMARKET.TEST")
+    hour = pd.Timestamp("2026-03-16T12:00:00Z")
+    processed: list[str] = []
+    price_change_payload = (
+        '{"update_type":"price_change","market_id":"condition-123",'
+        '"token_id":"token-yes-123","side":"YES","best_bid":"0.50",'
+        '"best_ask":"0.52","timestamp":2.0,"change_price":"0.52",'
+        '"change_size":"5","change_side":"SELL"}'
+    )
+
+    class _FakeOrderBook:
+        def __init__(self, instrument_id, book_type):  # type: ignore[no-untyped-def]
+            self.instrument_id = instrument_id
+            self.book_type = book_type
+
+    monkeypatch.setattr(pmxt_module, "OrderBook", _FakeOrderBook)
+    loader._archive_hours = lambda _start, _end: [hour]  # type: ignore[method-assign]
+    loader._iter_market_batches = (  # type: ignore[method-assign]
+        lambda hours, *, batch_size: iter(
+            [
+                (
+                    hour,
+                    [
+                        pa.record_batch(
+                            [
+                                pa.array(["book_snapshot", "price_change", "price_change"]),
+                                pa.array(
+                                    [
+                                        (
+                                            '{"update_type":"book_snapshot",'
+                                            '"market_id":"condition-123",'
+                                            '"token_id":"token-yes-123",'
+                                            '"side":"YES","best_bid":"0.49",'
+                                            '"best_ask":"0.51","timestamp":1.0,'
+                                            '"bids":[["0.49","10"]],'
+                                            '"asks":[["0.51","10"]]}'
+                                        ),
+                                        price_change_payload,
+                                        price_change_payload,
+                                    ]
+                                ),
+                            ],
+                            names=["update_type", "data"],
+                        )
+                    ],
+                )
+            ]
+        )
+    )
+
+    def _process_book_snapshot(  # type: ignore[no-untyped-def]
+        payload_text,
+        *,
+        token_id,
+        instrument,
+        local_book,
+        has_snapshot,
+        events,
+        start_ns,
+        end_ns,
+        include_order_book,
+    ):
+        del payload_text, token_id, instrument, has_snapshot, events, start_ns, end_ns
+        del include_order_book
+        processed.append("book_snapshot")
+        return local_book, True
+
+    def _process_price_change(  # type: ignore[no-untyped-def]
+        payload_text,
+        *,
+        token_id,
+        instrument,
+        local_book,
+        has_snapshot,
+        events,
+        start_ns,
+        end_ns,
+        include_order_book,
+    ):
+        del payload_text, token_id, instrument, has_snapshot, events, start_ns, end_ns
+        del include_order_book
+        processed.append("price_change")
+        return local_book
+
+    monkeypatch.setattr(loader, "_process_book_snapshot", _process_book_snapshot)
+    monkeypatch.setattr(loader, "_process_price_change", _process_price_change)
+
+    loader.load_order_book_deltas(hour, hour + pd.Timedelta(hours=1))
+
+    assert processed == ["book_snapshot", "price_change"]
+
+
+def test_load_order_book_deltas_anchors_pre_window_snapshot_state(monkeypatch, tmp_path):
+    loader = _make_loader(tmp_path)
+    loader._instrument = SimpleNamespace(id="POLYMARKET.TEST")
+    hour = pd.Timestamp("2026-03-16T12:00:00Z")
+
+    class _FakeOrderBook:
+        def __init__(self, instrument_id, book_type):  # type: ignore[no-untyped-def]
+            self.instrument_id = instrument_id
+            self.book_type = book_type
+            self.applied = []
+
+        def apply_deltas(self, deltas):  # type: ignore[no-untyped-def]
+            self.applied.append(deltas)
+
+        def to_deltas_c(self, ts_event, ts_init):  # type: ignore[no-untyped-def]
+            return _FakeOrderBookDeltas(
+                ts_event=int(ts_event),
+                ts_init=int(ts_init),
+                is_snapshot=True,
+                label="anchor",
+            )
+
+    class _FakeOrderBookDeltas:
+        def __init__(
+            self,
+            *,
+            ts_event: int,
+            ts_init: int,
+            is_snapshot: bool,
+            label: str,
+        ) -> None:
+            self.ts_event = ts_event
+            self.ts_init = ts_init
+            self.is_snapshot = is_snapshot
+            self.label = label
+
+    monkeypatch.setattr(pmxt_module, "OrderBook", _FakeOrderBook)
+    loader._archive_hours = lambda _start, _end: [hour]  # type: ignore[method-assign]
+    loader._iter_market_batches = (  # type: ignore[method-assign]
+        lambda hours, *, batch_size: iter(
+            [
+                (
+                    hour,
+                    [
+                        pa.record_batch(
+                            [
+                                pa.array(["book_snapshot", "price_change"]),
+                                pa.array(
+                                    [
+                                        (
+                                            '{"update_type":"book_snapshot",'
+                                            '"market_id":"condition-123",'
+                                            '"token_id":"token-yes-123",'
+                                            '"side":"YES","best_bid":"0.49",'
+                                            '"best_ask":"0.51","timestamp":1.0,'
+                                            '"bids":[["0.49","10"]],'
+                                            '"asks":[["0.51","10"]]}'
+                                        ),
+                                        (
+                                            '{"update_type":"price_change",'
+                                            '"market_id":"condition-123",'
+                                            '"token_id":"token-yes-123",'
+                                            '"side":"YES","best_bid":"0.50",'
+                                            '"best_ask":"0.52","timestamp":2.0,'
+                                            '"change_price":"0.52",'
+                                            '"change_size":"5","change_side":"SELL"}'
+                                        ),
+                                    ]
+                                ),
+                            ],
+                            names=["update_type", "data"],
+                        )
+                    ],
+                )
+            ]
+        )
+    )
+
+    def _process_book_snapshot(  # type: ignore[no-untyped-def]
+        payload_text,
+        *,
+        token_id,
+        instrument,
+        local_book,
+        has_snapshot,
+        events,
+        start_ns,
+        end_ns,
+        include_order_book,
+    ):
+        del payload_text, token_id, instrument, has_snapshot, end_ns
+        snapshot = _FakeOrderBookDeltas(
+            ts_event=1_000_000_000,
+            ts_init=1_000_000_000,
+            is_snapshot=True,
+            label="pre-window-snapshot",
+        )
+        local_book.apply_deltas(snapshot)
+        if snapshot.ts_event >= start_ns and include_order_book:
+            events.append(snapshot)
+        return local_book, True
+
+    def _process_price_change(  # type: ignore[no-untyped-def]
+        payload_text,
+        *,
+        token_id,
+        instrument,
+        local_book,
+        has_snapshot,
+        events,
+        start_ns,
+        end_ns,
+        include_order_book,
+    ):
+        del payload_text, token_id, instrument, has_snapshot
+        delta = _FakeOrderBookDeltas(
+            ts_event=2_000_000_000,
+            ts_init=2_000_000_000,
+            is_snapshot=False,
+            label="in-window-delta",
+        )
+        local_book.apply_deltas(delta)
+        if start_ns <= delta.ts_event <= end_ns and include_order_book:
+            events.append(delta)
+        return local_book
+
+    monkeypatch.setattr(loader, "_process_book_snapshot", _process_book_snapshot)
+    monkeypatch.setattr(loader, "_process_price_change", _process_price_change)
+
+    data = loader.load_order_book_deltas(
+        pd.Timestamp(1_500_000_000, unit="ns", tz="UTC"),
+        pd.Timestamp(3_000_000_000, unit="ns", tz="UTC"),
+    )
+
+    assert [(record.label, record.is_snapshot) for record in data] == [("anchor", True)]
 
 
 def test_load_order_book_deltas_skips_stale_cross_hour_payloads(monkeypatch, tmp_path):

@@ -3,11 +3,13 @@ from __future__ import annotations
 import contextlib
 import csv
 import json
+import math
 import multiprocessing
 import pickle
 import tempfile
 import traceback
 import warnings
+from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
@@ -114,6 +116,13 @@ class ParameterSearchConfig:
             raise ValueError("holdout_top_k must be positive.")
         if self.min_fills_per_window < 0:
             raise ValueError("min_fills_per_window must be non-negative.")
+        try:
+            invalid_score = float(self.invalid_score)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("invalid_score must be finite.") from exc
+        if not math.isfinite(invalid_score):
+            raise ValueError("invalid_score must be finite.")
+        object.__setattr__(self, "invalid_score", invalid_score)
         if self.sampler not in _SUPPORTED_SAMPLERS:
             raise ValueError(f"sampler must be one of {_SUPPORTED_SAMPLERS}, got {self.sampler!r}.")
 
@@ -141,9 +150,9 @@ class ParameterSearchConfig:
                     normalized_grid[str(name)] = tuple(spec["choices"])
         elif has_grid:
             for name, values in self.parameter_grid.items():
-                normalized_values = tuple(values)
-                if not normalized_values:
-                    raise ValueError(f"parameter_grid[{name!r}] must not be empty.")
+                normalized_values = _normalize_discrete_values(
+                    name=str(name), values=values, label="parameter_grid"
+                )
                 normalized_grid[str(name)] = normalized_values
                 normalized_space[str(name)] = MappingProxyType(
                     {"type": "categorical", "choices": normalized_values}
@@ -258,34 +267,109 @@ def _validate_parameter_spec(name: str, spec: Any) -> ParameterSpec:
         raise ValueError(f"parameter_space[{name!r}] must be a mapping, got {type(spec).__name__}.")
     spec_type = spec.get("type")
     if spec_type == "categorical":
-        choices = spec.get("choices")
-        if not choices:
-            raise ValueError(f"parameter_space[{name!r}] categorical needs non-empty 'choices'.")
-        return MappingProxyType({"type": "categorical", "choices": tuple(choices)})
+        choices = _normalize_discrete_values(
+            name=name, values=spec.get("choices"), label="parameter_space"
+        )
+        return MappingProxyType({"type": "categorical", "choices": choices})
     if spec_type in ("int", "float"):
         low = spec.get("low")
         high = spec.get("high")
         if low is None or high is None:
             raise ValueError(f"parameter_space[{name!r}] {spec_type} needs 'low' and 'high'.")
-        if low >= high:
-            raise ValueError(f"parameter_space[{name!r}]: low must be < high.")
         log = bool(spec.get("log", False))
         step = spec.get("step")
+        if spec_type == "int":
+            if not _is_integral_bound(low):
+                raise ValueError(f"parameter_space[{name!r}]: int low must be an integer.")
+            if not _is_integral_bound(high):
+                raise ValueError(f"parameter_space[{name!r}]: int high must be an integer.")
+            low_value = int(low)
+            high_value = int(high)
+            if low_value >= high_value:
+                raise ValueError(f"parameter_space[{name!r}]: low must be < high.")
+            if log and low_value <= 0:
+                raise ValueError(f"parameter_space[{name!r}]: log sampling requires low > 0.")
+            payload: dict[str, Any] = {
+                "type": spec_type,
+                "low": low_value,
+                "high": high_value,
+                "log": log,
+            }
+            if step is not None:
+                if log:
+                    raise ValueError(
+                        f"parameter_space[{name!r}]: step is not supported with log sampling."
+                    )
+                if not _is_integral_bound(step):
+                    raise ValueError(f"parameter_space[{name!r}]: int step must be an integer.")
+                step_value = int(step)
+                if step_value <= 0:
+                    raise ValueError(f"parameter_space[{name!r}]: step must be positive.")
+                if (high_value - low_value) % step_value != 0:
+                    raise ValueError(
+                        f"parameter_space[{name!r}]: high-low must be divisible by step."
+                    )
+                payload["step"] = step_value
+            return MappingProxyType(payload)
+
+        low_value = _numeric_bound(name=name, label="low", value=low)
+        high_value = _numeric_bound(name=name, label="high", value=high)
+        if low_value >= high_value:
+            raise ValueError(f"parameter_space[{name!r}]: low must be < high.")
+        if log and low_value <= 0.0:
+            raise ValueError(f"parameter_space[{name!r}]: log sampling requires low > 0.")
+        payload = {"type": spec_type, "low": low_value, "high": high_value, "log": log}
         if step is not None:
             if log:
                 raise ValueError(
                     f"parameter_space[{name!r}]: step is not supported with log sampling."
                 )
-            if step <= 0:
+            step_value = _numeric_bound(name=name, label="step", value=step)
+            if step_value <= 0.0:
                 raise ValueError(f"parameter_space[{name!r}]: step must be positive.")
-        payload: dict[str, Any] = {"type": spec_type, "low": low, "high": high, "log": log}
-        if step is not None:
-            payload["step"] = step
+            steps = (high_value - low_value) / step_value
+            if not math.isclose(steps, round(steps), rel_tol=1e-12, abs_tol=1e-12):
+                raise ValueError(f"parameter_space[{name!r}]: high-low must be divisible by step.")
+            payload["step"] = step_value
         return MappingProxyType(payload)
     raise ValueError(
         f"parameter_space[{name!r}] has unsupported type {spec_type!r}; "
         "expected 'categorical', 'int', or 'float'."
     )
+
+
+def _numeric_bound(*, name: str, label: str, value: Any) -> float:
+    if isinstance(value, bool):
+        raise ValueError(f"parameter_space[{name!r}]: {label} must be numeric.")
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"parameter_space[{name!r}]: {label} must be numeric.") from exc
+    if not math.isfinite(numeric):
+        raise ValueError(f"parameter_space[{name!r}]: {label} must be finite.")
+    return numeric
+
+
+def _is_integral_bound(value: Any) -> bool:
+    if isinstance(value, bool):
+        return False
+    if isinstance(value, int):
+        return True
+    if isinstance(value, float):
+        return math.isfinite(value) and value.is_integer()
+    return False
+
+
+def _normalize_discrete_values(*, name: str, values: Any, label: str) -> tuple[Any, ...]:
+    if values is None or isinstance(values, str | bytes) or isinstance(values, Mapping):
+        raise ValueError(f"{label}[{name!r}] must be a non-empty sequence of values.")
+    try:
+        normalized_values = tuple(values)
+    except TypeError as exc:
+        raise ValueError(f"{label}[{name!r}] must be a non-empty sequence of values.") from exc
+    if not normalized_values:
+        raise ValueError(f"{label}[{name!r}] must not be empty.")
+    return normalized_values
 
 
 def _collect_search_placeholders(value: Any) -> set[str]:
@@ -317,6 +401,47 @@ def _replace_search_placeholders(value: Any, params: Mapping[str, Any]) -> Any:
     return value
 
 
+def _candidate_identity(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return {
+            "type": "mapping",
+            "items": [
+                (str(key), _candidate_identity(inner))
+                for key, inner in sorted(value.items(), key=lambda item: str(item[0]))
+            ],
+        }
+    if isinstance(value, tuple):
+        return {"type": "tuple", "items": [_candidate_identity(inner) for inner in value]}
+    if isinstance(value, list):
+        return {"type": "list", "items": [_candidate_identity(inner) for inner in value]}
+    if isinstance(value, Path):
+        return {"type": "path", "value": str(value)}
+    if isinstance(value, datetime):
+        return {"type": "datetime", "value": value.astimezone(UTC).isoformat()}
+    if isinstance(value, bool):
+        return {"type": "bool", "value": value}
+    if isinstance(value, int):
+        return {"type": "int", "value": value}
+    if isinstance(value, float):
+        return {"type": "float", "value": value if math.isfinite(value) else str(value)}
+    if isinstance(value, str):
+        return {"type": "str", "value": value}
+    if value is None:
+        return {"type": "none", "value": None}
+    return {
+        "type": f"{type(value).__module__}.{type(value).__qualname__}",
+        "value": str(value),
+    }
+
+
+def _candidate_key(params: ParameterValues) -> str:
+    return json.dumps(
+        {name: _candidate_identity(value) for name, value in params},
+        sort_keys=True,
+        allow_nan=False,
+    )
+
+
 def _parameter_candidates(parameter_grid: Mapping[str, Sequence[Any]]) -> list[ParameterValues]:
     keys = tuple(parameter_grid)
     values_product = product(*(parameter_grid[key] for key in keys))
@@ -324,7 +449,7 @@ def _parameter_candidates(parameter_grid: Mapping[str, Sequence[Any]]) -> list[P
     seen: set[str] = set()
     for values in values_product:
         params = tuple(zip(keys, values, strict=True))
-        canonical = json.dumps(_json_safe(dict(params)), sort_keys=True)
+        canonical = _candidate_key(params)
         if canonical in seen:
             continue
         seen.add(canonical)
@@ -532,18 +657,136 @@ def _coerce_results(value: object) -> list[dict[str, Any]]:
     raise TypeError("optimizer evaluator must return a mapping or a sequence of mappings")
 
 
-def _series_values(series: object) -> list[float]:
+def _replay_result_key_from_replay(replay: ReplaySpec) -> tuple[str, str] | None:
+    market_id = getattr(replay, "market_slug", None) or getattr(replay, "market_ticker", None)
+    if market_id is None:
+        return None
+    token_index = getattr(replay, "token_index", 0)
+    return (str(market_id), str(token_index if token_index is not None else 0))
+
+
+def _replay_result_key_from_result(result: Mapping[str, Any]) -> tuple[str, str] | None:
+    market_id = (
+        result.get("slug")
+        or result.get("ticker")
+        or result.get("market_slug")
+        or result.get("market_ticker")
+        or result.get("market")
+    )
+    if market_id is None:
+        return None
+    token_index = result.get("token_index", 0)
+    return (str(market_id), str(token_index if token_index is not None else 0))
+
+
+def _format_replay_result_keys(keys: Sequence[tuple[str, str]]) -> str:
+    return json.dumps([{"market": market, "token_index": token} for market, token in keys])
+
+
+def _validate_result_market_coverage(
+    *, config: ParameterSearchConfig, results: Sequence[Mapping[str, Any]]
+) -> str | None:
+    if len(config.base_replays) <= 1:
+        return None
+
+    expected_keys = [
+        key for replay in config.base_replays if (key := _replay_result_key_from_replay(replay))
+    ]
+    if len(expected_keys) != len(config.base_replays):
+        return None
+
+    result_keys: list[tuple[str, str]] = []
+    missing_indices: list[int] = []
+    for index, result in enumerate(results):
+        key = _replay_result_key_from_result(result)
+        if key is None:
+            missing_indices.append(index)
+            continue
+        result_keys.append(key)
+
+    if missing_indices:
+        return (
+            "all multi-replay optimizer results must include market identifiers; "
+            "missing identifiers on result indices "
+            + ", ".join(str(index) for index in missing_indices)
+        )
+
+    if Counter(result_keys) != Counter(expected_keys):
+        return (
+            "expected result markets "
+            f"{_format_replay_result_keys(expected_keys)}, received "
+            f"{_format_replay_result_keys(result_keys)}"
+        )
+    return None
+
+
+def _joint_portfolio_equity_series_from_results(
+    results: Sequence[Mapping[str, Any]],
+) -> tuple[object | None, str | None]:
+    joint_series_by_index: list[tuple[int, object]] = []
+    for index, result in enumerate(results):
+        series = result.get("joint_portfolio_equity_series")
+        if series is None:
+            continue
+        values, error = _series_values_checked(
+            series,
+            name=f"result[{index}].joint_portfolio_equity_series",
+        )
+        if error is not None:
+            return None, error
+        if values:
+            joint_series_by_index.append((index, series))
+
+    if len(joint_series_by_index) > 1:
+        indices = ", ".join(str(index) for index, _series in joint_series_by_index)
+        return (
+            None,
+            f"multiple nonempty joint_portfolio_equity_series values on result indices {indices}",
+        )
+    if joint_series_by_index:
+        return joint_series_by_index[0][1], None
+    return None, None
+
+
+def _coerce_finite_series_value(value: object, *, name: str) -> tuple[float | None, str | None]:
+    if value is None:
+        return None, f"{name} is missing"
+    try:
+        numeric = float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None, f"{name} is non-numeric: {value!r}"
+    if not math.isfinite(numeric):
+        return None, f"{name} is non-finite: {value!r}"
+    return numeric, None
+
+
+def _series_values_checked(series: object, *, name: str) -> tuple[list[float], str | None]:
     values: list[float] = []
-    if not isinstance(series, Sequence):
-        return values
-    for point in series:
+    if series is None:
+        return values, None
+    if not isinstance(series, Sequence) or isinstance(series, str | bytes):
+        return values, f"{name} must be a sequence of timestamp/value pairs"
+    for index, point in enumerate(series):
         value = None
+        has_value = False
         if isinstance(point, Mapping):
+            has_value = "value" in point
             value = point.get("value")
-        elif isinstance(point, Sequence) and not isinstance(point, str) and len(point) >= 2:
+        elif isinstance(point, Sequence) and not isinstance(point, str | bytes) and len(point) >= 2:
+            has_value = True
             value = point[1]
-        if isinstance(value, int | float):
-            values.append(float(value))
+        if not has_value:
+            return values, f"{name}[{index}] is missing a value"
+        numeric, error = _coerce_finite_series_value(value, name=f"{name}[{index}]")
+        if error is not None:
+            return values, error
+        assert numeric is not None
+        values.append(numeric)
+    return values, None
+
+
+def _series_values(series: object) -> list[float]:
+    values, _error = _series_values_checked(series, name="series")
     return values
 
 
@@ -576,8 +819,8 @@ def _joint_portfolio_drawdown(equity_series_list: Sequence[object]) -> float:
 
     frames: list[pd.Series] = []
     for series in equity_series_list:
-        if not isinstance(series, Sequence):
-            continue
+        if not isinstance(series, Sequence) or isinstance(series, str | bytes):
+            return float("nan")
         timestamps: list[Any] = []
         values: list[float] = []
         for point in series:
@@ -593,13 +836,19 @@ def _joint_portfolio_drawdown(equity_series_list: Sequence[object]) -> float:
             ):
                 ts = point[0]
                 value = point[1]
-            if ts is None or not isinstance(value, int | float):
-                continue
+            if ts is None:
+                return float("nan")
+            numeric, error = _coerce_finite_series_value(value, name="joint equity value")
+            if error is not None:
+                return float("nan")
             timestamps.append(ts)
-            values.append(float(value))
+            assert numeric is not None
+            values.append(numeric)
         if not timestamps:
             continue
         index = pd.to_datetime(timestamps, utc=True, errors="coerce")
+        if bool(index.isna().any()):
+            return float("nan")
         frame = pd.Series(values, index=index).dropna().sort_index()
         if not frame.empty:
             frames.append(frame)
@@ -614,13 +863,9 @@ def _joint_portfolio_drawdown(equity_series_list: Sequence[object]) -> float:
 
     joint = None
     for frame in frames:
-        reindexed = frame.reindex(combined_index).ffill()
+        reindexed = frame.reindex(combined_index).ffill().bfill()
         if reindexed.empty:
             continue
-        first_valid = reindexed.first_valid_index()
-        if first_valid is not None:
-            reindexed.loc[reindexed.index < first_valid] = 0.0
-        reindexed = reindexed.fillna(0.0)
         joint = reindexed if joint is None else joint + reindexed
     if joint is None or joint.empty:
         return 0.0
@@ -630,16 +875,48 @@ def _joint_portfolio_drawdown(equity_series_list: Sequence[object]) -> float:
 
 def _as_float(value: object, *, default: float = 0.0) -> float:
     if isinstance(value, int | float):
-        return float(value)
+        numeric = float(value)
+        if math.isfinite(numeric):
+            return numeric
     return default
 
 
 def _as_int(value: object, *, default: int = 0) -> int:
+    if isinstance(value, bool):
+        return int(value)
     if isinstance(value, int):
         return value
     if isinstance(value, float):
-        return int(value)
+        return int(value) if math.isfinite(value) else default
     return default
+
+
+def _finite_float_metric(value: object, *, name: str) -> tuple[float | None, str | None]:
+    if isinstance(value, int | float):
+        numeric = float(value)
+        if math.isfinite(numeric):
+            return numeric, None
+        return None, f"{name} is non-finite: {value!r}"
+    return None, f"{name} is missing or non-numeric: {value!r}"
+
+
+def _finite_int_metric(value: object, *, name: str) -> tuple[int | None, str | None]:
+    if isinstance(value, bool):
+        return None, f"{name} is boolean, expected an integer count"
+    if isinstance(value, int):
+        if value >= 0:
+            return value, None
+        return None, f"{name} is negative: {value!r}"
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            return None, f"{name} is non-finite: {value!r}"
+        if not value.is_integer():
+            return None, f"{name} is not an integer count: {value!r}"
+        integer = int(value)
+        if integer >= 0:
+            return integer, None
+        return None, f"{name} is negative: {value!r}"
+    return None, f"{name} is missing or non-numeric: {value!r}"
 
 
 def _score_result(
@@ -724,16 +1001,133 @@ def _evaluate_window(
             status="invalid_result_count",
             error=f"expected {expected_market_count} results, received {len(results)}",
         )
+    market_coverage_error = _validate_result_market_coverage(config=config, results=results)
+    if market_coverage_error is not None:
+        return _WindowEvaluation(
+            window_name=window.name,
+            score=config.invalid_score,
+            pnl=0.0,
+            max_drawdown_currency=0.0,
+            fills=0,
+            requested_coverage_ratio=0.0,
+            terminated_early=True,
+            status="invalid_market_coverage",
+            error=market_coverage_error,
+        )
 
-    pnl = sum(_as_float(r.get("pnl")) for r in results)
-    fills = sum(_as_int(r.get("fills")) for r in results)
-    coverages = [_as_float(r.get("requested_coverage_ratio"), default=0.0) for r in results]
-    requested_coverage_ratio = (sum(coverages) / len(coverages)) if coverages else 0.0
-    terminated_early = any(bool(r.get("terminated_early")) for r in results)
-    if len(results) == 1:
+    metric_errors: list[str] = []
+    pnl_values: list[float] = []
+    fill_values: list[int] = []
+    coverage_values: list[float] = []
+    for index, result in enumerate(results):
+        pnl_value, pnl_error = _finite_float_metric(result.get("pnl"), name=f"result[{index}].pnl")
+        if pnl_error is not None:
+            metric_errors.append(pnl_error)
+        else:
+            assert pnl_value is not None
+            pnl_values.append(pnl_value)
+
+        fills_value, fills_error = _finite_int_metric(
+            result.get("fills"), name=f"result[{index}].fills"
+        )
+        if fills_error is not None:
+            metric_errors.append(fills_error)
+        else:
+            assert fills_value is not None
+            fill_values.append(fills_value)
+
+        coverage_value, coverage_error = _finite_float_metric(
+            result.get("requested_coverage_ratio", 0.0),
+            name=f"result[{index}].requested_coverage_ratio",
+        )
+        if coverage_error is not None:
+            metric_errors.append(coverage_error)
+        else:
+            assert coverage_value is not None
+            coverage_values.append(coverage_value)
+
+        _equity_values, equity_error = _series_values_checked(
+            result.get("equity_series"),
+            name=f"result[{index}].equity_series",
+        )
+        if equity_error is not None:
+            metric_errors.append(equity_error)
+        elif not _equity_values:
+            metric_errors.append(f"result[{index}].equity_series is missing or empty")
+
+    if metric_errors:
+        return _WindowEvaluation(
+            window_name=window.name,
+            score=config.invalid_score,
+            pnl=0.0,
+            max_drawdown_currency=0.0,
+            fills=0,
+            requested_coverage_ratio=0.0,
+            terminated_early=True,
+            status="invalid_nonfinite_metric",
+            error="; ".join(metric_errors),
+        )
+
+    joint_portfolio_equity_series, joint_portfolio_equity_error = (
+        _joint_portfolio_equity_series_from_results(results)
+    )
+    if joint_portfolio_equity_error is not None:
+        return _WindowEvaluation(
+            window_name=window.name,
+            score=config.invalid_score,
+            pnl=0.0,
+            max_drawdown_currency=0.0,
+            fills=0,
+            requested_coverage_ratio=0.0,
+            terminated_early=True,
+            status="invalid_nonfinite_metric",
+            error=joint_portfolio_equity_error,
+        )
+
+    pnl = sum(pnl_values)
+    fills = sum(fill_values)
+    requested_coverage_ratio = (
+        (sum(coverage_values) / len(coverage_values)) if coverage_values else 0.0
+    )
+    realism_invalid_indices = [
+        index
+        for index, result in enumerate(results)
+        if bool(result.get("backtest_realism_invalid"))
+    ]
+    terminated_early = any(
+        bool(r.get("terminated_early")) or bool(r.get("backtest_realism_invalid")) for r in results
+    )
+    if joint_portfolio_equity_series is not None:
+        max_drawdown_currency = _joint_portfolio_drawdown([joint_portfolio_equity_series])
+    elif len(results) == 1:
         max_drawdown_currency = _max_drawdown_currency(results[0].get("equity_series"))
     else:
         max_drawdown_currency = _joint_portfolio_drawdown([r.get("equity_series") for r in results])
+    if not math.isfinite(max_drawdown_currency):
+        return _WindowEvaluation(
+            window_name=window.name,
+            score=config.invalid_score,
+            pnl=0.0,
+            max_drawdown_currency=0.0,
+            fills=0,
+            requested_coverage_ratio=0.0,
+            terminated_early=True,
+            status="invalid_nonfinite_metric",
+            error=f"max_drawdown_currency is non-finite: {max_drawdown_currency!r}",
+        )
+    if realism_invalid_indices:
+        return _WindowEvaluation(
+            window_name=window.name,
+            score=config.invalid_score,
+            pnl=pnl,
+            max_drawdown_currency=max_drawdown_currency,
+            fills=fills,
+            requested_coverage_ratio=requested_coverage_ratio,
+            terminated_early=True,
+            status="backtest_realism_invalid",
+            error="backtest_realism_invalid set on result indices "
+            + ", ".join(str(index) for index in realism_invalid_indices),
+        )
     score = _score_result(
         pnl=pnl,
         max_drawdown_currency=max_drawdown_currency,
@@ -743,6 +1137,18 @@ def _evaluate_window(
         initial_cash=config.initial_cash,
         min_fills_per_window=config.min_fills_per_window,
     )
+    if not math.isfinite(score):
+        return _WindowEvaluation(
+            window_name=window.name,
+            score=config.invalid_score,
+            pnl=0.0,
+            max_drawdown_currency=0.0,
+            fills=0,
+            requested_coverage_ratio=0.0,
+            terminated_early=True,
+            status="invalid_nonfinite_metric",
+            error=f"score is non-finite: {score!r}",
+        )
     return _WindowEvaluation(
         window_name=window.name,
         score=score,
@@ -759,12 +1165,23 @@ def _median_metric(values: Sequence[float]) -> float:
     return float(median(values))
 
 
+def _phase_median_score(
+    evaluations: Sequence[_WindowEvaluation],
+    *,
+    invalid_score: float,
+) -> float:
+    if any(evaluation.status != "ok" for evaluation in evaluations):
+        return float(invalid_score)
+    return _median_metric([evaluation.score for evaluation in evaluations])
+
+
 def _build_leaderboard_row(
     *,
     trial_id: int,
     params: ParameterValues,
     train_evaluations: Sequence[_WindowEvaluation],
     holdout_evaluations: Sequence[_WindowEvaluation] = (),
+    invalid_score: float = DEFAULT_INVALID_SCORE,
 ) -> ParameterSearchLeaderboardRow:
     train_scores = tuple(evaluation.score for evaluation in train_evaluations)
     holdout_scores = tuple(evaluation.score for evaluation in holdout_evaluations)
@@ -773,8 +1190,12 @@ def _build_leaderboard_row(
         params=params,
         train_scores=train_scores,
         holdout_scores=holdout_scores,
-        train_median_score=_median_metric(train_scores),
-        holdout_median_score=(_median_metric(holdout_scores) if holdout_scores else None),
+        train_median_score=_phase_median_score(train_evaluations, invalid_score=invalid_score),
+        holdout_median_score=(
+            _phase_median_score(holdout_evaluations, invalid_score=invalid_score)
+            if holdout_scores
+            else None
+        ),
         train_median_pnl=_median_metric([evaluation.pnl for evaluation in train_evaluations]),
         holdout_median_pnl=(
             _median_metric([evaluation.pnl for evaluation in holdout_evaluations])
@@ -835,7 +1256,13 @@ def _json_safe(value: Any) -> Any:
         return str(value)
     if isinstance(value, datetime):
         return value.astimezone(UTC).isoformat()
-    if isinstance(value, bool | int | float | str) or value is None:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return value if math.isfinite(value) else str(value)
+    if isinstance(value, str) or value is None:
         return value
     return str(value)
 
@@ -895,9 +1322,13 @@ def _write_leaderboard_csv(
                         if row.holdout_median_coverage is None
                         else f"{row.holdout_median_coverage:.6f}"
                     ),
-                    "train_scores_json": json.dumps(list(row.train_scores)),
-                    "holdout_scores_json": json.dumps(list(row.holdout_scores)),
-                    "params_json": json.dumps(_json_safe(_params_dict(row.params)), sort_keys=True),
+                    "train_scores_json": json.dumps(list(row.train_scores), allow_nan=False),
+                    "holdout_scores_json": json.dumps(list(row.holdout_scores), allow_nan=False),
+                    "params_json": json.dumps(
+                        _json_safe(_params_dict(row.params)),
+                        sort_keys=True,
+                        allow_nan=False,
+                    ),
                 }
             )
     return str(output_path.resolve())
@@ -948,7 +1379,7 @@ def _write_summary_json(
     output_path.parent.mkdir(parents=True, exist_ok=True)
     payload = _summary_payload(config=config, summary=summary)
     output_path.write_text(
-        json.dumps(payload, indent=2, sort_keys=True) + "\n",
+        json.dumps(payload, indent=2, sort_keys=True, allow_nan=False) + "\n",
         encoding="utf-8",
     )
 
@@ -979,7 +1410,7 @@ def _print_top_candidates(
             f"{row.train_median_drawdown:9.4f}  "
             f"{row.train_median_fills:12.1f}  "
             f"{row.train_median_coverage:10.3f}  "
-            f"{json.dumps(_json_safe(_params_dict(row.params)), sort_keys=True)}"
+            f"{json.dumps(_json_safe(_params_dict(row.params)), sort_keys=True, allow_nan=False)}"
         )
 
 
@@ -1018,7 +1449,10 @@ def _run_random_trials(
         )
         train_evaluations_by_trial[trial_id] = train_evaluations
         train_rows[trial_id] = _build_leaderboard_row(
-            trial_id=trial_id, params=params, train_evaluations=train_evaluations
+            trial_id=trial_id,
+            params=params,
+            train_evaluations=train_evaluations,
+            invalid_score=config.invalid_score,
         )
     return train_evaluations_by_trial, train_rows, len(candidate_pool), len(sampled_params)
 
@@ -1090,7 +1524,10 @@ def _run_tpe_trials(
         )
         train_evaluations_by_trial[trial_id] = train_evaluations
         row = _build_leaderboard_row(
-            trial_id=trial_id, params=params, train_evaluations=train_evaluations
+            trial_id=trial_id,
+            params=params,
+            train_evaluations=train_evaluations,
+            invalid_score=config.invalid_score,
         )
         train_rows[trial_id] = row
         study.tell(trial, row.train_median_score)
@@ -1121,8 +1558,15 @@ def run_parameter_search(
     rows_by_trial = dict(train_rows)
 
     if holdout_enabled:
-        top_k = min(config.holdout_top_k, len(rows_by_train))
-        for row in rows_by_train[:top_k]:
+        holdout_candidates = [
+            row
+            for row in rows_by_train
+            if all(
+                evaluation.status == "ok" for evaluation in train_evaluations_by_trial[row.trial_id]
+            )
+        ]
+        top_k = min(config.holdout_top_k, len(holdout_candidates))
+        for row in holdout_candidates[:top_k]:
             holdout_evaluations = tuple(
                 _evaluate_window(
                     config=config,
@@ -1138,6 +1582,7 @@ def run_parameter_search(
                 params=row.params,
                 train_evaluations=train_evaluations_by_trial[row.trial_id],
                 holdout_evaluations=holdout_evaluations,
+                invalid_score=config.invalid_score,
             )
 
     final_rows = sorted(rows_by_trial.values(), key=_final_row_sort_key)
@@ -1181,7 +1626,11 @@ def run_parameter_search(
         )
     print(
         "Selected params: "
-        + json.dumps(_json_safe(_params_dict(summary.selected_params)), sort_keys=True)
+        + json.dumps(
+            _json_safe(_params_dict(summary.selected_params)),
+            sort_keys=True,
+            allow_nan=False,
+        )
     )
     print(f"Leaderboard CSV: {summary.leaderboard_csv_path}")
     print(f"Summary JSON: {summary.summary_json_path}")

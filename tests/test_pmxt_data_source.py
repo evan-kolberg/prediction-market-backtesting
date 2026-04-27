@@ -277,6 +277,55 @@ def test_runner_loader_emits_scan_progress_for_local_raw_mirror(monkeypatch, tmp
     }
 
 
+def test_runner_loader_ignores_stale_filtered_cache_without_source_metadata(tmp_path) -> None:
+    cache_dir = tmp_path / "cache"
+    raw_root = tmp_path / "raw"
+    loader = _make_loader(cache_dir=cache_dir, raw_root=raw_root, disable_remote_archive=True)
+    hour = pd.Timestamp("2026-03-21T12:00:00Z")
+    raw_path = raw_root / RunnerPolymarketPMXTDataLoader._archive_relative_path_for_hour(hour)
+    raw_path.parent.mkdir(parents=True, exist_ok=True)
+    pq.write_table(
+        pa.table(
+            {
+                "market_id": ["condition-123"],
+                "update_type": ["book_snapshot"],
+                "data": ['{"token_id":"token-yes-123","payload":"corrected"}'],
+            }
+        ),
+        raw_path,
+    )
+    stale_cache_path = loader._cache_path_for_hour(hour)
+    assert stale_cache_path is not None
+    stale_cache_path.parent.mkdir(parents=True, exist_ok=True)
+    pq.write_table(
+        pa.table(
+            {
+                "update_type": ["book_snapshot"],
+                "data": ['{"token_id":"token-yes-123","payload":"stale"}'],
+            }
+        ),
+        stale_cache_path,
+    )
+
+    batches = loader._load_market_batches(hour, batch_size=1_000)
+
+    assert batches is not None
+    assert pa.Table.from_batches(batches).to_pylist() == [
+        {
+            "update_type": "book_snapshot",
+            "data": '{"token_id":"token-yes-123","payload":"corrected"}',
+        }
+    ]
+    cached = loader._load_cached_market_table(hour)
+    assert cached is not None
+    assert cached.to_pylist() == [
+        {
+            "update_type": "book_snapshot",
+            "data": '{"token_id":"token-yes-123","payload":"corrected"}',
+        }
+    ]
+
+
 def test_runner_loader_honors_per_entry_explicit_source_order(monkeypatch) -> None:
     loader = _make_loader()
     loader._pmxt_ordered_source_entries = (
@@ -527,3 +576,69 @@ def test_runner_loader_uses_timeout_for_remote_payload_and_head(monkeypatch) -> 
     assert requests[1][0].get_method() == "HEAD"
     assert requests[0][1] == 30
     assert requests[1][1] == 30
+
+
+def test_runner_loader_remote_cache_fingerprint_uses_archive_head_metadata(
+    monkeypatch,
+) -> None:
+    loader = _make_loader()
+    hour = pd.Timestamp("2026-03-21T12:00:00Z")
+    requests: list[tuple[Request, float | None]] = []
+    etags = ['"raw-v1"', '"raw-v2"']
+
+    class FakeResponse:
+        def __init__(self, etag: str) -> None:
+            self.headers = {
+                "Content-Length": "1234",
+                "ETag": etag,
+                "Last-Modified": "Tue, 21 Apr 2026 12:00:00 GMT",
+            }
+
+        def __enter__(self) -> FakeResponse:
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> None:
+            return None
+
+    def fake_urlopen(request, timeout=None):
+        requests.append((request, timeout))
+        return FakeResponse(etags.pop(0))
+
+    monkeypatch.setattr(pmxt_module, "urlopen", fake_urlopen)
+
+    first = loader._remote_source_fingerprint_for_hour("https://archive.vendor.test", hour)
+    second = loader._remote_source_fingerprint_for_hour("https://archive.vendor.test", hour)
+
+    assert first["url"] == (
+        "https://archive.vendor.test/polymarket_orderbook_2026-03-21T12.parquet"
+    )
+    assert first["content_length"] == 1234
+    assert first["etag"] == '"raw-v1"'
+    assert second["etag"] == '"raw-v2"'
+    assert first != second
+    assert [request.get_method() for request, _ in requests] == ["HEAD", "HEAD"]
+    assert [timeout for _, timeout in requests] == [30, 30]
+
+
+def test_runner_loader_local_fingerprint_tracks_same_size_same_mtime_correction(
+    tmp_path,
+) -> None:
+    path = tmp_path / "hour.parquet"
+    path.write_bytes(b"price=0.41")
+    first_stat = path.stat()
+    first = RunnerPolymarketPMXTDataLoader._local_file_fingerprint(path)
+
+    time.sleep(0.01)
+    path.write_bytes(b"price=0.67")
+    os.utime(path, ns=(first_stat.st_atime_ns, first_stat.st_mtime_ns))
+    second_stat = path.stat()
+    if second_stat.st_ctime_ns == first_stat.st_ctime_ns:
+        pytest.skip("filesystem did not expose ctime change for same-size rewrite")
+    second = RunnerPolymarketPMXTDataLoader._local_file_fingerprint(path)
+
+    assert first is not None
+    assert second is not None
+    assert first["size"] == second["size"]
+    assert first["mtime_ns"] == second["mtime_ns"]
+    assert first["ctime_ns"] != second["ctime_ns"]
+    assert first != second

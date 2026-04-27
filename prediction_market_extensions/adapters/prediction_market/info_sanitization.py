@@ -77,34 +77,30 @@ def extract_resolution_metadata(info: Mapping[str, Any] | None) -> dict[str, Any
 def sanitize_info_for_simulation(info: Mapping[str, Any] | None) -> dict[str, Any]:
     """Return a copy of `info` with resolution-revealing fields stripped.
 
-    Top-level resolution keys are removed. Per-token entries are shallow-copied
-    so per-token resolution flags can be redacted without mutating the caller's
-    original payload.
+    Resolution keys are removed recursively so nested event/token payloads
+    cannot leak the result through `instrument.info`.
     """
     if not info:
         return {}
 
-    sanitized: dict[str, Any] = {
-        key: value for key, value in info.items() if key not in _RESOLUTION_TOP_LEVEL_KEYS
+    return _sanitize_mapping(info)
+
+
+def _sanitize_value(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return _sanitize_mapping(value)
+    if isinstance(value, list):
+        return [_sanitize_value(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_sanitize_value(item) for item in value)
+    return value
+
+
+def _sanitize_mapping(value: Mapping[str, Any]) -> dict[str, Any]:
+    redacted_keys = _RESOLUTION_TOP_LEVEL_KEYS | _RESOLUTION_TOKEN_KEYS
+    return {
+        key: _sanitize_value(item) for key, item in value.items() if str(key) not in redacted_keys
     }
-
-    raw_tokens = sanitized.get("tokens")
-    if isinstance(raw_tokens, list):
-        scrubbed_tokens: list[Any] = []
-        for entry in raw_tokens:
-            if isinstance(entry, Mapping):
-                scrubbed_tokens.append(
-                    {
-                        key: value
-                        for key, value in entry.items()
-                        if key not in _RESOLUTION_TOKEN_KEYS
-                    }
-                )
-            else:
-                scrubbed_tokens.append(entry)
-        sanitized["tokens"] = scrubbed_tokens
-
-    return sanitized
 
 
 __all__ = [

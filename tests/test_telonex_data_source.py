@@ -11,6 +11,8 @@ from types import SimpleNamespace
 
 import numpy as np
 import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
 import pytest
 from nautilus_trader.adapters.polymarket.common.parsing import parse_polymarket_instrument
 from nautilus_trader.model.data import OrderBookDeltas
@@ -68,13 +70,13 @@ class _FakeHTTPResponse:
         return self._buffer.read(size)
 
 
-def _book_parquet_payload(timestamp_us: int) -> bytes:
+def _book_parquet_payload(timestamp_us: int, *, bid: str = "0.42", ask: str = "0.44") -> bytes:
     buffer = BytesIO()
     pd.DataFrame(
         {
             "timestamp_us": [timestamp_us],
-            "bids": [[{"price": "0.42", "size": "10"}]],
-            "asks": [[{"price": "0.44", "size": "11"}]],
+            "bids": [[{"price": bid, "size": "10"}]],
+            "asks": [[{"price": ask, "size": "11"}]],
         }
     ).to_parquet(buffer, index=False)
     return buffer.getvalue()
@@ -329,6 +331,56 @@ def test_telonex_full_book_snapshots_replay_l2_deltas() -> None:
     assert len(records) == 2
 
 
+def test_telonex_crossed_snapshot_resets_until_next_valid_full_snapshot() -> None:
+    loader = _make_polymarket_loader()
+    frame = pd.DataFrame(
+        {
+            "timestamp_us": [1_768_780_800_000_000, 1_768_780_801_000_000],
+            "bids": [
+                [{"price": "0.60", "size": "10"}],
+                [{"price": "0.34", "size": "10"}],
+            ],
+            "asks": [
+                [{"price": "0.55", "size": "11"}],
+                [{"price": "0.39", "size": "11"}],
+            ],
+        }
+    )
+
+    with pytest.warns(RuntimeWarning, match="crossed/invalid full-book"):
+        records = loader._book_events_from_frame(
+            frame,
+            start=pd.Timestamp("2026-01-19T00:00:00Z"),
+            end=pd.Timestamp("2026-01-20T00:00:00Z"),
+        )
+
+    assert len(records) == 1
+    assert records[0].is_snapshot
+    assert int(records[0].ts_event) == 1_768_780_801_000_000_000
+
+
+def test_telonex_timestamp_ms_keeps_exact_end_boundary_record() -> None:
+    loader = _make_polymarket_loader()
+    timestamp_ms = 1_768_780_800_123
+    frame = pd.DataFrame(
+        {
+            "timestamp_ms": [timestamp_ms],
+            "bids": [[{"price": "0.34", "size": "10"}]],
+            "asks": [[{"price": "0.39", "size": "11"}]],
+        }
+    )
+    event_ns = timestamp_ms * 1_000_000
+
+    records = loader._book_events_from_frame(
+        frame,
+        start=pd.Timestamp(event_ns - 1_000, unit="ns", tz="UTC"),
+        end=pd.Timestamp(event_ns, unit="ns", tz="UTC"),
+    )
+
+    assert len(records) == 1
+    assert int(records[0].ts_event) == event_ns
+
+
 def test_telonex_materialized_deltas_cache_round_trips(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -350,6 +402,16 @@ def test_telonex_materialized_deltas_cache_round_trips(
         }
     )
     records = loader._book_events_from_frame(frame, start=start, end=end)
+    metadata = loader._deltas_cache_metadata_payload(
+        source={"kind": "test"},
+        channel=TELONEX_FULL_BOOK_CHANNEL,
+        date="2026-01-19",
+        market_slug="cache-test",
+        token_index=0,
+        outcome="Yes",
+        start=start,
+        end=end,
+    )
 
     loader._write_deltas_cache_day(
         records=records,
@@ -360,6 +422,7 @@ def test_telonex_materialized_deltas_cache_round_trips(
         outcome="Yes",
         start=start,
         end=end,
+        metadata=metadata,
     )
     cached_records, source = loader._load_deltas_cache_day(
         channel=TELONEX_FULL_BOOK_CHANNEL,
@@ -369,6 +432,7 @@ def test_telonex_materialized_deltas_cache_round_trips(
         outcome="Yes",
         start=start,
         end=end,
+        expected_metadata=metadata,
     )
 
     assert source.startswith("telonex-deltas-cache::")
@@ -380,6 +444,279 @@ def test_telonex_materialized_deltas_cache_round_trips(
     assert [int(record.ts_event) for record in cached_records] == [
         int(record.ts_event) for record in records
     ]
+
+
+def test_telonex_api_source_skips_materialized_deltas_cache_metadata() -> None:
+    loader = _make_polymarket_loader()
+    config = telonex_module.TelonexLoaderConfig(
+        channel=TELONEX_FULL_BOOK_CHANNEL,
+        ordered_source_entries=(
+            telonex_module.TelonexSourceEntry(
+                kind="api",
+                target="https://api.example.test",
+                api_key="test-key",
+            ),
+        ),
+    )
+    start = pd.Timestamp("2026-01-19T00:00:00Z")
+    end = pd.Timestamp("2026-01-19T23:59:59Z")
+
+    source = loader._deltas_cache_source_fingerprint(
+        config=config,
+        date="2026-01-19",
+        market_slug="cache-test",
+        token_index=0,
+        outcome="Yes",
+    )
+
+    assert source is None
+    assert (
+        loader._deltas_cache_metadata_payload(
+            source=source,
+            channel=TELONEX_FULL_BOOK_CHANNEL,
+            date="2026-01-19",
+            market_slug="cache-test",
+            token_index=0,
+            outcome="Yes",
+            start=start,
+            end=end,
+        )
+        is None
+    )
+
+
+def test_telonex_fast_api_cache_invalidates_when_raw_cache_changes(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv(TELONEX_CACHE_ROOT_ENV, str(tmp_path / "cache"))
+    loader = _make_polymarket_loader()
+    load_kwargs = {
+        "base_url": "https://api.example.test",
+        "channel": TELONEX_FULL_BOOK_CHANNEL,
+        "date": "2026-01-19",
+        "market_slug": "cache-correction-market",
+        "token_index": 0,
+        "outcome": "Yes",
+    }
+    payload_v1 = _book_parquet_payload(1_768_780_800_000_000, bid="0.42")
+    payload_v2 = _book_parquet_payload(1_768_780_800_000_000, bid="0.77")
+    frame_v1 = pd.read_parquet(BytesIO(payload_v1))
+
+    loader._write_api_cache_day(payload=payload_v1, **load_kwargs)
+    loader._write_fast_cache_day(frame=frame_v1, **load_kwargs)
+    time.sleep(0.001)
+    loader._write_api_cache_day(payload=payload_v2, **load_kwargs)
+
+    frame, source = loader._load_api_day_cached(**load_kwargs)
+
+    assert frame is not None
+    assert source.startswith("telonex-cache::")
+    assert frame.iloc[0]["bids"][0]["price"] == "0.77"
+
+
+def test_telonex_blob_source_fingerprint_tracks_part_file_changes(tmp_path: Path) -> None:
+    loader = _make_polymarket_loader()
+    local_root = tmp_path / "telonex-blob"
+    part_path = (
+        local_root
+        / "data"
+        / "channel=book_snapshot_full"
+        / "year=2026"
+        / "month=01"
+        / "part-000.parquet"
+    )
+    part_path.parent.mkdir(parents=True)
+    (local_root / "telonex.duckdb").write_bytes(b"legacy/no-manifest")
+
+    def write_part(best_bid: str) -> None:
+        pq.write_table(
+            pa.table(
+                {
+                    "market_slug": ["blob-market"],
+                    "outcome_segment": ["Yes"],
+                    "timestamp_us": [1_768_780_800_000_000],
+                    "bids": [[{"price": best_bid, "size": "10"}]],
+                    "asks": [[{"price": "0.44", "size": "11"}]],
+                    "year": [2026],
+                    "month": [1],
+                }
+            ),
+            part_path,
+        )
+
+    write_part("0.42")
+    entry = telonex_module.TelonexSourceEntry(kind="local", target=str(local_root))
+    first = loader._telonex_source_fingerprint_for_entry(
+        entry=entry,
+        channel=TELONEX_FULL_BOOK_CHANNEL,
+        date="2026-01-19",
+        market_slug="blob-market",
+        token_index=0,
+        outcome="Yes",
+    )
+    time.sleep(0.001)
+    write_part("0.55")
+    second = loader._telonex_source_fingerprint_for_entry(
+        entry=entry,
+        channel=TELONEX_FULL_BOOK_CHANNEL,
+        date="2026-01-19",
+        market_slug="blob-market",
+        token_index=0,
+        outcome="Yes",
+    )
+
+    assert first is not None
+    assert second is not None
+    assert first["layout"] == "blob-legacy"
+    assert "parts" in first
+    assert first != second
+
+
+def test_telonex_local_fingerprint_tracks_same_size_same_mtime_correction(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "day.parquet"
+    path.write_bytes(b"bid=0.4200")
+    first_stat = path.stat()
+    first = RunnerPolymarketTelonexBookDataLoader._local_file_fingerprint(path)
+
+    time.sleep(0.01)
+    path.write_bytes(b"bid=0.7700")
+    os.utime(path, ns=(first_stat.st_atime_ns, first_stat.st_mtime_ns))
+    second_stat = path.stat()
+    if second_stat.st_ctime_ns == first_stat.st_ctime_ns:
+        pytest.skip("filesystem did not expose ctime change for same-size rewrite")
+    second = RunnerPolymarketTelonexBookDataLoader._local_file_fingerprint(path)
+
+    assert first is not None
+    assert second is not None
+    assert first["size"] == second["size"]
+    assert first["mtime_ns"] == second["mtime_ns"]
+    assert first["ctime_ns"] != second["ctime_ns"]
+    assert first != second
+
+
+def test_telonex_blob_empty_manifest_falls_back_to_legacy_parts(tmp_path: Path) -> None:
+    loader = _make_polymarket_loader()
+    local_root = tmp_path / "telonex-blob"
+    part_path = (
+        local_root
+        / "data"
+        / f"channel={TELONEX_FULL_BOOK_CHANNEL}"
+        / "year=2026"
+        / "month=01"
+        / "part-000.parquet"
+    )
+    part_path.parent.mkdir(parents=True)
+    con = telonex_module.duckdb.connect(str(local_root / "telonex.duckdb"))
+    try:
+        con.execute(
+            "CREATE TABLE completed_days("
+            "channel VARCHAR, market_slug VARCHAR, outcome_segment VARCHAR, "
+            "day DATE, rows BIGINT, parquet_part VARCHAR)"
+        )
+    finally:
+        con.close()
+    pd.DataFrame(
+        {
+            "market_slug": ["stale-manifest-market"],
+            "outcome_segment": ["Yes"],
+            "timestamp_us": [1_768_780_800_000_000],
+            "bids": [[{"price": "0.42", "size": "10"}]],
+            "asks": [[{"price": "0.44", "size": "11"}]],
+        }
+    ).to_parquet(part_path, index=False)
+
+    frame = loader._load_blob_range(
+        store_root=local_root,
+        channel=TELONEX_FULL_BOOK_CHANNEL,
+        market_slug="stale-manifest-market",
+        token_index=0,
+        outcome="Yes",
+        start=pd.Timestamp("2026-01-19T00:00:00Z"),
+        end=pd.Timestamp("2026-01-19T23:59:59Z"),
+    )
+    fingerprint = loader._local_blob_source_fingerprint_for_day(
+        root=local_root,
+        channel=TELONEX_FULL_BOOK_CHANNEL,
+        date="2026-01-19",
+        market_slug="stale-manifest-market",
+        token_index=0,
+        outcome="Yes",
+    )
+
+    assert frame is not None
+    assert len(frame) == 1
+    assert frame.iloc[0]["bids"][0]["price"] == "0.42"
+    assert fingerprint is not None
+    assert fingerprint["layout"] == "blob-legacy"
+    assert len(fingerprint["parts"]) == 1
+
+
+def test_telonex_materialized_deltas_cache_ignores_unversioned_stale_file(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv(TELONEX_CACHE_ROOT_ENV, str(tmp_path / "cache"))
+    loader = _make_polymarket_loader()
+    market_slug = "timestamp-cache-test"
+    date = "2026-01-19"
+    timestamp_ms = 1_768_780_800_123
+    correct_ns = timestamp_ms * 1_000_000
+    stale_ns = int(float(timestamp_ms) * 1_000_000)
+    start = pd.Timestamp(correct_ns - 1_000_000, unit="ns", tz="UTC")
+    end = pd.Timestamp(correct_ns, unit="ns", tz="UTC")
+    local_root = tmp_path / "local"
+    local_path = (
+        local_root
+        / "polymarket"
+        / market_slug
+        / "0"
+        / TELONEX_FULL_BOOK_CHANNEL
+        / f"{date}.parquet"
+    )
+    local_path.parent.mkdir(parents=True, exist_ok=True)
+    frame = pd.DataFrame(
+        {
+            "timestamp_ms": [timestamp_ms],
+            "bids": [[{"price": "0.34", "size": "10"}]],
+            "asks": [[{"price": "0.39", "size": "11"}]],
+        }
+    )
+    frame.to_parquet(local_path, index=False)
+    correct_records = loader._book_events_from_frame(frame, start=start, end=end)
+    stale_frame = loader._deltas_records_to_table(correct_records).to_pandas()
+    stale_frame["ts_event"] = stale_ns
+    stale_frame["ts_init"] = stale_ns
+    cache_path = loader._deltas_cache_path(
+        channel=TELONEX_FULL_BOOK_CHANNEL,
+        date=date,
+        market_slug=market_slug,
+        token_index=0,
+        outcome="Yes",
+        instrument_id=loader.instrument.id,
+        start=start,
+        end=end,
+    )
+    assert cache_path is not None
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    stale_frame.to_parquet(cache_path, index=False)
+
+    loader._config = lambda: telonex_module.TelonexLoaderConfig(  # type: ignore[method-assign]
+        channel=TELONEX_FULL_BOOK_CHANNEL,
+        ordered_source_entries=(
+            telonex_module.TelonexSourceEntry(kind="local", target=str(local_root)),
+        ),
+    )
+
+    records = loader.load_order_book_deltas(
+        start,
+        end,
+        market_slug=market_slug,
+        token_index=0,
+        outcome="Yes",
+    )
+
+    assert [int(record.ts_event) for record in records] == [correct_ns]
 
 
 def test_telonex_full_book_loader_uses_local_before_api_cache(

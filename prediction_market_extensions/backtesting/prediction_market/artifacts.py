@@ -293,7 +293,8 @@ class PredictionMarketArtifactBuilder:
     def _filter_report_rows(report: pd.DataFrame, *, instrument_id: str) -> pd.DataFrame:
         if report.empty or "instrument_id" not in report.columns:
             return pd.DataFrame()
-        return report.loc[report["instrument_id"] == instrument_id].copy()
+        instrument_ids = report["instrument_id"].map(str)
+        return report.loc[instrument_ids == instrument_id].copy()
 
 
 __all__ = ["PredictionMarketArtifactBuilder", "resolve_repo_relative_path"]

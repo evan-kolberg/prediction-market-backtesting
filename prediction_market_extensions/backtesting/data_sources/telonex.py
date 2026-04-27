@@ -1,15 +1,17 @@
 from __future__ import annotations
 
+import json
 import os
 import re
 import threading
 import warnings
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import UTC
+from decimal import Decimal, InvalidOperation
 from hashlib import sha256
 from io import BytesIO
 from pathlib import Path
@@ -63,7 +65,8 @@ _TELONEX_SOURCE_API = "api"
 _TELONEX_BLOB_DB_FILENAME = "telonex.duckdb"
 _TELONEX_DATA_SUBDIR = "data"
 _TELONEX_CACHE_SUBDIR = "api-days"
-_TELONEX_DELTAS_CACHE_SUBDIR = "book-deltas-v1"
+_TELONEX_DELTAS_CACHE_SUBDIR = "book-deltas-v2"
+_TELONEX_DELTAS_CACHE_METADATA_VERSION = 2
 _TELONEX_DELTAS_CACHE_COLUMNS = frozenset(
     {
         "event_index",
@@ -600,6 +603,16 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
             )
         else:
             part_paths, incomplete_parts = manifest_parts
+            if not part_paths and not incomplete_parts:
+                # A manifest can lag a local blob copy or be rebuilt after the
+                # parquet parts are already present. Falling back preserves
+                # correctness; predicate pushdown still filters the legacy scan
+                # to the requested market/outcome/time window.
+                part_paths, incomplete_parts = self._readable_blob_part_paths(
+                    channel_dir=channel_dir,
+                    start=start_utc,
+                    end=end_utc,
+                )
         if incomplete_parts:
             return None
         if not part_paths:
@@ -1046,6 +1059,63 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
             return None
         return cache_path.parent / f"{cache_path.stem}.fast.parquet"
 
+    @staticmethod
+    def _fast_api_cache_metadata_path(fast_path: Path) -> Path:
+        return fast_path.with_name(f"{fast_path.name}.metadata.json")
+
+    def _fast_api_cache_metadata_payload(
+        self,
+        *,
+        base_url: str,
+        channel: str,
+        date: str,
+        market_slug: str,
+        token_index: int,
+        outcome: str | None,
+    ) -> dict[str, object] | None:
+        cache_path = self._api_cache_path(
+            base_url=base_url,
+            channel=channel,
+            date=date,
+            market_slug=market_slug,
+            token_index=token_index,
+            outcome=outcome,
+        )
+        if cache_path is None:
+            return None
+        source = self._local_file_fingerprint(cache_path)
+        if source is None:
+            return None
+        return {"version": 1, "source": source}
+
+    def _fast_api_cache_metadata_matches(
+        self,
+        *,
+        fast_path: Path,
+        base_url: str,
+        channel: str,
+        date: str,
+        market_slug: str,
+        token_index: int,
+        outcome: str | None,
+    ) -> bool:
+        expected = self._fast_api_cache_metadata_payload(
+            base_url=base_url,
+            channel=channel,
+            date=date,
+            market_slug=market_slug,
+            token_index=token_index,
+            outcome=outcome,
+        )
+        if expected is None:
+            return False
+        metadata_path = self._fast_api_cache_metadata_path(fast_path)
+        try:
+            actual = json.loads(metadata_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return False
+        return actual == expected
+
     def _load_fast_cache_day(
         self,
         *,
@@ -1065,6 +1135,21 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
             outcome=outcome,
         )
         if fast_path is None or not fast_path.exists():
+            return None
+        if not self._fast_api_cache_metadata_matches(
+            fast_path=fast_path,
+            base_url=base_url,
+            channel=channel,
+            date=date,
+            market_slug=market_slug,
+            token_index=token_index,
+            outcome=outcome,
+        ):
+            try:
+                fast_path.unlink()
+                self._fast_api_cache_metadata_path(fast_path).unlink(missing_ok=True)
+            except OSError:
+                pass
             return None
         frame = self._safe_read_parquet(fast_path)
         if frame is not None:
@@ -1098,6 +1183,14 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
             return
         if "bids" not in frame.columns or "asks" not in frame.columns:
             return
+        metadata = self._fast_api_cache_metadata_payload(
+            base_url=base_url,
+            channel=channel,
+            date=date,
+            market_slug=market_slug,
+            token_index=token_index,
+            outcome=outcome,
+        )
         bid_prices_list: list[list[str]] = []
         bid_sizes_list: list[list[str]] = []
         ask_prices_list: list[list[str]] = []
@@ -1134,13 +1227,28 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
         fast_frame["ask_prices"] = ask_prices_list
         fast_frame["ask_sizes"] = ask_sizes_list
         tmp_path = fast_path.with_name(f"{fast_path.name}.tmp.{os.getpid()}")
+        metadata_path = self._fast_api_cache_metadata_path(fast_path)
+        metadata_tmp_path = metadata_path.with_name(f"{metadata_path.name}.tmp.{os.getpid()}")
         try:
             fast_path.parent.mkdir(parents=True, exist_ok=True)
             fast_frame.to_parquet(tmp_path, compression="zstd", index=False)
+            if metadata is not None:
+                metadata_tmp_path.write_text(
+                    json.dumps(metadata, sort_keys=True) + "\n",
+                    encoding="utf-8",
+                )
             os.replace(tmp_path, fast_path)
+            if metadata is not None:
+                os.replace(metadata_tmp_path, metadata_path)
+            else:
+                metadata_path.unlink(missing_ok=True)
         except OSError as exc:
             try:
                 tmp_path.unlink()
+            except OSError:
+                pass
+            try:
+                metadata_tmp_path.unlink()
             except OSError:
                 pass
             warnings.warn(
@@ -1255,6 +1363,221 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
             / f"{date}.{start_ns}-{end_ns}.parquet"
         )
 
+    @staticmethod
+    def _deltas_cache_metadata_path(cache_path: Path) -> Path:
+        return cache_path.with_name(f"{cache_path.name}.metadata.json")
+
+    @staticmethod
+    def _local_file_fingerprint(path: Path) -> dict[str, object] | None:
+        try:
+            stat = path.expanduser().resolve().stat()
+        except OSError:
+            return None
+        return {
+            "kind": "local",
+            "path": str(path.expanduser().resolve()),
+            "size": int(stat.st_size),
+            "mtime_ns": int(stat.st_mtime_ns),
+            "ctime_ns": int(stat.st_ctime_ns),
+        }
+
+    def _local_blob_source_fingerprint_for_day(
+        self,
+        *,
+        root: Path,
+        channel: str,
+        date: str,
+        market_slug: str,
+        token_index: int,
+        outcome: str | None,
+    ) -> dict[str, object] | None:
+        blob_root = self._local_blob_root(root)
+        if blob_root is None:
+            return None
+
+        day_start = pd.Timestamp(date, tz=UTC)
+        day_end = day_start + pd.Timedelta(days=1) - pd.Timedelta(nanoseconds=1)
+        manifest_path = blob_root / _TELONEX_BLOB_DB_FILENAME
+        manifest = self._local_file_fingerprint(manifest_path)
+        manifest_parts = self._manifest_blob_part_paths(
+            store_root=blob_root,
+            channel=channel,
+            market_slug=market_slug,
+            token_index=token_index,
+            outcome=outcome,
+            start=day_start,
+            end=day_end,
+        )
+        if manifest_parts is None:
+            channel_dir = blob_root / _TELONEX_DATA_SUBDIR / f"channel={channel}"
+            part_paths, incomplete = self._readable_blob_part_paths(
+                channel_dir=channel_dir,
+                start=day_start,
+                end=day_end,
+            )
+            source_layout = "blob-legacy"
+        else:
+            part_paths, incomplete = manifest_parts
+            source_layout = "blob-manifest"
+            if not part_paths and not incomplete:
+                channel_dir = blob_root / _TELONEX_DATA_SUBDIR / f"channel={channel}"
+                part_paths, incomplete = self._readable_blob_part_paths(
+                    channel_dir=channel_dir,
+                    start=day_start,
+                    end=day_end,
+                )
+                source_layout = "blob-legacy"
+
+        parts: list[dict[str, object]] = []
+        for raw_part in sorted({str(part) for part in part_paths}):
+            fingerprint = self._local_file_fingerprint(Path(raw_part))
+            if fingerprint is None:
+                incomplete = True
+                continue
+            parts.append(fingerprint)
+
+        if not parts:
+            return None
+
+        return {
+            "kind": _TELONEX_SOURCE_LOCAL,
+            "source_stage": _TELONEX_SOURCE_LOCAL,
+            "layout": source_layout,
+            "root": str(root.expanduser().resolve()),
+            "channel": channel,
+            "date": date,
+            "market_slug": market_slug,
+            "token_index": token_index,
+            "outcome": outcome,
+            "manifest": manifest,
+            "parts": parts,
+            "incomplete": bool(incomplete),
+        }
+
+    def _telonex_source_fingerprint_for_entry(
+        self,
+        *,
+        entry: TelonexSourceEntry,
+        channel: str,
+        date: str,
+        market_slug: str,
+        token_index: int,
+        outcome: str | None,
+    ) -> dict[str, object] | None:
+        if entry.kind == _TELONEX_SOURCE_API:
+            # API responses can be corrected for the same request URL. Without
+            # response-side validation (ETag/content hash), a materialized
+            # deltas cache would mask those corrections. Keep API day caching
+            # separate and skip this derived deltas cache for API sources.
+            return None
+        if entry.kind != _TELONEX_SOURCE_LOCAL or entry.target is None:
+            return None
+
+        root = Path(entry.target).expanduser()
+        blob_fingerprint = self._local_blob_source_fingerprint_for_day(
+            root=root,
+            channel=channel,
+            date=date,
+            market_slug=market_slug,
+            token_index=token_index,
+            outcome=outcome,
+        )
+        if blob_fingerprint is not None:
+            return blob_fingerprint
+
+        path = self._local_path_for_day(
+            root=root,
+            channel=channel,
+            date=date,
+            market_slug=market_slug,
+            token_index=token_index,
+            outcome=outcome,
+        )
+        if path is None:
+            path = self._local_consolidated_path(
+                root=root,
+                channel=channel,
+                market_slug=market_slug,
+                token_index=token_index,
+                outcome=outcome,
+            )
+        fingerprint = self._local_file_fingerprint(path) if path is not None else None
+        if fingerprint is not None:
+            fingerprint["source_stage"] = _TELONEX_SOURCE_LOCAL
+            return fingerprint
+        return {
+            "kind": _TELONEX_SOURCE_LOCAL,
+            "root": str(root.resolve()),
+            "channel": channel,
+            "date": date,
+            "market_slug": market_slug,
+            "token_index": token_index,
+            "outcome": outcome,
+        }
+
+    def _deltas_cache_source_fingerprint(
+        self,
+        *,
+        config: TelonexLoaderConfig,
+        date: str,
+        market_slug: str,
+        token_index: int,
+        outcome: str | None,
+    ) -> dict[str, object] | None:
+        for entry in config.ordered_source_entries:
+            fingerprint = self._telonex_source_fingerprint_for_entry(
+                entry=entry,
+                channel=config.channel,
+                date=date,
+                market_slug=market_slug,
+                token_index=token_index,
+                outcome=outcome,
+            )
+            if fingerprint is not None:
+                return fingerprint
+        return None
+
+    def _deltas_cache_metadata_payload(
+        self,
+        *,
+        source: Mapping[str, object] | None,
+        channel: str,
+        date: str,
+        market_slug: str,
+        token_index: int,
+        outcome: str | None,
+        start: pd.Timestamp,
+        end: pd.Timestamp,
+    ) -> dict[str, object] | None:
+        if source is None:
+            return None
+        instrument = getattr(self, "_instrument", None)
+        instrument_id = str(getattr(instrument, "id", "unknown"))
+        return {
+            "version": _TELONEX_DELTAS_CACHE_METADATA_VERSION,
+            "instrument_id": instrument_id,
+            "channel": channel,
+            "date": date,
+            "market_slug": market_slug,
+            "token_index": token_index,
+            "outcome": outcome,
+            "start_ns": int(self._normalize_to_utc(start).value),
+            "end_ns": int(self._normalize_to_utc(end).value),
+            "source": dict(source),
+        }
+
+    def _deltas_cache_metadata_matches(
+        self, *, cache_path: Path, expected_metadata: Mapping[str, object] | None
+    ) -> bool:
+        if expected_metadata is None:
+            return False
+        metadata_path = self._deltas_cache_metadata_path(cache_path)
+        try:
+            actual = json.loads(metadata_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return False
+        return actual == dict(expected_metadata)
+
     def _load_deltas_cache_day(
         self,
         *,
@@ -1265,6 +1588,7 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
         outcome: str | None,
         start: pd.Timestamp,
         end: pd.Timestamp,
+        expected_metadata: Mapping[str, object] | None,
     ) -> tuple[list[OrderBookDeltas] | None, str]:
         cache_path = self._deltas_cache_path(
             channel=channel,
@@ -1277,6 +1601,11 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
             end=end,
         )
         if cache_path is None or not cache_path.exists():
+            return None, "none"
+        if not self._deltas_cache_metadata_matches(
+            cache_path=cache_path,
+            expected_metadata=expected_metadata,
+        ):
             return None, "none"
         try:
             table = pq.read_table(cache_path)
@@ -1307,6 +1636,7 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
         outcome: str | None,
         start: pd.Timestamp,
         end: pd.Timestamp,
+        metadata: Mapping[str, object] | None,
     ) -> None:
         cache_path = self._deltas_cache_path(
             channel=channel,
@@ -1321,6 +1651,8 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
         if cache_path is None:
             return
         tmp_path = cache_path.with_name(f"{cache_path.name}.tmp.{os.getpid()}")
+        metadata_path = self._deltas_cache_metadata_path(cache_path)
+        metadata_tmp_path = metadata_path.with_name(f"{metadata_path.name}.tmp.{os.getpid()}")
         try:
             cache_path.parent.mkdir(parents=True, exist_ok=True)
             pq.write_table(
@@ -1328,10 +1660,23 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
                 tmp_path,
                 compression="zstd",
             )
+            if metadata is not None:
+                metadata_tmp_path.write_text(
+                    json.dumps(dict(metadata), sort_keys=True) + "\n",
+                    encoding="utf-8",
+                )
             os.replace(tmp_path, cache_path)
+            if metadata is not None:
+                os.replace(metadata_tmp_path, metadata_path)
+            else:
+                metadata_path.unlink(missing_ok=True)
         except Exception as exc:  # noqa: BLE001 - cache writes must not break replay
             try:
                 tmp_path.unlink()
+            except OSError:
+                pass
+            try:
+                metadata_tmp_path.unlink()
             except OSError:
                 pass
             warnings.warn(
@@ -1543,14 +1888,28 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
     @staticmethod
     def _column_to_ns(column: pd.Series, column_name: str) -> np.ndarray:
         if column_name == "timestamp_us":
-            return column.to_numpy(dtype="int64") * 1_000
+            return RunnerPolymarketTelonexBookDataLoader._scaled_column_to_ns(column, 1_000)
         if column_name == "timestamp_ms":
-            numeric = pd.to_numeric(column, errors="coerce")
-            return (numeric.astype("float64") * 1_000_000).to_numpy(dtype="int64")
+            return RunnerPolymarketTelonexBookDataLoader._scaled_column_to_ns(column, 1_000_000)
         if pd.api.types.is_numeric_dtype(column):
-            return (column.astype("float64") * 1_000_000_000).to_numpy(dtype="int64")
+            return RunnerPolymarketTelonexBookDataLoader._scaled_column_to_ns(column, 1_000_000_000)
         parsed = pd.to_datetime(column, utc=True, errors="coerce")
         return parsed.astype("int64").to_numpy()
+
+    @staticmethod
+    def _scaled_column_to_ns(column: pd.Series, multiplier: int) -> np.ndarray:
+        invalid = np.iinfo(np.int64).min
+        values: list[int] = []
+        scale = Decimal(multiplier)
+        for value in column.to_numpy():
+            if pd.isna(value):
+                values.append(invalid)
+                continue
+            try:
+                values.append(int(Decimal(str(value)) * scale))
+            except (InvalidOperation, ValueError):
+                values.append(invalid)
+        return np.array(values, dtype="int64")
 
     @staticmethod
     def _normalize_to_utc(value: pd.Timestamp) -> pd.Timestamp:
@@ -1634,6 +1993,16 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
     def _book_side_map(levels: Sequence[PolymarketBookLevel]) -> dict[str, str]:
         return {str(level.price): str(level.size) for level in levels}
 
+    @staticmethod
+    def _book_levels_are_crossed(
+        *,
+        bids: Sequence[PolymarketBookLevel],
+        asks: Sequence[PolymarketBookLevel],
+    ) -> bool:
+        if not bids or not asks:
+            return False
+        return float(bids[-1].price) >= float(asks[-1].price)
+
     def _snapshot_to_deltas(
         self,
         *,
@@ -1646,9 +2015,27 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
             asset_id=str(getattr(self, "token_id", "") or ""),
             bids=list(bids),
             asks=list(asks),
-            timestamp=str(ts_event / 1_000_000),
+            timestamp=str(Decimal(ts_event) / Decimal(1_000_000)),
         )
-        return snapshot.parse_to_snapshot(instrument=self.instrument, ts_init=ts_event)
+        deltas = snapshot.parse_to_snapshot(instrument=self.instrument, ts_init=ts_event)
+        if deltas is None:
+            return None
+        return self._retimestamp_deltas(deltas, ts_event=ts_event)
+
+    def _retimestamp_deltas(self, deltas: OrderBookDeltas, *, ts_event: int) -> OrderBookDeltas:
+        exact_deltas = [
+            OrderBookDelta(
+                instrument_id=delta.instrument_id,
+                action=delta.action,
+                order=delta.order,
+                flags=delta.flags,
+                sequence=delta.sequence,
+                ts_event=ts_event,
+                ts_init=ts_event,
+            )
+            for delta in deltas.deltas
+        ]
+        return OrderBookDeltas(self.instrument.id, exact_deltas)
 
     def _diff_to_deltas(
         self,
@@ -1745,19 +2132,32 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
         previous_bids: dict[str, str] | None = None
         previous_asks: dict[str, str] | None = None
         emitted_snapshot = False
+        dropped_invalid_snapshots = 0
 
         for idx in order:
             ts_event = int(ns_arr[idx])
-            if has_flat:
-                bids = self._book_levels_from_arrays(
-                    prices=bid_prices_values[idx], sizes=bid_sizes_values[idx], side="bid"
-                )
-                asks = self._book_levels_from_arrays(
-                    prices=ask_prices_values[idx], sizes=ask_sizes_values[idx], side="ask"
-                )
-            else:
-                bids = self._book_levels_from_value(bids_values[idx], side="bid")
-                asks = self._book_levels_from_value(asks_values[idx], side="ask")
+            try:
+                if has_flat:
+                    bids = self._book_levels_from_arrays(
+                        prices=bid_prices_values[idx], sizes=bid_sizes_values[idx], side="bid"
+                    )
+                    asks = self._book_levels_from_arrays(
+                        prices=ask_prices_values[idx], sizes=ask_sizes_values[idx], side="ask"
+                    )
+                else:
+                    bids = self._book_levels_from_value(bids_values[idx], side="bid")
+                    asks = self._book_levels_from_value(asks_values[idx], side="ask")
+                crossed = self._book_levels_are_crossed(bids=bids, asks=asks)
+            except (TypeError, ValueError, InvalidOperation, OverflowError):
+                crossed = True
+                bids = ()
+                asks = ()
+            if crossed:
+                dropped_invalid_snapshots += 1
+                previous_bids = None
+                previous_asks = None
+                emitted_snapshot = False
+                continue
             current_bids = self._book_side_map(bids)
             current_asks = self._book_side_map(asks)
 
@@ -1786,6 +2186,14 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
             previous_bids = current_bids
             previous_asks = current_asks
 
+        if dropped_invalid_snapshots:
+            warnings.warn(
+                "Telonex: dropped "
+                f"{dropped_invalid_snapshots} crossed/invalid full-book snapshot(s); "
+                "book state was reset until the next valid snapshot.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
         events.sort(key=lambda record: int(record.ts_event))
         return events
 
@@ -1852,6 +2260,7 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
     ) -> pd.DataFrame | None:
         assert entry.target is not None
         root = Path(entry.target).expanduser()
+        self._telonex_last_local_source_fingerprint = None
         blob_root = self._local_blob_root(root)
         if blob_root is not None:
             try:
@@ -1871,9 +2280,28 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
                 )
                 blob_frame = None
             if blob_frame is not None:
+                self._telonex_last_local_source_fingerprint = (
+                    self._local_blob_source_fingerprint_for_day(
+                        root=root,
+                        channel=channel,
+                        date=date,
+                        market_slug=market_slug,
+                        token_index=token_index,
+                        outcome=outcome,
+                    )
+                )
                 return blob_frame
 
+        daily_path: Path | None = None
         try:
+            daily_path = self._local_path_for_day(
+                root=root,
+                channel=channel,
+                date=date,
+                market_slug=market_slug,
+                token_index=token_index,
+                outcome=outcome,
+            )
             daily_frame = self._load_local_day(
                 root=root,
                 channel=channel,
@@ -1889,6 +2317,12 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
             )
             daily_frame = None
         if daily_frame is not None:
+            if daily_path is not None:
+                fingerprint = self._local_file_fingerprint(daily_path)
+                if fingerprint is not None:
+                    fingerprint["source_stage"] = _TELONEX_SOURCE_LOCAL
+                    fingerprint["layout"] = "daily"
+                    self._telonex_last_local_source_fingerprint = fingerprint
             return daily_frame
 
         path = self._local_consolidated_path(
@@ -1902,6 +2336,12 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
             return None
         if path not in range_cache:
             range_cache[path] = self._safe_read_parquet(path)
+        if range_cache[path] is not None:
+            fingerprint = self._local_file_fingerprint(path)
+            if fingerprint is not None:
+                fingerprint["source_stage"] = _TELONEX_SOURCE_LOCAL
+                fingerprint["layout"] = "consolidated"
+                self._telonex_last_local_source_fingerprint = fingerprint
         return range_cache[path]
 
     def _try_load_day_from_entry(
@@ -2031,7 +2471,14 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
                 return _TelonexDayResult(date=date, records=[], source=day_source)
 
             day_start, day_end = day_window
-            cached_records, cached_source = self._load_deltas_cache_day(
+            expected_cache_metadata = self._deltas_cache_metadata_payload(
+                source=self._deltas_cache_source_fingerprint(
+                    config=config,
+                    date=date,
+                    market_slug=market_slug,
+                    token_index=token_index,
+                    outcome=outcome,
+                ),
                 channel=config.channel,
                 date=date,
                 market_slug=market_slug,
@@ -2040,12 +2487,23 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
                 start=day_start,
                 end=day_end,
             )
+            cached_records, cached_source = self._load_deltas_cache_day(
+                channel=config.channel,
+                date=date,
+                market_slug=market_slug,
+                token_index=token_index,
+                outcome=outcome,
+                start=day_start,
+                end=day_end,
+                expected_metadata=expected_cache_metadata,
+            )
             if cached_records is not None:
                 self._day_progress(date, "complete", cached_source, len(cached_records))
                 emitted_day_complete = True
                 return _TelonexDayResult(date=date, records=cached_records, source=cached_source)
 
             frame: pd.DataFrame | None = None
+            day_source_fingerprint: dict[str, object] | None = None
             if frame is None:
                 for entry in config.ordered_source_entries:
                     if entry.kind == _TELONEX_SOURCE_LOCAL:
@@ -2074,6 +2532,19 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
                         )
                         day_source = source if frame is not None else day_source
                     if frame is not None:
+                        if entry.kind == _TELONEX_SOURCE_LOCAL:
+                            day_source_fingerprint = getattr(
+                                self, "_telonex_last_local_source_fingerprint", None
+                            )
+                        if day_source_fingerprint is None:
+                            day_source_fingerprint = self._telonex_source_fingerprint_for_entry(
+                                entry=entry,
+                                channel=config.channel,
+                                date=date,
+                                market_slug=market_slug,
+                                token_index=token_index,
+                                outcome=outcome,
+                            )
                         break
 
             if frame is None:
@@ -2097,6 +2568,16 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
                     outcome=outcome,
                     start=day_start,
                     end=day_end,
+                    metadata=self._deltas_cache_metadata_payload(
+                        source=day_source_fingerprint,
+                        channel=config.channel,
+                        date=date,
+                        market_slug=market_slug,
+                        token_index=token_index,
+                        outcome=outcome,
+                        start=day_start,
+                        end=day_end,
+                    ),
                 )
             self._day_progress(date, "complete", day_source, len(day_records))
             emitted_day_complete = True

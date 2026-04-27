@@ -219,14 +219,11 @@ def _infer_market_side(models_module: Any, market_id: str) -> Any:
 
 
 def _signed_quantity(action: str, side: str, qty: float) -> float:
-    if action == "buy" and side == "yes":
+    del side
+    if action == "buy":
         return qty
-    if action == "sell" and side == "yes":
+    if action == "sell":
         return -qty
-    if action == "buy" and side == "no":
-        return -qty
-    if action == "sell" and side == "no":
-        return qty
     return 0.0
 
 
@@ -475,8 +472,7 @@ def _mark_to_market(
 
     for market_id, qty in pos_qty.items():
         prices = np.nan_to_num(price_on_bar.get(market_id, np.zeros(n_bars, dtype=float)), nan=0.0)
-        values = np.where(qty >= 0.0, qty * prices, np.abs(qty) * (1.0 - prices))
-        values = np.maximum(values, 0.0)
+        values = qty * prices
         total_pos_value += values
         num_positions += (np.abs(qty) > 1e-12).astype(int)
 
@@ -774,7 +770,12 @@ def _build_brier_timeseries_panel(
             frame.index[0], frame.index[-1], bounds=(frame.index[0] - pad, frame.index[-1] + pad)
         )
     else:
-        x_range = None
+        pad = pd.Timedelta(minutes=1)
+        x_range = Range1d(
+            frame.index[0] - pad,
+            frame.index[0] + pad,
+            bounds=(frame.index[0] - pad, frame.index[0] + pad),
+        )
 
     source = ColumnDataSource(
         {
@@ -1464,8 +1465,10 @@ def _focus_allocation_panel(layout: Any) -> None:
             stacked += np.nan_to_num(np.asarray(data[col], dtype=float))
 
         peak = float(np.nanmax(stacked)) if len(stacked) else 0.0
-        upper = min(1.0, max(0.05, peak * 1.3))
-        fig.y_range = Range1d(0.0, upper)
+        trough = float(np.nanmin(stacked)) if len(stacked) else 0.0
+        upper = max(0.05, peak * 1.3)
+        lower = min(0.0, trough * 1.3)
+        fig.y_range = Range1d(lower, upper)
         fig.yaxis[0].axis_label = "Market Allocation (ex-cash)"
 
         # Hide the grey cash stack so market allocation is visible.

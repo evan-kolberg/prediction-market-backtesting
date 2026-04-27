@@ -28,9 +28,28 @@ from prediction_market_extensions.adapters.prediction_market.backtest_utils impo
 from prediction_market_extensions.adapters.prediction_market.fill_model import (
     PredictionMarketTakerFillModel,
 )
+from prediction_market_extensions.backtesting._execution_config import StaticLatencyConfig
 from prediction_market_extensions.backtesting._result_policies import (
     apply_binary_settlement_pnl,
 )
+from prediction_market_extensions.backtesting._prediction_market_order_guard import (
+    PredictionMarketOrderGuard,
+)
+
+_DEFAULT_LATENCY_MODEL = object()
+_DEFAULT_PREDICTION_MARKET_LATENCY = StaticLatencyConfig(
+    base_latency_ms=75.0,
+    insert_latency_ms=10.0,
+    update_latency_ms=5.0,
+    cancel_latency_ms=5.0,
+)
+
+
+def _default_prediction_market_latency_model() -> Any:
+    latency_model = _DEFAULT_PREDICTION_MARKET_LATENCY.build_latency_model()
+    if latency_model is None:
+        raise AssertionError("default prediction-market latency model must be non-zero")
+    return latency_model
 
 
 def _record_timestamp_ns(record: object) -> int | None:
@@ -198,7 +217,7 @@ def run_market_backtest(
     base_currency: Currency,
     fee_model: Any,
     fill_model: Any | None = None,
-    apply_default_fill_model: bool = True,
+    apply_default_fill_model: bool = False,
     slippage_ticks: int = 1,
     entry_slippage_pct: float = 0.0,
     exit_slippage_pct: float = 0.0,
@@ -210,15 +229,20 @@ def run_market_backtest(
     chart_resample_rule: str | None = None,
     market_key: str = "market",
     return_summary_series: bool = False,
-    book_type: BookType = BookType.L1_MBP,
-    liquidity_consumption: bool = False,
-    queue_position: bool = False,
-    latency_model: Any | None = None,
+    book_type: BookType = BookType.L2_MBP,
+    liquidity_consumption: bool = True,
+    queue_position: bool = True,
+    latency_model: Any | None = _DEFAULT_LATENCY_MODEL,
     nautilus_log_level: str = "INFO",
     requested_start_ns: int | None = None,
     requested_end_ns: int | None = None,
 ) -> dict[str, Any]:
     install_commission_patch()
+    if latency_model is _DEFAULT_LATENCY_MODEL:
+        latency_model = _default_prediction_market_latency_model()
+    elif isinstance(latency_model, StaticLatencyConfig):
+        latency_model = latency_model.build_latency_model()
+
     if fill_model is None and apply_default_fill_model:
         fill_model = PredictionMarketTakerFillModel(
             slippage_ticks=slippage_ticks,
@@ -246,9 +270,13 @@ def run_market_backtest(
         book_type=book_type,
         liquidity_consumption=liquidity_consumption,
         queue_position=queue_position,
+        bar_execution=False,
+        trade_execution=True,
     )
     engine.add_instrument(instrument)
     add_engine_data_by_type(engine, data_records)
+    order_guard = PredictionMarketOrderGuard()
+    order_guard.install(strategy)
     engine.add_strategy(strategy)
     try:
         engine.run()
@@ -280,6 +308,7 @@ def run_market_backtest(
                 instrument.id,
             )
         result_warnings: list[str] = []
+        result_warnings.extend(order_guard.warnings)
         user_probabilities, market_probabilities, outcomes = build_brier_inputs(
             points=price_points,
             window=probability_window,

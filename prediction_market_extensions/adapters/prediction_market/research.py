@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import math
 import re
+from collections import Counter
 from collections.abc import Mapping, Sequence
 from datetime import datetime
 from pathlib import Path
@@ -36,6 +37,7 @@ from nautilus_trader.model.objects import Currency, Money
 from nautilus_trader.risk.config import RiskEngineConfig
 from nautilus_trader.trading.strategy import Strategy
 
+from prediction_market_extensions import install_commission_patch
 from prediction_market_extensions.adapters.prediction_market.backtest_utils import (
     _timestamp_to_naive_utc_datetime,
     build_brier_inputs,
@@ -64,9 +66,28 @@ from prediction_market_extensions.analysis.legacy_backtesting.models import (
 from prediction_market_extensions.analysis.legacy_plot_adapter import (
     save_legacy_backtest_layout,
 )
+from prediction_market_extensions.backtesting._execution_config import StaticLatencyConfig
+from prediction_market_extensions.backtesting._prediction_market_order_guard import (
+    PredictionMarketOrderGuard,
+)
 from prediction_market_extensions.backtesting._result_policies import (
     apply_binary_settlement_pnl,
 )
+
+_DEFAULT_LATENCY_MODEL = object()
+_DEFAULT_PREDICTION_MARKET_LATENCY = StaticLatencyConfig(
+    base_latency_ms=75.0,
+    insert_latency_ms=10.0,
+    update_latency_ms=5.0,
+    cancel_latency_ms=5.0,
+)
+
+
+def _default_prediction_market_latency_model() -> Any:
+    latency_model = _DEFAULT_PREDICTION_MARKET_LATENCY.build_latency_model()
+    if latency_model is None:
+        raise AssertionError("default prediction-market latency model must be non-zero")
+    return latency_model
 
 
 def _extract_account_pnl_series(engine: BacktestEngine) -> pd.Series:
@@ -235,8 +256,152 @@ def _pairs_to_series(pairs: Sequence[tuple[str, float]] | Sequence[tuple[Any, fl
     return series.groupby(series.index).last().sort_index()
 
 
+def _series_value_at_or_before(series: pd.Series, timestamp: pd.Timestamp) -> float | None:
+    if series.empty:
+        return None
+    prior = series.loc[series.index <= timestamp]
+    if prior.empty:
+        return float(series.iloc[0])
+    return float(prior.iloc[-1])
+
+
+def _result_initial_capital(
+    result: Mapping[str, Any],
+    *,
+    equity_series: pd.Series,
+    cash_series: pd.Series,
+    pnl_series: pd.Series,
+) -> float | None:
+    explicit = _coerce_float(result.get("initial_cash"))
+    if explicit is not None:
+        return explicit
+
+    if not equity_series.empty:
+        initial = float(equity_series.iloc[0])
+        pnl_at_start = _series_value_at_or_before(pnl_series, pd.Timestamp(equity_series.index[0]))
+        if pnl_at_start is not None:
+            return initial - pnl_at_start
+        return initial
+
+    if not cash_series.empty:
+        initial = float(cash_series.iloc[0])
+        pnl_at_start = _series_value_at_or_before(pnl_series, pd.Timestamp(cash_series.index[0]))
+        if pnl_at_start is not None:
+            return initial - pnl_at_start
+        return initial
+
+    return None
+
+
+def _initial_capital_from_pnl_series(
+    *, equity_series: pd.Series, pnl_series: pd.Series
+) -> float | None:
+    if equity_series.empty:
+        return None
+    pnl_at_start = _series_value_at_or_before(pnl_series, pd.Timestamp(equity_series.index[0]))
+    if pnl_at_start is None:
+        return None
+    return float(equity_series.iloc[0]) - pnl_at_start
+
+
+def _joint_portfolio_initial_capital(
+    result: Mapping[str, Any], *, equity_series: pd.Series
+) -> float | None:
+    explicit = _coerce_float(result.get("joint_portfolio_initial_cash"))
+    if explicit is not None:
+        return explicit
+    pnl_series = _pairs_to_series(result.get("joint_portfolio_pnl_series") or [])
+    return _initial_capital_from_pnl_series(
+        equity_series=equity_series,
+        pnl_series=pnl_series,
+    )
+
+
+def _return_fraction(*, initial_capital: float, final_equity: float) -> float:
+    if not math.isfinite(initial_capital) or initial_capital <= 0.0:
+        return float("nan")
+    return (float(final_equity) - float(initial_capital)) / float(initial_capital)
+
+
+def _series_with_initial_capital_basis(
+    series: pd.Series,
+    *,
+    initial_capital: float | None,
+) -> pd.Series:
+    numeric = pd.to_numeric(series, errors="coerce").dropna()
+    if numeric.empty or initial_capital is None or not math.isfinite(float(initial_capital)):
+        return numeric
+
+    first = float(numeric.iloc[0])
+    initial = float(initial_capital)
+    if abs(first - initial) <= 1e-12:
+        return numeric
+
+    first_ts = pd.Timestamp(numeric.index[0])
+    if pd.isna(first_ts) or first_ts.value <= 0:
+        return numeric
+
+    basis = pd.Series(
+        [initial],
+        index=pd.DatetimeIndex([first_ts - pd.Timedelta(nanoseconds=1)]),
+        dtype=float,
+    )
+    return pd.concat([basis, numeric]).groupby(level=0).last().sort_index()
+
+
 def _to_legacy_datetime(timestamp: pd.Timestamp) -> datetime:
     return _timestamp_to_naive_utc_datetime(pd.Timestamp(timestamp))
+
+
+def _result_base_label(result: Mapping[str, Any], market_key: str | None) -> str:
+    if market_key is not None:
+        value = result.get(market_key)
+        if value not in (None, ""):
+            return str(value)
+
+    for key in ("slug", "market", "instrument_id"):
+        value = result.get(key)
+        if value not in (None, ""):
+            return str(value)
+    return "unknown"
+
+
+def _result_label_disambiguator(result: Mapping[str, Any]) -> str | None:
+    for key in ("outcome", "realized_outcome", "instrument_id", "token_id", "token_index"):
+        value = result.get(key)
+        if value in (None, ""):
+            continue
+        return str(value)
+    return None
+
+
+def _unique_result_labels(results: Sequence[dict[str, Any]], market_key: str | None) -> list[str]:
+    base_labels = [_result_base_label(result, market_key) for result in results]
+    base_counts = Counter(base_labels)
+    base_seen: Counter[str] = Counter()
+    used_labels: set[str] = set()
+    labels: list[str] = []
+
+    for result, base_label in zip(results, base_labels, strict=True):
+        base_seen[base_label] += 1
+        label = base_label
+        if base_counts[base_label] > 1 or label in used_labels:
+            disambiguator = _result_label_disambiguator(result)
+            if disambiguator is not None and disambiguator != base_label:
+                label = f"{base_label} ({disambiguator})"
+            else:
+                label = f"{base_label} #{base_seen[base_label]}"
+
+        suffix = 2
+        unique_label = label
+        while unique_label in used_labels:
+            unique_label = f"{label} #{suffix}"
+            suffix += 1
+
+        labels.append(unique_label)
+        used_labels.add(unique_label)
+
+    return labels
 
 
 def _series_to_iso_pairs(series: pd.Series) -> list[tuple[str, float]]:
@@ -271,11 +436,256 @@ def _extend_active_range(
     active_ranges[label] = (min(current_start, start), max(current_end, end))
 
 
-def _parse_float_like(value: Any, default: float = 0.0) -> float:
+def _result_settlement_active_cutoff(result: Mapping[str, Any]) -> pd.Timestamp | None:
+    if not bool(result.get("settlement_pnl_applied")):
+        return None
+    timestamp = pd.to_datetime(result.get("settlement_series_time"), utc=True, errors="coerce")
+    if pd.isna(timestamp):
+        return None
+    return pd.Timestamp(timestamp)
+
+
+def _record_active_cutoff(
+    active_cutoffs: dict[str, pd.Timestamp],
+    label: str,
+    result: Mapping[str, Any],
+) -> None:
+    cutoff = _result_settlement_active_cutoff(result)
+    if cutoff is None:
+        return
+    active_cutoffs[label] = (
+        min(active_cutoffs[label], cutoff) if label in active_cutoffs else cutoff
+    )
+
+
+def _result_brier_cutoff(result: Mapping[str, Any]) -> pd.Timestamp | None:
+    for key in ("settlement_series_time", "settlement_observable_time", "market_close_time_ns"):
+        timestamp = pd.to_datetime(result.get(key), utc=True, errors="coerce")
+        if not pd.isna(timestamp):
+            return pd.Timestamp(timestamp)
+    return None
+
+
+def _truncate_brier_series_at_cutoff(
+    result: Mapping[str, Any], *series_values: pd.Series
+) -> tuple[pd.Series, ...]:
+    cutoff = _result_brier_cutoff(result)
+    if cutoff is None:
+        return series_values
+
+    truncated: list[pd.Series] = []
+    for series in series_values:
+        if series.empty:
+            truncated.append(series)
+            continue
+        if not isinstance(series.index, pd.DatetimeIndex):
+            index = pd.to_datetime(series.index, utc=True, errors="coerce")
+            valid_mask = ~pd.isna(index)
+            if not bool(valid_mask.any()):
+                truncated.append(pd.Series(dtype=float))
+                continue
+            series = pd.Series(
+                series.to_numpy()[valid_mask],
+                index=pd.DatetimeIndex(index[valid_mask]),
+                dtype=float,
+            )
+        truncated.append(series.loc[series.index < cutoff])
+    return tuple(truncated)
+
+
+def _active_range_mask(
+    timeline: pd.DatetimeIndex,
+    *,
+    start: pd.Timestamp,
+    end: pd.Timestamp,
+    cutoff: pd.Timestamp | None,
+) -> Any:
+    if cutoff is None:
+        return (timeline >= start) & (timeline <= end)
+    return (timeline >= start) & (timeline < cutoff)
+
+
+def _fill_event_timestamp(event: Mapping[str, Any]) -> pd.Timestamp | None:
+    for key in ("timestamp", "ts_last", "ts_event", "ts_init"):
+        timestamp = pd.to_datetime(event.get(key), utc=True, errors="coerce")
+        if isinstance(timestamp, pd.DatetimeIndex):
+            if len(timestamp) == 0:
+                continue
+            timestamp = timestamp[0]
+        if pd.isna(timestamp):
+            continue
+        return pd.Timestamp(timestamp)
+    return None
+
+
+def _fill_event_position_delta(event: Mapping[str, Any]) -> float | None:
+    quantity = _parse_float_like(event.get("quantity"), default=0.0)
+    if quantity <= 0.0:
+        return None
+
+    action = _fill_event_action(event, default_missing=None)
+    if action == "buy":
+        return quantity
+    if action == "sell":
+        return -quantity
+    return None
+
+
+def _normalize_fill_action_value(
+    value: object,
+    *,
+    default_for_token_side: str | None,
+) -> str | None:
+    if _is_missing_fill_value(value):
+        return None
+    text = str(value or "").strip().lower()
+    if text in {"buy", "bought"}:
+        return "buy"
+    if text in {"sell", "sold"}:
+        return "sell"
+    if text in {"yes", "no"}:
+        return default_for_token_side
+    return None
+
+
+def _is_missing_fill_value(value: object) -> bool:
     if value is None:
+        return True
+    try:
+        missing = pd.isna(value)
+    except (TypeError, ValueError):
+        return False
+    try:
+        return bool(missing)
+    except (TypeError, ValueError):
+        return False
+
+
+def _fill_event_action(
+    event: Mapping[str, Any],
+    *,
+    default_missing: str | None,
+) -> str | None:
+    for key in ("action", "order_side"):
+        normalized = _normalize_fill_action_value(
+            event.get(key),
+            default_for_token_side=None,
+        )
+        if normalized is not None:
+            return normalized
+
+    # Tolerate raw venue/Data API rows where `side` is BUY/SELL, while keeping
+    # YES/NO as the token side under the fill_events schema.
+    normalized_side = _normalize_fill_action_value(
+        event.get("side"),
+        default_for_token_side=None,
+    )
+    if normalized_side is not None:
+        return normalized_side
+
+    for key in ("action", "order_side"):
+        normalized = _normalize_fill_action_value(
+            event.get(key),
+            default_for_token_side="buy",
+        )
+        if normalized is not None:
+            return normalized
+
+    if _is_missing_fill_value(event.get("action")) and _is_missing_fill_value(
+        event.get("order_side")
+    ):
+        return default_missing
+    return None
+
+
+def _result_active_position_intervals(
+    result: Mapping[str, Any],
+) -> list[tuple[pd.Timestamp, pd.Timestamp | None]] | None:
+    fill_events = result.get("fill_events")
+    if not isinstance(fill_events, Sequence) or isinstance(fill_events, str | bytes):
+        return None
+
+    deltas_by_time: dict[pd.Timestamp, float] = {}
+    parsed_event = False
+    for event in fill_events:
+        if not isinstance(event, Mapping):
+            continue
+        timestamp = _fill_event_timestamp(event)
+        delta = _fill_event_position_delta(event)
+        if timestamp is None or delta is None:
+            continue
+        parsed_event = True
+        deltas_by_time[timestamp] = deltas_by_time.get(timestamp, 0.0) + delta
+
+    if not parsed_event:
+        return None
+
+    intervals: list[tuple[pd.Timestamp, pd.Timestamp | None]] = []
+    position = 0.0
+    interval_start: pd.Timestamp | None = None
+    epsilon = 1e-12
+
+    for timestamp in sorted(deltas_by_time):
+        previous_position = position
+        position += deltas_by_time[timestamp]
+        was_open = abs(previous_position) > epsilon
+        is_open = abs(position) > epsilon
+
+        if not was_open and is_open:
+            interval_start = timestamp
+        elif was_open and not is_open:
+            if interval_start is not None:
+                intervals.append((interval_start, timestamp))
+            interval_start = None
+        elif was_open and is_open and previous_position * position < 0:
+            if interval_start is not None:
+                intervals.append((interval_start, timestamp))
+            interval_start = timestamp
+
+    if interval_start is not None and abs(position) > epsilon:
+        intervals.append((interval_start, None))
+
+    return intervals
+
+
+def _position_interval_mask(
+    timeline: pd.DatetimeIndex,
+    *,
+    start: pd.Timestamp,
+    end: pd.Timestamp | None,
+    fallback_end: pd.Timestamp,
+    cutoff: pd.Timestamp | None,
+) -> Any:
+    effective_end = fallback_end if end is None else end
+    inclusive_end = end is None and cutoff is None
+    if cutoff is not None and cutoff <= effective_end:
+        effective_end = cutoff
+        inclusive_end = False
+
+    mask = timeline >= start
+    if inclusive_end:
+        return mask & (timeline <= effective_end)
+    return mask & (timeline < effective_end)
+
+
+def _overlay_range_mask(
+    timeline: pd.DatetimeIndex,
+    *,
+    start: pd.Timestamp,
+    end: pd.Timestamp,
+    cutoff: pd.Timestamp | None,
+) -> Any:
+    if cutoff is None:
+        return (timeline >= start) & (timeline <= end)
+    return (timeline >= start) & (timeline <= cutoff)
+
+
+def _parse_float_like(value: Any, default: float = 0.0) -> float:
+    if _is_missing_fill_value(value):
         return default
     if isinstance(value, int | float):
-        return float(value)
+        parsed = float(value)
+        return parsed if math.isfinite(parsed) else default
 
     text = str(value).strip().replace("_", "").replace("\u2212", "-")
     if not text:
@@ -286,9 +696,46 @@ def _parse_float_like(value: Any, default: float = 0.0) -> float:
         return default
 
     try:
-        return float(match.group(0))
+        parsed = float(match.group(0))
     except ValueError:
         return default
+    return parsed if math.isfinite(parsed) else default
+
+
+def _first_non_missing_fill_value(source: Any, *keys: str) -> Any:
+    for key in keys:
+        try:
+            value = source.get(key)
+        except AttributeError:
+            continue
+        if not _is_missing_fill_value(value):
+            return value
+    return None
+
+
+def _fill_value_text(value: Any) -> str:
+    if _is_missing_fill_value(value):
+        return ""
+    return str(value).strip()
+
+
+def _result_has_position_activity(result: Mapping[str, Any]) -> bool:
+    fills_count = result.get("fills")
+    if fills_count is not None:
+        try:
+            if int(fills_count) > 0:
+                return True
+        except (TypeError, ValueError):
+            pass
+
+    fill_events = result.get("fill_events")
+    if not isinstance(fill_events, Sequence) or isinstance(fill_events, str | bytes):
+        return False
+
+    return any(
+        isinstance(event, Mapping) and _parse_float_like(event.get("quantity"), default=0.0) > 0.0
+        for event in fill_events
+    )
 
 
 def _serialize_fill_events(*, market_id: str, fills_report: pd.DataFrame) -> list[dict[str, Any]]:
@@ -314,52 +761,70 @@ def _serialize_fill_events(*, market_id: str, fills_report: pd.DataFrame) -> lis
     events: list[dict[str, Any]] = []
     for idx, (_, row) in enumerate(frame.iterrows(), start=1):
         quantity = _parse_float_like(
-            row.get("filled_qty", row.get("last_qty", row.get("quantity")))
+            _first_non_missing_fill_value(row, "last_qty", "filled_qty", "quantity")
         )
         if quantity <= 0.0:
             continue
 
         timestamp = pd.to_datetime(
-            row.get("ts_last", row.get("ts_event", row.get("ts_init"))), utc=True, errors="coerce"
+            _first_non_missing_fill_value(row, "ts_last", "ts_event", "ts_init"),
+            utc=True,
+            errors="coerce",
         )
         if pd.isna(timestamp):
             continue
         assert isinstance(timestamp, pd.Timestamp)
 
-        side_source = str(
-            row.get("instrument_side")
-            or row.get("instrument_id")
-            or row.get("symbol")
-            or row.get("market_id")
-            or market_id
+        raw_side = _fill_value_text(row.get("side")).lower()
+        action = _fill_event_action(
+            {
+                "action": row.get("action"),
+                "order_side": row.get("order_side"),
+                "side": row.get("side"),
+            },
+            default_missing="buy",
         )
+        if action is None:
+            continue
+
+        side_source_value = _first_non_missing_fill_value(row, "instrument_side")
+        if side_source_value is None and raw_side in {"yes", "no"}:
+            side_source_value = raw_side
+        if side_source_value is None:
+            side_source_value = _first_non_missing_fill_value(
+                row, "instrument_id", "symbol", "market_id"
+            )
+        side_source = str(side_source_value if side_source_value is not None else market_id)
+        side_source_upper = side_source.upper()
         normalized_side = (
             "no"
             if (
-                side_source.upper().endswith("NO")
-                or "-NO" in side_source.upper()
-                or ".NO." in side_source.upper()
-                or "_NO" in side_source.upper()
+                side_source_upper.endswith("NO")
+                or "-NO" in side_source_upper
+                or ".NO." in side_source_upper
+                or "_NO" in side_source_upper
             )
             else inferred_side
         )
 
+        order_id_value = _first_non_missing_fill_value(
+            row, "client_order_id", "venue_order_id", "order_id"
+        )
+        order_id = _fill_value_text(order_id_value) or f"fill-{idx}"
+
         events.append(
             {
-                "order_id": str(
-                    row.get("client_order_id")
-                    or row.get("venue_order_id")
-                    or row.get("order_id")
-                    or f"fill-{idx}"
-                ),
+                "order_id": order_id,
                 "market_id": market_id,
-                "action": str(row.get("side") or row.get("order_side") or "BUY").strip().lower(),
+                "action": action,
                 "side": normalized_side,
-                "price": _parse_float_like(row.get("avg_px", row.get("last_px", row.get("price")))),
+                "price": _parse_float_like(
+                    _first_non_missing_fill_value(row, "last_px", "avg_px", "price")
+                ),
                 "quantity": quantity,
                 "timestamp": timestamp.isoformat(),
                 "commission": _parse_float_like(
-                    row.get("commissions", row.get("commission", row.get("fees")))
+                    _first_non_missing_fill_value(row, "commission", "commissions", "fees")
                 ),
             }
         )
@@ -375,35 +840,38 @@ def _deserialize_fill_events(
     market_side = legacy_plot_adapter._infer_market_side(models_module, market_id)
 
     for idx, event in enumerate(fill_events, start=1):
-        timestamp = pd.to_datetime(event.get("timestamp"), utc=True, errors="coerce")
-        if pd.isna(timestamp):
+        timestamp = _fill_event_timestamp(event)
+        if timestamp is None:
             continue
-        assert isinstance(timestamp, pd.Timestamp)
 
-        quantity = float(event.get("quantity") or 0.0)
+        quantity = _parse_float_like(event.get("quantity"), default=0.0)
         if quantity <= 0.0:
             continue
 
-        action = str(event.get("action") or "buy").strip().lower()
-        event_side = str(event.get("side") or "").strip().lower()
+        action = _fill_event_action(event, default_missing="buy")
+        if action is None:
+            continue
+
+        event_side = _fill_value_text(event.get("side")).lower()
         if event_side == "no":
             fill_side = models_module.Side.NO
         elif event_side == "yes":
             fill_side = models_module.Side.YES
         else:
             fill_side = market_side
+        order_id = _fill_value_text(event.get("order_id")) or f"fill-{idx}"
         fills.append(
             models_module.Fill(
-                order_id=str(event.get("order_id") or f"fill-{idx}"),
+                order_id=order_id,
                 market_id=market_id,
                 action=models_module.OrderAction.BUY
                 if action == "buy"
                 else models_module.OrderAction.SELL,
                 side=fill_side,
-                price=float(event.get("price") or 0.0),
+                price=_parse_float_like(event.get("price"), default=0.0),
                 quantity=quantity,
                 timestamp=_to_legacy_datetime(timestamp),
-                commission=float(event.get("commission") or 0.0),
+                commission=_parse_float_like(event.get("commission"), default=0.0),
             )
         )
 
@@ -411,14 +879,19 @@ def _deserialize_fill_events(
     return fills
 
 
-def _aggregate_brier_frames(results: Sequence[dict[str, Any]]) -> dict[str, pd.DataFrame]:
+def _aggregate_brier_frames(
+    results: Sequence[dict[str, Any]], *, market_key: str | None
+) -> dict[str, pd.DataFrame]:
     frames: dict[str, pd.DataFrame] = {}
+    labels = _unique_result_labels(results, market_key)
 
-    for result in results:
-        market_id = str(result.get("slug") or result.get("market") or "unknown")
+    for result, market_id in zip(results, labels, strict=True):
         user_series = _pairs_to_series(result.get("user_probability_series") or [])
         market_series = _pairs_to_series(result.get("market_probability_series") or [])
         outcome_series = _pairs_to_series(result.get("outcome_series") or [])
+        user_series, market_series, outcome_series = _truncate_brier_series_at_cutoff(
+            result, user_series, market_series, outcome_series
+        )
         if user_series.empty or market_series.empty or outcome_series.empty:
             continue
 
@@ -451,6 +924,9 @@ def _aggregate_brier_unavailable_reason(results: Sequence[dict[str, Any]]) -> st
             market_series = _pairs_to_series(result.get("market_probability_series") or [])
         if outcome_series.empty:
             outcome_series = _pairs_to_series(result.get("outcome_series") or [])
+        user_series, market_series, outcome_series = _truncate_brier_series_at_cutoff(
+            result, user_series, market_series, outcome_series
+        )
         if not user_series.empty and not market_series.empty and not outcome_series.empty:
             break
 
@@ -580,6 +1056,7 @@ def _build_total_summary_brier_frame(brier_frames: Mapping[str, pd.DataFrame]) -
 def _build_summary_brier_extra_panels(
     *,
     results: Sequence[dict[str, Any]],
+    market_key: str | None,
     resolved_plot_panels: Sequence[str],
     max_points_per_market: int,
 ) -> dict[str, Any]:
@@ -590,7 +1067,7 @@ def _build_summary_brier_extra_panels(
     ):
         return extra_panels
 
-    brier_frames = _aggregate_brier_frames(results)
+    brier_frames = _aggregate_brier_frames(results, market_key=market_key)
     if brier_frames:
         if PANEL_TOTAL_BRIER_ADVANTAGE in resolved_plot_panels:
             total_frame = _build_total_summary_brier_frame(brier_frames)
@@ -637,6 +1114,14 @@ def _apply_summary_layout_overrides(
         return apply_fn(layout, initial_cash=float(initial_cash))
 
 
+def _add_engine_data_by_type(engine: BacktestEngine, records: Sequence[Any]) -> None:
+    records_by_type: dict[type[Any], list[Any]] = {}
+    for record in records:
+        records_by_type.setdefault(type(record), []).append(record)
+    for typed_records in records_by_type.values():
+        engine.add_data(typed_records)
+
+
 def run_market_backtest(
     *,
     market_id: str,
@@ -650,7 +1135,7 @@ def run_market_backtest(
     base_currency: Currency,
     fee_model: Any,
     fill_model: Any | None = None,
-    apply_default_fill_model: bool = True,
+    apply_default_fill_model: bool = False,
     initial_cash: float,
     probability_window: int,
     price_attr: str,
@@ -660,28 +1145,35 @@ def run_market_backtest(
     market_key: str = "market",
     open_browser: bool = False,
     return_summary_series: bool = False,
-    book_type: BookType = BookType.L1_MBP,
-    liquidity_consumption: bool = False,
-    queue_position: bool = False,
-    latency_model: Any | None = None,
+    book_type: BookType = BookType.L2_MBP,
+    liquidity_consumption: bool = True,
+    queue_position: bool = True,
+    latency_model: Any | None = _DEFAULT_LATENCY_MODEL,
+    nautilus_log_level: str = "INFO",
 ) -> dict[str, Any]:
     """
     Run one prediction-market backtest and emit a legacy chart.
 
-    Prediction-market market orders are taker-style orders against a central
-    limit order book. Historical backtests here replay trades/bars without full
-    book depth, so we apply a deterministic one-tick adverse fill model by
-    default to approximate slippage. Callers can override this with a custom
-    ``fill_model`` if needed.
+    The repository is L2-book native, so this legacy helper defaults to
+    passive ``L2_MBP`` book execution with queue position and a static latency
+    model. Older synthetic taker fills remain available by passing
+    ``apply_default_fill_model=True`` or a custom ``fill_model``.
     """
+    install_commission_patch()
+    if latency_model is _DEFAULT_LATENCY_MODEL:
+        latency_model = _default_prediction_market_latency_model()
+    elif isinstance(latency_model, StaticLatencyConfig):
+        latency_model = latency_model.build_latency_model()
+
     if fill_model is None and apply_default_fill_model:
         fill_model = PredictionMarketTakerFillModel()
 
+    data_records = data if isinstance(data, list) else list(data)
     engine = BacktestEngine(
         config=BacktestEngineConfig(
             trader_id=TraderId("BACKTESTER-001"),
-            logging=LoggingConfig(log_level="WARNING"),
-            risk_engine=RiskEngineConfig(bypass=True),
+            logging=LoggingConfig(log_level=nautilus_log_level),
+            risk_engine=RiskEngineConfig(),
         )
     )
     engine.add_venue(
@@ -696,19 +1188,24 @@ def run_market_backtest(
         book_type=book_type,
         liquidity_consumption=liquidity_consumption,
         queue_position=queue_position,
+        bar_execution=False,
+        trade_execution=True,
     )
     engine.add_instrument(instrument)
-    engine.add_data(data if isinstance(data, list) else list(data))
+    _add_engine_data_by_type(engine, data_records)
+    order_guard = PredictionMarketOrderGuard()
+    order_guard.install(strategy)
     engine.add_strategy(strategy)
     engine.run()
 
     fills = engine.trader.generate_order_fills_report()
     positions = engine.trader.generate_positions_report()
     pnl = extract_realized_pnl(positions)
-    price_points = extract_price_points(data, price_attr=price_attr)
+    price_points = extract_price_points(data_records, price_attr=price_attr)
     realized_outcome = infer_realized_outcome(instrument)
     fill_events = _serialize_fill_events(market_id=market_id, fills_report=fills)
     result_warnings: list[str] = []
+    result_warnings.extend(order_guard.warnings)
     user_probabilities, market_probabilities, outcomes = build_brier_inputs(
         points=price_points,
         window=probability_window,
@@ -762,9 +1259,10 @@ def run_market_backtest(
 
     result = {
         market_key: market_id,
-        count_key: int(data_count) if data_count is not None else len(data),
+        count_key: int(data_count) if data_count is not None else len(data_records),
         "fills": len(fills),
         "pnl": pnl,
+        "initial_cash": float(initial_cash),
         "realized_outcome": realized_outcome,
         "fill_events": fill_events,
         "warnings": result_warnings,
@@ -875,10 +1373,25 @@ def save_aggregate_backtest_report(
     equity_series_by_market: dict[str, pd.Series] = {}
     cash_series_by_market: dict[str, pd.Series] = {}
     active_ranges: dict[str, tuple[pd.Timestamp, pd.Timestamp]] = {}
+    active_cutoffs: dict[str, pd.Timestamp] = {}
+    active_position_intervals: dict[str, list[tuple[pd.Timestamp, pd.Timestamp | None]]] = {}
+    active_position_labels: set[str] = set()
+    initial_capital_by_label: dict[str, float] = {}
     timeline_points: set[pd.Timestamp] = set()
+    labels = _unique_result_labels(results, market_key)
 
-    for result in results:
-        label = str(result.get(market_key) or "unknown")
+    for result, label in zip(results, labels, strict=True):
+        _record_active_cutoff(active_cutoffs, label, result)
+        position_intervals = _result_active_position_intervals(result)
+        if position_intervals is None:
+            if _result_has_position_activity(result):
+                active_position_labels.add(label)
+        else:
+            active_position_intervals[label] = position_intervals
+            for interval_start, interval_end in position_intervals:
+                timeline_points.add(interval_start)
+                if interval_end is not None:
+                    timeline_points.add(interval_end)
         final_pnl = float(result.get("pnl") or 0.0)
 
         price_series = _pairs_to_series(result.get("price_series") or [])
@@ -911,7 +1424,14 @@ def save_aggregate_backtest_report(
 
         if equity_series.empty:
             if not pnl_series.empty:
-                start_equity = float(cash_series.iloc[0]) if not cash_series.empty else 100.0
+                explicit_initial_cash = _coerce_float(result.get("initial_cash"))
+                start_equity = (
+                    explicit_initial_cash
+                    if explicit_initial_cash is not None
+                    else float(cash_series.iloc[0])
+                    if not cash_series.empty
+                    else 100.0
+                )
                 equity_series = pnl_series.astype(float) + start_equity
             elif not price_series.empty:
                 equity_series = pd.Series(
@@ -939,6 +1459,15 @@ def save_aggregate_backtest_report(
                     dtype=float,
                 )
 
+        initial_capital = _result_initial_capital(
+            result,
+            equity_series=equity_series,
+            cash_series=cash_series,
+            pnl_series=pnl_series,
+        )
+        if initial_capital is not None:
+            initial_capital_by_label[label] = initial_capital
+
         if not equity_series.empty:
             equity_series_by_market[label] = equity_series.astype(float)
             timeline_points.update(equity_series.index.to_list())
@@ -958,6 +1487,8 @@ def save_aggregate_backtest_report(
     else:
         now = pd.Timestamp.now(tz="UTC")
         timeline = pd.DatetimeIndex([now])
+    if initial_capital_by_label and len(timeline) > 0 and timeline[0].value > 0:
+        timeline = pd.DatetimeIndex([timeline[0] - pd.Timedelta(nanoseconds=1)]).union(timeline)
 
     aggregate_equity = pd.Series(0.0, index=timeline, dtype=float)
     aggregate_cash = pd.Series(0.0, index=timeline, dtype=float)
@@ -987,26 +1518,48 @@ def save_aggregate_backtest_report(
         full_equity = _align_series_to_timeline(
             equity_series,
             timeline,
-            before=float(equity_series.iloc[0]),
+            before=initial_capital_by_label.get(label, float(equity_series.iloc[0])),
             after=float(equity_series.iloc[-1]),
         )
         full_cash = _align_series_to_timeline(
             cash_series,
             timeline,
-            before=float(cash_series.iloc[0]),
+            before=initial_capital_by_label.get(label, float(cash_series.iloc[0])),
             after=float(cash_series.iloc[-1]),
         )
 
         aggregate_equity = aggregate_equity.add(full_equity, fill_value=0.0)
         aggregate_cash = aggregate_cash.add(full_cash, fill_value=0.0)
 
-        active_mask = (timeline >= start) & (timeline <= end)
-        active_count.loc[active_mask] = active_count.loc[active_mask] + 1
+        if label in active_position_intervals:
+            for interval_start, interval_end in active_position_intervals[label]:
+                active_mask = _position_interval_mask(
+                    timeline,
+                    start=interval_start,
+                    end=interval_end,
+                    fallback_end=end,
+                    cutoff=active_cutoffs.get(label),
+                )
+                active_count.loc[active_mask] = active_count.loc[active_mask] + 1
+        elif label in active_position_labels:
+            active_mask = _active_range_mask(
+                timeline,
+                start=start,
+                end=end,
+                cutoff=active_cutoffs.get(label),
+            )
+            active_count.loc[active_mask] = active_count.loc[active_mask] + 1
 
+        overlay_mask = _overlay_range_mask(
+            timeline,
+            start=start,
+            end=end,
+            cutoff=active_cutoffs.get(label),
+        )
         clipped_equity = full_equity.copy()
         clipped_cash = full_cash.copy()
-        clipped_equity.loc[~active_mask] = float("nan")
-        clipped_cash.loc[~active_mask] = float("nan")
+        clipped_equity.loc[~overlay_mask] = float("nan")
+        clipped_cash.loc[~overlay_mask] = float("nan")
         overlay_equity[label] = clipped_equity
         overlay_cash[label] = clipped_cash
 
@@ -1034,7 +1587,10 @@ def save_aggregate_backtest_report(
     max_drawdown = float(drawdowns.max()) if not drawdowns.empty else 0.0
     metrics = {
         "final_pnl": final_equity - initial_cash,
-        "total_return": 0.0 if initial_cash == 0 else (final_equity - initial_cash) / initial_cash,
+        "total_return": _return_fraction(
+            initial_capital=initial_cash,
+            final_equity=final_equity,
+        ),
         "max_drawdown": max_drawdown,
     }
 
@@ -1067,6 +1623,7 @@ def save_aggregate_backtest_report(
     output_abs.parent.mkdir(parents=True, exist_ok=True)
     extra_panels = _build_summary_brier_extra_panels(
         results=results,
+        market_key=market_key,
         resolved_plot_panels=resolved_plot_panels,
         max_points_per_market=max_points_per_market,
     )
@@ -1121,18 +1678,32 @@ def save_joint_portfolio_backtest_report(
     equity_series_by_market: dict[str, pd.Series] = {}
     cash_series_by_market: dict[str, pd.Series] = {}
     active_ranges: dict[str, tuple[pd.Timestamp, pd.Timestamp]] = {}
+    active_cutoffs: dict[str, pd.Timestamp] = {}
+    active_position_intervals: dict[str, list[tuple[pd.Timestamp, pd.Timestamp | None]]] = {}
+    active_position_labels: set[str] = set()
     timeline_points: set[pd.Timestamp] = set()
+    labels = _unique_result_labels(results, market_key)
 
     portfolio_equity = pd.Series(dtype=float)
     portfolio_cash = pd.Series(dtype=float)
 
-    for result in results:
+    for result, label in zip(results, labels, strict=True):
+        _record_active_cutoff(active_cutoffs, label, result)
+        position_intervals = _result_active_position_intervals(result)
+        if position_intervals is None:
+            if _result_has_position_activity(result):
+                active_position_labels.add(label)
+        else:
+            active_position_intervals[label] = position_intervals
+            for interval_start, interval_end in position_intervals:
+                timeline_points.add(interval_start)
+                if interval_end is not None:
+                    timeline_points.add(interval_end)
         if portfolio_equity.empty:
             portfolio_equity = _pairs_to_series(result.get("joint_portfolio_equity_series") or [])
         if portfolio_cash.empty:
             portfolio_cash = _pairs_to_series(result.get("joint_portfolio_cash_series") or [])
 
-        label = str(result.get(market_key) or "unknown")
         price_series = _pairs_to_series(result.get("price_series") or [])
         if not price_series.empty:
             if include_market_prices:
@@ -1184,29 +1755,59 @@ def save_joint_portfolio_backtest_report(
             dtype=float,
         )
 
+    joint_initial_capital = _joint_portfolio_initial_capital(
+        results[0], equity_series=portfolio_equity
+    )
+
     timeline_points.update(portfolio_equity.index.to_list())
     timeline_points.update(portfolio_cash.index.to_list())
     timeline = (
         pd.DatetimeIndex(sorted(timeline_points)) if timeline_points else portfolio_equity.index
     )
+    if joint_initial_capital is not None and len(timeline) > 0 and timeline[0].value > 0:
+        timeline = pd.DatetimeIndex([timeline[0] - pd.Timedelta(nanoseconds=1)]).union(timeline)
 
     aligned_equity = _align_series_to_timeline(
         portfolio_equity,
         timeline,
-        before=float(portfolio_equity.iloc[0]),
+        before=(
+            float(portfolio_equity.iloc[0])
+            if joint_initial_capital is None
+            else float(joint_initial_capital)
+        ),
         after=float(portfolio_equity.iloc[-1]),
     )
     aligned_cash = _align_series_to_timeline(
         portfolio_cash,
         timeline,
-        before=float(portfolio_cash.iloc[0]),
+        before=(
+            float(portfolio_cash.iloc[0])
+            if joint_initial_capital is None
+            else float(joint_initial_capital)
+        ),
         after=float(portfolio_cash.iloc[-1]),
     )
 
     active_count = pd.Series(0, index=timeline, dtype=int)
-    for start, end in active_ranges.values():
-        active_mask = (timeline >= start) & (timeline <= end)
-        active_count.loc[active_mask] = active_count.loc[active_mask] + 1
+    for label, (start, end) in active_ranges.items():
+        if label in active_position_intervals:
+            for interval_start, interval_end in active_position_intervals[label]:
+                active_mask = _position_interval_mask(
+                    timeline,
+                    start=interval_start,
+                    end=interval_end,
+                    fallback_end=end,
+                    cutoff=active_cutoffs.get(label),
+                )
+                active_count.loc[active_mask] = active_count.loc[active_mask] + 1
+        elif label in active_position_labels:
+            active_mask = _active_range_mask(
+                timeline,
+                start=start,
+                end=end,
+                cutoff=active_cutoffs.get(label),
+            )
+            active_count.loc[active_mask] = active_count.loc[active_mask] + 1
 
     overlay_equity: dict[str, pd.Series] = {}
     overlay_cash: dict[str, pd.Series] = {}
@@ -1244,7 +1845,12 @@ def save_joint_portfolio_backtest_report(
                 before=float(cash_series.iloc[0]),
                 after=float(cash_series.iloc[-1]),
             )
-            active_mask = (timeline >= start) & (timeline <= end)
+            active_mask = _overlay_range_mask(
+                timeline,
+                start=start,
+                end=end,
+                cutoff=active_cutoffs.get(label),
+            )
             clipped_equity = full_equity.copy()
             clipped_cash = full_cash.copy()
             clipped_equity.loc[~active_mask] = float("nan")
@@ -1273,7 +1879,10 @@ def save_joint_portfolio_backtest_report(
     max_drawdown = float(drawdowns.max()) if not drawdowns.empty else 0.0
     metrics = {
         "final_pnl": final_equity - initial_cash,
-        "total_return": 0.0 if initial_cash == 0 else (final_equity - initial_cash) / initial_cash,
+        "total_return": _return_fraction(
+            initial_capital=initial_cash,
+            final_equity=final_equity,
+        ),
         "max_drawdown": max_drawdown,
     }
 
@@ -1291,8 +1900,8 @@ def save_joint_portfolio_backtest_report(
         num_markets_resolved=len(results),
         market_prices=market_prices if include_market_prices else {},
         market_pnls={
-            str(item.get(market_key) or "unknown"): float(item.get("pnl") or 0.0)
-            for item in results
+            label: float(item.get("pnl") or 0.0)
+            for item, label in zip(results, labels, strict=True)
         },
         overlay_series=(
             {"equity": overlay_equity, "cash": overlay_cash} if include_overlay_series else {}
@@ -1309,6 +1918,7 @@ def save_joint_portfolio_backtest_report(
     output_abs.parent.mkdir(parents=True, exist_ok=True)
     extra_panels = _build_summary_brier_extra_panels(
         results=results,
+        market_key=market_key,
         resolved_plot_panels=resolved_plot_panels,
         max_points_per_market=max_points_per_market,
     )
@@ -1348,11 +1958,10 @@ def print_backtest_summary(
         print(empty_message)
         return
 
+    labels = _unique_result_labels(results, market_key)
     rows = [_summary_stats_for_result(result) for result in results]
     total_row = _summary_stats_total(rows=rows, results=results)
-    col_w = (
-        max(len("Market"), len("TOTAL"), *(len(str(result[market_key])) for result in results)) + 2
-    )
+    col_w = max(len("Market"), len("TOTAL"), *(len(label) for label in labels)) + 2
     count_w = max(8, len(count_label))
     header = (
         f"{'Market':<{col_w}} {count_label:>{count_w}} {'Fills':>6} {'Qty':>10} "
@@ -1362,9 +1971,9 @@ def print_backtest_summary(
     sep = "─" * len(header)
 
     print(f"\n{sep}\n{header}\n{sep}")
-    for result, row in zip(results, rows, strict=True):
+    for result, row, label in zip(results, rows, labels, strict=True):
         print(
-            f"{result[market_key]:<{col_w}} {result[count_key]:>{count_w}} "
+            f"{label:<{col_w}} {result[count_key]:>{count_w}} "
             f"{result['fills']:>6} {_format_summary_float(row['fill_qty'], 2):>10} "
             f"{_format_summary_float(row['avg_fill_price'], 4):>7} "
             f"{_format_summary_float(row['fill_notional'], 2):>10} "
@@ -1397,14 +2006,31 @@ def print_backtest_summary(
 
 def _summary_stats_for_result(result: Mapping[str, Any]) -> dict[str, float | None]:
     fill_qty, fill_notional, avg_fill_price = _summary_fill_stats(result.get("fill_events") or ())
-    returns = _summary_returns_from_pairs(result.get("equity_series"))
+    equity_series = _pairs_to_series(result.get("equity_series") or [])
+    cash_series = _pairs_to_series(result.get("cash_series") or [])
+    pnl_series = _pairs_to_series(result.get("pnl_series") or [])
+    initial_capital = _result_initial_capital(
+        result,
+        equity_series=equity_series,
+        cash_series=cash_series,
+        pnl_series=pnl_series,
+    )
+    if equity_series.empty:
+        if not cash_series.empty:
+            equity_series = cash_series.astype(float)
+        elif not pnl_series.empty and initial_capital is not None:
+            equity_series = pnl_series.astype(float) + float(initial_capital)
+    returns = _summary_returns_from_series(equity_series, initial_capital=initial_capital)
     stats = _summary_return_stats(returns)
     coverage = _coerce_float(result.get("requested_coverage_ratio"))
     return {
         "fill_qty": fill_qty,
         "fill_notional": fill_notional,
         "avg_fill_price": avg_fill_price,
-        "return_pct": _summary_total_return_pct(result.get("equity_series")),
+        "return_pct": _summary_total_return_pct_from_series(
+            equity_series,
+            initial_capital=initial_capital,
+        ),
         "max_drawdown_pct": stats["max_drawdown_pct"],
         "sharpe": stats["sharpe"],
         "sortino": stats["sortino"],
@@ -1419,7 +2045,7 @@ def _summary_stats_total(
     fill_qty = sum(float(row.get("fill_qty") or 0.0) for row in rows)
     fill_notional = sum(float(row.get("fill_notional") or 0.0) for row in rows)
     avg_fill_price = fill_notional / fill_qty if fill_qty > 0.0 else None
-    equity_series = results[0].get("joint_portfolio_equity_series") if results else None
+    equity_series = _summary_total_equity_series(results)
     stats = _summary_return_stats(_summary_returns_from_pairs(equity_series))
     coverage_values = [
         float(row["coverage_pct"])
@@ -1437,6 +2063,74 @@ def _summary_stats_total(
         "profit_factor": stats["profit_factor"],
         "coverage_pct": sum(coverage_values) / len(coverage_values) if coverage_values else None,
     }
+
+
+def _summary_total_equity_series(results: Sequence[Mapping[str, Any]]) -> list[tuple[str, float]]:
+    if not results:
+        return []
+
+    joint_equity_series = results[0].get("joint_portfolio_equity_series")
+    if joint_equity_series:
+        series = _pairs_to_series(
+            joint_equity_series if isinstance(joint_equity_series, Sequence) else []
+        )
+        initial_capital = _joint_portfolio_initial_capital(
+            results[0],
+            equity_series=series,
+        )
+        series = _series_with_initial_capital_basis(
+            series,
+            initial_capital=initial_capital,
+        )
+        return _series_to_iso_pairs(series)
+
+    frame_infos: list[tuple[pd.Series, float]] = []
+    for result in results:
+        if not isinstance(result, Mapping):
+            continue
+        equity_series = _pairs_to_series(result.get("equity_series") or [])
+        cash_series = _pairs_to_series(result.get("cash_series") or [])
+        pnl_series = _pairs_to_series(result.get("pnl_series") or [])
+        initial_capital = _result_initial_capital(
+            result,
+            equity_series=equity_series,
+            cash_series=cash_series,
+            pnl_series=pnl_series,
+        )
+        if equity_series.empty:
+            if not cash_series.empty:
+                equity_series = cash_series.astype(float)
+            elif not pnl_series.empty and initial_capital is not None:
+                equity_series = pnl_series.astype(float) + float(initial_capital)
+            else:
+                continue
+        frame_infos.append(
+            (
+                equity_series,
+                float(equity_series.iloc[0]) if initial_capital is None else initial_capital,
+            )
+        )
+
+    if not frame_infos:
+        return []
+
+    timeline = frame_infos[0][0].index
+    for frame, _ in frame_infos[1:]:
+        timeline = timeline.union(frame.index)
+    timeline = timeline.sort_values()
+    if len(timeline) > 0 and timeline[0].value > 0:
+        timeline = pd.DatetimeIndex([timeline[0] - pd.Timedelta(nanoseconds=1)]).union(timeline)
+
+    total = pd.Series(0.0, index=timeline, dtype=float)
+    for frame, initial_capital in frame_infos:
+        aligned = _align_series_to_timeline(
+            frame.astype(float),
+            timeline,
+            before=float(initial_capital),
+            after=float(frame.iloc[-1]),
+        )
+        total = total.add(aligned, fill_value=0.0)
+    return _series_to_iso_pairs(total)
 
 
 def _summary_fill_stats(fill_events: object) -> tuple[float, float, float | None]:
@@ -1457,13 +2151,27 @@ def _summary_fill_stats(fill_events: object) -> tuple[float, float, float | None
     return qty, notional, notional / qty if qty > 0.0 else None
 
 
-def _summary_returns_from_pairs(pairs: object) -> dict[int, float]:
+def _summary_returns_from_pairs(
+    pairs: object,
+    *,
+    initial_capital: float | None = None,
+) -> dict[int, float]:
     series = _pairs_to_series(pairs if isinstance(pairs, Sequence) else [])
+    return _summary_returns_from_series(series, initial_capital=initial_capital)
+
+
+def _summary_returns_from_series(
+    series: pd.Series,
+    *,
+    initial_capital: float | None = None,
+) -> dict[int, float]:
     if series.empty:
         return {}
 
-    numeric = pd.to_numeric(series, errors="coerce").dropna()
+    numeric = _series_with_initial_capital_basis(series, initial_capital=initial_capital)
     if len(numeric) < 2:
+        return {}
+    if float(numeric.iloc[0]) <= 0.0:
         return {}
 
     returns = numeric.pct_change().replace([float("inf"), -float("inf")], pd.NA).dropna()
@@ -1495,18 +2203,30 @@ def _summary_return_stats(returns: dict[int, float]) -> dict[str, float | None]:
     }
 
 
-def _summary_total_return_pct(pairs: object) -> float | None:
+def _summary_total_return_pct(
+    pairs: object,
+    *,
+    initial_capital: float | None = None,
+) -> float | None:
     series = _pairs_to_series(pairs if isinstance(pairs, Sequence) else [])
+    return _summary_total_return_pct_from_series(series, initial_capital=initial_capital)
+
+
+def _summary_total_return_pct_from_series(
+    series: pd.Series,
+    *,
+    initial_capital: float | None = None,
+) -> float | None:
     if series.empty:
         return None
 
-    numeric = pd.to_numeric(series, errors="coerce").dropna()
+    numeric = _series_with_initial_capital_basis(series, initial_capital=initial_capital)
     if len(numeric) < 2:
         return None
 
     first = float(numeric.iloc[0])
     last = float(numeric.iloc[-1])
-    if abs(first) < 1e-12:
+    if first <= 0.0:
         return None
     return (last / first - 1.0) * 100.0
 
