@@ -25,6 +25,10 @@ from strategies.breakout import (
     BookBreakoutConfig,
     BookBreakoutStrategy,
 )
+from strategies.account_trade_replay import (
+    BookAccountTradeReplayConfig,
+    BookAccountTradeReplayStrategy,
+)
 from strategies.binary_pair_arbitrage import (
     BookBinaryPairArbitrageConfig,
     BookBinaryPairArbitrageStrategy,
@@ -99,6 +103,8 @@ __all__ = [
     "BarRSIReversionStrategy",
     "BarThresholdMomentumConfig",
     "BarThresholdMomentumStrategy",
+    "BookAccountTradeReplayConfig",
+    "BookAccountTradeReplayStrategy",
     "BookBinaryPairArbitrageConfig",
     "BookBinaryPairArbitrageStrategy",
     "BookBreakoutConfig",

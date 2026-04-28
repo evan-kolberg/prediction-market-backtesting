@@ -1,8 +1,8 @@
 # Codebase UML Inventory
 
 This file is generated from Python AST metadata and excludes `tests/`.
-Generated: 2026-04-27T15:00:39+00:00
-Modules: 103 | Classes: 152 | Functions/methods: 1194
+Generated: 2026-04-28T06:02:15+00:00
+Modules: 106 | Classes: 156 | Functions/methods: 1221
 
 ## Backtesting Data Flow
 
@@ -25,11 +25,32 @@ flowchart TD
 ### `backtests/__init__.py`
 - Imports: none
 
+### `backtests/_beffer45_trade_data.py`
+- Imports: `__future__`
+
 ### `backtests/_script_helpers.py`
 - Imports: `__future__, importlib, pathlib, sys`
 - Function L8: `ensure_repo_root(script_path: str | Path) -> Path`
 - Function L23: `parse_csv_env(raw: str) -> list[str]`
 - Function L27: `parse_bool_env(raw: str, *, default: bool = True) -> bool`
+
+### `backtests/polymarket_beffer45_trade_replay_telonex.py`
+- Imports: `__future__, collections, csv, datetime, decimal, pathlib, re, typing`
+- Function L44: `_decimal(value: object) -> Decimal`
+- Function L48: `_trade_notional(trade: Mapping[str, object]) -> Decimal`
+- Function L52: `_trade_timestamp(trade: Mapping[str, object]) -> datetime`
+- Function L56: `_iso(timestamp: datetime) -> str`
+- Function L60: `_group_trades_by_instrument(trades: Iterable[Mapping[str, object]]) -> dict[tuple[str, int], tuple[dict[str, object], ...]]`
+- Function L72: `_replay_window(*, slug: str, trades: Sequence[Mapping[str, object]]) -> tuple[str, str]`
+- Function L91: `_ledger_cash_pnl(trades: Sequence[Mapping[str, object]]) -> Decimal`
+- Function L102: `_ledger_open_quantity(trades: Sequence[Mapping[str, object]]) -> Decimal`
+- Function L113: `_ledger_settlement_pnl(trades: Sequence[Mapping[str, object]], realized_outcome: object) -> Decimal | None`
+- Function L121: `_sum_notional(trades: Iterable[Mapping[str, object]], *, side: str) -> Decimal`
+- Function L128: `_build_replays() -> tuple[Any, ...]`
+- Function L160: `_print_ledger_header() -> None`
+- Function L187: `_write_comparison_csv(rows: Sequence[Mapping[str, object]]) -> None`
+- Function L209: `_print_backtest_comparison(results: Sequence[Mapping[str, Any]]) -> None`
+- Function L277: `run() -> None`
 
 ### `backtests/polymarket_book_ema_crossover.py`
 - Imports: `__future__, decimal`
@@ -1395,6 +1416,25 @@ flowchart TD
 - Function L36: `require_percentage(name: str, value: float) -> None`
 - Function L40: `require_rsi(name: str, value: float) -> None`
 - Function L47: `require_less(name: str, left: float | int, other_name: str, right: float | int) -> None`
+
+### `strategies/account_trade_replay.py`
+- Imports: `__future__, collections, dataclasses, decimal, msgspec, nautilus_trader, typing`
+- Function L179: `_coerce_int(value: object, *, name: str) -> int`
+- Function L189: `_coerce_decimal(value: object, *, name: str) -> Decimal`
+- Class L19: `_ScheduledTrade`
+- Class L28: `AccountReplayTrade(msgspec.Struct)`
+- Class L36: `BookAccountTradeReplayConfig(StrategyConfig)`
+  - Method L42: `__post_init__(self) -> None`
+- Class L49: `BookAccountTradeReplayStrategy(Strategy)`
+  - Method L58: `__init__(self, config: BookAccountTradeReplayConfig) -> None`
+  - Method L64: `on_start(self) -> None`
+  - Method L77: `on_order_book_deltas(self, deltas) -> None`
+  - Method L80: `on_trade_tick(self, trade) -> None`
+  - Method L83: `on_stop(self) -> None`
+  - Method L86: `on_reset(self) -> None`
+  - Method L90: `_process_due(self, *, ts_ns: int) -> None`
+  - Method L98: `_submit_scheduled_trade(self, scheduled: _ScheduledTrade) -> None`
+  - Method L133: `_normalize_trades(trades: tuple[AccountReplayTrade, ...]) -> tuple[_ScheduledTrade, ...]`
 
 ### `strategies/binary_pair_arbitrage.py`
 - Imports: `__future__, decimal, nautilus_trader, prediction_market_extensions, strategies`
