@@ -22,3 +22,19 @@ article .codehilite pre {
   padding: 1rem 1.25rem;
   background: transparent;
 }
+
+article .terminal-output-scroll {
+  max-height: 34rem;
+  overflow: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-code);
+}
+
+article .terminal-output-scroll pre {
+  max-height: none !important;
+  min-width: max-content;
+  margin: 0;
+  padding: 1rem 1.25rem;
+  background: transparent;
+}

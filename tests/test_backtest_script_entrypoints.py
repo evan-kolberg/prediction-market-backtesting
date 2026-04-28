@@ -32,6 +32,8 @@ EXPECTED_PUBLIC_RUNNER_PATHS = [
     Path("backtests/generic_optimizer_research.ipynb"),
     Path("backtests/generic_tpe_research.ipynb"),
     Path("backtests/pmxt_book_joint_portfolio_runner.ipynb"),
+    Path("backtests/polymarket_beffer45_trade_replay_telonex.ipynb"),
+    Path("backtests/polymarket_beffer45_trade_replay_telonex.py"),
     Path("backtests/polymarket_book_ema_crossover.py"),
     Path("backtests/polymarket_book_ema_optimizer.py"),
     Path("backtests/polymarket_book_joint_portfolio_runner.py"),
@@ -44,6 +46,7 @@ EXPECTED_PUBLIC_RUNNER_PATHS = [
 PMXT_SINGLE_MARKET_BOOK_RUNNERS = [Path("backtests/polymarket_book_ema_crossover.py")]
 PMXT_JOINT_BOOK_RUNNERS = [Path("backtests/polymarket_book_joint_portfolio_runner.py")]
 TELONEX_JOINT_BOOK_RUNNERS = [Path("backtests/polymarket_telonex_book_joint_portfolio_runner.py")]
+TELONEX_ACCOUNT_REPLAY_RUNNERS = [Path("backtests/polymarket_beffer45_trade_replay_telonex.py")]
 PMXT_BOOK_OPTIMIZER_RUNNERS = [Path("backtests/polymarket_book_ema_optimizer.py")]
 
 SCRIPT_ENTRYPOINT_PATHS = [
@@ -402,6 +405,37 @@ def test_telonex_book_joint_runners_do_not_embed_empty_api_key(
     )
     assert "api:" in experiment.data.sources[1]
     assert "api:," not in repr(experiment)
+
+
+@pytest.mark.parametrize("relative_path", TELONEX_ACCOUNT_REPLAY_RUNNERS)
+def test_telonex_account_replay_runner_builds_hard_coded_trade_replay(
+    monkeypatch: pytest.MonkeyPatch, relative_path: Path
+) -> None:
+    monkeypatch.setenv("TELONEX_API_KEY", "test-telonex-key")
+    experiment = _capture_script_experiment(monkeypatch, relative_path)
+
+    assert experiment.name == "polymarket_beffer45_trade_replay_telonex"
+    assert experiment.data.platform == "polymarket"
+    assert experiment.data.data_type == "book"
+    assert experiment.data.vendor == "telonex"
+    assert experiment.data.sources == ("api:${TELONEX_API_KEY}",)
+    assert len(experiment.replays) == 86
+    assert experiment.initial_cash == 1_000.0
+    assert experiment.min_book_events == 1
+    assert experiment.strategy_configs[0]["strategy_path"] == (
+        "strategies:BookAccountTradeReplayStrategy"
+    )
+    assert experiment.strategy_configs[0]["config_path"] == (
+        "strategies:BookAccountTradeReplayConfig"
+    )
+    assert experiment.strategy_configs[0]["config"]["trades"] == ("__SIM_METADATA__:ledger_trades")
+    assert experiment.report.market_key == "sim_label"
+    assert experiment.report.summary_report is True
+    assert (
+        experiment.report.summary_report_path
+        == "output/polymarket_beffer45_trade_replay_telonex_summary.html"
+    )
+    assert experiment.return_summary_series is True
 
 
 @pytest.mark.parametrize("relative_path", PMXT_BOOK_OPTIMIZER_RUNNERS)

@@ -18,6 +18,7 @@ nav:
   - Home: index.md
   - Setup: setup.md
   - Backtests And Runners: backtests.md
+  - Polymarket Account Ledger Replay: account-ledger-replay.md
   - Research: research.md
   - Execution Modeling: execution-modeling.md
   - Data Vendors And Local Mirrors: data-vendors.md

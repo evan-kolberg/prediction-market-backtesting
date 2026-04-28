@@ -18,12 +18,14 @@ Current public Python runners:
 - `backtests/polymarket_book_ema_crossover.py`
 - `backtests/polymarket_book_ema_optimizer.py`
 - `backtests/polymarket_book_joint_portfolio_runner.py`
+- `backtests/polymarket_beffer45_trade_replay_telonex.py`
 - `backtests/polymarket_telonex_book_joint_portfolio_runner.py`
 
 Current public notebook runners:
 
 - `backtests/generic_optimizer_research.ipynb`
 - `backtests/generic_tpe_research.ipynb`
+- `backtests/polymarket_beffer45_trade_replay_telonex.ipynb`
 - `backtests/pmxt_book_joint_portfolio_runner.ipynb`
 - `backtests/telonex_book_joint_portfolio_runner.ipynb`
 
