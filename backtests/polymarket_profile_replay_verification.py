@@ -68,6 +68,22 @@ def _env_float(name: str, default: float) -> float:
         return default
 
 
+def _env_timestamp(*names: str):
+    import pandas as pd
+
+    for name in names:
+        raw = os.getenv(name)
+        if raw is None or not raw.strip():
+            continue
+        timestamp = pd.Timestamp(raw)
+        if pd.isna(timestamp):
+            continue
+        if timestamp.tzinfo is None:
+            return timestamp.tz_localize("UTC")
+        return timestamp.tz_convert("UTC")
+    return None
+
+
 def _load_profile_trades():
     from prediction_market_extensions.backtesting.profile_replay import (
         fetch_profile_trades,
@@ -242,6 +258,14 @@ def run() -> None:
         groups = select_profile_trade_groups(
             trades,
             max_groups=_env_int("POLYMARKET_PROFILE_REPLAY_MAX_GROUPS", PROFILE_MAX_GROUPS),
+            min_latest_trade_time=_env_timestamp(
+                "POLYMARKET_PROFILE_REPLAY_MIN_LATEST_TRADE_TIME",
+                "POLYMARKET_PROFILE_REPLAY_AFTER",
+            ),
+            max_latest_trade_time=_env_timestamp(
+                "POLYMARKET_PROFILE_REPLAY_MAX_LATEST_TRADE_TIME",
+                "POLYMARKET_PROFILE_REPLAY_BEFORE",
+            ),
         )
         if not groups:
             print("No complete profile trade groups were selected for replay verification.")

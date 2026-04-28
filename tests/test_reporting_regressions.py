@@ -105,6 +105,31 @@ def test_serialize_fill_events_uses_yes_no_side_as_token_side() -> None:
     assert events[0]["side"] == "no"
 
 
+def test_serialize_fill_events_uses_default_side_for_opaque_instrument_ids() -> None:
+    fills_report = pd.DataFrame(
+        [
+            {
+                "client_order_id": "1",
+                "order_side": "BUY",
+                "side": "BUY",
+                "last_px": 0.05,
+                "last_qty": 5,
+                "ts_last": "2026-04-01T00:00:00Z",
+                "instrument_id": "opaque-token-id",
+            }
+        ]
+    )
+
+    events = research._serialize_fill_events(
+        market_id="btc-updown-5m-1777226700",
+        fills_report=fills_report,
+        default_side=research._fill_event_side_hint(outcome="Down", token_index=1),
+    )
+
+    assert events[0]["action"] == "buy"
+    assert events[0]["side"] == "no"
+
+
 def test_serialize_fill_events_does_not_use_token_side_as_trade_action() -> None:
     fills_report = pd.DataFrame(
         [

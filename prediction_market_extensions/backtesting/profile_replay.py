@@ -84,6 +84,17 @@ def _timestamp_from_payload(value: object) -> pd.Timestamp:
     return timestamp
 
 
+def _normalize_timestamp_bound(value: object) -> pd.Timestamp | None:
+    if value is None:
+        return None
+    timestamp = pd.Timestamp(value)
+    if pd.isna(timestamp):
+        return None
+    if timestamp.tzinfo is None:
+        return timestamp.tz_localize("UTC")
+    return timestamp.tz_convert("UTC")
+
+
 def normalize_profile_trade(payload: Mapping[str, object]) -> ProfileTrade:
     slug = str(payload.get("slug") or "").strip()
     if not slug:
@@ -172,7 +183,11 @@ def select_profile_trade_groups(
     max_groups: int,
     allowed_slug_prefixes: Sequence[str] = DEFAULT_PROFILE_REPLAY_PREFIXES,
     require_complete_inventory: bool = True,
+    min_latest_trade_time: object | None = None,
+    max_latest_trade_time: object | None = None,
 ) -> tuple[ProfileTradeGroup, ...]:
+    min_latest = _normalize_timestamp_bound(min_latest_trade_time)
+    max_latest = _normalize_timestamp_bound(max_latest_trade_time)
     grouped: dict[tuple[str, int], list[ProfileTrade]] = defaultdict(list)
     for trade in trades:
         if allowed_slug_prefixes and not trade.slug.startswith(tuple(allowed_slug_prefixes)):
@@ -183,6 +198,11 @@ def select_profile_trade_groups(
     for (slug, outcome_index), group_trades in grouped.items():
         ordered = tuple(sorted(group_trades, key=lambda item: item.timestamp_ns))
         if require_complete_inventory and not _inventory_never_negative(ordered):
+            continue
+        latest_trade_time = max(trade.timestamp for trade in ordered)
+        if min_latest is not None and latest_trade_time < min_latest:
+            continue
+        if max_latest is not None and latest_trade_time > max_latest:
             continue
         candidates.append(ProfileTradeGroup(slug=slug, outcome_index=outcome_index, trades=ordered))
 

@@ -1798,7 +1798,7 @@ return this.labels[index] || "";
         if fills_df.empty:
             return
 
-        relevant = fills_df.copy()
+        relevant = fills_df[fills_df["market_id"].isin(display_markets)].copy()
         if relevant.empty:
             return
 

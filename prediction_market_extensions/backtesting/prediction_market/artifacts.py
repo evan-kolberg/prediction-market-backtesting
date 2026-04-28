@@ -225,17 +225,24 @@ class PredictionMarketArtifactBuilder:
         outcomes: pd.Series,
         include_portfolio_series: bool,
     ) -> dict[str, Any]:
+        fill_events = prediction_market_research._serialize_fill_events(
+            market_id=loaded_sim.market_id,
+            fills_report=fills_report,
+            default_side=prediction_market_research._fill_event_side_hint(
+                outcome=loaded_sim.outcome,
+                token_index=getattr(loaded_sim.spec, "token_index", None),
+            ),
+        )
         legacy_models, _ = prediction_market_research.legacy_plot_adapter._load_legacy_modules()
-        legacy_fills = prediction_market_research.legacy_plot_adapter._convert_fills(
-            fills_report, legacy_models
+        legacy_fills = prediction_market_research._deserialize_fill_events(
+            market_id=loaded_sim.market_id,
+            fill_events=fill_events,
+            models_module=legacy_models,
         )
         market_prices_with_fills = (
             prediction_market_research.legacy_plot_adapter._market_prices_with_fill_points(
                 {loaded_sim.market_id: market_prices}, legacy_fills
             ).get(loaded_sim.market_id, market_prices)
-        )
-        fill_events = prediction_market_research._serialize_fill_events(
-            market_id=loaded_sim.market_id, fills_report=fills_report
         )
         series_artifacts: dict[str, Any] = {
             "price_series": prediction_market_research._series_to_iso_pairs(

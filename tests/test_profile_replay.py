@@ -98,6 +98,37 @@ def test_select_profile_trade_groups_rejects_groups_requiring_prior_inventory() 
     assert groups == ()
 
 
+def test_select_profile_trade_groups_filters_by_latest_trade_time() -> None:
+    trades = normalize_profile_trades(
+        [
+            _payload(
+                slug="btc-updown-5m-1777222500",
+                side="BUY",
+                size=5,
+                price=0.50,
+                timestamp=1777222726,
+                transaction_hash="0xolder",
+            ),
+            _payload(
+                slug="btc-updown-5m-1777241400",
+                side="BUY",
+                size=5,
+                price=0.50,
+                timestamp=1777241444,
+                transaction_hash="0xnewer",
+            ),
+        ]
+    )
+
+    groups = select_profile_trade_groups(
+        trades,
+        max_groups=10,
+        max_latest_trade_time="2026-04-26T18:00:00Z",
+    )
+
+    assert [group.key for group in groups] == ["btc-updown-5m-1777222500:1"]
+
+
 def test_build_profile_replays_infers_btc_window_from_slug() -> None:
     trades = normalize_profile_trades(
         [_payload(side="BUY", size=10, price=0.5, timestamp=1777241444)]

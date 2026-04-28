@@ -586,9 +586,16 @@ def _normalize_market_prices(
 def _market_prices_from_fills(fills: list[Any]) -> dict[str, list[tuple[datetime, float]]]:
     market_prices: dict[str, list[tuple[datetime, float]]] = {}
     for fill in fills:
-        market_prices.setdefault(str(fill.market_id), []).append(
-            (fill.timestamp, float(fill.price))
-        )
+        market_id = getattr(fill, "market_id", None)
+        timestamp = _to_naive_utc(getattr(fill, "timestamp", None))
+        price = getattr(fill, "price", None)
+        if market_id is None or timestamp is None or price is None:
+            continue
+        try:
+            parsed_price = float(price)
+        except (TypeError, ValueError):
+            continue
+        market_prices.setdefault(str(market_id), []).append((timestamp, parsed_price))
     return market_prices
 
 

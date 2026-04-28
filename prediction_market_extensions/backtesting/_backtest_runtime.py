@@ -299,6 +299,9 @@ def run_market_backtest(
         fill_events = prediction_market_research._serialize_fill_events(
             market_id=market_id,
             fills_report=fills,
+            default_side=prediction_market_research._fill_event_side_hint(
+                outcome=getattr(instrument, "outcome", None)
+            ),
         )
         if realized_outcome is None:
             import logging
@@ -329,13 +332,15 @@ def run_market_backtest(
             summary_legacy_models, _ = (
                 prediction_market_research.legacy_plot_adapter._load_legacy_modules()
             )
-            summary_legacy_fills = prediction_market_research.legacy_plot_adapter._convert_fills(
-                fills, summary_legacy_models
+            summary_legacy_fills = prediction_market_research._deserialize_fill_events(
+                market_id=market_id,
+                fill_events=fill_events,
+                models_module=summary_legacy_models,
             )
             summary_market_prices = (
                 prediction_market_research.legacy_plot_adapter._market_prices_with_fill_points(
-                    {str(instrument.id): chart_market_prices}, summary_legacy_fills
-                ).get(str(instrument.id), chart_market_prices)
+                    {market_id: chart_market_prices}, summary_legacy_fills
+                ).get(market_id, chart_market_prices)
             )
             dense_equity_series, dense_cash_series = (
                 prediction_market_research._dense_market_account_series_from_fill_events(

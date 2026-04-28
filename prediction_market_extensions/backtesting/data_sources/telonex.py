@@ -1000,6 +1000,42 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
             pass
         return None
 
+    def _api_cache_source_fingerprint_for_day(
+        self,
+        *,
+        base_url: str,
+        channel: str,
+        date: str,
+        market_slug: str,
+        token_index: int,
+        outcome: str | None,
+    ) -> dict[str, object] | None:
+        cache_path = self._api_cache_path(
+            base_url=base_url,
+            channel=channel,
+            date=date,
+            market_slug=market_slug,
+            token_index=token_index,
+            outcome=outcome,
+        )
+        if cache_path is None:
+            return None
+        fingerprint = self._local_file_fingerprint(cache_path)
+        if fingerprint is None:
+            return None
+        fingerprint.update(
+            {
+                "source_stage": _TELONEX_SOURCE_API,
+                "base_url": base_url.rstrip("/"),
+                "channel": channel,
+                "date": date,
+                "market_slug": market_slug,
+                "token_index": token_index,
+                "outcome": outcome,
+            }
+        )
+        return fingerprint
+
     def _write_api_cache_day(
         self,
         *,
@@ -1465,11 +1501,16 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
         outcome: str | None,
     ) -> dict[str, object] | None:
         if entry.kind == _TELONEX_SOURCE_API:
-            # API responses can be corrected for the same request URL. Without
-            # response-side validation (ETag/content hash), a materialized
-            # deltas cache would mask those corrections. Keep API day caching
-            # separate and skip this derived deltas cache for API sources.
-            return None
+            if entry.target is None:
+                return None
+            return self._api_cache_source_fingerprint_for_day(
+                base_url=entry.target,
+                channel=channel,
+                date=date,
+                market_slug=market_slug,
+                token_index=token_index,
+                outcome=outcome,
+            )
         if entry.kind != _TELONEX_SOURCE_LOCAL or entry.target is None:
             return None
 
@@ -2419,17 +2460,17 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
             return None, "none"
         if frame is None:
             return None, "none"
-        return (
-            frame,
-            self._telonex_api_source_label(
+        source = getattr(self, "_telonex_last_api_source", None)
+        if not source:
+            source = self._telonex_api_source_label(
                 base_url=entry.target,
                 channel=channel,
                 date=date,
                 market_slug=market_slug,
                 token_index=token_index,
                 outcome=outcome,
-            ),
-        )
+            )
+        return frame, source
 
     def _telonex_api_source_label(
         self,

@@ -738,7 +738,34 @@ def _result_has_position_activity(result: Mapping[str, Any]) -> bool:
     )
 
 
-def _serialize_fill_events(*, market_id: str, fills_report: pd.DataFrame) -> list[dict[str, Any]]:
+def _fill_event_side_hint(
+    *, outcome: object | None = None, token_index: object | None = None
+) -> str | None:
+    if not _is_missing_fill_value(outcome):
+        normalized = str(outcome).strip().casefold()
+        if normalized in {"no", "down", "lower", "below", "under"}:
+            return "no"
+        if normalized in {"yes", "up", "higher", "above", "over"}:
+            return "yes"
+
+    if not _is_missing_fill_value(token_index):
+        try:
+            index = int(token_index)  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            return None
+        if index == 0:
+            return "yes"
+        if index == 1:
+            return "no"
+    return None
+
+
+def _serialize_fill_events(
+    *,
+    market_id: str,
+    fills_report: pd.DataFrame,
+    default_side: str | None = None,
+) -> list[dict[str, Any]]:
     if fills_report.empty:
         return []
 
@@ -747,6 +774,11 @@ def _serialize_fill_events(*, market_id: str, fills_report: pd.DataFrame) -> lis
         frame = frame.reset_index()
 
     market_id_upper = str(market_id).upper()
+    normalized_default_side = (
+        str(default_side).strip().lower()
+        if default_side is not None and str(default_side).strip().lower() in {"yes", "no"}
+        else None
+    )
     inferred_side = (
         "no"
         if (
@@ -755,7 +787,7 @@ def _serialize_fill_events(*, market_id: str, fills_report: pd.DataFrame) -> lis
             or ".NO." in market_id_upper
             or "_NO" in market_id_upper
         )
-        else "yes"
+        else normalized_default_side or "yes"
     )
 
     events: list[dict[str, Any]] = []
@@ -836,6 +868,9 @@ def _serialize_fill_events(*, market_id: str, fills_report: pd.DataFrame) -> lis
 def _deserialize_fill_events(
     *, market_id: str, fill_events: Sequence[dict[str, Any]], models_module: Any
 ) -> list[Any]:
+    if not fill_events:
+        return []
+
     fills: list[Any] = []
     market_side = legacy_plot_adapter._infer_market_side(models_module, market_id)
 
@@ -1394,29 +1429,35 @@ def save_aggregate_backtest_report(
                     timeline_points.add(interval_end)
         final_pnl = float(result.get("pnl") or 0.0)
 
-        price_series = _pairs_to_series(result.get("price_series") or [])
-        if not price_series.empty:
-            if include_market_prices:
-                market_prices[label] = [
-                    (_to_legacy_datetime(ts), float(value)) for ts, value in price_series.items()
-                ]
-            _extend_active_range(
-                active_ranges, label, price_series.index[0], price_series.index[-1]
-            )
-            timeline_points.update(price_series.index.to_list())
-
+        result_fills: list[Any] = []
         if include_fill_events:
-            fills.extend(
-                _deserialize_fill_events(
-                    market_id=label,
-                    fill_events=result.get("fill_events") or [],
-                    models_module=models_module,
-                )
+            result_fills = _deserialize_fill_events(
+                market_id=label,
+                fill_events=result.get("fill_events") or [],
+                models_module=models_module,
             )
+            fills.extend(result_fills)
             for event in result.get("fill_events") or []:
                 timestamp = pd.to_datetime(event.get("timestamp"), utc=True, errors="coerce")
                 if not pd.isna(timestamp):
                     timeline_points.add(timestamp)
+
+        price_series = _pairs_to_series(result.get("price_series") or [])
+        if not price_series.empty:
+            price_points = [
+                (_to_legacy_datetime(ts), float(value)) for ts, value in price_series.items()
+            ]
+            if result_fills:
+                price_points = legacy_plot_adapter._market_prices_with_fill_points(
+                    {label: price_points}, result_fills
+                ).get(label, price_points)
+                price_series = _pairs_to_series(price_points)
+            if include_market_prices:
+                market_prices[label] = price_points
+            _extend_active_range(
+                active_ranges, label, price_series.index[0], price_series.index[-1]
+            )
+            timeline_points.update(price_series.index.to_list())
 
         equity_series = _pairs_to_series(result.get("equity_series") or [])
         cash_series = _pairs_to_series(result.get("cash_series") or [])
@@ -1704,12 +1745,31 @@ def save_joint_portfolio_backtest_report(
         if portfolio_cash.empty:
             portfolio_cash = _pairs_to_series(result.get("joint_portfolio_cash_series") or [])
 
+        result_fills: list[Any] = []
+        if include_fill_events:
+            result_fills = _deserialize_fill_events(
+                market_id=label,
+                fill_events=result.get("fill_events") or [],
+                models_module=models_module,
+            )
+            fills.extend(result_fills)
+            for event in result.get("fill_events") or []:
+                timestamp = pd.to_datetime(event.get("timestamp"), utc=True, errors="coerce")
+                if not pd.isna(timestamp):
+                    timeline_points.add(timestamp)
+
         price_series = _pairs_to_series(result.get("price_series") or [])
         if not price_series.empty:
+            price_points = [
+                (_to_legacy_datetime(ts), float(value)) for ts, value in price_series.items()
+            ]
+            if result_fills:
+                price_points = legacy_plot_adapter._market_prices_with_fill_points(
+                    {label: price_points}, result_fills
+                ).get(label, price_points)
+                price_series = _pairs_to_series(price_points)
             if include_market_prices:
-                market_prices[label] = [
-                    (_to_legacy_datetime(ts), float(value)) for ts, value in price_series.items()
-                ]
+                market_prices[label] = price_points
             _extend_active_range(
                 active_ranges, label, price_series.index[0], price_series.index[-1]
             )
@@ -1730,19 +1790,6 @@ def save_joint_portfolio_backtest_report(
                 _extend_active_range(
                     active_ranges, label, cash_series.index[0], cash_series.index[-1]
                 )
-
-        if include_fill_events:
-            fills.extend(
-                _deserialize_fill_events(
-                    market_id=label,
-                    fill_events=result.get("fill_events") or [],
-                    models_module=models_module,
-                )
-            )
-            for event in result.get("fill_events") or []:
-                timestamp = pd.to_datetime(event.get("timestamp"), utc=True, errors="coerce")
-                if not pd.isna(timestamp):
-                    timeline_points.add(timestamp)
 
     if portfolio_equity.empty and portfolio_cash.empty:
         return None

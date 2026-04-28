@@ -267,6 +267,23 @@ def test_telonex_runner_api_downloads_cache_then_clear(
     fast_cache_path = cache_path.with_name(f"{cache_path.stem}.fast.parquet")
     assert loader._telonex_last_api_source == f"telonex-cache-fast::{fast_cache_path}"
 
+    cached_entry = telonex_module.TelonexSourceEntry(
+        kind="api",
+        target="https://api.example.test",
+        api_key=None,
+    )
+    cached_frame, cached_source = loader._try_load_day_from_api_entry(
+        entry=cached_entry,
+        channel=TELONEX_FULL_BOOK_CHANNEL,
+        date="2026-01-19",
+        market_slug="us-recession-by-end-of-2026",
+        token_index=0,
+        outcome=None,
+    )
+
+    assert cached_frame is not None
+    assert cached_source == f"telonex-cache-fast::{fast_cache_path}"
+
     result = subprocess.run(
         [
             "make",
@@ -492,8 +509,23 @@ def test_telonex_materialized_deltas_cache_round_trips(
     ]
 
 
-def test_telonex_api_source_skips_materialized_deltas_cache_metadata() -> None:
+def test_telonex_api_source_materialized_deltas_cache_tracks_raw_cache(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv(TELONEX_CACHE_ROOT_ENV, str(tmp_path / "cache"))
     loader = _make_polymarket_loader()
+    load_kwargs = {
+        "base_url": "https://api.example.test",
+        "channel": TELONEX_FULL_BOOK_CHANNEL,
+        "date": "2026-01-19",
+        "market_slug": "cache-test",
+        "token_index": 0,
+        "outcome": "Yes",
+    }
+    loader._write_api_cache_day(
+        payload=_book_parquet_payload(1_768_780_800_000_000),
+        **load_kwargs,
+    )
     config = telonex_module.TelonexLoaderConfig(
         channel=TELONEX_FULL_BOOK_CHANNEL,
         ordered_source_entries=(
@@ -515,20 +547,20 @@ def test_telonex_api_source_skips_materialized_deltas_cache_metadata() -> None:
         outcome="Yes",
     )
 
-    assert source is None
-    assert (
-        loader._deltas_cache_metadata_payload(
-            source=source,
-            channel=TELONEX_FULL_BOOK_CHANNEL,
-            date="2026-01-19",
-            market_slug="cache-test",
-            token_index=0,
-            outcome="Yes",
-            start=start,
-            end=end,
-        )
-        is None
+    assert source is not None
+    assert source["source_stage"] == "api"
+    metadata = loader._deltas_cache_metadata_payload(
+        source=source,
+        channel=TELONEX_FULL_BOOK_CHANNEL,
+        date="2026-01-19",
+        market_slug="cache-test",
+        token_index=0,
+        outcome="Yes",
+        start=start,
+        end=end,
     )
+    assert metadata is not None
+    assert metadata["source"] == source
 
 
 def test_telonex_fast_api_cache_invalidates_when_raw_cache_changes(

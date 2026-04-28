@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import base64
+import gzip
 import json
 import math
 import re
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
+import numpy as np
 import pytest
 
 from prediction_market_extensions.adapters.prediction_market import research
@@ -15,7 +18,21 @@ from prediction_market_extensions.adapters.prediction_market.research import (
 )
 
 
-def _bokeh_column_source_shapes(html: str, required_key: str) -> list[dict[str, int]]:
+def _decode_bokeh_value(value: object) -> object:
+    if isinstance(value, dict) and value.get("type") == "ndarray":
+        array = value.get("array")
+        if isinstance(array, dict) and array.get("type") == "bytes":
+            raw = gzip.decompress(base64.b64decode(str(array["data"])))
+            dtype = np.dtype(str(value["dtype"])).newbyteorder(
+                ">" if value.get("order") == "big" else "<"
+            )
+            return np.frombuffer(raw, dtype=dtype).reshape(value["shape"]).tolist()
+        if isinstance(array, list):
+            return array
+    return value
+
+
+def _bokeh_column_sources(html: str, required_key: str) -> list[dict[str, object]]:
     match = re.search(
         r'<script type="application/json"[^>]*>\s*(\{.*?\})\s*</script>',
         html,
@@ -23,23 +40,19 @@ def _bokeh_column_source_shapes(html: str, required_key: str) -> list[dict[str, 
     )
     assert match is not None
     document = json.loads(match.group(1))
-    shapes: list[dict[str, int]] = []
+    sources: list[dict[str, object]] = []
 
     def visit(value: object) -> None:
         if isinstance(value, dict):
             if value.get("name") == "ColumnDataSource":
                 data = value.get("attributes", {}).get("data")
                 if isinstance(data, dict) and data.get("type") == "map":
-                    source_shapes: dict[str, int] = {}
-                    for key, encoded in data.get("entries", []):
-                        if isinstance(encoded, dict) and encoded.get("type") == "ndarray":
-                            shape = encoded.get("shape") or []
-                            if shape:
-                                source_shapes[str(key)] = int(shape[0])
-                        elif isinstance(encoded, list):
-                            source_shapes[str(key)] = len(encoded)
-                    if required_key in source_shapes:
-                        shapes.append(source_shapes)
+                    source = {
+                        str(key): _decode_bokeh_value(encoded)
+                        for key, encoded in data.get("entries", [])
+                    }
+                    if required_key in source:
+                        sources.append(source)
             for item in value.values():
                 visit(item)
         elif isinstance(value, list):
@@ -47,6 +60,18 @@ def _bokeh_column_source_shapes(html: str, required_key: str) -> list[dict[str, 
                 visit(item)
 
     visit(document)
+    return sources
+
+
+def _bokeh_column_source_shapes(html: str, required_key: str) -> list[dict[str, int]]:
+    shapes: list[dict[str, int]] = []
+    for source in _bokeh_column_sources(html, required_key):
+        source_shapes: dict[str, int] = {}
+        for key, decoded in source.items():
+            if isinstance(decoded, list):
+                source_shapes[key] = len(decoded)
+        if required_key in source_shapes:
+            shapes.append(source_shapes)
     return shapes
 
 
@@ -190,6 +215,77 @@ def test_save_aggregate_backtest_report_html_contains_fill_and_pnl_markers(tmp_p
     fill_sources = _bokeh_column_source_shapes(html, "fill_color")
     assert any(source["pnl_long"] == 2 for source in pnl_sources)
     assert any(source["fill_color"] == 2 for source in fill_sources)
+
+
+def test_save_aggregate_backtest_report_html_preserves_fill_values_and_sides(tmp_path) -> None:
+    pytest.importorskip("bokeh")
+
+    output_path = tmp_path / "aggregate_exact_fill_markers.html"
+    results = [
+        {
+            "slug": "marker-market",
+            "book_events": 10,
+            "fills": 1,
+            "pnl": -0.25,
+            "price_series": [
+                ("2026-03-14T17:57:00+00:00", 0.20),
+                ("2026-03-14T17:58:00+00:00", 0.30),
+            ],
+            "fill_events": [
+                {
+                    "order_id": "fill-buy-no",
+                    "market_id": "raw-opaque-instrument",
+                    "action": "buy",
+                    "side": "no",
+                    "price": 0.05,
+                    "quantity": 5.0,
+                    "timestamp": "2026-03-14T17:57:30+00:00",
+                    "commission": 0.0,
+                },
+            ],
+            "pnl_series": [
+                ("2026-03-14T17:57:00+00:00", 0.0),
+                ("2026-03-14T17:58:00+00:00", -0.25),
+            ],
+            "equity_series": [
+                ("2026-03-14T17:57:00+00:00", 100.0),
+                ("2026-03-14T17:58:00+00:00", 99.75),
+            ],
+            "cash_series": [
+                ("2026-03-14T17:57:00+00:00", 100.0),
+                ("2026-03-14T17:58:00+00:00", 99.75),
+            ],
+        }
+    ]
+
+    report_path = save_aggregate_backtest_report(
+        results=results,
+        output_path=output_path,
+        title="aggregate exact marker chart",
+        market_key="slug",
+        pnl_label="PnL (USDC)",
+        plot_panels=("yes_price",),
+    )
+
+    assert report_path == str(output_path.resolve())
+    html = output_path.read_text(encoding="utf-8")
+    fill_source = next(
+        source
+        for source in _bokeh_column_sources(html, "fill_color")
+        if source.get("market_id") == ["marker-market"]
+    )
+    assert fill_source["action"] == ["buy"]
+    assert fill_source["side"] == ["no"]
+    assert fill_source["price"] == pytest.approx([0.05])
+    assert fill_source["quantity"] == pytest.approx([5.0])
+
+    price_source = next(
+        source
+        for source in _bokeh_column_sources(html, "price_marker-market")
+        if "price_marker-market" in source
+    )
+    fill_bar = int(fill_source["index"][0])  # type: ignore[index]
+    assert price_source["price_marker-market"][fill_bar] == pytest.approx(0.05)  # type: ignore[index]
 
 
 def test_save_aggregate_backtest_report_uses_initial_capital_basis(
