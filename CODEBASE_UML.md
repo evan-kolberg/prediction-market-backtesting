@@ -1,8 +1,8 @@
 # Codebase UML Inventory
 
 This file is generated from Python AST metadata and excludes `tests/`.
-Generated: 2026-04-28T03:14:17+00:00
-Modules: 107 | Classes: 159 | Functions/methods: 1358
+Generated: 2026-04-28T03:28:00+00:00
+Modules: 109 | Classes: 161 | Functions/methods: 1373
 
 ## Backtesting Data Flow
 
@@ -30,6 +30,10 @@ flowchart TD
 - Function L8: `ensure_repo_root(script_path: str | Path) -> Path`
 - Function L23: `parse_csv_env(raw: str) -> list[str]`
 - Function L27: `parse_bool_env(raw: str, *, default: bool = True) -> bool`
+
+### `backtests/polymarket_book_buy_sell_random.py`
+- Imports: `__future__, decimal`
+- Function L18: `run() -> None`
 
 ### `backtests/polymarket_book_ema_crossover.py`
 - Imports: `__future__, decimal`
@@ -1613,6 +1617,25 @@ flowchart TD
 - Class L230: `BookBreakoutStrategy(_BreakoutBase)`
   - Method L231: `_subscribe(self) -> None`
   - Method L237: `on_order_book(self, order_book) -> None`
+
+### `strategies/buy_sell_random.py`
+- Imports: `__future__, decimal, nautilus_trader, random, strategies`
+- Function L48: `_as_float(value: object | None) -> float | None`
+- Function L62: `_as_int(value: object | None) -> int | None`
+- Class L28: `BookBuySellRandomConfig(StrategyConfig)`
+  - Method L37: `__post_init__(self) -> None`
+- Class L74: `BookBuySellRandomStrategy(LongOnlyPredictionMarketStrategy)`
+  - Method L84: `__init__(self, config: BookBuySellRandomConfig) -> None`
+  - Method L96: `_subscribe(self) -> None`
+  - Method L102: `_random_offset_ns(self) -> int`
+  - Method L105: `_schedule_buy_from(self, window_start_ns: int) -> None`
+  - Method L109: `_schedule_sell_from(self, window_start_ns: int) -> None`
+  - Method L113: `_advance_buy_window_after_attempt(self, current_ts_ns: int) -> None`
+  - Method L122: `_advance_sell_window_after_attempt(self, current_ts_ns: int) -> None`
+  - Method L131: `on_order_book(self, order_book: OrderBook) -> None`
+  - Method L155: `_on_book_signal(self, *, bid: float, ask: float, bid_size: float, ask_size: float, current_ts_ns: int) -> None`
+  - Method L203: `on_order_filled(self, event) -> None`
+  - Method L210: `on_reset(self) -> None`
 
 ### `strategies/core.py`
 - Imports: `__future__, decimal, nautilus_trader, prediction_market_extensions, typing`

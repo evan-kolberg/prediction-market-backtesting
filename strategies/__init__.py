@@ -25,6 +25,10 @@ from strategies.breakout import (
     BookBreakoutConfig,
     BookBreakoutStrategy,
 )
+from strategies.buy_sell_random import (
+    BookBuySellRandomConfig,
+    BookBuySellRandomStrategy,
+)
 from strategies.binary_pair_arbitrage import (
     BookBinaryPairArbitrageConfig,
     BookBinaryPairArbitrageStrategy,
@@ -107,6 +111,8 @@ __all__ = [
     "BookBinaryPairArbitrageStrategy",
     "BookBreakoutConfig",
     "BookBreakoutStrategy",
+    "BookBuySellRandomConfig",
+    "BookBuySellRandomStrategy",
     "BookDeepValueHoldConfig",
     "BookDeepValueHoldStrategy",
     "BookEMACrossoverConfig",

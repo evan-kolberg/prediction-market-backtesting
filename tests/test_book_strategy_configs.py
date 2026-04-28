@@ -10,6 +10,7 @@ from nautilus_trader.model.identifiers import InstrumentId, Symbol, Venue
 
 from strategies import (
     BookBreakoutConfig,
+    BookBuySellRandomConfig,
     BookDeepValueHoldConfig,
     BookEMACrossoverConfig,
     BookFinalPeriodMomentumConfig,
@@ -29,6 +30,7 @@ INSTRUMENT_ID = InstrumentId(Symbol("PM-TEST-YES"), Venue("POLYMARKET"))
     "config_cls",
     [
         BookBreakoutConfig,
+        BookBuySellRandomConfig,
         BookDeepValueHoldConfig,
         BookEMACrossoverConfig,
         BookFinalPeriodMomentumConfig,

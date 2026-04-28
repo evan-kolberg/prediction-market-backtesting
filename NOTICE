@@ -23,6 +23,7 @@ prediction-market example, adapter, or plotting code and carry file-level LGPL
 provenance notices with file-specific change dates:
 
 
+- `backtests/polymarket_book_buy_sell_random.py`
 - `backtests/polymarket_book_ema_crossover.py`
 - `backtests/polymarket_book_ema_optimizer.py`
 - `backtests/polymarket_book_joint_portfolio_runner.py`
@@ -59,6 +60,7 @@ provenance notices with file-specific change dates:
 - `strategies/__init__.py`
 - `strategies/binary_pair_arbitrage.py`
 - `strategies/breakout.py`
+- `strategies/buy_sell_random.py`
 - `strategies/core.py`
 - `strategies/deep_value.py`
 - `strategies/ema_crossover.py`

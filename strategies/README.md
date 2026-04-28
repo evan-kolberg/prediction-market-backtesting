@@ -14,6 +14,7 @@ This package contains reusable, venue-agnostic strategy classes for prediction m
 ## Modules
 
 - `core.py`: shared single-instrument long-only lifecycle and order plumbing.
+- `buy_sell_random.py`: deterministic-random three-day buy/sell cadence.
 - `mean_reversion.py`: rolling-average spread capture.
 - `microprice_imbalance.py`: L2 spread, depth-imbalance, and microprice pressure.
 - `ema_crossover.py`: trend-following crossover.

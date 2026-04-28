@@ -32,6 +32,7 @@ EXPECTED_PUBLIC_RUNNER_PATHS = [
     Path("backtests/generic_optimizer_research.ipynb"),
     Path("backtests/generic_tpe_research.ipynb"),
     Path("backtests/pmxt_book_joint_portfolio_runner.ipynb"),
+    Path("backtests/polymarket_book_buy_sell_random.py"),
     Path("backtests/polymarket_book_ema_crossover.py"),
     Path("backtests/polymarket_book_ema_optimizer.py"),
     Path("backtests/polymarket_book_joint_portfolio_runner.py"),
@@ -42,7 +43,10 @@ EXPECTED_PUBLIC_RUNNER_PATHS = [
     Path("backtests/telonex_book_joint_portfolio_runner.ipynb"),
 ]
 
-PMXT_SINGLE_MARKET_BOOK_RUNNERS = [Path("backtests/polymarket_book_ema_crossover.py")]
+PMXT_SINGLE_MARKET_BOOK_RUNNERS = [
+    Path("backtests/polymarket_book_buy_sell_random.py"),
+    Path("backtests/polymarket_book_ema_crossover.py"),
+]
 PMXT_JOINT_BOOK_RUNNERS = [Path("backtests/polymarket_book_joint_portfolio_runner.py")]
 TELONEX_JOINT_BOOK_RUNNERS = [Path("backtests/polymarket_telonex_book_joint_portfolio_runner.py")]
 PMXT_BOOK_OPTIMIZER_RUNNERS = [Path("backtests/polymarket_book_ema_optimizer.py")]
@@ -242,6 +246,41 @@ def test_pmxt_single_market_book_runners_build_inline_experiment(
     assert experiment.replays[0].end_time
     assert experiment.initial_cash == 100.0
     assert experiment.min_price_range == 0.005
+
+
+def test_buy_sell_random_runner_builds_pmxt_book_experiment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    experiment = _capture_script_experiment(
+        monkeypatch, Path("backtests/polymarket_book_buy_sell_random.py")
+    )
+
+    assert experiment.name == "polymarket_book_buy_sell_random"
+    assert experiment.data.platform == "polymarket"
+    assert experiment.data.data_type == "book"
+    assert experiment.data.vendor == "pmxt"
+    assert experiment.data.sources == (
+        "local:/Volumes/LaCie/pmxt_data",
+        "archive:r2v2.pmxt.dev",
+        "archive:r2.pmxt.dev",
+    )
+    assert len(experiment.replays) == 1
+    assert experiment.replays[0].market_slug == "human-moon-landing-in-2026"
+    assert experiment.replays[0].token_index == 0
+    assert experiment.strategy_configs[0]["strategy_path"] == (
+        "strategies:BookBuySellRandomStrategy"
+    )
+    assert experiment.strategy_configs[0]["config_path"] == ("strategies:BookBuySellRandomConfig")
+    assert experiment.strategy_configs[0]["config"]["trade_size"] == Decimal("5")
+    assert experiment.strategy_configs[0]["config"]["interval_seconds"] == (
+        3.0 * 24.0 * 60.0 * 60.0
+    )
+    assert experiment.strategy_configs[0]["config"]["random_seed"] == 7
+    assert experiment.report.summary_report is True
+    assert (
+        experiment.report.summary_report_path
+        == "output/polymarket_book_buy_sell_random_summary.html"
+    )
 
 
 @pytest.mark.parametrize("relative_path", PMXT_JOINT_BOOK_RUNNERS)
