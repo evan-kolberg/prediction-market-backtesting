@@ -67,6 +67,10 @@ from strategies.panic_fade import (
     BookPanicFadeConfig,
     BookPanicFadeStrategy,
 )
+from strategies.profile_replay import (
+    BookProfileReplayConfig,
+    BookProfileReplayStrategy,
+)
 from strategies.rsi_reversion import (
     BarRSIReversionConfig,
     BarRSIReversionStrategy,
@@ -119,6 +123,8 @@ __all__ = [
     "BookMicropriceImbalanceStrategy",
     "BookPanicFadeConfig",
     "BookPanicFadeStrategy",
+    "BookProfileReplayConfig",
+    "BookProfileReplayStrategy",
     "BookRSIReversionConfig",
     "BookRSIReversionStrategy",
     "BookThresholdMomentumConfig",

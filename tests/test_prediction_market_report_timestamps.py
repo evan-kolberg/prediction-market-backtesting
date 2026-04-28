@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 import math
+import re
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
@@ -11,6 +13,41 @@ from prediction_market_extensions.adapters.prediction_market.research import (
     save_aggregate_backtest_report,
     save_joint_portfolio_backtest_report,
 )
+
+
+def _bokeh_column_source_shapes(html: str, required_key: str) -> list[dict[str, int]]:
+    match = re.search(
+        r'<script type="application/json"[^>]*>\s*(\{.*?\})\s*</script>',
+        html,
+        re.S,
+    )
+    assert match is not None
+    document = json.loads(match.group(1))
+    shapes: list[dict[str, int]] = []
+
+    def visit(value: object) -> None:
+        if isinstance(value, dict):
+            if value.get("name") == "ColumnDataSource":
+                data = value.get("attributes", {}).get("data")
+                if isinstance(data, dict) and data.get("type") == "map":
+                    source_shapes: dict[str, int] = {}
+                    for key, encoded in data.get("entries", []):
+                        if isinstance(encoded, dict) and encoded.get("type") == "ndarray":
+                            shape = encoded.get("shape") or []
+                            if shape:
+                                source_shapes[str(key)] = int(shape[0])
+                        elif isinstance(encoded, list):
+                            source_shapes[str(key)] = len(encoded)
+                    if required_key in source_shapes:
+                        shapes.append(source_shapes)
+            for item in value.values():
+                visit(item)
+        elif isinstance(value, list):
+            for item in value:
+                visit(item)
+
+    visit(document)
+    return shapes
 
 
 def test_save_aggregate_backtest_report_accepts_mixed_iso_timestamp_precision(tmp_path) -> None:
@@ -78,6 +115,81 @@ def test_save_aggregate_backtest_report_accepts_mixed_iso_timestamp_precision(tm
     html = output_path.read_text(encoding="utf-8")
     assert "mixed timestamp precision chart" in html
     assert "market-mixed" in html
+
+
+def test_save_aggregate_backtest_report_html_contains_fill_and_pnl_markers(tmp_path) -> None:
+    pytest.importorskip("bokeh")
+
+    output_path = tmp_path / "aggregate_fill_markers.html"
+    results = [
+        {
+            "slug": "marker-market",
+            "book_events": 10,
+            "fills": 2,
+            "pnl": 2.0,
+            "price_series": [
+                ("2026-03-14T17:57:40+00:00", 0.40),
+                ("2026-03-14T17:58:40+00:00", 0.45),
+            ],
+            "fill_events": [
+                {
+                    "order_id": "fill-buy",
+                    "action": "buy",
+                    "side": "yes",
+                    "price": 0.40,
+                    "quantity": 5.0,
+                    "timestamp": "2026-03-14T17:57:40+00:00",
+                    "commission": 0.0,
+                },
+                {
+                    "order_id": "fill-sell",
+                    "action": "sell",
+                    "side": "yes",
+                    "price": 0.45,
+                    "quantity": 5.0,
+                    "timestamp": "2026-03-14T17:58:40+00:00",
+                    "commission": 0.0,
+                },
+            ],
+            "pnl_series": [
+                ("2026-03-14T17:57:40+00:00", 0.0),
+                ("2026-03-14T17:58:40+00:00", 2.0),
+            ],
+            "equity_series": [
+                ("2026-03-14T17:57:40+00:00", 100.0),
+                ("2026-03-14T17:58:40+00:00", 102.0),
+            ],
+            "cash_series": [
+                ("2026-03-14T17:57:40+00:00", 98.0),
+                ("2026-03-14T17:58:40+00:00", 102.0),
+            ],
+        }
+    ]
+
+    report_path = save_aggregate_backtest_report(
+        results=results,
+        output_path=output_path,
+        title="aggregate marker chart",
+        market_key="slug",
+        pnl_label="PnL (USDC)",
+        plot_panels=("market_pnl", "yes_price"),
+    )
+
+    assert report_path == str(output_path.resolve())
+    html = output_path.read_text(encoding="utf-8")
+    assert "YES Price" in html
+    assert "Fills (" in html
+    assert "fill_color" in html
+    assert "Profit / Loss" in html
+    assert "pnl_long" in html
+    assert "pnl_short" in html
+    assert "triangle" in html
+    assert "inverted_triangle" in html
+    assert html.count("marker-market") >= 2
+    pnl_sources = _bokeh_column_source_shapes(html, "pnl_long")
+    fill_sources = _bokeh_column_source_shapes(html, "fill_color")
+    assert any(source["pnl_long"] == 2 for source in pnl_sources)
+    assert any(source["fill_color"] == 2 for source in fill_sources)
 
 
 def test_save_aggregate_backtest_report_uses_initial_capital_basis(
@@ -286,6 +398,106 @@ def test_save_aggregate_backtest_report_marks_zero_capital_return_unavailable(
 
     result_kwargs = captured_results[0]
     assert math.isnan(result_kwargs["metrics"]["total_return"])
+
+
+def test_save_joint_portfolio_backtest_report_html_contains_fill_and_pnl_markers(
+    tmp_path,
+) -> None:
+    pytest.importorskip("bokeh")
+
+    output_path = tmp_path / "joint_fill_markers.html"
+    results = [
+        {
+            "sim_label": "joint-win",
+            "book_events": 10,
+            "fills": 1,
+            "pnl": 3.0,
+            "price_series": [
+                ("2026-03-14T17:57:40+00:00", 0.20),
+                ("2026-03-14T17:58:40+00:00", 1.00),
+            ],
+            "fill_events": [
+                {
+                    "order_id": "fill-win",
+                    "action": "buy",
+                    "side": "yes",
+                    "price": 0.20,
+                    "quantity": 5.0,
+                    "timestamp": "2026-03-14T17:57:40+00:00",
+                    "commission": 0.0,
+                }
+            ],
+            "equity_series": [
+                ("2026-03-14T17:57:40+00:00", 100.0),
+                ("2026-03-14T17:58:40+00:00", 103.0),
+            ],
+            "cash_series": [
+                ("2026-03-14T17:57:40+00:00", 99.0),
+                ("2026-03-14T17:58:40+00:00", 103.0),
+            ],
+            "joint_portfolio_equity_series": [
+                ("2026-03-14T17:57:40+00:00", 100.0),
+                ("2026-03-14T17:58:40+00:00", 101.0),
+            ],
+            "joint_portfolio_cash_series": [
+                ("2026-03-14T17:57:40+00:00", 98.5),
+                ("2026-03-14T17:58:40+00:00", 101.0),
+            ],
+        },
+        {
+            "sim_label": "joint-loss",
+            "book_events": 10,
+            "fills": 1,
+            "pnl": -2.0,
+            "price_series": [
+                ("2026-03-14T17:57:50+00:00", 0.40),
+                ("2026-03-14T17:58:50+00:00", 0.00),
+            ],
+            "fill_events": [
+                {
+                    "order_id": "fill-loss",
+                    "action": "buy",
+                    "side": "yes",
+                    "price": 0.40,
+                    "quantity": 5.0,
+                    "timestamp": "2026-03-14T17:57:50+00:00",
+                    "commission": 0.0,
+                }
+            ],
+            "equity_series": [
+                ("2026-03-14T17:57:50+00:00", 100.0),
+                ("2026-03-14T17:58:50+00:00", 98.0),
+            ],
+            "cash_series": [
+                ("2026-03-14T17:57:50+00:00", 98.0),
+                ("2026-03-14T17:58:50+00:00", 98.0),
+            ],
+        },
+    ]
+
+    report_path = save_joint_portfolio_backtest_report(
+        results=results,
+        output_path=output_path,
+        title="joint marker chart",
+        market_key="sim_label",
+        pnl_label="PnL (USDC)",
+        plot_panels=("market_pnl", "yes_price"),
+    )
+
+    assert report_path == str(output_path.resolve())
+    html = output_path.read_text(encoding="utf-8")
+    assert "YES Price" in html
+    assert "Fills (" in html
+    assert "fill_color" in html
+    assert "Profit / Loss" in html
+    assert "pnl_long" in html
+    assert "pnl_short" in html
+    assert "joint-win" in html
+    assert "joint-loss" in html
+    pnl_sources = _bokeh_column_source_shapes(html, "pnl_long")
+    fill_sources = _bokeh_column_source_shapes(html, "fill_color")
+    assert any(source["pnl_long"] == 2 for source in pnl_sources)
+    assert any(source["fill_color"] == 2 for source in fill_sources)
 
 
 def test_save_joint_portfolio_backtest_report_uses_initial_capital_basis(

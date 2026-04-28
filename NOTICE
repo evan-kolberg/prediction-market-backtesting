@@ -28,6 +28,7 @@ provenance notices with file-specific change dates:
 - `backtests/polymarket_book_joint_portfolio_runner.py`
 - `backtests/polymarket_btc_5m_late_favorite_taker_hold.py`
 - `backtests/polymarket_btc_5m_pair_arbitrage.py`
+- `backtests/polymarket_profile_replay_verification.py`
 - `backtests/polymarket_telonex_book_joint_portfolio_runner.py`
 - `prediction_market_extensions/adapters/kalshi/data.py`
 - `prediction_market_extensions/adapters/kalshi/fee_model.py`

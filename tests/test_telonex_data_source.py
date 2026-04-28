@@ -359,6 +359,52 @@ def test_telonex_crossed_snapshot_resets_until_next_valid_full_snapshot() -> Non
     assert int(records[0].ts_event) == 1_768_780_801_000_000_000
 
 
+def test_telonex_load_order_book_deltas_aggregates_invalid_snapshot_warning(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    loader = _make_polymarket_loader()
+    config = telonex_module.TelonexLoaderConfig(
+        channel=TELONEX_FULL_BOOK_CHANNEL,
+        ordered_source_entries=(
+            telonex_module.TelonexSourceEntry(kind="local", target="/tmp/local"),
+        ),
+    )
+
+    monkeypatch.setattr(loader, "_config", lambda: config)
+    monkeypatch.setattr(loader, "_load_deltas_cache_day", lambda **kwargs: (None, "none"))
+    monkeypatch.setattr(loader, "_write_deltas_cache_day", lambda **kwargs: None)
+
+    def fake_local(**kwargs: object) -> pd.DataFrame:
+        date = str(kwargs["date"])
+        base_us = pd.Timestamp(date, tz="UTC").value // 1_000
+        return pd.DataFrame(
+            {
+                "timestamp_us": [base_us, base_us + 1_000_000],
+                "bids": [
+                    [{"price": "0.60", "size": "10"}],
+                    [{"price": "0.34", "size": "10"}],
+                ],
+                "asks": [
+                    [{"price": "0.55", "size": "11"}],
+                    [{"price": "0.39", "size": "11"}],
+                ],
+            }
+        )
+
+    monkeypatch.setattr(loader, "_try_load_day_from_local", fake_local)
+
+    with pytest.warns(RuntimeWarning, match="dropped 2 crossed/invalid full-book snapshot"):
+        records = loader.load_order_book_deltas(
+            pd.Timestamp("2026-01-19", tz="UTC"),
+            pd.Timestamp("2026-01-20 23:59:59", tz="UTC"),
+            market_slug="aggregate-test",
+            token_index=0,
+            outcome="Yes",
+        )
+
+    assert len(records) == 2
+
+
 def test_telonex_timestamp_ms_keeps_exact_end_boundary_record() -> None:
     loader = _make_polymarket_loader()
     timestamp_ms = 1_768_780_800_123
@@ -770,7 +816,7 @@ def test_telonex_full_book_loader_uses_local_before_api_cache(
     monkeypatch.setattr(
         loader,
         "_book_events_from_frame",
-        lambda _frame, *, start, end, include_order_book: [SimpleNamespace(ts_event=1, ts_init=1)],
+        lambda _frame, **kwargs: [SimpleNamespace(ts_event=1, ts_init=1)],
     )
 
     records = loader.load_order_book_deltas(
@@ -835,7 +881,7 @@ def test_telonex_full_book_loader_prefetches_api_days(monkeypatch: pytest.Monkey
     monkeypatch.setattr(
         loader,
         "_book_events_from_frame",
-        lambda frame, *, start, end, include_order_book: [
+        lambda frame, **kwargs: [
             SimpleNamespace(
                 ts_event=int(frame["timestamp_us"].iloc[0]),
                 ts_init=int(frame["timestamp_us"].iloc[0]),
@@ -937,7 +983,7 @@ def test_telonex_full_book_loader_falls_back_to_api_when_blob_partition_is_incom
     monkeypatch.setattr(
         loader,
         "_book_events_from_frame",
-        lambda _frame, *, start, end, include_order_book: [SimpleNamespace(ts_event=1, ts_init=1)],
+        lambda _frame, **kwargs: [SimpleNamespace(ts_event=1, ts_init=1)],
     )
 
     with pytest.warns(UserWarning, match="skipping blob store"):

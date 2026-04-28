@@ -5,7 +5,7 @@ import os
 import re
 import threading
 import warnings
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -2093,6 +2093,8 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
         start: pd.Timestamp,
         end: pd.Timestamp,
         include_order_book: bool = True,
+        invalid_snapshot_warning: bool = True,
+        invalid_snapshot_counter: Callable[[int], None] | None = None,
     ) -> list[OrderBookDeltas]:
         if frame.empty:
             return []
@@ -2187,13 +2189,16 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
             previous_asks = current_asks
 
         if dropped_invalid_snapshots:
-            warnings.warn(
-                "Telonex: dropped "
-                f"{dropped_invalid_snapshots} crossed/invalid full-book snapshot(s); "
-                "book state was reset until the next valid snapshot.",
-                RuntimeWarning,
-                stacklevel=2,
-            )
+            if invalid_snapshot_counter is not None:
+                invalid_snapshot_counter(dropped_invalid_snapshots)
+            elif invalid_snapshot_warning:
+                warnings.warn(
+                    "Telonex: dropped "
+                    f"{dropped_invalid_snapshots} crossed/invalid full-book snapshot(s); "
+                    "book state was reset until the next valid snapshot.",
+                    RuntimeWarning,
+                    stacklevel=2,
+                )
         events.sort(key=lambda record: int(record.ts_event))
         return events
 
@@ -2458,6 +2463,7 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
         outcome: str | None,
         include_order_book: bool,
         range_cache: dict[Path, pd.DataFrame | None],
+        invalid_snapshot_counter: Callable[[int], None] | None = None,
     ) -> _TelonexDayResult:
         self._day_progress(date, "start", "none", 0)
         _ = api_entries  # API cache is consulted only when an API source is reached.
@@ -2557,6 +2563,8 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
                 start=day_start,
                 end=day_end,
                 include_order_book=include_order_book,
+                invalid_snapshot_warning=invalid_snapshot_counter is None,
+                invalid_snapshot_counter=invalid_snapshot_counter,
             )
             if include_order_book:
                 self._write_deltas_cache_day(
@@ -2598,6 +2606,7 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
         token_index: int,
         outcome: str | None,
         include_order_book: bool,
+        invalid_snapshot_counter: Callable[[int], None] | None = None,
     ) -> Iterator[_TelonexDayResult]:
         prefetch_workers = getattr(
             self, "_telonex_prefetch_workers", self._resolve_prefetch_workers()
@@ -2617,6 +2626,7 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
                     outcome=outcome,
                     include_order_book=include_order_book,
                     range_cache=range_cache,
+                    invalid_snapshot_counter=invalid_snapshot_counter,
                 )
             return
 
@@ -2642,6 +2652,7 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
                     outcome=outcome,
                     include_order_book=include_order_book,
                     range_cache={},
+                    invalid_snapshot_counter=invalid_snapshot_counter,
                 )
 
             for _ in range(max_workers):
@@ -2664,6 +2675,13 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
     ) -> list[OrderBookDeltas]:
         config = self._config()
         records: list[OrderBookDeltas] = []
+        invalid_snapshot_counts: list[int] = []
+        invalid_snapshot_lock = threading.Lock()
+
+        def _count_invalid_snapshots(count: int) -> None:
+            with invalid_snapshot_lock:
+                invalid_snapshot_counts.append(count)
+
         api_entries = [
             entry for entry in config.ordered_source_entries if entry.kind == _TELONEX_SOURCE_API
         ]
@@ -2678,8 +2696,19 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
             token_index=token_index,
             outcome=outcome,
             include_order_book=include_order_book,
+            invalid_snapshot_counter=_count_invalid_snapshots,
         ):
             records.extend(result.records)
+        invalid_snapshot_count = sum(invalid_snapshot_counts)
+        if invalid_snapshot_count:
+            warnings.warn(
+                "Telonex: dropped "
+                f"{invalid_snapshot_count} crossed/invalid full-book snapshot(s) while loading "
+                f"{market_slug} token_index={token_index}; book state was reset until the next "
+                "valid snapshot.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
         records.sort(key=lambda record: int(record.ts_event))
         return records
 

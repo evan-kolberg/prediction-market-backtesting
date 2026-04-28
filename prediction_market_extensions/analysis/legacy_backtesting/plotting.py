@@ -1268,14 +1268,13 @@ return this.labels[index] || "";
                 pnl_values: list[float] = []
                 for market_id, group in relevant_fills.groupby("market_id", sort=False):
                     key = str(market_id)
-                    if key in market_pnls_by_id:
-                        pnl_rows.append(group.sort_values("bar").iloc[-1].copy())
-                        pnl_values.append(market_pnls_by_id[key])
-                        continue
-                    for _, row in group.iterrows():
+                    for _, row in group.sort_values("bar").iterrows():
                         pnl_rows.append(row.copy())
-                        cashflow = float(row["price"]) * float(row["quantity"])
-                        pnl_values.append(cashflow if row["action"] == "sell" else -cashflow)
+                        if key in market_pnls_by_id:
+                            pnl_values.append(market_pnls_by_id[key])
+                        else:
+                            cashflow = float(row["price"]) * float(row["quantity"])
+                            pnl_values.append(cashflow if row["action"] == "sell" else -cashflow)
                 relevant_fills = (
                     pd.DataFrame(pnl_rows).reset_index(drop=True)
                     if pnl_rows

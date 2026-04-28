@@ -37,6 +37,7 @@ EXPECTED_PUBLIC_RUNNER_PATHS = [
     Path("backtests/polymarket_book_joint_portfolio_runner.py"),
     Path("backtests/polymarket_btc_5m_late_favorite_taker_hold.py"),
     Path("backtests/polymarket_btc_5m_pair_arbitrage.py"),
+    Path("backtests/polymarket_profile_replay_verification.py"),
     Path("backtests/polymarket_telonex_book_joint_portfolio_runner.py"),
     Path("backtests/telonex_book_joint_portfolio_runner.ipynb"),
 ]
@@ -45,6 +46,7 @@ PMXT_SINGLE_MARKET_BOOK_RUNNERS = [Path("backtests/polymarket_book_ema_crossover
 PMXT_JOINT_BOOK_RUNNERS = [Path("backtests/polymarket_book_joint_portfolio_runner.py")]
 TELONEX_JOINT_BOOK_RUNNERS = [Path("backtests/polymarket_telonex_book_joint_portfolio_runner.py")]
 PMXT_BOOK_OPTIMIZER_RUNNERS = [Path("backtests/polymarket_book_ema_optimizer.py")]
+PMXT_PROFILE_REPLAY_RUNNERS = [Path("backtests/polymarket_profile_replay_verification.py")]
 
 SCRIPT_ENTRYPOINT_PATHS = [
     Path("scripts/pmxt_download_raws.py"),
@@ -75,6 +77,7 @@ def _capture_script_experiment(monkeypatch: pytest.MonkeyPatch, relative_path: P
     from prediction_market_extensions.backtesting import _experiments
 
     captured: dict[str, object] = {}
+    monkeypatch.setenv("POLYMARKET_PROFILE_REPLAY_SOURCE", "snapshot")
 
     def capture_run_experiment(experiment):  # type: ignore[no-untyped-def]
         captured["experiment"] = experiment
@@ -351,6 +354,42 @@ def test_btc_5m_late_favorite_taker_runner_builds_pmxt_book_replays(
     assert (
         experiment.report.summary_report_path
         == "output/polymarket_btc_5m_late_favorite_taker_hold_summary.html"
+    )
+    assert experiment.return_summary_series is True
+
+
+@pytest.mark.parametrize("relative_path", PMXT_PROFILE_REPLAY_RUNNERS)
+def test_profile_replay_runner_builds_pmxt_book_verification_experiment(
+    monkeypatch: pytest.MonkeyPatch, relative_path: Path
+) -> None:
+    experiment = _capture_script_experiment(monkeypatch, relative_path)
+
+    assert experiment.name == "polymarket_profile_replay_verification"
+    assert experiment.data.platform == "polymarket"
+    assert experiment.data.data_type == "book"
+    assert experiment.data.vendor == "pmxt"
+    assert experiment.data.sources == (
+        "local:/Volumes/LaCie/pmxt_data",
+        "archive:r2v2.pmxt.dev",
+        "archive:r2.pmxt.dev",
+    )
+    assert len(experiment.replays) == 1
+    assert experiment.replays[0].market_slug == "btc-updown-5m-1777241400"
+    assert experiment.replays[0].token_index == 1
+    assert experiment.replays[0].metadata["profile_replay_key"] == ("btc-updown-5m-1777241400:1")
+    assert experiment.strategy_configs[0]["strategy_path"] == (
+        "strategies:BookProfileReplayStrategy"
+    )
+    assert experiment.strategy_configs[0]["config_path"] == "strategies:BookProfileReplayConfig"
+    assert (
+        experiment.strategy_configs[0]["config"]["selection_key"]
+        == "__SIM_METADATA__:profile_replay_key"
+    )
+    assert experiment.strategy_configs[0]["config"]["lead_time_seconds"] == 1.0
+    assert experiment.report.summary_report is True
+    assert (
+        experiment.report.summary_report_path
+        == "output/polymarket_profile_replay_verification_summary.html"
     )
     assert experiment.return_summary_series is True
 

@@ -174,7 +174,7 @@ def test_allocation_zeroes_settled_position_on_price_feed_final_bar() -> None:
     assert allocation["Cash"].tolist() == pytest.approx([995.25, 1000.25])
 
 
-def test_market_pnl_panel_plots_one_final_marker_per_market(tmp_path) -> None:
+def test_market_pnl_panel_plots_one_final_value_for_each_fill_marker(tmp_path) -> None:
     pytest.importorskip("bokeh")
     from bokeh.models import ColumnDataSource
 
@@ -249,8 +249,11 @@ def test_market_pnl_panel_plots_one_final_marker_per_market(tmp_path) -> None:
     ]
 
     assert len(marker_sources) == 1
-    assert marker_sources[0].data["market_id"].tolist() == ["repeat-market"]
-    assert marker_sources[0].data["pnl_long"].tolist() == pytest.approx([2.0])
+    assert marker_sources[0].data["market_id"].tolist() == [
+        "repeat-market",
+        "repeat-market",
+    ]
+    assert marker_sources[0].data["pnl_long"].tolist() == pytest.approx([2.0, 2.0])
 
 
 def test_dense_adapter_replays_no_token_buy_as_long_token_quantity() -> None:
@@ -959,6 +962,89 @@ def test_market_pnl_panel_uses_resolved_market_pnl_for_fill_markers(tmp_path) ->
     assert pnl_source.data["pnl_long"].tolist() == [4.75]
     assert np.isnan(pnl_source.data["pnl_short"][0])
     assert pnl_source.data["positive"].tolist() == ["1"]
+
+
+def test_market_pnl_panel_keeps_each_fill_marker_when_market_pnl_is_known(tmp_path) -> None:
+    pytest.importorskip("bokeh")
+    from bokeh.models import ColumnDataSource
+
+    start = datetime(2026, 3, 14, 18, tzinfo=UTC)
+    result = BacktestResult(
+        equity_curve=[
+            PortfolioSnapshot(
+                timestamp=start,
+                cash=99.75,
+                total_equity=100.0,
+                unrealized_pnl=0.25,
+                num_positions=1,
+            ),
+            PortfolioSnapshot(
+                timestamp=start.replace(minute=1),
+                cash=99.00,
+                total_equity=100.5,
+                unrealized_pnl=1.5,
+                num_positions=1,
+            ),
+            PortfolioSnapshot(
+                timestamp=start.replace(minute=2),
+                cash=104.75,
+                total_equity=104.75,
+                unrealized_pnl=0.0,
+                num_positions=0,
+            ),
+        ],
+        fills=[
+            Fill(
+                order_id="fill-1",
+                market_id="winning-market",
+                action=OrderAction.BUY,
+                side=Side.YES,
+                price=0.05,
+                quantity=5.0,
+                timestamp=start,
+            ),
+            Fill(
+                order_id="fill-2",
+                market_id="winning-market",
+                action=OrderAction.BUY,
+                side=Side.YES,
+                price=0.10,
+                quantity=5.0,
+                timestamp=start.replace(minute=1),
+            ),
+        ],
+        metrics={},
+        strategy_name="resolved-pnl-marker",
+        platform=Platform.POLYMARKET,
+        start_time=start,
+        end_time=start.replace(minute=2),
+        initial_cash=100.0,
+        final_equity=104.75,
+        num_markets_traded=1,
+        num_markets_resolved=1,
+        market_prices={
+            "winning-market": [
+                (start, 0.05),
+                (start.replace(minute=1), 0.10),
+                (start.replace(minute=2), 1.0),
+            ]
+        },
+        market_pnls={"winning-market": 4.75},
+    )
+
+    layout = plotting.plot(
+        result,
+        filename=str(tmp_path / "resolved_pnl_marker_per_fill.html"),
+        open_browser=False,
+        progress=False,
+        plot_panels=(PANEL_MARKET_PNL,),
+    )
+
+    sources = list(layout.select({"type": ColumnDataSource}))
+    pnl_source = next(source for source in sources if "pnl_long" in source.data)
+    assert pnl_source.data["market_id"].tolist() == ["winning-market", "winning-market"]
+    assert pnl_source.data["pnl_long"].tolist() == [4.75, 4.75]
+    assert pnl_source.data["positive"].tolist() == ["1", "1"]
 
 
 def test_build_dataframes_does_not_compute_percent_returns_from_negative_initial_cash() -> None:
