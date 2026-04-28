@@ -563,6 +563,48 @@ def test_telonex_api_source_materialized_deltas_cache_tracks_raw_cache(
     assert metadata["source"] == source
 
 
+def test_telonex_deltas_cache_source_skips_missing_local_before_api_cache(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv(TELONEX_CACHE_ROOT_ENV, str(tmp_path / "cache"))
+    loader = _make_polymarket_loader()
+    load_kwargs = {
+        "base_url": "https://api.example.test",
+        "channel": TELONEX_FULL_BOOK_CHANNEL,
+        "date": "2026-01-19",
+        "market_slug": "cache-test",
+        "token_index": 0,
+        "outcome": "Yes",
+    }
+    loader._write_api_cache_day(
+        payload=_book_parquet_payload(1_768_780_800_000_000),
+        **load_kwargs,
+    )
+    config = telonex_module.TelonexLoaderConfig(
+        channel=TELONEX_FULL_BOOK_CHANNEL,
+        ordered_source_entries=(
+            telonex_module.TelonexSourceEntry(kind="local", target=str(tmp_path / "missing")),
+            telonex_module.TelonexSourceEntry(
+                kind="api",
+                target="https://api.example.test",
+                api_key="test-key",
+            ),
+        ),
+    )
+
+    source = loader._deltas_cache_source_fingerprint(
+        config=config,
+        date="2026-01-19",
+        market_slug="cache-test",
+        token_index=0,
+        outcome="Yes",
+    )
+
+    assert source is not None
+    assert source["source_stage"] == "api"
+    assert source["path"].endswith("2026-01-19.parquet")
+
+
 def test_telonex_fast_api_cache_invalidates_when_raw_cache_changes(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

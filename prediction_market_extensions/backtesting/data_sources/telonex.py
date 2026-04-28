@@ -1546,15 +1546,7 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
         if fingerprint is not None:
             fingerprint["source_stage"] = _TELONEX_SOURCE_LOCAL
             return fingerprint
-        return {
-            "kind": _TELONEX_SOURCE_LOCAL,
-            "root": str(root.resolve()),
-            "channel": channel,
-            "date": date,
-            "market_slug": market_slug,
-            "token_index": token_index,
-            "outcome": outcome,
-        }
+        return None
 
     def _deltas_cache_source_fingerprint(
         self,

@@ -1,7 +1,7 @@
 # Codebase UML Inventory
 
 This file is generated from Python AST metadata and excludes `tests/`.
-Generated: 2026-04-28T03:00:23+00:00
+Generated: 2026-04-28T03:14:17+00:00
 Modules: 107 | Classes: 159 | Functions/methods: 1358
 
 ## Backtesting Data Flow
@@ -1289,36 +1289,36 @@ flowchart TD
   - Method L1407: `_local_file_fingerprint(path: Path) -> dict[str, object] | None`
   - Method L1420: `_local_blob_source_fingerprint_for_day(self, *, root: Path, channel: str, date: str, market_slug: str, token_index: int, outcome: str | None) -> dict[str, object] | None`
   - Method L1493: `_telonex_source_fingerprint_for_entry(self, *, entry: TelonexSourceEntry, channel: str, date: str, market_slug: str, token_index: int, outcome: str | None) -> dict[str, object] | None`
-  - Method L1559: `_deltas_cache_source_fingerprint(self, *, config: TelonexLoaderConfig, date: str, market_slug: str, token_index: int, outcome: str | None) -> dict[str, object] | None`
-  - Method L1581: `_deltas_cache_metadata_payload(self, *, source: Mapping[str, object] | None, channel: str, date: str, market_slug: str, token_index: int, outcome: str | None, start: pd.Timestamp, end: pd.Timestamp) -> dict[str, object] | None`
-  - Method L1610: `_deltas_cache_metadata_matches(self, *, cache_path: Path, expected_metadata: Mapping[str, object] | None) -> bool`
-  - Method L1622: `_load_deltas_cache_day(self, *, channel: str, date: str, market_slug: str, token_index: int, outcome: str | None, start: pd.Timestamp, end: pd.Timestamp, expected_metadata: Mapping[str, object] | None) -> tuple[list[OrderBookDeltas] | None, str]`
-  - Method L1669: `_write_deltas_cache_day(self, *, records: Sequence[OrderBookDeltas], channel: str, date: str, market_slug: str, token_index: int, outcome: str | None, start: pd.Timestamp, end: pd.Timestamp, metadata: Mapping[str, object] | None) -> None`
-  - Method L1729: `_deltas_records_to_table(records: Sequence[OrderBookDeltas]) -> pa.Table`
-  - Method L1764: `_deltas_records_from_columns(self, data: dict[str, list[object]]) -> list[OrderBookDeltas]`
-  - Method L1811: `_resolve_presigned_url(*, url: str, api_key: str) -> str`
-  - Method L1838: `_load_api_day(self, *, base_url: str, channel: str, date: str, market_slug: str, token_index: int, outcome: str | None, api_key: str | None = None) -> pd.DataFrame | None`
-  - Method L1930: `_column_to_ns(column: pd.Series, column_name: str) -> np.ndarray`
-  - Method L1941: `_scaled_column_to_ns(column: pd.Series, multiplier: int) -> np.ndarray`
-  - Method L1956: `_normalize_to_utc(value: pd.Timestamp) -> pd.Timestamp`
-  - Method L1961: `_day_window(self, date: str, *, start: pd.Timestamp, end: pd.Timestamp) -> tuple[pd.Timestamp, pd.Timestamp] | None`
-  - Method L1975: `_first_present_column(frame: pd.DataFrame, names: Sequence[str], *, label: str) -> str`
-  - Method L1982: `_book_levels_from_value(value: object, *, side: str) -> tuple[PolymarketBookLevel, ...]`
-  - Method L2017: `_book_levels_from_arrays(*, prices: object, sizes: object, side: str) -> tuple[PolymarketBookLevel, ...]`
-  - Method L2034: `_book_side_map(levels: Sequence[PolymarketBookLevel]) -> dict[str, str]`
-  - Method L2038: `_book_levels_are_crossed(*, bids: Sequence[PolymarketBookLevel], asks: Sequence[PolymarketBookLevel]) -> bool`
-  - Method L2047: `_snapshot_to_deltas(self, *, bids: Sequence[PolymarketBookLevel], asks: Sequence[PolymarketBookLevel], ts_event: int) -> OrderBookDeltas | None`
-  - Method L2066: `_retimestamp_deltas(self, deltas: OrderBookDeltas, *, ts_event: int) -> OrderBookDeltas`
-  - Method L2081: `_diff_to_deltas(self, *, previous_bids: dict[str, str], previous_asks: dict[str, str], current_bids: dict[str, str], current_asks: dict[str, str], ts_event: int) -> OrderBookDeltas | None`
-  - Method L2130: `_book_events_from_frame(self, frame: pd.DataFrame, *, start: pd.Timestamp, end: pd.Timestamp, include_order_book: bool = True, invalid_snapshot_warning: bool = True, invalid_snapshot_counter: Callable[[int], None] | None = None) -> list[OrderBookDeltas]`
-  - Method L2246: `_try_load_range_from_local(self, *, entry: TelonexSourceEntry, channel: str, market_slug: str, token_index: int, outcome: str | None, start: pd.Timestamp, end: pd.Timestamp) -> pd.DataFrame | None`
-  - Method L2294: `_try_load_day_from_local(self, *, entry: TelonexSourceEntry, channel: str, date: str, market_slug: str, token_index: int, outcome: str | None, start: pd.Timestamp, end: pd.Timestamp, range_cache: dict[Path, pd.DataFrame | None]) -> pd.DataFrame | None`
-  - Method L2393: `_try_load_day_from_entry(self, *, entry: TelonexSourceEntry, channel: str, date: str, market_slug: str, token_index: int, outcome: str | None) -> pd.DataFrame | None`
-  - Method L2433: `_try_load_day_from_api_entry(self, *, entry: TelonexSourceEntry, channel: str, date: str, market_slug: str, token_index: int, outcome: str | None) -> tuple[pd.DataFrame | None, str]`
-  - Method L2475: `_telonex_api_source_label(self, *, base_url: str, channel: str, date: str, market_slug: str, token_index: int, outcome: str | None) -> str`
-  - Method L2494: `_load_order_book_deltas_day(self, *, date: str, config: TelonexLoaderConfig, api_entries: Sequence[TelonexSourceEntry], start: pd.Timestamp, end: pd.Timestamp, market_slug: str, token_index: int, outcome: str | None, include_order_book: bool, range_cache: dict[Path, pd.DataFrame | None], invalid_snapshot_counter: Callable[[int], None] | None = None) -> _TelonexDayResult`
-  - Method L2638: `_iter_loaded_telonex_days(self, *, dates: list[str], config: TelonexLoaderConfig, api_entries: Sequence[TelonexSourceEntry], start: pd.Timestamp, end: pd.Timestamp, market_slug: str, token_index: int, outcome: str | None, include_order_book: bool, invalid_snapshot_counter: Callable[[int], None] | None = None) -> Iterator[_TelonexDayResult]`
-  - Method L2707: `load_order_book_deltas(self, start: pd.Timestamp, end: pd.Timestamp, *, market_slug: str, token_index: int, outcome: str | None, include_order_book: bool = True) -> list[OrderBookDeltas]`
+  - Method L1551: `_deltas_cache_source_fingerprint(self, *, config: TelonexLoaderConfig, date: str, market_slug: str, token_index: int, outcome: str | None) -> dict[str, object] | None`
+  - Method L1573: `_deltas_cache_metadata_payload(self, *, source: Mapping[str, object] | None, channel: str, date: str, market_slug: str, token_index: int, outcome: str | None, start: pd.Timestamp, end: pd.Timestamp) -> dict[str, object] | None`
+  - Method L1602: `_deltas_cache_metadata_matches(self, *, cache_path: Path, expected_metadata: Mapping[str, object] | None) -> bool`
+  - Method L1614: `_load_deltas_cache_day(self, *, channel: str, date: str, market_slug: str, token_index: int, outcome: str | None, start: pd.Timestamp, end: pd.Timestamp, expected_metadata: Mapping[str, object] | None) -> tuple[list[OrderBookDeltas] | None, str]`
+  - Method L1661: `_write_deltas_cache_day(self, *, records: Sequence[OrderBookDeltas], channel: str, date: str, market_slug: str, token_index: int, outcome: str | None, start: pd.Timestamp, end: pd.Timestamp, metadata: Mapping[str, object] | None) -> None`
+  - Method L1721: `_deltas_records_to_table(records: Sequence[OrderBookDeltas]) -> pa.Table`
+  - Method L1756: `_deltas_records_from_columns(self, data: dict[str, list[object]]) -> list[OrderBookDeltas]`
+  - Method L1803: `_resolve_presigned_url(*, url: str, api_key: str) -> str`
+  - Method L1830: `_load_api_day(self, *, base_url: str, channel: str, date: str, market_slug: str, token_index: int, outcome: str | None, api_key: str | None = None) -> pd.DataFrame | None`
+  - Method L1922: `_column_to_ns(column: pd.Series, column_name: str) -> np.ndarray`
+  - Method L1933: `_scaled_column_to_ns(column: pd.Series, multiplier: int) -> np.ndarray`
+  - Method L1948: `_normalize_to_utc(value: pd.Timestamp) -> pd.Timestamp`
+  - Method L1953: `_day_window(self, date: str, *, start: pd.Timestamp, end: pd.Timestamp) -> tuple[pd.Timestamp, pd.Timestamp] | None`
+  - Method L1967: `_first_present_column(frame: pd.DataFrame, names: Sequence[str], *, label: str) -> str`
+  - Method L1974: `_book_levels_from_value(value: object, *, side: str) -> tuple[PolymarketBookLevel, ...]`
+  - Method L2009: `_book_levels_from_arrays(*, prices: object, sizes: object, side: str) -> tuple[PolymarketBookLevel, ...]`
+  - Method L2026: `_book_side_map(levels: Sequence[PolymarketBookLevel]) -> dict[str, str]`
+  - Method L2030: `_book_levels_are_crossed(*, bids: Sequence[PolymarketBookLevel], asks: Sequence[PolymarketBookLevel]) -> bool`
+  - Method L2039: `_snapshot_to_deltas(self, *, bids: Sequence[PolymarketBookLevel], asks: Sequence[PolymarketBookLevel], ts_event: int) -> OrderBookDeltas | None`
+  - Method L2058: `_retimestamp_deltas(self, deltas: OrderBookDeltas, *, ts_event: int) -> OrderBookDeltas`
+  - Method L2073: `_diff_to_deltas(self, *, previous_bids: dict[str, str], previous_asks: dict[str, str], current_bids: dict[str, str], current_asks: dict[str, str], ts_event: int) -> OrderBookDeltas | None`
+  - Method L2122: `_book_events_from_frame(self, frame: pd.DataFrame, *, start: pd.Timestamp, end: pd.Timestamp, include_order_book: bool = True, invalid_snapshot_warning: bool = True, invalid_snapshot_counter: Callable[[int], None] | None = None) -> list[OrderBookDeltas]`
+  - Method L2238: `_try_load_range_from_local(self, *, entry: TelonexSourceEntry, channel: str, market_slug: str, token_index: int, outcome: str | None, start: pd.Timestamp, end: pd.Timestamp) -> pd.DataFrame | None`
+  - Method L2286: `_try_load_day_from_local(self, *, entry: TelonexSourceEntry, channel: str, date: str, market_slug: str, token_index: int, outcome: str | None, start: pd.Timestamp, end: pd.Timestamp, range_cache: dict[Path, pd.DataFrame | None]) -> pd.DataFrame | None`
+  - Method L2385: `_try_load_day_from_entry(self, *, entry: TelonexSourceEntry, channel: str, date: str, market_slug: str, token_index: int, outcome: str | None) -> pd.DataFrame | None`
+  - Method L2425: `_try_load_day_from_api_entry(self, *, entry: TelonexSourceEntry, channel: str, date: str, market_slug: str, token_index: int, outcome: str | None) -> tuple[pd.DataFrame | None, str]`
+  - Method L2467: `_telonex_api_source_label(self, *, base_url: str, channel: str, date: str, market_slug: str, token_index: int, outcome: str | None) -> str`
+  - Method L2486: `_load_order_book_deltas_day(self, *, date: str, config: TelonexLoaderConfig, api_entries: Sequence[TelonexSourceEntry], start: pd.Timestamp, end: pd.Timestamp, market_slug: str, token_index: int, outcome: str | None, include_order_book: bool, range_cache: dict[Path, pd.DataFrame | None], invalid_snapshot_counter: Callable[[int], None] | None = None) -> _TelonexDayResult`
+  - Method L2630: `_iter_loaded_telonex_days(self, *, dates: list[str], config: TelonexLoaderConfig, api_entries: Sequence[TelonexSourceEntry], start: pd.Timestamp, end: pd.Timestamp, market_slug: str, token_index: int, outcome: str | None, include_order_book: bool, invalid_snapshot_counter: Callable[[int], None] | None = None) -> Iterator[_TelonexDayResult]`
+  - Method L2699: `load_order_book_deltas(self, start: pd.Timestamp, end: pd.Timestamp, *, market_slug: str, token_index: int, outcome: str | None, include_order_book: bool = True) -> list[OrderBookDeltas]`
 
 ### `prediction_market_extensions/backtesting/data_sources/vendors.py`
 - Imports: `__future__, dataclasses`
