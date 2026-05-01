@@ -5,6 +5,7 @@ import subprocess
 import importlib
 import threading
 import time
+from datetime import date
 from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
@@ -14,14 +15,18 @@ import pandas as pd
 import pytest
 from nautilus_trader.adapters.polymarket.common.parsing import parse_polymarket_instrument
 from nautilus_trader.model.data import OrderBookDeltas
+from nautilus_trader.model.enums import AggressorSide
 
 import prediction_market_extensions.backtesting.data_sources.telonex as telonex_module
+from scripts import _telonex_data_download as telonex_download
 from prediction_market_extensions.backtesting.data_sources.telonex import (
     TELONEX_CACHE_ROOT_ENV,
     TELONEX_API_KEY_ENV,
     TELONEX_FULL_BOOK_CHANNEL,
     TELONEX_LOCAL_DIR_ENV,
+    TELONEX_ONCHAIN_FILLS_CHANNEL,
     TELONEX_PREFETCH_WORKERS_ENV,
+    TELONEX_TRADES_CHANNEL,
     RunnerPolymarketTelonexBookDataLoader,
     configured_telonex_data_source,
     resolve_telonex_loader_config,
@@ -80,6 +85,69 @@ def _book_parquet_payload(timestamp_us: int) -> bytes:
     return buffer.getvalue()
 
 
+def _write_onchain_fills_store(
+    root: Path, *, rows: int = 1, channel: str = TELONEX_ONCHAIN_FILLS_CHANNEL
+) -> None:
+    frame = pd.DataFrame(
+        {
+            "timestamp_us": [1_768_780_800_000_000 + index for index in range(rows)],
+            "price": ["0.42"] * rows,
+            "size": ["7"] * rows,
+            "side": ["BUY"] * rows,
+            "transaction_hash": [f"0xlocaltx{index}" for index in range(rows)],
+        }
+    )
+    store = telonex_download._TelonexParquetStore(root)
+    try:
+        store.ingest_batch(
+            [
+                telonex_download._DownloadResult(
+                    job=telonex_download._Job(
+                        market_slug="onchain-fill-market",
+                        outcome_segment="0",
+                        outcome_id=0,
+                        outcome=None,
+                        channel=channel,
+                        day=date(2026, 1, 19),
+                    ),
+                    status="ok",
+                    table=telonex_download.pa.Table.from_pandas(frame, preserve_index=False),
+                    payload=None,
+                    bytes_downloaded=100,
+                    error=None,
+                )
+            ]
+        )
+    finally:
+        store.close()
+
+
+def _write_onchain_fills_empty_marker(root: Path) -> None:
+    store = telonex_download._TelonexParquetStore(root)
+    try:
+        store.ingest_batch(
+            [
+                telonex_download._DownloadResult(
+                    job=telonex_download._Job(
+                        market_slug="onchain-fill-market",
+                        outcome_segment="0",
+                        outcome_id=0,
+                        outcome=None,
+                        channel=TELONEX_ONCHAIN_FILLS_CHANNEL,
+                        day=date(2026, 1, 19),
+                    ),
+                    status="missing",
+                    table=None,
+                    payload=None,
+                    bytes_downloaded=0,
+                    error="404",
+                )
+            ]
+        )
+    finally:
+        store.close()
+
+
 def test_configured_telonex_data_source_preserves_explicit_order(tmp_path) -> None:
     local_root = tmp_path / "telonex"
     local_root.mkdir()
@@ -89,8 +157,11 @@ def test_configured_telonex_data_source_preserves_explicit_order(tmp_path) -> No
     ) as selection:
         assert selection.mode == "auto"
         assert selection.summary == (
-            f"Telonex source: explicit priority (cache -> local {local_root} -> "
-            "api https://api.example.test (key missing))"
+            f"Telonex book source: explicit priority (cache -> local {local_root} -> "
+            "api https://api.example.test (key missing))\n"
+            f"Telonex trade source: explicit priority (cache -> local {local_root} -> "
+            "api https://api.example.test (key missing) -> polymarket cache -> "
+            "api https://data-api.polymarket.com/trades)"
         )
 
         _selection, config = resolve_telonex_loader_config()
@@ -124,8 +195,11 @@ def test_configured_telonex_data_source_omits_disabled_cache(
         sources=[f"local:{local_root}", "api:https://api.example.test"]
     ) as selection:
         assert selection.summary == (
-            f"Telonex source: explicit priority (local {local_root} -> "
-            "api https://api.example.test (key missing))"
+            f"Telonex book source: explicit priority (local {local_root} -> "
+            "api https://api.example.test (key missing))\n"
+            f"Telonex trade source: explicit priority (local {local_root} -> "
+            "api https://api.example.test (key missing) -> polymarket cache -> "
+            "api https://data-api.polymarket.com/trades)"
         )
 
 
@@ -185,6 +259,301 @@ def test_telonex_api_url_uses_slug_and_outcome_id_without_key() -> None:
     assert url == (
         "https://api.telonex.io/v1/downloads/polymarket/book_snapshot_full/2026-01-20"
         "?slug=will-the-us-strike-iran-next-433&outcome_id=1"
+    )
+
+
+def test_telonex_onchain_fills_prefer_local_store(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv(TELONEX_CACHE_ROOT_ENV, str(tmp_path / "telonex-cache"))
+    local_root = tmp_path / "telonex-local"
+    _write_onchain_fills_store(local_root)
+    loader = _make_polymarket_loader()
+
+    def fail_api_day(self, **kwargs):  # type: ignore[no-untyped-def]
+        del self, kwargs
+        raise AssertionError("local onchain_fills should be read before Telonex API")
+
+    monkeypatch.setattr(RunnerPolymarketTelonexBookDataLoader, "_load_api_day", fail_api_day)
+
+    with configured_telonex_data_source(
+        sources=[f"local:{local_root}", "api:https://api.example.test"]
+    ):
+        trades = loader.load_telonex_onchain_fill_ticks(
+            pd.Timestamp("2026-01-19T00:00:00Z"),
+            pd.Timestamp("2026-01-19T23:59:59Z"),
+            market_slug="onchain-fill-market",
+            token_index=0,
+            outcome=None,
+        )
+
+    assert trades is not None
+    assert len(trades) == 1
+    assert float(trades[0].price) == pytest.approx(0.42)
+    assert float(trades[0].size) == pytest.approx(7.0)
+    assert trades[0].aggressor_side == AggressorSide.BUYER
+    assert loader._telonex_last_trade_source == f"telonex-local::{local_root}"
+
+
+def test_telonex_onchain_fills_materialize_local_store_to_trade_cache(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv(TELONEX_CACHE_ROOT_ENV, str(tmp_path / "telonex-cache"))
+    local_root = tmp_path / "telonex-local"
+    _write_onchain_fills_store(local_root)
+    loader = _make_polymarket_loader()
+
+    with configured_telonex_data_source(
+        sources=[f"local:{local_root}", "api:https://api.example.test"]
+    ):
+        first = loader.load_telonex_onchain_fill_ticks(
+            pd.Timestamp("2026-01-19T00:00:00Z"),
+            pd.Timestamp("2026-01-19T23:59:59Z"),
+            market_slug="onchain-fill-market",
+            token_index=0,
+            outcome=None,
+        )
+
+    assert first is not None
+    assert len(first) == 1
+    assert loader._telonex_last_trade_source == f"telonex-local::{local_root}"
+
+    def fail_local(**kwargs):  # type: ignore[no-untyped-def]
+        del kwargs
+        raise AssertionError("materialized trade cache should be read before local store")
+
+    def fail_api(self, **kwargs):  # type: ignore[no-untyped-def]
+        del self, kwargs
+        raise AssertionError("materialized trade cache should be read before API")
+
+    monkeypatch.setattr(loader, "_try_load_day_from_local", fail_local)
+    monkeypatch.setattr(RunnerPolymarketTelonexBookDataLoader, "_load_api_day", fail_api)
+
+    with configured_telonex_data_source(
+        sources=[f"local:{local_root}", "api:https://api.example.test"]
+    ):
+        second = loader.load_telonex_onchain_fill_ticks(
+            pd.Timestamp("2026-01-19T00:00:00Z"),
+            pd.Timestamp("2026-01-19T23:59:59Z"),
+            market_slug="onchain-fill-market",
+            token_index=0,
+            outcome=None,
+        )
+
+    assert second is not None
+    assert len(second) == 1
+    assert float(second[0].price) == pytest.approx(0.42)
+    assert str(loader._telonex_last_trade_source).startswith("telonex-trade-cache::")
+
+
+def test_telonex_onchain_fills_use_cache_before_local_store(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    cache_root = tmp_path / "telonex-cache"
+    monkeypatch.setenv(TELONEX_CACHE_ROOT_ENV, str(cache_root))
+    local_root = tmp_path / "telonex-local"
+    _write_onchain_fills_store(local_root)
+    loader = _make_polymarket_loader()
+    cache_path = loader._api_cache_path(
+        base_url="https://api.example.test",
+        channel=TELONEX_ONCHAIN_FILLS_CHANNEL,
+        date="2026-01-19",
+        market_slug="onchain-fill-market",
+        token_index=0,
+        outcome="Yes",
+    )
+    assert cache_path is not None
+    cache_path.parent.mkdir(parents=True)
+    pd.DataFrame(
+        {
+            "timestamp_us": [1_768_780_800_000_000],
+            "price": ["0.44"],
+            "size": ["3"],
+            "side": ["SELL"],
+            "transaction_hash": ["0xcachedtx"],
+        }
+    ).to_parquet(cache_path, index=False)
+
+    with configured_telonex_data_source(
+        sources=[f"local:{local_root}", "api:https://api.example.test"]
+    ):
+        trades = loader.load_telonex_onchain_fill_ticks(
+            pd.Timestamp("2026-01-19T00:00:00Z"),
+            pd.Timestamp("2026-01-19T23:59:59Z"),
+            market_slug="onchain-fill-market",
+            token_index=0,
+            outcome=None,
+        )
+
+    assert trades is not None
+    assert len(trades) == 1
+    assert float(trades[0].price) == pytest.approx(0.44)
+    assert trades[0].aggressor_side == AggressorSide.SELLER
+    assert loader._telonex_last_trade_source == f"telonex-cache::{cache_path}"
+
+
+def test_telonex_onchain_fills_empty_local_manifest_falls_through_to_api(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv(TELONEX_CACHE_ROOT_ENV, str(tmp_path / "telonex-cache"))
+    local_root = tmp_path / "telonex-local"
+    _write_onchain_fills_empty_marker(local_root)
+    loader = _make_polymarket_loader()
+    api_calls: list[str] = []
+
+    def fake_api_day(self, **kwargs):  # type: ignore[no-untyped-def]
+        del self
+        assert kwargs["channel"] == TELONEX_ONCHAIN_FILLS_CHANNEL
+        api_calls.append(kwargs["market_slug"])
+        return pd.DataFrame(
+            {
+                "timestamp_us": [1_768_780_800_000_000],
+                "price": ["0.43"],
+                "size": ["5"],
+                "side": ["SELL"],
+                "transaction_hash": ["0xapitx"],
+            }
+        )
+
+    monkeypatch.setattr(RunnerPolymarketTelonexBookDataLoader, "_load_api_day", fake_api_day)
+
+    with configured_telonex_data_source(
+        sources=[f"local:{local_root}", "api:https://api.example.test"]
+    ):
+        trades = loader.load_telonex_onchain_fill_ticks(
+            pd.Timestamp("2026-01-19T00:00:00Z"),
+            pd.Timestamp("2026-01-19T23:59:59Z"),
+            market_slug="onchain-fill-market",
+            token_index=0,
+            outcome=None,
+        )
+
+    assert api_calls == ["onchain-fill-market"]
+    assert trades is not None
+    assert len(trades) == 1
+    assert float(trades[0].price) == pytest.approx(0.43)
+    assert trades[0].aggressor_side == AggressorSide.SELLER
+    assert loader._telonex_last_trade_source == (
+        "telonex-api::https://api.example.test/v1/downloads/polymarket/"
+        "onchain_fills/2026-01-19?slug=onchain-fill-market&outcome=Yes"
+    )
+
+
+def test_telonex_onchain_fills_empty_local_manifest_falls_through_to_telonex_trades(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv(TELONEX_CACHE_ROOT_ENV, str(tmp_path / "telonex-cache"))
+    local_root = tmp_path / "telonex-local"
+    _write_onchain_fills_empty_marker(local_root)
+    _write_onchain_fills_store(local_root, channel=TELONEX_TRADES_CHANNEL)
+    loader = _make_polymarket_loader()
+
+    def fail_api_day(self, **kwargs):  # type: ignore[no-untyped-def]
+        del self, kwargs
+        raise AssertionError("local Telonex trades should be read before API fallback")
+
+    monkeypatch.setattr(RunnerPolymarketTelonexBookDataLoader, "_load_api_day", fail_api_day)
+
+    with configured_telonex_data_source(
+        sources=[f"local:{local_root}", "api:https://api.example.test"]
+    ):
+        trades = loader.load_telonex_onchain_fill_ticks(
+            pd.Timestamp("2026-01-19T00:00:00Z"),
+            pd.Timestamp("2026-01-19T23:59:59Z"),
+            market_slug="onchain-fill-market",
+            token_index=0,
+            outcome=None,
+        )
+
+    assert trades is not None
+    assert len(trades) == 1
+    assert float(trades[0].price) == pytest.approx(0.42)
+    assert loader._telonex_last_trade_source == f"telonex-local-trades::{local_root}"
+
+
+def test_telonex_onchain_fills_ignores_stale_empty_trade_cache(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    cache_root = tmp_path / "telonex-cache"
+    monkeypatch.setenv(TELONEX_CACHE_ROOT_ENV, str(cache_root))
+    local_root = tmp_path / "telonex-local"
+    _write_onchain_fills_store(local_root)
+    loader = _make_polymarket_loader()
+    cache_path = loader._trade_ticks_cache_path(
+        channel=TELONEX_ONCHAIN_FILLS_CHANNEL,
+        date="2026-01-19",
+        market_slug="onchain-fill-market",
+        token_index=0,
+        outcome="Yes",
+        instrument_id=loader.instrument.id,
+        start=pd.Timestamp("2026-01-19T00:00:00Z"),
+        end=pd.Timestamp("2026-01-19T23:59:59Z"),
+    )
+    assert cache_path is not None
+    cache_path.parent.mkdir(parents=True)
+    loader._trade_ticks_to_cache_table(()).to_pandas().to_parquet(cache_path, index=False)
+
+    with configured_telonex_data_source(
+        sources=[f"local:{local_root}", "api:https://api.example.test"]
+    ):
+        trades = loader.load_telonex_onchain_fill_ticks(
+            pd.Timestamp("2026-01-19T00:00:00Z"),
+            pd.Timestamp("2026-01-19T23:59:59Z"),
+            market_slug="onchain-fill-market",
+            token_index=0,
+            outcome=None,
+        )
+
+    assert trades is not None
+    assert len(trades) == 1
+    assert loader._telonex_last_trade_source == f"telonex-local::{local_root}"
+    assert len(pd.read_parquet(cache_path)) == 1
+
+
+def test_telonex_onchain_fills_try_api_before_polymarket_fallback(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv(TELONEX_CACHE_ROOT_ENV, str(tmp_path / "telonex-cache"))
+    local_root = tmp_path / "missing-local"
+    local_root.mkdir()
+    loader = _make_polymarket_loader()
+    api_calls: list[str] = []
+
+    def fake_api_day(self, **kwargs):  # type: ignore[no-untyped-def]
+        del self
+        assert kwargs["channel"] == TELONEX_ONCHAIN_FILLS_CHANNEL
+        api_calls.append(kwargs["market_slug"])
+        return pd.DataFrame(
+            {
+                "timestamp_us": [1_768_780_800_000_000],
+                "price": ["0.43"],
+                "size": ["5"],
+                "side": ["SELL"],
+                "transaction_hash": ["0xapitx"],
+            }
+        )
+
+    monkeypatch.setattr(RunnerPolymarketTelonexBookDataLoader, "_load_api_day", fake_api_day)
+
+    with configured_telonex_data_source(
+        sources=[f"local:{local_root}", "api:https://api.example.test"]
+    ):
+        trades = loader.load_telonex_onchain_fill_ticks(
+            pd.Timestamp("2026-01-19T00:00:00Z"),
+            pd.Timestamp("2026-01-19T23:59:59Z"),
+            market_slug="onchain-fill-market",
+            token_index=0,
+            outcome=None,
+        )
+
+    assert api_calls == ["onchain-fill-market"]
+    assert trades is not None
+    assert len(trades) == 1
+    assert float(trades[0].price) == pytest.approx(0.43)
+    assert trades[0].aggressor_side == AggressorSide.SELLER
+    assert loader._telonex_last_trade_source == (
+        "telonex-api::https://api.example.test/v1/downloads/polymarket/"
+        "onchain_fills/2026-01-19?slug=onchain-fill-market&outcome=Yes"
     )
 
 

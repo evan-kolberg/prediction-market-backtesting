@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import time
+import warnings
 from collections.abc import Callable, Mapping
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
@@ -237,6 +238,29 @@ def _print_trade_progress_header(
     )
 
 
+def _trade_source_label(source: str) -> str:
+    if source.startswith("telonex-trade-cache::"):
+        cache_path = source.partition("::")[2]
+        if cache_path:
+            if "/trades/" in cache_path:
+                return f"telonex trades cache {Path(cache_path).name}"
+            return f"telonex onchain_fills cache {Path(cache_path).name}"
+        return "telonex trade cache"
+    if source.startswith("telonex-local-trades::"):
+        return "telonex local trades"
+    if source.startswith("telonex-local::"):
+        return "telonex local onchain_fills"
+    if source.startswith(("telonex-cache::", "telonex-cache-fast::")):
+        if "/trades/" in source:
+            return "telonex cache trades"
+        return "telonex cache onchain_fills"
+    if source.startswith("telonex-api::"):
+        if "/trades/" in source:
+            return "telonex api trades"
+        return "telonex api onchain_fills"
+    return source
+
+
 def _print_trade_progress_line(
     *,
     day: pd.Timestamp,
@@ -244,7 +268,18 @@ def _print_trade_progress_line(
     rows: int,
     source: str,
 ) -> None:
-    print(f"  trades {_trade_day_label(day):>10s}  {elapsed_secs:7.3f}s  {rows:8d} rows  {source}")
+    print(
+        f"  trades {_trade_day_label(day):>10s}  {elapsed_secs:7.3f}s  "
+        f"{rows:8d} rows  {_trade_source_label(source)}"
+    )
+
+
+def _polymarket_ceiling_warning(caught_warnings: list[warnings.WarningMessage]) -> str | None:
+    for caught in caught_warnings:
+        message = str(caught.message)
+        if "Polymarket public trades API hit its historical offset ceiling" in message:
+            return message
+    return None
 
 
 async def _load_trade_ticks(
@@ -262,12 +297,29 @@ async def _load_trade_ticks(
         cache_path = _trade_cache_path(loader=loader, date=current_day)
         day_trades: tuple[TradeTick, ...]
         started_at = time.perf_counter()
-        if cache_path is not None and cache_path.exists():
+        telonex_loader = getattr(loader, "load_telonex_onchain_fill_ticks", None)
+        telonex_trades = None
+        if callable(telonex_loader):
+            telonex_trades = telonex_loader(day_start, day_end)
+        if telonex_trades:
+            day_trades = tuple(sorted(telonex_trades, key=_trade_record_sort_key))
+            source = str(
+                getattr(loader, "_telonex_last_trade_source", None) or "telonex onchain_fills"
+            )
+        elif cache_path is not None and cache_path.exists():
             frame = pd.read_parquet(cache_path)
             day_trades = _deserialize_trade_ticks(loader=loader, frame=frame)
-            source = f"cache {cache_path.name}"
+            source = f"polymarket cache {cache_path.name}"
         else:
-            fetched = await loader.load_trades(day_start, day_end)
+            with warnings.catch_warnings(record=True) as caught_warnings:
+                warnings.simplefilter("always", RuntimeWarning)
+                fetched = await loader.load_trades(day_start, day_end)
+            ceiling_warning = _polymarket_ceiling_warning(caught_warnings)
+            if ceiling_warning is not None:
+                raise RuntimeError(
+                    "Polymarket public trades API fallback failed for "
+                    f"{market_label} on {_trade_day_label(current_day)}: {ceiling_warning}"
+                )
             day_trades = tuple(sorted(fetched, key=_trade_record_sort_key))
             if cache_path is not None:
                 _write_trade_cache(path=cache_path, trades=day_trades)

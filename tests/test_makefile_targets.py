@@ -28,6 +28,25 @@ def test_clear_telonex_cache_does_not_delete_local_data_destination() -> None:
     assert "Clearing Telonex cache root only" not in result.stdout
 
 
+def test_clear_polymarket_cache_targets_trade_cache_only() -> None:
+    result = subprocess.run(
+        [
+            "make",
+            "-n",
+            "clear-polymarket-cache",
+            "TELONEX_DATA_DESTINATION=/tmp/local-telonex-data",
+            "POLYMARKET_CACHE_ROOT=/tmp/polymarket-trades-cache",
+        ],
+        cwd=REPO_ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert 'rm -rf "/tmp/local-telonex-data"' not in result.stdout
+    assert 'rm -rf "/tmp/polymarket-trades-cache"' in result.stdout
+
+
 def test_clear_telonex_cache_refuses_data_destination(tmp_path: Path) -> None:
     data_root = tmp_path / "telonex-data"
     data_root.mkdir()
@@ -48,6 +67,29 @@ def test_clear_telonex_cache_refuses_data_destination(tmp_path: Path) -> None:
 
     assert result.returncode == 2
     assert "Refusing to clear unsafe TELONEX_CACHE_ROOT" in result.stderr
+    assert marker.read_text() == "keep"
+
+
+def test_clear_polymarket_cache_refuses_data_destination(tmp_path: Path) -> None:
+    data_root = tmp_path / "telonex-data"
+    data_root.mkdir()
+    marker = data_root / "marker.parquet"
+    marker.write_text("keep")
+
+    result = subprocess.run(
+        [
+            "make",
+            "clear-polymarket-cache",
+            f"TELONEX_DATA_DESTINATION={data_root}",
+            f"POLYMARKET_CACHE_ROOT={data_root}",
+        ],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 2
+    assert "Refusing to clear unsafe POLYMARKET_CACHE_ROOT" in result.stderr
     assert marker.read_text() == "keep"
 
 

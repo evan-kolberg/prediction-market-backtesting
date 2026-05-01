@@ -30,9 +30,12 @@ from nautilus_trader.adapters.polymarket.schemas.book import (
 from nautilus_trader.model.data import BookOrder
 from nautilus_trader.model.data import OrderBookDelta
 from nautilus_trader.model.data import OrderBookDeltas
+from nautilus_trader.model.data import TradeTick
+from nautilus_trader.model.enums import AggressorSide
 from nautilus_trader.model.enums import BookAction
 from nautilus_trader.model.enums import OrderSide
 from nautilus_trader.model.enums import RecordFlag
+from nautilus_trader.model.identifiers import TradeId
 
 from prediction_market_extensions.adapters.polymarket.loaders import PolymarketDataLoader
 from prediction_market_extensions.backtesting.data_sources._common import (
@@ -50,6 +53,9 @@ TELONEX_PREFETCH_WORKERS_ENV = "TELONEX_PREFETCH_WORKERS"
 
 _TELONEX_DEFAULT_API_BASE_URL = "https://api.telonex.io"
 TELONEX_FULL_BOOK_CHANNEL = "book_snapshot_full"
+TELONEX_ONCHAIN_FILLS_CHANNEL = "onchain_fills"
+TELONEX_TRADES_CHANNEL = "trades"
+_POLYMARKET_PUBLIC_TRADES_API_URL = "https://data-api.polymarket.com/trades"
 _TELONEX_DEFAULT_CHANNEL = TELONEX_FULL_BOOK_CHANNEL
 _TELONEX_EXCHANGE = "polymarket"
 _TELONEX_HTTP_TIMEOUT_SECS = 60
@@ -64,6 +70,7 @@ _TELONEX_BLOB_DB_FILENAME = "telonex.duckdb"
 _TELONEX_DATA_SUBDIR = "data"
 _TELONEX_CACHE_SUBDIR = "api-days"
 _TELONEX_DELTAS_CACHE_SUBDIR = "book-deltas-v1"
+_TELONEX_TRADE_TICKS_CACHE_SUBDIR = "trade-ticks-v1"
 _TELONEX_DELTAS_CACHE_COLUMNS = frozenset(
     {
         "event_index",
@@ -77,6 +84,17 @@ _TELONEX_DELTAS_CACHE_COLUMNS = frozenset(
         "ts_init",
     }
 )
+_TELONEX_TRADE_TICKS_CACHE_COLUMNS = frozenset(
+    {
+        "price",
+        "size",
+        "aggressor_side",
+        "trade_id",
+        "ts_event",
+        "ts_init",
+    }
+)
+_TELONEX_TRADE_TICK_CHANNELS = (TELONEX_ONCHAIN_FILLS_CHANNEL, TELONEX_TRADES_CHANNEL)
 
 
 @dataclass(frozen=True)
@@ -227,7 +245,7 @@ def _default_telonex_sources_from_env() -> tuple[TelonexSourceEntry, ...]:
     )
 
 
-def _source_summary(entries: Sequence[TelonexSourceEntry]) -> str:
+def _source_summary_parts(entries: Sequence[TelonexSourceEntry]) -> list[str]:
     parts: list[str] = ["cache"] if _resolve_api_cache_root() is not None else []
     for entry in entries:
         if entry.kind == _TELONEX_SOURCE_LOCAL:
@@ -235,7 +253,37 @@ def _source_summary(entries: Sequence[TelonexSourceEntry]) -> str:
         elif entry.kind == _TELONEX_SOURCE_API:
             suffix = " (key set)" if entry.api_key else " (key missing)"
             parts.append(f"api {entry.target}{suffix}")
-    return "Telonex source: explicit priority (" + " -> ".join(parts) + ")"
+    return parts
+
+
+def _source_summary_line(label: str, parts: Sequence[str]) -> str:
+    return f"Telonex {label} source: explicit priority (" + " -> ".join(parts) + ")"
+
+
+def _trade_source_summary_parts(entries: Sequence[TelonexSourceEntry]) -> list[str]:
+    parts: list[str] = []
+    api_entries = [entry for entry in entries if entry.kind == _TELONEX_SOURCE_API]
+    if api_entries and _resolve_api_cache_root() is not None:
+        parts.append("cache")
+    parts.extend(
+        f"local {entry.target}" for entry in entries if entry.kind == _TELONEX_SOURCE_LOCAL
+    )
+    for entry in api_entries:
+        suffix = " (key set)" if entry.api_key else " (key missing)"
+        parts.append(f"api {entry.target}{suffix}")
+    parts.extend(("polymarket cache", f"api {_POLYMARKET_PUBLIC_TRADES_API_URL}"))
+    return parts
+
+
+def _source_summary(entries: Sequence[TelonexSourceEntry]) -> str:
+    book_parts = _source_summary_parts(entries)
+    trade_parts = _trade_source_summary_parts(entries)
+    return "\n".join(
+        (
+            _source_summary_line("book", book_parts),
+            _source_summary_line("trade", trade_parts),
+        )
+    )
 
 
 def resolve_telonex_loader_config(
@@ -308,6 +356,20 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
             self._telonex_blob_ts_ns: dict[
                 tuple[str, str, str, int, str | None, int, int], np.ndarray
             ] = {}
+
+    @classmethod
+    async def from_market_slug(
+        cls, slug: str, token_index: int = 0, http_client=None
+    ) -> "RunnerPolymarketTelonexBookDataLoader":  # type: ignore[override]
+        loader = await super().from_market_slug(
+            slug=slug,
+            token_index=token_index,
+            http_client=http_client,
+        )
+        loader._telonex_market_slug = slug
+        loader._telonex_token_index = token_index
+        loader._telonex_outcome = str(loader.instrument.outcome or "") or None
+        return loader
 
     def _download_progress(
         self, url: str, downloaded_bytes: int, total_bytes: int | None, finished: bool
@@ -530,6 +592,80 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
                 continue
             paths.append(str(part_path))
         return paths, incomplete
+
+    def _manifest_completed_row_count(
+        self,
+        *,
+        store_root: Path,
+        channel: str,
+        market_slug: str,
+        token_index: int,
+        outcome: str | None,
+        date: str,
+    ) -> int | None:
+        manifest = store_root / _TELONEX_BLOB_DB_FILENAME
+        if not manifest.exists():
+            return None
+
+        segments = self._outcome_segment_candidates(token_index=token_index, outcome=outcome)
+        placeholders = ", ".join("?" for _ in segments)
+        params: list[object] = [channel, market_slug, *segments, pd.Timestamp(date).date()]
+
+        try:
+            con = duckdb.connect(str(manifest), read_only=True)
+            try:
+                total_rows, completed_count = con.execute(
+                    "SELECT COALESCE(SUM(rows), 0), COUNT(*) "
+                    "FROM completed_days "
+                    "WHERE channel = ? "
+                    "AND market_slug = ? "
+                    f"AND outcome_segment IN ({placeholders}) "
+                    "AND day = ?",
+                    params,
+                ).fetchone()
+            finally:
+                con.close()
+        except Exception:
+            return None
+        if int(completed_count or 0) <= 0:
+            return None
+        return int(total_rows or 0)
+
+    def _manifest_empty_day_exists(
+        self,
+        *,
+        store_root: Path,
+        channel: str,
+        market_slug: str,
+        token_index: int,
+        outcome: str | None,
+        date: str,
+    ) -> bool:
+        manifest = store_root / _TELONEX_BLOB_DB_FILENAME
+        if not manifest.exists():
+            return False
+
+        segments = self._outcome_segment_candidates(token_index=token_index, outcome=outcome)
+        placeholders = ", ".join("?" for _ in segments)
+        params: list[object] = [channel, market_slug, *segments, pd.Timestamp(date).date()]
+
+        try:
+            con = duckdb.connect(str(manifest), read_only=True)
+            try:
+                (empty_count,) = con.execute(
+                    "SELECT COUNT(*) "
+                    "FROM empty_days "
+                    "WHERE channel = ? "
+                    "AND market_slug = ? "
+                    f"AND outcome_segment IN ({placeholders}) "
+                    "AND day = ?",
+                    params,
+                ).fetchone()
+            finally:
+                con.close()
+        except Exception:
+            return False
+        return int(empty_count or 0) > 0
 
     def _load_blob_range(
         self,
@@ -1339,6 +1475,185 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
                 stacklevel=2,
             )
 
+    @classmethod
+    def _trade_ticks_cache_path(
+        cls,
+        *,
+        channel: str,
+        date: str,
+        market_slug: str,
+        token_index: int,
+        outcome: str | None,
+        instrument_id: object,
+        start: pd.Timestamp,
+        end: pd.Timestamp,
+    ) -> Path | None:
+        cache_root = cls._resolve_api_cache_root()
+        if cache_root is None:
+            return None
+        outcome_segment = (
+            f"outcome={quote(outcome, safe='')}" if outcome else f"outcome_id={token_index}"
+        )
+        instrument_key = sha256(str(instrument_id).encode("utf-8")).hexdigest()[:16]
+        start_ns = int(cls._normalize_to_utc(start).value)
+        end_ns = int(cls._normalize_to_utc(end).value)
+        return (
+            cache_root
+            / _TELONEX_TRADE_TICKS_CACHE_SUBDIR
+            / _TELONEX_EXCHANGE
+            / channel
+            / quote(market_slug, safe="")
+            / outcome_segment
+            / f"instrument={instrument_key}"
+            / f"{date}.{start_ns}-{end_ns}.parquet"
+        )
+
+    def _load_trade_ticks_cache_day(
+        self,
+        *,
+        channel: str,
+        date: str,
+        market_slug: str,
+        token_index: int,
+        outcome: str | None,
+        start: pd.Timestamp,
+        end: pd.Timestamp,
+    ) -> tuple[tuple[TradeTick, ...] | None, str]:
+        cache_path = self._trade_ticks_cache_path(
+            channel=channel,
+            date=date,
+            market_slug=market_slug,
+            token_index=token_index,
+            outcome=outcome,
+            instrument_id=self.instrument.id,
+            start=start,
+            end=end,
+        )
+        if cache_path is None or not cache_path.exists():
+            return None, "none"
+        try:
+            table = pq.read_table(cache_path)
+            if not _TELONEX_TRADE_TICKS_CACHE_COLUMNS.issubset(set(table.schema.names)):
+                raise ValueError("missing required trade tick cache columns")
+            frame = table.to_pandas()
+            if frame.empty:
+                # Empty Telonex onchain-fill caches are not authoritative for
+                # execution matching. They can come from 404/no-file manifest
+                # entries or older cache writes, and Polymarket may still have
+                # public trade prints for the same day.
+                try:
+                    cache_path.unlink()
+                except OSError:
+                    pass
+                return None, "none"
+            records = self._trade_ticks_from_cache_frame(frame)
+        except Exception as exc:  # noqa: BLE001 - stale/corrupt cache should self-heal
+            try:
+                cache_path.unlink()
+            except OSError:
+                pass
+            warnings.warn(
+                f"Telonex: ignored stale materialized trade cache {cache_path} ({exc})",
+                stacklevel=2,
+            )
+            return None, "none"
+        return records, f"telonex-trade-cache::{cache_path}"
+
+    def _write_trade_ticks_cache_day(
+        self,
+        *,
+        records: Sequence[TradeTick],
+        channel: str,
+        date: str,
+        market_slug: str,
+        token_index: int,
+        outcome: str | None,
+        start: pd.Timestamp,
+        end: pd.Timestamp,
+    ) -> None:
+        if not records:
+            return
+        cache_path = self._trade_ticks_cache_path(
+            channel=channel,
+            date=date,
+            market_slug=market_slug,
+            token_index=token_index,
+            outcome=outcome,
+            instrument_id=self.instrument.id,
+            start=start,
+            end=end,
+        )
+        if cache_path is None:
+            return
+        tmp_path = cache_path.with_name(f"{cache_path.name}.tmp.{os.getpid()}")
+        try:
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
+            pq.write_table(
+                self._trade_ticks_to_cache_table(records),
+                tmp_path,
+                compression="zstd",
+            )
+            os.replace(tmp_path, cache_path)
+        except Exception as exc:  # noqa: BLE001 - cache writes must not break replay
+            try:
+                tmp_path.unlink()
+            except OSError:
+                pass
+            warnings.warn(
+                f"Telonex: failed to write materialized trade cache {cache_path} ({exc})",
+                stacklevel=2,
+            )
+
+    @staticmethod
+    def _trade_ticks_to_cache_table(records: Sequence[TradeTick]) -> pa.Table:
+        prices: list[float] = []
+        sizes: list[float] = []
+        aggressor_sides: list[str] = []
+        trade_ids: list[str] = []
+        ts_events: list[int] = []
+        ts_inits: list[int] = []
+        for record in records:
+            prices.append(float(record.price))
+            sizes.append(float(record.size))
+            aggressor_sides.append(
+                getattr(record.aggressor_side, "name", str(record.aggressor_side))
+            )
+            trade_ids.append(str(record.trade_id))
+            ts_events.append(int(record.ts_event))
+            ts_inits.append(int(record.ts_init))
+        return pa.table(
+            {
+                "price": pa.array(prices, pa.float64()),
+                "size": pa.array(sizes, pa.float64()),
+                "aggressor_side": pa.array(aggressor_sides, pa.string()),
+                "trade_id": pa.array(trade_ids, pa.string()),
+                "ts_event": pa.array(ts_events, pa.int64()),
+                "ts_init": pa.array(ts_inits, pa.int64()),
+            }
+        )
+
+    def _trade_ticks_from_cache_frame(self, frame: pd.DataFrame) -> tuple[TradeTick, ...]:
+        if frame.empty:
+            return ()
+        instrument = self.instrument
+        records: list[TradeTick] = []
+        for row in frame.itertuples(index=False):
+            aggressor_name = str(getattr(row, "aggressor_side"))
+            aggressor_side = getattr(AggressorSide, aggressor_name, AggressorSide.NO_AGGRESSOR)
+            records.append(
+                TradeTick(
+                    instrument_id=instrument.id,
+                    price=instrument.make_price(getattr(row, "price")),
+                    size=instrument.make_qty(getattr(row, "size")),
+                    aggressor_side=aggressor_side,
+                    trade_id=TradeId(str(getattr(row, "trade_id"))),
+                    ts_event=int(getattr(row, "ts_event")),
+                    ts_init=int(getattr(row, "ts_init")),
+                )
+            )
+        records.sort(key=lambda trade: (int(trade.ts_event), int(trade.ts_init)))
+        return tuple(records)
+
     @staticmethod
     def _deltas_records_to_table(records: Sequence[OrderBookDeltas]) -> pa.Table:
         event_indexes: list[int] = []
@@ -1542,7 +1857,7 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
 
     @staticmethod
     def _column_to_ns(column: pd.Series, column_name: str) -> np.ndarray:
-        if column_name == "timestamp_us":
+        if column_name.endswith("_us"):
             return column.to_numpy(dtype="int64") * 1_000
         if column_name == "timestamp_ms":
             numeric = pd.to_numeric(column, errors="coerce")
@@ -1788,6 +2103,369 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
 
         events.sort(key=lambda record: int(record.ts_event))
         return events
+
+    @staticmethod
+    def _optional_column(frame: pd.DataFrame, names: Sequence[str]) -> str | None:
+        for name in names:
+            if name in frame.columns:
+                return name
+        return None
+
+    @staticmethod
+    def _aggressor_side_from_value(value: object) -> AggressorSide:
+        normalized = str(value or "").strip().casefold().replace("-", "_")
+        if normalized in {"buy", "buyer", "bid", "bidder", "taker_buy", "buying"}:
+            return AggressorSide.BUYER
+        if normalized in {"sell", "seller", "ask", "offer", "taker_sell", "selling"}:
+            return AggressorSide.SELLER
+        return AggressorSide.NO_AGGRESSOR
+
+    def _onchain_fill_trade_ticks_from_frame(
+        self,
+        frame: pd.DataFrame,
+        *,
+        start: pd.Timestamp,
+        end: pd.Timestamp,
+    ) -> list[TradeTick]:
+        if frame.empty:
+            return []
+
+        timestamp_column = self._first_present_column(
+            frame,
+            (
+                "timestamp_us",
+                "block_timestamp_us",
+                "timestamp_ms",
+                "timestamp",
+                "block_timestamp",
+                "time",
+                "local_timestamp_us",
+            ),
+            label="onchain fills",
+        )
+        price_column = self._first_present_column(
+            frame,
+            ("price", "fill_price", "matched_price", "px", "price_usdc"),
+            label="onchain fills",
+        )
+        size_column = self._first_present_column(
+            frame,
+            ("size", "quantity", "amount", "shares", "fill_size", "matched_size"),
+            label="onchain fills",
+        )
+        side_column = self._optional_column(
+            frame, ("side", "taker_side", "aggressor_side", "trader_side")
+        )
+        id_column = self._optional_column(
+            frame,
+            (
+                "transaction_hash",
+                "transactionHash",
+                "tx_hash",
+                "tx",
+                "hash",
+                "trade_id",
+                "id",
+            ),
+        )
+
+        start_ns = int(self._normalize_to_utc(start).value)
+        end_ns = int(self._normalize_to_utc(end).value)
+        ts_ns = self._column_to_ns(frame[timestamp_column], timestamp_column)
+        mask = (ts_ns >= start_ns) & (ts_ns <= end_ns)
+        if not mask.any():
+            return []
+
+        ns_values = ts_ns[mask]
+        price_values = frame[price_column].to_numpy()[mask]
+        size_values = frame[size_column].to_numpy()[mask]
+        side_values = frame[side_column].to_numpy()[mask] if side_column is not None else None
+        id_values = frame[id_column].to_numpy()[mask] if id_column is not None else None
+        order = np.argsort(ns_values, kind="stable")
+
+        make_price = self.instrument.make_price
+        make_qty = self.instrument.make_qty
+        instrument_id = self.instrument.id
+        token_suffix = str(getattr(self, "token_id", "") or "")[-4:]
+        timestamp_counts: dict[int, int] = {}
+        trade_id_counts: dict[str, int] = {}
+        trades: list[TradeTick] = []
+
+        for sorted_index, idx in enumerate(order):
+            raw_price = price_values[idx]
+            raw_size = size_values[idx]
+            if raw_price is None or raw_size is None:
+                continue
+            try:
+                price_float = float(raw_price)
+                size_float = float(raw_size)
+            except (TypeError, ValueError):
+                continue
+            if not (0.0 < price_float < 1.0) or size_float <= 0.0:
+                continue
+
+            base_ts_event = int(ns_values[idx])
+            occurrence_in_timestamp = timestamp_counts.get(base_ts_event, 0)
+            timestamp_counts[base_ts_event] = occurrence_in_timestamp + 1
+            ts_event = base_ts_event + min(occurrence_in_timestamp, 999)
+
+            if side_values is None:
+                aggressor_side = AggressorSide.NO_AGGRESSOR
+            else:
+                aggressor_side = self._aggressor_side_from_value(side_values[idx])
+
+            if id_values is None:
+                raw_id = f"telonex-{base_ts_event}-{sorted_index}"
+            else:
+                raw_id = str(id_values[idx])
+            raw_id = raw_id if raw_id and raw_id.casefold() != "nan" else f"telonex-{base_ts_event}"
+            sequence = trade_id_counts.get(raw_id, 0)
+            trade_id_counts[raw_id] = sequence + 1
+            id_suffix = raw_id[-24:]
+            if token_suffix:
+                trade_id = f"{id_suffix}-{token_suffix}-{sequence:06d}"
+            else:
+                trade_id = f"{id_suffix}-{sequence:06d}"
+
+            trades.append(
+                TradeTick(
+                    instrument_id=instrument_id,
+                    price=make_price(raw_price),
+                    size=make_qty(raw_size),
+                    aggressor_side=aggressor_side,
+                    trade_id=TradeId(trade_id),
+                    ts_event=ts_event,
+                    ts_init=ts_event,
+                )
+            )
+
+        trades.sort(key=lambda trade: (int(trade.ts_event), int(trade.ts_init)))
+        return trades
+
+    def _empty_local_blob_day_frame(
+        self,
+        *,
+        entry: TelonexSourceEntry,
+        channel: str,
+        date: str,
+        market_slug: str,
+        token_index: int,
+        outcome: str | None,
+    ) -> pd.DataFrame | None:
+        assert entry.target is not None
+        blob_root = self._local_blob_root(Path(entry.target).expanduser())
+        if blob_root is None:
+            return None
+        row_count = self._manifest_completed_row_count(
+            store_root=blob_root,
+            channel=channel,
+            market_slug=market_slug,
+            token_index=token_index,
+            outcome=outcome,
+            date=date,
+        )
+        if row_count == 0 or (
+            row_count is None
+            and self._manifest_empty_day_exists(
+                store_root=blob_root,
+                channel=channel,
+                market_slug=market_slug,
+                token_index=token_index,
+                outcome=outcome,
+                date=date,
+            )
+        ):
+            return pd.DataFrame()
+        return None
+
+    def _parse_telonex_trade_frame(
+        self,
+        frame: pd.DataFrame,
+        *,
+        channel: str,
+        source: str,
+        start: pd.Timestamp,
+        end: pd.Timestamp,
+        market_slug: str,
+        token_index: int,
+    ) -> tuple[TradeTick, ...] | None:
+        try:
+            trades = self._onchain_fill_trade_ticks_from_frame(frame, start=start, end=end)
+        except (TypeError, ValueError) as exc:
+            warnings.warn(
+                f"Telonex: source {source} returned unusable {channel} trade data "
+                f"({market_slug}/{token_index}): {exc}; trying next source.",
+                stacklevel=2,
+            )
+            return None
+        if not trades:
+            return None
+        self._telonex_last_trade_source = source
+        return tuple(trades)
+
+    def load_telonex_onchain_fill_ticks(
+        self,
+        start: pd.Timestamp,
+        end: pd.Timestamp,
+        *,
+        market_slug: str | None = None,
+        token_index: int | None = None,
+        outcome: str | None = None,
+    ) -> tuple[TradeTick, ...] | None:
+        """Load Telonex trade data for execution matching.
+
+        Returns ``None`` when configured Telonex fill sources cannot provide
+        non-empty execution ticks for the requested day/window, allowing the
+        caller to fall back to Polymarket's public trades API. Empty Telonex
+        local/API fill results are not treated as authoritative because another
+        Telonex trade channel or the public trade feed can still contain
+        execution prints for the same day.
+        """
+        self._telonex_last_trade_source = None
+        resolved_market_slug = market_slug or getattr(self, "_telonex_market_slug", None)
+        if not resolved_market_slug:
+            return None
+        resolved_token_index = (
+            int(token_index)
+            if token_index is not None
+            else int(getattr(self, "_telonex_token_index", 0))
+        )
+        resolved_outcome = (
+            outcome
+            if outcome is not None
+            else getattr(self, "_telonex_outcome", None)
+            or str(self.instrument.outcome or "")
+            or None
+        )
+
+        start_utc = self._normalize_to_utc(start)
+        end_utc = self._normalize_to_utc(end)
+        dates = self._date_range(start_utc, end_utc)
+        if len(dates) != 1:
+            return None
+        date = dates[0]
+        day_window = self._day_window(date, start=start_utc, end=end_utc)
+        if day_window is None:
+            return ()
+        day_start, day_end = day_window
+
+        config = self._config()
+
+        for channel in _TELONEX_TRADE_TICK_CHANNELS:
+            cached_trades, cached_source = self._load_trade_ticks_cache_day(
+                channel=channel,
+                date=date,
+                market_slug=str(resolved_market_slug),
+                token_index=resolved_token_index,
+                outcome=resolved_outcome,
+                start=day_start,
+                end=day_end,
+            )
+            if cached_trades is not None:
+                self._telonex_last_trade_source = cached_source
+                return cached_trades
+
+        api_entries = [
+            entry for entry in config.ordered_source_entries if entry.kind == _TELONEX_SOURCE_API
+        ]
+        for channel in _TELONEX_TRADE_TICK_CHANNELS:
+            for entry in api_entries:
+                assert entry.target is not None
+                frame, source = self._load_api_day_cached(
+                    base_url=entry.target,
+                    channel=channel,
+                    date=date,
+                    market_slug=str(resolved_market_slug),
+                    token_index=resolved_token_index,
+                    outcome=resolved_outcome,
+                )
+                if frame is None:
+                    continue
+                parsed = self._parse_telonex_trade_frame(
+                    frame,
+                    channel=channel,
+                    source=source,
+                    start=day_start,
+                    end=day_end,
+                    market_slug=str(resolved_market_slug),
+                    token_index=resolved_token_index,
+                )
+                if parsed is not None:
+                    self._write_trade_ticks_cache_day(
+                        records=parsed,
+                        channel=channel,
+                        date=date,
+                        market_slug=str(resolved_market_slug),
+                        token_index=resolved_token_index,
+                        outcome=resolved_outcome,
+                        start=day_start,
+                        end=day_end,
+                    )
+                    return parsed
+
+        range_cache: dict[Path, pd.DataFrame | None] = {}
+        for entry in config.ordered_source_entries:
+            for channel in _TELONEX_TRADE_TICK_CHANNELS:
+                if entry.kind == _TELONEX_SOURCE_LOCAL:
+                    frame = self._try_load_day_from_local(
+                        entry=entry,
+                        channel=channel,
+                        date=date,
+                        market_slug=str(resolved_market_slug),
+                        token_index=resolved_token_index,
+                        outcome=resolved_outcome,
+                        start=day_start,
+                        end=day_end,
+                        range_cache=range_cache,
+                    )
+                    if frame is None:
+                        frame = self._empty_local_blob_day_frame(
+                            entry=entry,
+                            channel=channel,
+                            date=date,
+                            market_slug=str(resolved_market_slug),
+                            token_index=resolved_token_index,
+                            outcome=resolved_outcome,
+                        )
+                    source = (
+                        f"telonex-local-trades::{entry.target}"
+                        if channel == TELONEX_TRADES_CHANNEL
+                        else f"telonex-local::{entry.target}"
+                    )
+                else:
+                    frame, source = self._try_load_day_from_api_entry(
+                        entry=entry,
+                        channel=channel,
+                        date=date,
+                        market_slug=str(resolved_market_slug),
+                        token_index=resolved_token_index,
+                        outcome=resolved_outcome,
+                    )
+                if frame is None:
+                    continue
+                parsed = self._parse_telonex_trade_frame(
+                    frame,
+                    channel=channel,
+                    source=source,
+                    start=day_start,
+                    end=day_end,
+                    market_slug=str(resolved_market_slug),
+                    token_index=resolved_token_index,
+                )
+                if parsed is not None:
+                    self._write_trade_ticks_cache_day(
+                        records=parsed,
+                        channel=channel,
+                        date=date,
+                        market_slug=str(resolved_market_slug),
+                        token_index=resolved_token_index,
+                        outcome=resolved_outcome,
+                        start=day_start,
+                        end=day_end,
+                    )
+                    return parsed
+
+        return None
 
     def _try_load_range_from_local(
         self,
@@ -2210,7 +2888,9 @@ __all__ = [
     "TELONEX_CHANNEL_ENV",
     "TELONEX_FULL_BOOK_CHANNEL",
     "TELONEX_LOCAL_DIR_ENV",
+    "TELONEX_ONCHAIN_FILLS_CHANNEL",
     "TELONEX_PREFETCH_WORKERS_ENV",
+    "TELONEX_TRADES_CHANNEL",
     "RunnerPolymarketTelonexBookDataLoader",
     "TelonexDataSourceSelection",
     "TelonexLoaderConfig",
