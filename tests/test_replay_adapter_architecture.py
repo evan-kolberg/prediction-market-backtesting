@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import warnings
 from contextlib import nullcontext
 from dataclasses import dataclass
 from types import SimpleNamespace
@@ -203,4 +204,151 @@ def test_trade_tick_loader_reports_api_and_cache_progress(
 
     assert cached_trades == ()
     assert loader.calls == 1
-    assert "cache 2026-01-19.parquet" in cached_output
+    assert "polymarket cache 2026-01-19.parquet" in cached_output
+
+
+def test_trade_tick_loader_fails_when_polymarket_offset_ceiling_is_final_fallback(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    class FakeCeilingLoader:
+        condition_id = "0xcondition"
+        token_id = "token"
+        instrument = SimpleNamespace()
+
+        async def load_trades(self, start, end):  # type: ignore[no-untyped-def]
+            del start, end
+            warnings.warn(
+                "Polymarket public trades API hit its historical offset ceiling. "
+                "Returning the trades fetched before the ceiling.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+            return []
+
+    loader = FakeCeilingLoader()
+    monkeypatch.setattr(replay_adapters, "_cache_home", lambda: tmp_path)
+    cache_path = (
+        tmp_path
+        / "nautilus_trader"
+        / "polymarket_trades"
+        / loader.condition_id
+        / loader.token_id
+        / "2026-01-19.parquet"
+    )
+
+    with pytest.raises(RuntimeError, match="historical offset ceiling"):
+        asyncio.run(
+            replay_adapters._load_trade_ticks(
+                loader,
+                start=pd.Timestamp("2026-01-19T00:00:00Z"),
+                end=pd.Timestamp("2026-01-19T23:59:59Z"),
+                market_label="demo-market",
+            )
+        )
+
+    assert not cache_path.exists()
+
+
+def test_trade_tick_loader_falls_through_when_telonex_onchain_fills_empty(
+    monkeypatch: pytest.MonkeyPatch, tmp_path, capsys
+) -> None:
+    class FakeTelonexLoader:
+        condition_id = "0xcondition"
+        token_id = "token"
+        instrument = SimpleNamespace()
+
+        def __init__(self) -> None:
+            self.telonex_calls = 0
+            self.polymarket_calls = 0
+            self._telonex_last_trade_source = "telonex-local::/tmp/telonex"
+
+        def load_telonex_onchain_fill_ticks(self, start, end):  # type: ignore[no-untyped-def]
+            del start, end
+            self.telonex_calls += 1
+            return ()
+
+        async def load_trades(self, start, end):  # type: ignore[no-untyped-def]
+            del start, end
+            self.polymarket_calls += 1
+            return []
+
+    loader = FakeTelonexLoader()
+    monkeypatch.setattr(replay_adapters, "_cache_home", lambda: tmp_path)
+    cache_path = (
+        tmp_path
+        / "nautilus_trader"
+        / "polymarket_trades"
+        / loader.condition_id
+        / loader.token_id
+        / "2026-01-19.parquet"
+    )
+    cache_path.parent.mkdir(parents=True)
+    pd.DataFrame(
+        columns=["price", "size", "aggressor_side", "trade_id", "ts_event", "ts_init"]
+    ).to_parquet(cache_path, index=False)
+
+    trades = asyncio.run(
+        replay_adapters._load_trade_ticks(
+            loader,
+            start=pd.Timestamp("2026-01-19T00:00:00Z"),
+            end=pd.Timestamp("2026-01-19T23:59:59Z"),
+            market_label="demo-market",
+        )
+    )
+    output = capsys.readouterr().out
+
+    assert trades == ()
+    assert loader.telonex_calls == 1
+    assert loader.polymarket_calls == 0
+    assert "polymarket cache 2026-01-19.parquet" in output
+    assert "telonex local" not in output
+    assert "telonex-local::/tmp/telonex" not in output
+
+
+def test_trade_progress_labels_telonex_materialized_trade_cache(tmp_path, capsys) -> None:
+    cache_path = tmp_path / "onchain_fills" / "2026-01-19.1-2.parquet"
+
+    replay_adapters._print_trade_progress_line(
+        day=pd.Timestamp("2026-01-19T00:00:00Z"),
+        elapsed_secs=0.123,
+        rows=4,
+        source=f"telonex-trade-cache::{cache_path}",
+    )
+    output = capsys.readouterr().out
+
+    assert "telonex onchain_fills cache 2026-01-19.1-2.parquet" in output
+
+
+def test_trade_progress_labels_telonex_trade_channels(tmp_path, capsys) -> None:
+    replay_adapters._print_trade_progress_line(
+        day=pd.Timestamp("2026-01-19T00:00:00Z"),
+        elapsed_secs=0.123,
+        rows=4,
+        source=f"telonex-local::{tmp_path}",
+    )
+    replay_adapters._print_trade_progress_line(
+        day=pd.Timestamp("2026-01-19T00:00:00Z"),
+        elapsed_secs=0.123,
+        rows=4,
+        source=f"telonex-local-trades::{tmp_path}",
+    )
+    replay_adapters._print_trade_progress_line(
+        day=pd.Timestamp("2026-01-20T00:00:00Z"),
+        elapsed_secs=0.123,
+        rows=5,
+        source=(
+            "telonex-api::https://api.telonex.io/v1/downloads/polymarket/onchain_fills/2026-01-20"
+        ),
+    )
+    replay_adapters._print_trade_progress_line(
+        day=pd.Timestamp("2026-01-20T00:00:00Z"),
+        elapsed_secs=0.123,
+        rows=5,
+        source="telonex-api::https://api.telonex.io/v1/downloads/polymarket/trades/2026-01-20",
+    )
+    output = capsys.readouterr().out
+
+    assert "telonex local onchain_fills" in output
+    assert "telonex local trades" in output
+    assert "telonex api onchain_fills" in output
+    assert "telonex api trades" in output

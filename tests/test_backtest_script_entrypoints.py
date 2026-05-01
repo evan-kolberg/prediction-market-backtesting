@@ -370,8 +370,18 @@ def test_telonex_book_joint_runners_build_inline_summary_contract(
     assert experiment.data.data_type == "book"
     assert experiment.data.vendor == "telonex"
     assert experiment.data.sources == (
-        "local:/Volumes/LaCie/telonex_data",
+        "local:/Users/evankolberg/Downloads/temp",
         "api:${TELONEX_API_KEY}",
+    )
+    assert len(experiment.replays) == 10
+    assert experiment.replays[0].market_slug == "will-the-iranian-regime-fall-by-may-31"
+    assert experiment.replays[-1].market_slug == "will-china-invade-taiwan-before-2027"
+    assert all("btc-updown-5m" not in replay.market_slug for replay in experiment.replays)
+    assert all(replay.start_time == "2026-04-28T00:00:00Z" for replay in experiment.replays)
+    assert all(replay.end_time == "2026-04-30T23:59:59Z" for replay in experiment.replays)
+    assert all(
+        replay.metadata["market_close_time_ns"] == 1777593599000000000
+        for replay in experiment.replays
     )
     assert "test-telonex-key" not in repr(experiment)
     assert experiment.report.summary_report is True
@@ -386,7 +396,7 @@ def test_telonex_book_joint_runners_build_inline_summary_contract(
         "strategies:BookMicropriceImbalanceConfig"
     )
     assert experiment.strategy_configs[0]["config"]["entry_imbalance"] == 0.62
-    assert experiment.strategy_configs[0]["config"]["max_entry_price"] == 0.20
+    assert experiment.strategy_configs[0]["config"]["max_entry_price"] == 0.95
     assert "yes_price" in experiment.report.summary_plot_panels
     assert "allocation" in experiment.report.summary_plot_panels
     assert experiment.return_summary_series is True
@@ -400,7 +410,7 @@ def test_telonex_book_joint_runners_do_not_embed_empty_api_key(
     experiment = _capture_script_experiment(monkeypatch, relative_path)
 
     assert experiment.data.sources == (
-        "local:/Volumes/LaCie/telonex_data",
+        "local:/Users/evankolberg/Downloads/temp",
         "api:${TELONEX_API_KEY}",
     )
     assert "api:" in experiment.data.sources[1]

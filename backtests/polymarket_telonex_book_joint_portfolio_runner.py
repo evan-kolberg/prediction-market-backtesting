@@ -43,53 +43,118 @@ def run() -> None:
         run_experiment(
             build_replay_experiment(
                 name="polymarket_telonex_book_joint_portfolio_runner",
-                description="Joint-portfolio Telonex book backtest using varied historical replays",
+                description="Joint-portfolio Telonex book backtest over regular multi-day markets",
                 data=MarketDataConfig(
                     platform=Polymarket,
                     data_type=Book,
                     vendor=Telonex,
                     sources=(
-                        "local:/Volumes/LaCie/telonex_data",
+                        "local:/Users/evankolberg/Downloads/temp",
                         "api:${TELONEX_API_KEY}",
                     ),
                 ),
                 replays=(
                     BookReplay(
-                        market_slug="human-moon-landing-in-2026",
+                        market_slug="will-the-iranian-regime-fall-by-may-31",
                         token_index=0,
-                        start_time="2026-03-01T00:00:00Z",
-                        end_time="2026-04-11T23:59:59Z",
-                        metadata={"sim_label": "moon-landing-2026"},
+                        start_time="2026-04-28T00:00:00Z",
+                        end_time="2026-04-30T23:59:59Z",
+                        metadata={
+                            "sim_label": "will-the-iranian-regime-fall-by-may-31",
+                            "market_close_time_ns": 1777593599000000000,
+                        },
                     ),
                     BookReplay(
-                        market_slug="new-coronavirus-pandemic-in-2026",
+                        market_slug="us-x-iran-permanent-peace-deal-by-may-15-2026",
                         token_index=0,
-                        start_time="2026-03-01T00:00:00Z",
-                        end_time="2026-04-11T23:59:59Z",
-                        metadata={"sim_label": "coronavirus-pandemic-2026"},
+                        start_time="2026-04-28T00:00:00Z",
+                        end_time="2026-04-30T23:59:59Z",
+                        metadata={
+                            "sim_label": "us-x-iran-permanent-peace-deal-by-may-15-2026",
+                            "market_close_time_ns": 1777593599000000000,
+                        },
                     ),
                     BookReplay(
-                        market_slug=(
-                            "will-openais-market-cap-be-between-750b-and-1t-at-market-close-on-ipo-day"
-                        ),
+                        market_slug="us-x-iran-permanent-peace-deal-by-may-31-2026-333-871",
                         token_index=0,
-                        start_time="2026-03-01T00:00:00Z",
-                        end_time="2026-04-11T23:59:59Z",
-                        metadata={"sim_label": "openai-ipo-market-cap-750b-1t"},
+                        start_time="2026-04-28T00:00:00Z",
+                        end_time="2026-04-30T23:59:59Z",
+                        metadata={
+                            "sim_label": ("us-x-iran-permanent-peace-deal-by-may-31-2026-333-871"),
+                            "market_close_time_ns": 1777593599000000000,
+                        },
                     ),
                     BookReplay(
-                        market_slug="okx-ipo-in-2026",
+                        market_slug="strait-of-hormuz-traffic-returns-to-normal-by-may-15",
                         token_index=0,
-                        start_time="2026-03-01T00:00:00Z",
-                        end_time="2026-04-11T23:59:59Z",
-                        metadata={"sim_label": "okx-ipo-2026"},
+                        start_time="2026-04-28T00:00:00Z",
+                        end_time="2026-04-30T23:59:59Z",
+                        metadata={
+                            "sim_label": "strait-of-hormuz-traffic-returns-to-normal-by-may-15",
+                            "market_close_time_ns": 1777593599000000000,
+                        },
                     ),
                     BookReplay(
-                        market_slug="nothing-ever-happens-2026",
+                        market_slug="russia-x-ukraine-ceasefire-by-may-31-2026",
                         token_index=0,
-                        start_time="2026-03-01T00:00:00Z",
-                        end_time="2026-04-11T23:59:59Z",
-                        metadata={"sim_label": "nothing-ever-happens-2026"},
+                        start_time="2026-04-28T00:00:00Z",
+                        end_time="2026-04-30T23:59:59Z",
+                        metadata={
+                            "sim_label": "russia-x-ukraine-ceasefire-by-may-31-2026",
+                            "market_close_time_ns": 1777593599000000000,
+                        },
+                    ),
+                    BookReplay(
+                        market_slug="will-judy-shelton-be-confirmed-as-fed-chair",
+                        token_index=0,
+                        start_time="2026-04-28T00:00:00Z",
+                        end_time="2026-04-30T23:59:59Z",
+                        metadata={
+                            "sim_label": "will-judy-shelton-be-confirmed-as-fed-chair",
+                            "market_close_time_ns": 1777593599000000000,
+                        },
+                    ),
+                    BookReplay(
+                        market_slug="trump-out-as-president-by-june-30",
+                        token_index=0,
+                        start_time="2026-04-28T00:00:00Z",
+                        end_time="2026-04-30T23:59:59Z",
+                        metadata={
+                            "sim_label": "trump-out-as-president-by-june-30",
+                            "market_close_time_ns": 1777593599000000000,
+                        },
+                    ),
+                    BookReplay(
+                        market_slug="kharg-island-no-longer-under-iranian-control-by-may-31-689",
+                        token_index=0,
+                        start_time="2026-04-28T00:00:00Z",
+                        end_time="2026-04-30T23:59:59Z",
+                        metadata={
+                            "sim_label": (
+                                "kharg-island-no-longer-under-iranian-control-by-may-31-689"
+                            ),
+                            "market_close_time_ns": 1777593599000000000,
+                        },
+                    ),
+                    BookReplay(
+                        market_slug="will-the-us-invade-iran-before-2027",
+                        token_index=0,
+                        start_time="2026-04-28T00:00:00Z",
+                        end_time="2026-04-30T23:59:59Z",
+                        metadata={
+                            "sim_label": "will-the-us-invade-iran-before-2027",
+                            "market_close_time_ns": 1777593599000000000,
+                        },
+                    ),
+                    BookReplay(
+                        market_slug="will-china-invade-taiwan-before-2027",
+                        token_index=0,
+                        start_time="2026-04-28T00:00:00Z",
+                        end_time="2026-04-30T23:59:59Z",
+                        metadata={
+                            "sim_label": "will-china-invade-taiwan-before-2027",
+                            "market_close_time_ns": 1777593599000000000,
+                        },
                     ),
                 ),
                 strategy_configs=[
@@ -102,13 +167,13 @@ def run() -> None:
                             "entry_imbalance": 0.62,
                             "exit_imbalance": 0.48,
                             "min_microprice_edge": 0.0015,
-                            "max_spread": 0.04,
-                            "max_entry_price": 0.20,
-                            "max_expected_slippage": 0.01,
+                            "max_spread": 0.08,
+                            "max_entry_price": 0.95,
+                            "max_expected_slippage": 0.02,
                             "min_holding_updates": 0,
                             "reentry_cooldown_updates": 0,
-                            "min_holding_seconds": 900.0,
-                            "reentry_cooldown_seconds": 1_800.0,
+                            "min_holding_seconds": 30.0,
+                            "reentry_cooldown_seconds": 60.0,
                             "take_profit": 0.02,
                             "stop_loss": 0.025,
                         },
@@ -116,8 +181,8 @@ def run() -> None:
                 ],
                 initial_cash=100.0,
                 probability_window=30,
-                min_book_events=500,
-                min_price_range=0.005,
+                min_book_events=25,
+                min_price_range=0.0,
                 execution=ExecutionModelConfig(
                     queue_position=True,
                     latency_model=StaticLatencyConfig(

@@ -71,14 +71,17 @@ MarketDataConfig(
 
 The effective lookup order for converted replay records is:
 
-1. Telonex materialized `OrderBookDeltas` cache under `book-deltas-v1`.
-2. Explicit entries in `MarketDataConfig.sources`, left to right. API-day
-   cache is consulted only when an API entry is reached.
+1. Telonex materialized replay caches under `book-deltas-v1` and
+   `trade-ticks-v1`.
+2. Explicit entries in `MarketDataConfig.sources`, left to right.
+3. For execution trade ticks only, Polymarket's public trades cache/API remains
+   the final fallback after Telonex local/API misses.
 
 The `Telonex source:` line shows that implicit cache layer:
 
 ```text
-Telonex source: explicit priority (cache -> local /Volumes/LaCie/telonex_data -> api https://api.telonex.io (key set))
+Telonex book source: explicit priority (cache -> local /Volumes/LaCie/telonex_data -> api https://api.telonex.io (key set))
+Telonex trade source: explicit priority (cache -> local /Volumes/LaCie/telonex_data -> api https://api.telonex.io (key set) -> polymarket cache -> api https://data-api.polymarket.com/trades)
 ```
 
 Local reads use the DuckDB manifest when present. The manifest maps requested
@@ -94,9 +97,15 @@ stores `bid_prices`, `bid_sizes`, `ask_prices`, and `ask_sizes` as
 list-of-struct pandas decoding.
 
 After any raw/cache/local/API day is converted to `OrderBookDeltas`, the loader
-writes a materialized deltas parquet. Repeated runs for the same market, token,
-instrument id, day, and clipped window report `telonex deltas cache ...` and
-skip full-book snapshot diffing.
+writes a materialized replay parquet. Non-empty Telonex `onchain_fills` or
+`trades` days are also materialized as `TradeTick`s. Empty Telonex onchain-fill
+results are not terminal for execution matching; the loader continues to
+Telonex `trades` and then Polymarket's public trade fallback before deciding a
+day has no trade ticks. Repeated runs for the same market, token, instrument id,
+day, and clipped window report `telonex deltas cache ...` or
+`telonex onchain_fills cache ...` / `telonex trades cache ...` and skip
+local/API decoding. Local/API trade-tick labels also include the exact Telonex
+channel, such as `telonex local onchain_fills` or `telonex local trades`.
 
 ## Timing Expectations By Source
 
@@ -106,6 +115,7 @@ skip full-book snapshot diffing.
 | Local PMXT raw archive | Local disk bound; scans full raw hour then filters to market/token | Hour is missing from filtered cache but exists in `local:/...` |
 | Remote PMXT raw archive | Network and full-hour parquet bound | Hour is missing locally and archive fallback is configured |
 | Telonex deltas cache | Fastest Telonex path; materialized Nautilus `OrderBookDeltas` | Same market/token/day/window was already converted once |
+| Telonex materialized trade-tick cache | Fastest Telonex execution path; materialized Nautilus `TradeTick`s | Same market/token/day/window Telonex fills or trades were already converted once |
 | Telonex fast API cache | Local disk bound; avoids nested payload materialization | API day was previously downloaded and sidecar exists or was lazily migrated |
 | Local Telonex mirror | Local disk bound; manifest-pruned parquet parts | `/Volumes/LaCie/telonex_data` has the requested full-book day |
 | Telonex API | Network and daily parquet bound | Cache/local mirror misses and `TELONEX_API_KEY` is available |

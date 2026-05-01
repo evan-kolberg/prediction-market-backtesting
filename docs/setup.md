@@ -103,7 +103,7 @@ Mirror a small Telonex window:
 TELONEX_API_KEY=... make download-telonex-data TELONEX_DOWNLOAD_FLAGS='\
   --market-slug us-recession-by-end-of-2026 \
   --outcome-id 0 \
-  --channels book_snapshot_full \
+  --channels book_snapshot_full onchain_fills trades \
   --start-date 2026-01-19 \
   --end-date 2026-02-01'
 ```
@@ -114,15 +114,17 @@ Mirror Telonex full-book data for all markets:
 uv run python scripts/telonex_download_data.py \
   --destination /Volumes/LaCie/telonex_data \
   --all-markets \
-  --channels book_snapshot_full
+  --channels book_snapshot_full onchain_fills trades
 ```
 
 Add `--max-days 100` to run a bounded post-resume smoke test before starting a
 full mirror.
 
-`book_snapshot_full` is the canonical Telonex book channel. The public Telonex
-runner reads `local:/Volumes/LaCie/telonex_data` first, then includes
-`api:${TELONEX_API_KEY}` as a runtime-expanded API fallback.
+`book_snapshot_full` is the canonical Telonex book channel. `onchain_fills` is
+the preferred execution-tick source, and `trades` covers days where the
+onchain-fill parquet is absent or empty before falling back to Polymarket's
+public trade API. Telonex runner sources should list the intended local mirror
+first, then include `api:${TELONEX_API_KEY}` as a runtime-expanded API fallback.
 
 The Telonex downloader writes Hive-partitioned parquet files under
 `<destination>/data/` and a DuckDB manifest at `<destination>/telonex.duckdb`.
@@ -162,10 +164,18 @@ Throughput and memory controls:
 - Telonex warm cache reads prefer `.fast.parquet` sidecars to avoid slow nested
   list-of-struct decoding.
 - Telonex replay also materializes converted `OrderBookDeltas` under
-  `book-deltas-v1`; repeated backtests can skip full-snapshot diffing entirely
-  and report `telonex deltas cache` in timing output.
-- `make clear-telonex-cache` clears only the Telonex API-day cache and refuses
-  configured local data stores.
+  `book-deltas-v1` and non-empty converted execution `TradeTick`s under
+  `trade-ticks-v1`; repeated backtests can skip local/API decoding and report
+  `telonex deltas cache`, `telonex onchain_fills cache`, or
+  `telonex trades cache` in timing output. Trade-tick source labels include the
+  exact Telonex channel, such as `telonex local onchain_fills` or
+  `telonex local trades`. Empty Telonex onchain-fill days continue to Telonex
+  `trades`, then the Polymarket trade fallback.
+- `make clear-telonex-cache` clears Telonex API-day and materialized replay
+  caches, and refuses configured local data stores.
+- `make clear-polymarket-cache` clears the Polymarket public trade-tick cache
+  under `~/.cache/nautilus_trader/polymarket_trades`; Telonex cache clearing
+  does not remove those fallback trade files.
 
 ## Extension Architecture
 

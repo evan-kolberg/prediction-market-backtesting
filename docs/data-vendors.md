@@ -169,8 +169,14 @@ constructs typed prices and quantities.
 
 Telonex is a Polymarket full-book snapshot vendor path. Public Telonex runners
 use `data_type=Book`, `vendor=Telonex`, and the `book_snapshot_full` channel.
-They read the local mirror first, then include an `api:${TELONEX_API_KEY}`
-fallback whose key is expanded by the loader at runtime.
+Execution trade ticks are loaded from Telonex materialized cache first, then the
+configured Telonex sources in order. Within each Telonex source, the loader
+tries `onchain_fills` before `trades`; Polymarket's public trade API is only the
+final fallback. Public runners list the local mirror first, then include an
+`api:${TELONEX_API_KEY}` fallback whose key is expanded by the loader at
+runtime. Empty Telonex onchain-fill days are not treated as proof that no
+execution prints exist; the loader keeps falling through to Telonex `trades`
+and then Polymarket before returning a zero-trade day.
 
 Telonex source syntax:
 
@@ -181,7 +187,7 @@ Telonex source syntax:
 The API path reads the key from `TELONEX_API_KEY` unless a private runner source
 provides an explicit `api:<key>` value. Do not commit private keys.
 
-API-day downloads are cached by default at:
+Telonex caches are stored by default at:
 
 ```text
 ~/.cache/nautilus_trader/telonex
@@ -195,22 +201,25 @@ Each cached API day has two forms:
 
 The fast sidecar preserves price and size strings while avoiding expensive
 pandas materialization of nested list-of-struct columns. If a raw cache file is
-encountered without a sidecar, the loader migrates it lazily. The API-day cache
-is consulted only when an `api:` source is reached, so a `local:` mirror listed
-first still has priority over a stale API cache hit.
+encountered without a sidecar, the loader migrates it lazily.
 
 Replay conversion has a separate materialized cache under:
 
 ```text
 ~/.cache/nautilus_trader/telonex/book-deltas-v1
+~/.cache/nautilus_trader/telonex/trade-ticks-v1
 ```
 
-That cache stores Nautilus `OrderBookDeltas` after full-book snapshots have
-already been diffed. It is keyed by exchange, channel, market slug, outcome,
+Those caches store Nautilus `OrderBookDeltas` after full-book snapshots have
+been converted and non-empty Nautilus `TradeTick`s after Telonex trade rows
+have been converted. They are keyed by exchange, channel, market slug, outcome,
 instrument id, day, and clipped replay window. Warm runs report
-`telonex deltas cache` and skip local/API snapshot decoding entirely.
+`telonex deltas cache`, `telonex onchain_fills cache`, or
+`telonex trades cache` and skip local/API decoding entirely. Execution
+trade-tick progress labels include the exact Telonex channel, for example
+`telonex local onchain_fills` or `telonex local trades`.
 
-Clear only the API cache with:
+Clear Telonex API and materialized replay caches with:
 
 ```bash
 make clear-telonex-cache
@@ -244,7 +253,7 @@ Small window:
 TELONEX_API_KEY=... make download-telonex-data TELONEX_DOWNLOAD_FLAGS='\
   --market-slug us-recession-by-end-of-2026 \
   --outcome-id 0 \
-  --channels book_snapshot_full \
+  --channels book_snapshot_full onchain_fills trades \
   --start-date 2026-01-19 \
   --end-date 2026-02-01'
 ```
@@ -255,13 +264,15 @@ Full Polymarket mirror:
 uv run python scripts/telonex_download_data.py \
   --destination /Volumes/LaCie/telonex_data \
   --all-markets \
-  --channels book_snapshot_full
+  --channels book_snapshot_full onchain_fills trades
 ```
 
 For a bounded smoke test of the all-market path, add `--max-days 100`; the cap
 is applied after manifest resume pruning.
 
-`book_snapshot_full` is the canonical book source. Do not download
+`book_snapshot_full` is the canonical book source. `onchain_fills` is the
+preferred execution-tick source for Telonex book replay, and `trades` fills in
+days where onchain-fill parquet is absent or empty. Do not download
 `book_snapshot_5` and `book_snapshot_25` unless you intentionally want the
 shallow vendor files too; they duplicate the same book-state family at lower
 depth.
