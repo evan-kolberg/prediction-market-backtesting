@@ -63,7 +63,7 @@ examples, warm the local full-book mirror first:
 
 ```bash
 TELONEX_API_KEY=... uv run python scripts/telonex_download_data.py \
-  --destination /Volumes/LaCie/telonex_data \
+  --destination /Volumes/storage/telonex_data \
   --all-markets \
   --channels book_snapshot_full
 ```

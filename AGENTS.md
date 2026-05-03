@@ -154,7 +154,7 @@ for each new market.
 - Public PMXT runners pin local raw first, then archive, usually:
 
 ```text
-local:/Volumes/LaCie/pmxt_raws
+local:/Volumes/storage/pmxt_data
 archive:r2v2.pmxt.dev
 archive:r2.pmxt.dev
 ```

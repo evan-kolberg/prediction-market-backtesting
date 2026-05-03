@@ -245,7 +245,7 @@ LoaderEvent(
     stage="fetch",
     vendor="pmxt",
     source_kind="local",
-    source="local:/Volumes/LaCie/pmxt_raws",
+    source="local:/Volumes/storage/pmxt_data",
     market_id="will-openais-market-cap...",
     token_id="...",
     window_start_ns=1772148680696317000,

@@ -722,6 +722,84 @@ def pmxt_payload_delta_rows(
     )
 
 
+def pmxt_fixed_delta_rows(
+    *,
+    event_type_columns: Sequence[Sequence[str]],
+    timestamp_ns_columns: Sequence[Sequence[int]],
+    asset_id_columns: Sequence[Sequence[str]],
+    bids_json_columns: Sequence[Sequence[object]],
+    asks_json_columns: Sequence[Sequence[object]],
+    price_columns: Sequence[Sequence[object]],
+    size_columns: Sequence[Sequence[object]],
+    side_columns: Sequence[Sequence[object]],
+    token_id: str,
+    start_ns: int,
+    end_ns: int,
+    has_snapshot: bool,
+    last_payload_key: tuple[int, int] | None,
+) -> (
+    tuple[
+        bool,
+        tuple[int, int] | None,
+        dict[str, list[object]],
+    ]
+    | None
+):
+    module = _extension_module()
+    if module is None:
+        return None
+    fixed_delta_rows = _required_native_function(module, "pmxt_fixed_delta_rows")
+    (
+        next_has_snapshot,
+        last_timestamp_ns,
+        last_priority,
+        event_index,
+        action,
+        side,
+        price,
+        size,
+        flags,
+        sequence,
+        ts_event,
+        ts_init,
+    ) = fixed_delta_rows(
+        event_type_columns,
+        timestamp_ns_columns,
+        asset_id_columns,
+        bids_json_columns,
+        asks_json_columns,
+        price_columns,
+        size_columns,
+        side_columns,
+        str(token_id),
+        int(start_ns),
+        int(end_ns),
+        bool(has_snapshot),
+        None if last_payload_key is None else int(last_payload_key[0]),
+        None if last_payload_key is None else int(last_payload_key[1]),
+    )
+    next_last_payload_key = (
+        None
+        if last_timestamp_ns is None or last_priority is None
+        else (int(last_timestamp_ns), int(last_priority))
+    )
+    return (
+        bool(next_has_snapshot),
+        next_last_payload_key,
+        {
+            "event_index": [int(value) for value in event_index],
+            "action": [int(value) for value in action],
+            "side": [int(value) for value in side],
+            "price": [float(value) for value in price],
+            "size": [float(value) for value in size],
+            "flags": [int(value) for value in flags],
+            "sequence": [int(value) for value in sequence],
+            "ts_event": [int(value) for value in ts_event],
+            "ts_init": [int(value) for value in ts_init],
+        },
+    )
+
+
 def polymarket_trade_sort_key(trade: Mapping[str, object]) -> tuple[int, str, str, str, str, str]:
     timestamp = int(trade["timestamp"])
     transaction_hash = str(trade.get("transactionHash", ""))
@@ -1140,6 +1218,7 @@ __all__ = [
     "float_seconds_to_ms_string",
     "native_available",
     "pmxt_archive_hours_for_window_ns",
+    "pmxt_fixed_delta_rows",
     "pmxt_payload_delta_rows",
     "pmxt_payload_sort_key",
     "pmxt_sort_payload_columns",

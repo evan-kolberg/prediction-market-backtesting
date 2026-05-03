@@ -161,7 +161,7 @@ Detailed guides have been filed away in the [docs index](https://evan-kolberg.gi
     - [What Works Today](https://evan-kolberg.github.io/prediction-market-backtesting/data-vendors/#what-works-today)
     - [Supported Local File Layout](https://evan-kolberg.github.io/prediction-market-backtesting/data-vendors/#supported-local-file-layout)
     - [Required Parquet Columns](https://evan-kolberg.github.io/prediction-market-backtesting/data-vendors/#required-parquet-columns)
-    - [Required JSON Payload Shape](https://evan-kolberg.github.io/prediction-market-backtesting/data-vendors/#required-json-payload-shape)
+    - [Legacy JSON Payload Shape](https://evan-kolberg.github.io/prediction-market-backtesting/data-vendors/#legacy-json-payload-shape)
   - [Telonex](https://evan-kolberg.github.io/prediction-market-backtesting/data-vendors/#telonex)
     - [Download Local Telonex Files](https://evan-kolberg.github.io/prediction-market-backtesting/data-vendors/#download-local-telonex-files)
   - [What Is Not Plug-And-Play Yet](https://evan-kolberg.github.io/prediction-market-backtesting/data-vendors/#what-is-not-plug-and-play-yet)

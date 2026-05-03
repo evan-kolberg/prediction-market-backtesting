@@ -44,6 +44,7 @@ from prediction_market_extensions._native import (
     fixed_raw_values,
     float_seconds_to_ms_string,
     pmxt_archive_hours_for_window_ns,
+    pmxt_fixed_delta_rows,
     pmxt_payload_delta_rows,
     pmxt_payload_sort_key,
     pmxt_sort_payload_columns,
@@ -97,6 +98,27 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
     _PMXT_BASE_URL = "https://r2v2.pmxt.dev"
     _PMXT_REMOTE_COLUMNS: ClassVar[list[str]] = ["market_id", "update_type", "data"]
     _PMXT_COLUMNS: ClassVar[list[str]] = ["update_type", "data"]
+    _PMXT_FIXED_RAW_REQUIRED_COLUMNS: ClassVar[set[str]] = {
+        "timestamp",
+        "market",
+        "event_type",
+        "asset_id",
+        "bids",
+        "asks",
+        "price",
+        "size",
+        "side",
+    }
+    _PMXT_FIXED_COLUMNS: ClassVar[list[str]] = [
+        "event_type",
+        "timestamp_ns",
+        "asset_id",
+        "bids",
+        "asks",
+        "price",
+        "size",
+        "side",
+    ]
     _PMXT_CACHE_DIR_ENV = "PMXT_CACHE_DIR"
     _PMXT_DISABLE_CACHE_ENV = "PMXT_DISABLE_CACHE"
     _PMXT_LOCAL_ARCHIVE_DIR_ENV = "PMXT_LOCAL_ARCHIVE_DIR"
@@ -353,7 +375,26 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
         )
 
     @classmethod
+    def _is_raw_payload_schema(cls, names: Sequence[str]) -> bool:
+        return {"market_id", "update_type", "data"}.issubset(set(names))
+
+    @classmethod
+    def _is_fixed_schema(cls, names: Sequence[str]) -> bool:
+        return set(cls._PMXT_FIXED_COLUMNS).issubset(set(names))
+
+    @classmethod
+    def _is_raw_fixed_schema(cls, names: Sequence[str]) -> bool:
+        return cls._PMXT_FIXED_RAW_REQUIRED_COLUMNS.issubset(set(names))
+
+    @classmethod
     def _to_market_batch(cls, batch: pa.RecordBatch) -> pa.RecordBatch:
+        if cls._is_fixed_schema(batch.schema.names):
+            if batch.schema.names == cls._PMXT_FIXED_COLUMNS:
+                return batch
+            return pa.RecordBatch.from_arrays(
+                [batch.column(name) for name in cls._PMXT_FIXED_COLUMNS],
+                names=cls._PMXT_FIXED_COLUMNS,
+            )
         if batch.schema.names == cls._PMXT_COLUMNS:
             return batch
         return pa.RecordBatch.from_arrays(
@@ -363,6 +404,11 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
     def _filter_batch_to_token(self, batch: pa.RecordBatch) -> pa.RecordBatch:
         if self.token_id is None or batch.num_rows == 0:
             return self._to_market_batch(batch)
+
+        if self._is_fixed_schema(batch.schema.names):
+            token_mask = pc.equal(batch.column("asset_id"), self.token_id)
+            token_mask = pc.fill_null(token_mask, False)
+            return self._to_market_batch(batch.filter(token_mask))
 
         token_mask = pc.match_substring_regex(
             batch.column("data"), rf'"token_id"\s*:\s*"{re.escape(self.token_id)}"'
@@ -376,14 +422,22 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
 
         filtered_batch = batch
         if self.condition_id is not None:
-            market_mask = pc.equal(filtered_batch.column("market_id"), self.condition_id)
-            market_mask = pc.fill_null(market_mask, False)
-            update_type_mask = pc.is_in(
-                filtered_batch.column("update_type"),
-                value_set=pa.array(["book_snapshot", "price_change"]),
-            )
-            update_type_mask = pc.fill_null(update_type_mask, False)
-            filtered_batch = filtered_batch.filter(pc.and_(market_mask, update_type_mask))
+            if self._is_raw_payload_schema(filtered_batch.schema.names):
+                market_mask = pc.equal(filtered_batch.column("market_id"), self.condition_id)
+                market_mask = pc.fill_null(market_mask, False)
+                update_type_mask = pc.is_in(
+                    filtered_batch.column("update_type"),
+                    value_set=pa.array(["book_snapshot", "price_change"]),
+                )
+                update_type_mask = pc.fill_null(update_type_mask, False)
+                filtered_batch = filtered_batch.filter(pc.and_(market_mask, update_type_mask))
+            elif self._is_fixed_schema(filtered_batch.schema.names):
+                event_type_mask = pc.is_in(
+                    filtered_batch.column("event_type"),
+                    value_set=pa.array(["book", "price_change"]),
+                )
+                event_type_mask = pc.fill_null(event_type_mask, False)
+                filtered_batch = filtered_batch.filter(event_type_mask)
 
         return self._filter_batch_to_token(filtered_batch)
 
@@ -394,7 +448,12 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
 
         try:
             dataset = ds.dataset(str(cache_path), format="parquet")
-            return dataset.scanner(columns=self._PMXT_COLUMNS).to_table()
+            columns = (
+                self._PMXT_FIXED_COLUMNS
+                if self._is_fixed_schema(dataset.schema.names)
+                else self._PMXT_COLUMNS
+            )
+            return dataset.scanner(columns=columns).to_table()
         except (OSError, ValueError, pa.ArrowException):
             cache_path.unlink(missing_ok=True)
             return None
@@ -406,7 +465,12 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
 
         try:
             dataset = ds.dataset(str(cache_path), format="parquet")
-            scanner = dataset.scanner(columns=self._PMXT_COLUMNS)
+            columns = (
+                self._PMXT_FIXED_COLUMNS
+                if self._is_fixed_schema(dataset.schema.names)
+                else self._PMXT_COLUMNS
+            )
+            scanner = dataset.scanner(columns=columns)
             return list(scanner.to_batches())
         except (OSError, ValueError, pa.ArrowException):
             cache_path.unlink(missing_ok=True)
@@ -500,18 +564,44 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
                 finished=False,
             )
 
-        query = (
-            "SELECT update_type, data FROM read_parquet(?) "
-            "WHERE market_id = ? "
-            "AND update_type IN ('book_snapshot', 'price_change')"
-        )
-        params: list[object] = [str(parquet_path), self.condition_id]
-        if self.token_id is not None:
-            query += " AND regexp_matches(data, ?)"
-            params.append(rf'"token_id"\s*:\s*"{re.escape(self.token_id)}"')
-
         connection = duckdb.connect(":memory:")
         try:
+            schema_rows = connection.execute(
+                "DESCRIBE SELECT * FROM read_parquet(?) LIMIT 0", [str(parquet_path)]
+            ).fetchall()
+            schema_names = {str(row[0]) for row in schema_rows}
+            if self._is_raw_fixed_schema(schema_names):
+                query = (
+                    "SELECT "
+                    "event_type, "
+                    "CAST(epoch_ns(timestamp) AS BIGINT) AS timestamp_ns, "
+                    "asset_id, "
+                    "bids, "
+                    "asks, "
+                    "CAST(price AS VARCHAR) AS price, "
+                    "CAST(size AS VARCHAR) AS size, "
+                    "side "
+                    "FROM read_parquet(?) "
+                    "WHERE decode(market) = ? "
+                    "AND event_type IN ('book', 'price_change')"
+                )
+                params: list[object] = [str(parquet_path), self.condition_id]
+                if self.token_id is not None:
+                    query += " AND asset_id = ?"
+                    params.append(self.token_id)
+            elif self._is_raw_payload_schema(schema_names):
+                query = (
+                    "SELECT update_type, data FROM read_parquet(?) "
+                    "WHERE market_id = ? "
+                    "AND update_type IN ('book_snapshot', 'price_change')"
+                )
+                params = [str(parquet_path), self.condition_id]
+                if self.token_id is not None:
+                    query += " AND regexp_matches(data, ?)"
+                    params.append(rf'"token_id"\s*:\s*"{re.escape(self.token_id)}"')
+            else:
+                return None
+
             table = connection.execute(query, params).to_arrow_table()
         finally:
             connection.close()
@@ -572,26 +662,25 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
             if not archive_path.exists():
                 continue
 
-            try:
-                dataset = ds.dataset(str(archive_path), format="parquet")
-            except (OSError, ValueError, pa.ArrowException):
-                continue
-
-            try:
-                return self._scan_raw_market_batches(
-                    dataset,
-                    batch_size=batch_size,
-                    source=str(archive_path),
-                    total_bytes=self._progress_total_bytes(str(archive_path)),
-                )
-            except (OSError, ValueError, pa.ArrowException):
-                continue
+            batches = self._load_raw_market_batches_from_local_file(
+                archive_path,
+                batch_size=batch_size,
+                progress_source=str(archive_path),
+                total_bytes=self._progress_total_bytes(str(archive_path)),
+            )
+            if batches is not None:
+                return batches
 
         return None
 
     def _filter_table_to_token(self, table: pa.Table) -> pa.Table:
         if self.token_id is None or table.num_rows == 0:
             return table
+
+        if self._is_fixed_schema(table.schema.names):
+            token_mask = pc.equal(table.column("asset_id"), self.token_id)
+            token_mask = pc.fill_null(token_mask, False)
+            return table.filter(token_mask)
 
         token_mask = pc.match_substring_regex(
             table.column("data"), rf'"token_id"\s*:\s*"{re.escape(self.token_id)}"'
@@ -1053,6 +1142,10 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
     def _payload_sort_key(self, update_type: str, payload_text: str) -> tuple[int, int]:
         return pmxt_payload_sort_key(update_type, payload_text)
 
+    @classmethod
+    def _batches_use_fixed_schema(cls, batches: Sequence[pa.RecordBatch]) -> bool:
+        return bool(batches) and cls._is_fixed_schema(batches[0].schema.names)
+
     def _process_book_snapshot(
         self,
         payload_text: str,
@@ -1178,6 +1271,33 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
                 local_book = OrderBook(instrument.id, book_type=BookType.L2_MBP)
                 continue
             if not batches:
+                continue
+
+            if self._batches_use_fixed_schema(batches):
+                native_rows = pmxt_fixed_delta_rows(
+                    event_type_columns=[batch.column("event_type") for batch in batches],
+                    timestamp_ns_columns=[batch.column("timestamp_ns") for batch in batches],
+                    asset_id_columns=[batch.column("asset_id") for batch in batches],
+                    bids_json_columns=[batch.column("bids") for batch in batches],
+                    asks_json_columns=[batch.column("asks") for batch in batches],
+                    price_columns=[batch.column("price") for batch in batches],
+                    size_columns=[batch.column("size") for batch in batches],
+                    side_columns=[batch.column("side") for batch in batches],
+                    token_id=token_id,
+                    start_ns=start_ns,
+                    end_ns=end_ns,
+                    has_snapshot=has_snapshot,
+                    last_payload_key=last_payload_key,
+                )
+                if native_rows is None:
+                    raise RuntimeError(
+                        "PMXT fixed-column Parquet loading requires the Rust native extension. "
+                        "Set PREDICTION_MARKET_NATIVE_REQUIRE=1 to fail earlier if the extension "
+                        "is unavailable."
+                    )
+                has_snapshot, last_payload_key, delta_columns = native_rows
+                if include_order_book and delta_columns["event_index"]:
+                    events.extend(self._deltas_records_from_columns(delta_columns))
                 continue
 
             update_type_columns = [batch.column("update_type") for batch in batches]

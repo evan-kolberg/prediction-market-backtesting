@@ -26,7 +26,7 @@ MarketDataConfig(
     data_type=Book,
     vendor=PMXT,
     sources=(
-        "local:/Volumes/LaCie/pmxt_data",
+        "local:/Volumes/storage/pmxt_data",
         "archive:r2v2.pmxt.dev",
         "archive:r2.pmxt.dev",
     ),
@@ -119,21 +119,35 @@ sources=("local:/data/pmxt/raw",)
 
 ### Required Parquet Columns
 
-Raw PMXT archive parquet must contain:
+Raw PMXT archive parquet may use the legacy payload schema:
 
 - `market_id`
 - `update_type`
 - `data`
 
-The loader filters raw hours to `market_id` at parquet scan time, then filters
-the remaining rows to `token_id` inside the JSON payload.
+or the fixed-column schema:
+
+- `timestamp`
+- `market`
+- `event_type`
+- `asset_id`
+- `bids`
+- `asks`
+- `price`
+- `size`
+- `side`
+
+For the legacy schema, the loader filters raw hours to `market_id` at parquet
+scan time, then filters the remaining rows to `token_id` inside the JSON
+payload. For the fixed-column schema, it filters `decode(market)` and
+`asset_id`, then sends the selected columns directly to the Rust PMXT converter.
 
 `PMXT_PREFETCH_WORKERS` controls how many archive hours are read ahead while a
 market window is loading. Local raw mirrors default to `4` workers through the
 repo data-source wrapper; raise it, for example `PMXT_PREFETCH_WORKERS=8`, only
 after checking that the local disk has enough read bandwidth.
 
-### Required JSON Payload Shape
+### Legacy JSON Payload Shape
 
 For `book_snapshot`, the loader expects the `data` JSON to include:
 
@@ -231,7 +245,7 @@ configured local data stores and parents containing those stores.
 Recommended local mirror root:
 
 ```text
-/Volumes/LaCie/telonex_data/
+/Volumes/storage/telonex_data/
   telonex.duckdb
   data/
     channel=book_snapshot_full/
@@ -262,7 +276,7 @@ Full Polymarket mirror:
 
 ```bash
 uv run python scripts/telonex_download_data.py \
-  --destination /Volumes/LaCie/telonex_data \
+  --destination /Volumes/storage/telonex_data \
   --all-markets \
   --channels book_snapshot_full onchain_fills trades
 ```
@@ -279,7 +293,7 @@ depth.
 
 Downloader behavior:
 
-- Default destination is `/Volumes/LaCie/telonex_data`.
+- Default destination is `/Volumes/storage/telonex_data`.
 - Default channel is `book_snapshot_full`.
 - Default `--workers` is 16.
 - `--max-days` caps post-resume day jobs for smoke tests.

@@ -50,6 +50,19 @@ pub struct PmxtSortedPayload {
     pub payload_text: String,
 }
 
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct PmxtFixedEvent {
+    pub timestamp_ns: i128,
+    pub priority: u8,
+    pub event_type: String,
+    pub asset_id: String,
+    pub bids_json: Option<String>,
+    pub asks_json: Option<String>,
+    pub price: Option<String>,
+    pub size: Option<String>,
+    pub side: Option<String>,
+}
+
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct PmxtDeltaRows {
     pub has_snapshot: bool,
@@ -259,6 +272,319 @@ pub fn payload_delta_rows(
     Ok(rows)
 }
 
+#[allow(clippy::too_many_arguments)]
+pub fn fixed_delta_rows(
+    event_type_columns: Vec<Vec<String>>,
+    timestamp_ns_columns: Vec<Vec<i128>>,
+    asset_id_columns: Vec<Vec<String>>,
+    bids_json_columns: Vec<Vec<Option<String>>>,
+    asks_json_columns: Vec<Vec<Option<String>>>,
+    price_columns: Vec<Vec<Option<String>>>,
+    size_columns: Vec<Vec<Option<String>>>,
+    side_columns: Vec<Vec<Option<String>>>,
+    token_id: &str,
+    start_ns: i128,
+    end_ns: i128,
+    initial_has_snapshot: bool,
+    last_timestamp_ns: Option<i128>,
+    last_priority: Option<u8>,
+) -> Result<PmxtDeltaRows, String> {
+    let fixed_events = sort_fixed_columns(
+        event_type_columns,
+        timestamp_ns_columns,
+        asset_id_columns,
+        bids_json_columns,
+        asks_json_columns,
+        price_columns,
+        size_columns,
+        side_columns,
+    )?;
+    let mut rows = PmxtDeltaRows {
+        has_snapshot: initial_has_snapshot,
+        last_timestamp_ns,
+        last_priority,
+        ..PmxtDeltaRows::default()
+    };
+    let mut output_event_index: i32 = 0;
+
+    for event in fixed_events {
+        let event_key = (event.timestamp_ns, event.priority);
+        if let (Some(last_timestamp_ns), Some(last_priority)) =
+            (rows.last_timestamp_ns, rows.last_priority)
+            && event_key < (last_timestamp_ns, last_priority)
+        {
+            continue;
+        }
+
+        match event.event_type.as_str() {
+            "book" | "book_snapshot" => {
+                process_fixed_book_snapshot(
+                    &mut rows,
+                    &mut output_event_index,
+                    &event,
+                    token_id,
+                    start_ns,
+                    end_ns,
+                )?;
+                rows.last_timestamp_ns = Some(event.timestamp_ns);
+                rows.last_priority = Some(event.priority);
+            }
+            "price_change" => {
+                process_fixed_price_change(
+                    &mut rows,
+                    &mut output_event_index,
+                    &event,
+                    token_id,
+                    start_ns,
+                    end_ns,
+                )?;
+                rows.last_timestamp_ns = Some(event.timestamp_ns);
+                rows.last_priority = Some(event.priority);
+            }
+            _ => {}
+        }
+    }
+
+    Ok(rows)
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn sort_fixed_columns(
+    event_type_columns: Vec<Vec<String>>,
+    timestamp_ns_columns: Vec<Vec<i128>>,
+    asset_id_columns: Vec<Vec<String>>,
+    bids_json_columns: Vec<Vec<Option<String>>>,
+    asks_json_columns: Vec<Vec<Option<String>>>,
+    price_columns: Vec<Vec<Option<String>>>,
+    size_columns: Vec<Vec<Option<String>>>,
+    side_columns: Vec<Vec<Option<String>>>,
+) -> Result<Vec<PmxtFixedEvent>, String> {
+    let column_count = event_type_columns.len();
+    for (name, len) in [
+        ("timestamp_ns", timestamp_ns_columns.len()),
+        ("asset_id", asset_id_columns.len()),
+        ("bids", bids_json_columns.len()),
+        ("asks", asks_json_columns.len()),
+        ("price", price_columns.len()),
+        ("size", size_columns.len()),
+        ("side", side_columns.len()),
+    ] {
+        if len != column_count {
+            return Err(format!(
+                "PMXT fixed column count mismatch: {column_count} event_type column(s), {len} {name} column(s)"
+            ));
+        }
+    }
+
+    let row_count = event_type_columns.iter().map(Vec::len).sum();
+    let mut events = Vec::with_capacity(row_count);
+    let mut previous_key: Option<(i128, u8)> = None;
+    let mut already_sorted = true;
+    for column_index in 0..column_count {
+        let event_types = &event_type_columns[column_index];
+        let timestamps = &timestamp_ns_columns[column_index];
+        let asset_ids = &asset_id_columns[column_index];
+        let bids_json = &bids_json_columns[column_index];
+        let asks_json = &asks_json_columns[column_index];
+        let prices = &price_columns[column_index];
+        let sizes = &size_columns[column_index];
+        let sides = &side_columns[column_index];
+        let rows = event_types.len();
+        for (name, len) in [
+            ("timestamp_ns", timestamps.len()),
+            ("asset_id", asset_ids.len()),
+            ("bids", bids_json.len()),
+            ("asks", asks_json.len()),
+            ("price", prices.len()),
+            ("size", sizes.len()),
+            ("side", sides.len()),
+        ] {
+            if len != rows {
+                return Err(format!(
+                    "PMXT fixed row count mismatch in column {column_index}: {rows} event_type row(s), {len} {name} row(s)"
+                ));
+            }
+        }
+
+        for row_index in 0..rows {
+            let event_type = event_types[row_index].as_str();
+            let priority = fixed_event_priority(event_type);
+            let event_key = (timestamps[row_index], priority);
+            if previous_key.is_some_and(|previous_key| event_key < previous_key) {
+                already_sorted = false;
+            }
+            previous_key = Some(event_key);
+            events.push(PmxtFixedEvent {
+                timestamp_ns: timestamps[row_index],
+                priority,
+                event_type: event_types[row_index].clone(),
+                asset_id: asset_ids[row_index].clone(),
+                bids_json: bids_json[row_index].clone(),
+                asks_json: asks_json[row_index].clone(),
+                price: prices[row_index].clone(),
+                size: sizes[row_index].clone(),
+                side: sides[row_index].clone(),
+            });
+        }
+    }
+
+    if !already_sorted {
+        events.sort_by(|left, right| {
+            (left.timestamp_ns, left.priority).cmp(&(right.timestamp_ns, right.priority))
+        });
+    }
+    Ok(events)
+}
+
+fn fixed_event_priority(event_type: &str) -> u8 {
+    match event_type {
+        "book" | "book_snapshot" => PmxtUpdateClass::BookSnapshot.sort_priority(),
+        "price_change" => PmxtUpdateClass::PriceChange.sort_priority(),
+        _ => PmxtUpdateClass::Other.sort_priority(),
+    }
+}
+
+fn process_fixed_book_snapshot(
+    rows: &mut PmxtDeltaRows,
+    output_event_index: &mut i32,
+    event: &PmxtFixedEvent,
+    token_id: &str,
+    start_ns: i128,
+    end_ns: i128,
+) -> Result<(), String> {
+    if event.asset_id != token_id {
+        return Ok(());
+    }
+
+    let bids = match event.bids_json.as_deref() {
+        Some(value) => json_string_pair_array_literal(value, "bids")?,
+        None => Vec::new(),
+    };
+    let asks = match event.asks_json.as_deref() {
+        Some(value) => json_string_pair_array_literal(value, "asks")?,
+        None => Vec::new(),
+    };
+    if bids.is_empty() && asks.is_empty() {
+        return Ok(());
+    }
+    rows.has_snapshot = true;
+    if event.timestamp_ns < start_ns || event.timestamp_ns > end_ns {
+        return Ok(());
+    }
+
+    let event_index = *output_event_index;
+    push_delta_row(
+        rows,
+        event_index,
+        BOOK_ACTION_CLEAR,
+        ORDER_SIDE_NO_ORDER_SIDE,
+        0.0,
+        0.0,
+        0,
+        0,
+        event.timestamp_ns,
+    );
+
+    let bids_len = bids.len();
+    let asks_len = asks.len();
+    for (idx, (price_text, size_text)) in bids.into_iter().enumerate() {
+        let flags = if idx + 1 == bids_len && asks_len == 0 {
+            RECORD_FLAG_LAST
+        } else {
+            0
+        };
+        push_delta_row(
+            rows,
+            event_index,
+            BOOK_ACTION_ADD,
+            ORDER_SIDE_BUY,
+            parse_finite_f64(price_text, "price")?,
+            parse_finite_f64(size_text, "size")?,
+            flags,
+            0,
+            event.timestamp_ns,
+        );
+    }
+    for (idx, (price_text, size_text)) in asks.into_iter().enumerate() {
+        let flags = if idx + 1 == asks_len {
+            RECORD_FLAG_LAST
+        } else {
+            0
+        };
+        push_delta_row(
+            rows,
+            event_index,
+            BOOK_ACTION_ADD,
+            ORDER_SIDE_SELL,
+            parse_finite_f64(price_text, "price")?,
+            parse_finite_f64(size_text, "size")?,
+            flags,
+            0,
+            event.timestamp_ns,
+        );
+    }
+    *output_event_index += 1;
+    Ok(())
+}
+
+fn process_fixed_price_change(
+    rows: &mut PmxtDeltaRows,
+    output_event_index: &mut i32,
+    event: &PmxtFixedEvent,
+    token_id: &str,
+    start_ns: i128,
+    end_ns: i128,
+) -> Result<(), String> {
+    if event.asset_id != token_id || !rows.has_snapshot {
+        return Ok(());
+    }
+    if event.timestamp_ns < start_ns || event.timestamp_ns > end_ns {
+        return Ok(());
+    }
+
+    let side_text = event.side.as_deref().ok_or_else(|| {
+        format!(
+            "PMXT fixed price_change missing side at timestamp_ns={}",
+            event.timestamp_ns
+        )
+    })?;
+    let side = match side_text {
+        "BUY" => ORDER_SIDE_BUY,
+        "SELL" => ORDER_SIDE_SELL,
+        value => return Err(format!("invalid PMXT price_change side: {value:?}")),
+    };
+    let price = event.price.as_deref().ok_or_else(|| {
+        format!(
+            "PMXT fixed price_change missing price at timestamp_ns={}",
+            event.timestamp_ns
+        )
+    })?;
+    let size = event.size.as_deref().ok_or_else(|| {
+        format!(
+            "PMXT fixed price_change missing size at timestamp_ns={}",
+            event.timestamp_ns
+        )
+    })?;
+    let size = parse_finite_f64(size, "size")?;
+    push_delta_row(
+        rows,
+        *output_event_index,
+        if size > 0.0 {
+            BOOK_ACTION_UPDATE
+        } else {
+            BOOK_ACTION_DELETE
+        },
+        side,
+        parse_finite_f64(price, "price")?,
+        size,
+        RECORD_FLAG_LAST,
+        0,
+        event.timestamp_ns,
+    );
+    *output_event_index += 1;
+    Ok(())
+}
+
 fn process_book_snapshot_payload(
     rows: &mut PmxtDeltaRows,
     output_event_index: &mut i32,
@@ -410,11 +736,33 @@ fn json_string_pair_array_field<'a>(
     payload_text: &'a str,
     field_name: &str,
 ) -> Result<Vec<(&'a str, &'a str)>, String> {
-    let bytes = payload_text.as_bytes();
-    let mut cursor = skip_json_whitespace(
+    json_string_pair_array_from_cursor(
         payload_text,
-        json_field_value_start(payload_text, field_name)?,
-    );
+        skip_json_whitespace(
+            payload_text,
+            json_field_value_start(payload_text, field_name)?,
+        ),
+        field_name,
+    )
+}
+
+fn json_string_pair_array_literal<'a>(
+    payload_text: &'a str,
+    field_name: &str,
+) -> Result<Vec<(&'a str, &'a str)>, String> {
+    json_string_pair_array_from_cursor(
+        payload_text,
+        skip_json_whitespace(payload_text, 0),
+        field_name,
+    )
+}
+
+fn json_string_pair_array_from_cursor<'a>(
+    payload_text: &'a str,
+    mut cursor: usize,
+    field_name: &str,
+) -> Result<Vec<(&'a str, &'a str)>, String> {
+    let bytes = payload_text.as_bytes();
     if bytes.get(cursor) != Some(&b'[') {
         return Err(format!("JSON field {field_name:?} is not an array"));
     }
@@ -642,8 +990,8 @@ fn skip_json_whitespace(payload_text: &str, mut cursor: usize) -> usize {
 mod tests {
     use super::{
         PmxtPayloadFields, PmxtPriceChangeFields, PmxtSortedPayload, PmxtUpdateClass,
-        extract_payload_fields, payload_delta_rows, payload_sort_key, sort_payload_columns,
-        sort_payloads,
+        extract_payload_fields, fixed_delta_rows, payload_delta_rows, payload_sort_key,
+        sort_payload_columns, sort_payloads,
     };
 
     #[test]
@@ -926,6 +1274,50 @@ mod tests {
             rows.ts_event,
             vec![
                 100_000_000_000,
+                100_000_000_000,
+                100_000_000_000,
+                100_000_000_000,
+                101_000_000_000,
+            ]
+        );
+        assert_eq!(rows.ts_init, rows.ts_event);
+    }
+
+    #[test]
+    fn builds_delta_rows_from_fixed_columns() {
+        let rows = fixed_delta_rows(
+            vec![vec!["price_change".to_string()], vec!["book".to_string()]],
+            vec![vec![101_000_000_000], vec![100_000_000_000]],
+            vec![
+                vec!["target-token".to_string()],
+                vec!["target-token".to_string()],
+            ],
+            vec![vec![None], vec![Some(r#"[["0.40","5"]]"#.to_string())]],
+            vec![vec![None], vec![Some(r#"[["0.60","7"]]"#.to_string())]],
+            vec![vec![Some("0.41".to_string())], vec![None]],
+            vec![vec![Some("8".to_string())], vec![None]],
+            vec![vec![Some("BUY".to_string())], vec![None]],
+            "target-token",
+            100_000_000_000,
+            101_000_000_000,
+            false,
+            None,
+            None,
+        )
+        .unwrap();
+
+        assert!(rows.has_snapshot);
+        assert_eq!(rows.last_timestamp_ns, Some(101_000_000_000));
+        assert_eq!(rows.last_priority, Some(1));
+        assert_eq!(rows.event_index, vec![0, 0, 0, 1]);
+        assert_eq!(rows.action, vec![4, 1, 1, 2]);
+        assert_eq!(rows.side, vec![0, 1, 2, 1]);
+        assert_eq!(rows.price, vec![0.0, 0.40, 0.60, 0.41]);
+        assert_eq!(rows.size, vec![0.0, 5.0, 7.0, 8.0]);
+        assert_eq!(rows.flags, vec![0, 0, 128, 128]);
+        assert_eq!(
+            rows.ts_event,
+            vec![
                 100_000_000_000,
                 100_000_000_000,
                 100_000_000_000,

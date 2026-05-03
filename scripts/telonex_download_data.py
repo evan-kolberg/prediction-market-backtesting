@@ -33,8 +33,8 @@ def main() -> int:
     parser.add_argument(
         "--destination",
         type=Path,
-        default=Path("/Volumes/LaCie/telonex_data"),
-        help="Blob store root (default: /Volumes/LaCie/telonex_data).",
+        default=Path("/Volumes/storage/telonex_data"),
+        help="Blob store root (default: /Volumes/storage/telonex_data).",
     )
     parser.add_argument(
         "--all-markets",

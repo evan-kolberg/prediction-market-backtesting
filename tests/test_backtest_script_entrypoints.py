@@ -288,7 +288,7 @@ def test_btc_5m_pair_arbitrage_runner_builds_pmxt_book_pairs(
     assert experiment.data.data_type == "book"
     assert experiment.data.vendor == "pmxt"
     assert experiment.data.sources == (
-        "local:/Volumes/LaCie/pmxt_data",
+        "local:/Volumes/storage/pmxt_data",
         "archive:r2v2.pmxt.dev",
         "archive:r2.pmxt.dev",
     )
@@ -325,7 +325,7 @@ def test_btc_5m_late_favorite_taker_runner_builds_pmxt_book_replays(
     assert experiment.data.data_type == "book"
     assert experiment.data.vendor == "pmxt"
     assert experiment.data.sources == (
-        "local:/Volumes/LaCie/pmxt_data",
+        "local:/Volumes/storage/pmxt_data",
         "archive:r2v2.pmxt.dev",
         "archive:r2.pmxt.dev",
     )

@@ -112,7 +112,7 @@ Mirror Telonex full-book data for all markets:
 
 ```bash
 uv run python scripts/telonex_download_data.py \
-  --destination /Volumes/LaCie/telonex_data \
+  --destination /Volumes/storage/telonex_data \
   --all-markets \
   --channels book_snapshot_full onchain_fills trades
 ```
@@ -157,7 +157,7 @@ Throughput and memory controls:
 - Normal Nautilus logs are still printed; timing output is additive.
 - PMXT filtered cache is enabled by default at
   `~/.cache/nautilus_trader/pmxt`.
-- Public PMXT runners usually pin `local:/Volumes/LaCie/pmxt_data` first,
+- Public PMXT runners usually pin `local:/Volumes/storage/pmxt_data` first,
   `archive:r2v2.pmxt.dev` second, and `archive:r2.pmxt.dev` third.
 - Telonex API-day cache is enabled by default at
   `~/.cache/nautilus_trader/telonex`.

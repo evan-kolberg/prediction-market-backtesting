@@ -289,7 +289,7 @@ def _bench_native_mode(
 ) -> dict[str, float | bool]:
     mod = _configure_native_extension(enabled, native_extension_path)
     mod.native_available()
-    root = Path("/Volumes/LaCie/telonex_data")
+    root = Path("/Volumes/storage/telonex_data")
     base_url = "https://api.telonex.io/"
     start_ns = APR_21_2026_NS + 9 * NANOS_PER_HOUR + 15 * 60_000_000_000
     end_ns = APR_21_2026_NS + 10 * NANOS_PER_HOUR + 10 * 60_000_000_000

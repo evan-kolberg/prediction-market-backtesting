@@ -1,5 +1,6 @@
 use native_core::merge::{ReplayRecordKind, replay_merge_plan as core_replay_merge_plan};
 use native_core::pmxt::{
+    PmxtDeltaRows as CorePmxtDeltaRows, fixed_delta_rows as core_pmxt_fixed_delta_rows,
     payload_delta_rows as core_pmxt_payload_delta_rows,
     payload_sort_key as core_pmxt_payload_sort_key,
     sort_payload_columns as core_pmxt_sort_payload_columns,
@@ -83,6 +84,55 @@ type PyPolymarketPublicTradeRows = (
 type PyNestedBookSideColumns = (Vec<Vec<String>>, Vec<Vec<String>>);
 
 type PyReplayMergePlan = Vec<(u8, usize)>;
+
+fn py_pmxt_delta_rows(rows: CorePmxtDeltaRows) -> PyResult<PyPmxtDeltaRows> {
+    let last_timestamp_ns = rows
+        .last_timestamp_ns
+        .map(|timestamp_ns| {
+            i64::try_from(timestamp_ns).map_err(|_| {
+                PyValueError::new_err(format!(
+                    "PMXT payload timestamp nanoseconds are outside Python int64 timestamp bounds: {timestamp_ns}"
+                ))
+            })
+        })
+        .transpose()?;
+    let ts_event = rows
+        .ts_event
+        .into_iter()
+        .map(|timestamp_ns| {
+            i64::try_from(timestamp_ns).map_err(|_| {
+                PyValueError::new_err(format!(
+                    "PMXT payload timestamp nanoseconds are outside Python int64 timestamp bounds: {timestamp_ns}"
+                ))
+            })
+        })
+        .collect::<PyResult<Vec<i64>>>()?;
+    let ts_init = rows
+        .ts_init
+        .into_iter()
+        .map(|timestamp_ns| {
+            i64::try_from(timestamp_ns).map_err(|_| {
+                PyValueError::new_err(format!(
+                    "PMXT payload timestamp nanoseconds are outside Python int64 timestamp bounds: {timestamp_ns}"
+                ))
+            })
+        })
+        .collect::<PyResult<Vec<i64>>>()?;
+    Ok((
+        rows.has_snapshot,
+        last_timestamp_ns,
+        rows.last_priority,
+        rows.event_index,
+        rows.action,
+        rows.side,
+        rows.price,
+        rows.size,
+        rows.flags,
+        rows.sequence,
+        ts_event,
+        ts_init,
+    ))
+}
 
 #[pyfunction]
 fn native_available() -> bool {
@@ -199,6 +249,19 @@ fn py_sequence_string_columns(py: Python<'_>, values: &[Py<PyAny>]) -> PyResult<
                 .bind(py)
                 .try_iter()?
                 .map(|item| py_required_string(&item?))
+                .collect()
+        })
+        .collect()
+}
+
+fn py_sequence_i128_columns(py: Python<'_>, values: &[Py<PyAny>]) -> PyResult<Vec<Vec<i128>>> {
+    values
+        .iter()
+        .map(|value| {
+            value
+                .bind(py)
+                .try_iter()?
+                .map(|item| Ok(i128::from(item?.extract::<i64>()?)))
                 .collect()
         })
         .collect()
@@ -333,6 +396,22 @@ fn py_optional_string_values(
     values
         .iter()
         .map(|value| py_optional_string(value.bind(py)))
+        .collect()
+}
+
+fn py_optional_string_columns(
+    py: Python<'_>,
+    values: &[Py<PyAny>],
+) -> PyResult<Vec<Vec<Option<String>>>> {
+    values
+        .iter()
+        .map(|value| {
+            value
+                .bind(py)
+                .try_iter()?
+                .map(|item| py_optional_string(&item?))
+                .collect()
+        })
         .collect()
 }
 
@@ -565,52 +644,46 @@ fn pmxt_payload_delta_rows(
         last_priority,
     )
     .map_err(PyValueError::new_err)?;
-    let last_timestamp_ns = rows
-        .last_timestamp_ns
-        .map(|timestamp_ns| {
-            i64::try_from(timestamp_ns).map_err(|_| {
-                PyValueError::new_err(format!(
-                    "PMXT payload timestamp nanoseconds are outside Python int64 timestamp bounds: {timestamp_ns}"
-                ))
-            })
-        })
-        .transpose()?;
-    let ts_event = rows
-        .ts_event
-        .into_iter()
-        .map(|timestamp_ns| {
-            i64::try_from(timestamp_ns).map_err(|_| {
-                PyValueError::new_err(format!(
-                    "PMXT payload timestamp nanoseconds are outside Python int64 timestamp bounds: {timestamp_ns}"
-                ))
-            })
-        })
-        .collect::<PyResult<Vec<_>>>()?;
-    let ts_init = rows
-        .ts_init
-        .into_iter()
-        .map(|timestamp_ns| {
-            i64::try_from(timestamp_ns).map_err(|_| {
-                PyValueError::new_err(format!(
-                    "PMXT payload timestamp nanoseconds are outside Python int64 timestamp bounds: {timestamp_ns}"
-                ))
-            })
-        })
-        .collect::<PyResult<Vec<_>>>()?;
-    Ok((
-        rows.has_snapshot,
-        last_timestamp_ns,
-        rows.last_priority,
-        rows.event_index,
-        rows.action,
-        rows.side,
-        rows.price,
-        rows.size,
-        rows.flags,
-        rows.sequence,
-        ts_event,
-        ts_init,
-    ))
+    py_pmxt_delta_rows(rows)
+}
+
+#[pyfunction]
+#[allow(clippy::too_many_arguments)]
+fn pmxt_fixed_delta_rows(
+    py: Python<'_>,
+    event_type_columns: Vec<Py<PyAny>>,
+    timestamp_ns_columns: Vec<Py<PyAny>>,
+    asset_id_columns: Vec<Py<PyAny>>,
+    bids_json_columns: Vec<Py<PyAny>>,
+    asks_json_columns: Vec<Py<PyAny>>,
+    price_columns: Vec<Py<PyAny>>,
+    size_columns: Vec<Py<PyAny>>,
+    side_columns: Vec<Py<PyAny>>,
+    token_id: &str,
+    start_ns: i64,
+    end_ns: i64,
+    has_snapshot: bool,
+    last_timestamp_ns: Option<i64>,
+    last_priority: Option<u8>,
+) -> PyResult<PyPmxtDeltaRows> {
+    let rows = core_pmxt_fixed_delta_rows(
+        py_sequence_string_columns(py, &event_type_columns)?,
+        py_sequence_i128_columns(py, &timestamp_ns_columns)?,
+        py_sequence_string_columns(py, &asset_id_columns)?,
+        py_optional_string_columns(py, &bids_json_columns)?,
+        py_optional_string_columns(py, &asks_json_columns)?,
+        py_optional_string_columns(py, &price_columns)?,
+        py_optional_string_columns(py, &size_columns)?,
+        py_optional_string_columns(py, &side_columns)?,
+        token_id,
+        i128::from(start_ns),
+        i128::from(end_ns),
+        has_snapshot,
+        last_timestamp_ns.map(i128::from),
+        last_priority,
+    )
+    .map_err(PyValueError::new_err)?;
+    py_pmxt_delta_rows(rows)
 }
 
 #[pyfunction]
@@ -796,6 +869,7 @@ fn _native_ext(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(fixed_raw_values, module)?)?;
     module.add_function(wrap_pyfunction!(float_seconds_to_ms_string, module)?)?;
     module.add_function(wrap_pyfunction!(native_available, module)?)?;
+    module.add_function(wrap_pyfunction!(pmxt_fixed_delta_rows, module)?)?;
     module.add_function(wrap_pyfunction!(pmxt_payload_delta_rows, module)?)?;
     module.add_function(wrap_pyfunction!(pmxt_payload_sort_key, module)?)?;
     module.add_function(wrap_pyfunction!(pmxt_sort_payload_columns, module)?)?;

@@ -86,7 +86,7 @@ def run() -> None:
                 data_type=Book,
                 vendor=PMXT,
                 sources=(
-                    "local:/Volumes/LaCie/pmxt_data",
+                    "local:/Volumes/storage/pmxt_data",
                     "archive:r2v2.pmxt.dev",
                     "archive:r2.pmxt.dev",
                 ),
@@ -348,7 +348,7 @@ trade-tick replay.
 ### PMXT
 
 - PMXT is the raw-hourly Polymarket L2 vendor path.
-- Public runners usually list `local:/Volumes/LaCie/pmxt_data` first, then
+- Public runners usually list `local:/Volumes/storage/pmxt_data` first, then
   `archive:r2v2.pmxt.dev`, then `archive:r2.pmxt.dev`.
 - PMXT source parsing is strict: only `local:` and `archive:` entries are
   supported in `MarketDataConfig.sources`.
@@ -366,7 +366,7 @@ trade-tick replay.
   `api:<key>` in runner source config. Do not commit private keys.
 - API-day payloads are cached by default at
   `~/.cache/nautilus_trader/telonex`.
-- Prefer `local:/Volumes/LaCie/telonex_data` for repeated research once the
+- Prefer `local:/Volumes/storage/telonex_data` for repeated research once the
   downloader has warmed the mirror.
 
 For vendor-specific behavior and timings, use:

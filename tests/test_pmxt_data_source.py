@@ -241,6 +241,73 @@ def test_runner_loader_reads_market_rows_from_local_raw_mirror(tmp_path):
     ]
 
 
+def test_runner_loader_reads_fixed_schema_market_rows_from_local_raw_mirror(tmp_path):
+    loader = _make_loader(raw_root=tmp_path)
+    hour = pd.Timestamp("2026-03-21T12:00:00Z")
+    raw_path = tmp_path / "2026" / "03" / "21" / "polymarket_orderbook_2026-03-21T12.parquet"
+    raw_path.parent.mkdir(parents=True, exist_ok=True)
+    pq.write_table(
+        pa.table(
+            {
+                "timestamp": pa.array(
+                    [
+                        pd.Timestamp("2026-03-21T12:00:00.001Z"),
+                        pd.Timestamp("2026-03-21T12:00:00.002Z"),
+                        pd.Timestamp("2026-03-21T12:00:00.003Z"),
+                        pd.Timestamp("2026-03-21T12:00:00.004Z"),
+                    ],
+                    type=pa.timestamp("ns", tz="UTC"),
+                ),
+                "market": [
+                    b"condition-123",
+                    b"condition-123",
+                    b"condition-123",
+                    b"condition-456",
+                ],
+                "event_type": ["book", "price_change", "price_change", "book"],
+                "asset_id": [
+                    "token-yes-123",
+                    "token-yes-123",
+                    "token-no-999",
+                    "token-yes-123",
+                ],
+                "bids": ['[["0.48","11.0"]]', None, None, '[["0.47","1.0"]]'],
+                "asks": ['[["0.52","9.0"]]', None, None, '[["0.53","1.0"]]'],
+                "price": [None, "0.49", "0.51", None],
+                "size": [None, "13.5", "8.0", None],
+                "side": [None, "BUY", "SELL", None],
+            }
+        ),
+        raw_path,
+    )
+
+    batches = loader._load_local_archive_market_batches(hour, batch_size=1_000)
+
+    assert batches is not None
+    assert pa.Table.from_batches(batches).to_pylist() == [
+        {
+            "event_type": "book",
+            "timestamp_ns": 1_774_094_400_001_000_000,
+            "asset_id": "token-yes-123",
+            "bids": '[["0.48","11.0"]]',
+            "asks": '[["0.52","9.0"]]',
+            "price": None,
+            "size": None,
+            "side": None,
+        },
+        {
+            "event_type": "price_change",
+            "timestamp_ns": 1_774_094_400_002_000_000,
+            "asset_id": "token-yes-123",
+            "bids": None,
+            "asks": None,
+            "price": "0.49",
+            "size": "13.5",
+            "side": "BUY",
+        },
+    ]
+
+
 def test_runner_loader_emits_cache_hit_event(tmp_path) -> None:
     loader = _make_loader(cache_dir=tmp_path)
     hour = pd.Timestamp("2026-03-21T12:00:00Z")

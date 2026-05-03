@@ -376,6 +376,39 @@ def test_pmxt_payload_delta_rows_builds_book_delta_columns() -> None:
     assert delta_columns["ts_init"] == delta_columns["ts_event"]
 
 
+def test_pmxt_fixed_delta_rows_builds_book_delta_columns() -> None:
+    rows = native.pmxt_fixed_delta_rows(
+        event_type_columns=[["price_change"], ["book"]],
+        timestamp_ns_columns=[
+            [1_771_767_624_001_296_000],
+            [1_771_767_624_001_295_000],
+        ],
+        asset_id_columns=[["token-yes-123"], ["token-yes-123"]],
+        bids_json_columns=[[None], ['[["0.48","11.0"]]']],
+        asks_json_columns=[[None], ['[["0.52","9.0"]]']],
+        price_columns=[["0.49"], [None]],
+        size_columns=[["13.5"], [None]],
+        side_columns=[["BUY"], [None]],
+        token_id="token-yes-123",
+        start_ns=1_771_767_624_001_295_000,
+        end_ns=1_771_767_624_001_296_000,
+        has_snapshot=False,
+        last_payload_key=None,
+    )
+
+    assert rows is not None
+    has_snapshot, last_payload_key, delta_columns = rows
+    assert has_snapshot is True
+    assert last_payload_key == (1_771_767_624_001_296_000, 1)
+    assert delta_columns["event_index"] == [0, 0, 0, 1]
+    assert delta_columns["action"] == [4, 1, 1, 2]
+    assert delta_columns["side"] == [0, 1, 2, 1]
+    assert delta_columns["price"] == [0.0, 0.48, 0.52, 0.49]
+    assert delta_columns["size"] == [0.0, 11.0, 9.0, 13.5]
+    assert delta_columns["flags"] == [0, 0, 128, 128]
+    assert delta_columns["ts_init"] == delta_columns["ts_event"]
+
+
 def test_polymarket_trade_helpers_use_native_sort_and_id_logic() -> None:
     trade = {
         "timestamp": "1771767624",
