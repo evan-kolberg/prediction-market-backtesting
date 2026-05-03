@@ -11,7 +11,7 @@ import shutil
 import tempfile
 import time
 import warnings
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Sequence
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import contextmanager, suppress
 from datetime import UTC
@@ -20,7 +20,6 @@ from typing import ClassVar
 from urllib.request import Request, urlopen
 
 import msgspec
-import numpy as np
 import pandas as pd
 import pyarrow as pa
 import pyarrow.compute as pc
@@ -38,10 +37,10 @@ from nautilus_trader.model.book import OrderBook
 from nautilus_trader.model.data import OrderBookDelta
 from nautilus_trader.model.data import OrderBookDeltas
 from nautilus_trader.model.enums import BookType
-from nautilus_trader.model.objects import FIXED_SCALAR
 
 from prediction_market_extensions._native import (
     decimal_seconds_to_ns,
+    fixed_raw_values,
     float_seconds_to_ms_string,
     pmxt_archive_hours_for_window_ns,
     pmxt_payload_delta_rows,
@@ -77,12 +76,10 @@ class _PMXTPriceChangePayload(msgspec.Struct, frozen=True):
 
 _PMXT_BOOK_SNAPSHOT_DECODER = msgspec.json.Decoder(type=_PMXTBookSnapshotPayload)
 _PMXT_PRICE_CHANGE_DECODER = msgspec.json.Decoder(type=_PMXTPriceChangePayload)
-_NAUTILUS_FIXED_SCALAR = int(FIXED_SCALAR)
 
 
-def _raw_fixed_values(values: list[object], precision: int) -> list[int]:
-    rounded = np.round(np.asarray(values, dtype=np.float64), decimals=precision)
-    return [int(round(float(value) * _NAUTILUS_FIXED_SCALAR)) for value in rounded]
+def _raw_fixed_values(values: Sequence[object], precision: int) -> list[int]:
+    return fixed_raw_values(values, precision)
 
 
 class PolymarketPMXTDataLoader(PolymarketDataLoader):

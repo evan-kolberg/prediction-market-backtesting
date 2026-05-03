@@ -291,6 +291,13 @@ def test_float_seconds_to_ms_string_matches_existing_pmxt_format() -> None:
     )
 
 
+def test_fixed_raw_values_matches_existing_loader_rounding() -> None:
+    assert native.fixed_raw_values([0.105, 1009.1234564], 2) == [
+        1_000_000_000_000_000,
+        10_091_200_000_000_000_000,
+    ]
+
+
 def test_pmxt_payload_sort_key_uses_native_timestamp_extraction() -> None:
     payload_text = (
         '{"update_type":"book_snapshot","market_id":"condition-123",'
@@ -501,6 +508,10 @@ def test_native_can_be_disabled_forces_python_fallback(monkeypatch: pytest.Monke
     ]
     assert native.decimal_seconds_to_ns(1771767624.001295) == 1_771_767_624_001_295_000
     assert native.float_seconds_to_ms_string(1771767624.001295) == "1771767624001.295166"
+    assert native.fixed_raw_values([0.105, 1009.1234564], 2) == [
+        1_000_000_000_000_000,
+        10_091_200_000_000_000_000,
+    ]
     assert native.pmxt_payload_sort_key(
         "price_change",
         '{"update_type":"price_change","timestamp":1771767624.001296}',

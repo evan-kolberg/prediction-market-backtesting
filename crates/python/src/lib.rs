@@ -19,7 +19,7 @@ use native_core::telonex::{
     trade_ticks_cache_relative_path as core_telonex_trade_ticks_cache_relative_path,
 };
 use native_core::time::{
-    decimal_seconds_to_ns as core_decimal_seconds_to_ns,
+    decimal_seconds_to_ns as core_decimal_seconds_to_ns, fixed_raw_values as core_fixed_raw_values,
     float_seconds_to_ms_string as core_float_seconds_to_ms_string,
 };
 use native_core::trades::{
@@ -522,6 +522,11 @@ fn float_seconds_to_ms_string(value: f64) -> String {
 }
 
 #[pyfunction]
+fn fixed_raw_values(values: Vec<f64>, precision: u8) -> PyResult<Vec<i128>> {
+    core_fixed_raw_values(&values, precision).map_err(PyValueError::new_err)
+}
+
+#[pyfunction]
 fn pmxt_payload_sort_key(update_type: &str, payload_text: &str) -> PyResult<(i64, u8)> {
     let (timestamp_ns, priority) =
         core_pmxt_payload_sort_key(update_type, payload_text).map_err(PyValueError::new_err)?;
@@ -814,6 +819,7 @@ fn replay_merge_plan(
 #[pymodule]
 fn _native_ext(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(decimal_seconds_to_ns, module)?)?;
+    module.add_function(wrap_pyfunction!(fixed_raw_values, module)?)?;
     module.add_function(wrap_pyfunction!(float_seconds_to_ms_string, module)?)?;
     module.add_function(wrap_pyfunction!(native_available, module)?)?;
     module.add_function(wrap_pyfunction!(pmxt_payload_delta_rows, module)?)?;

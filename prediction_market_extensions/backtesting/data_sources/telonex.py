@@ -34,9 +34,9 @@ from nautilus_trader.model.enums import BookAction
 from nautilus_trader.model.enums import OrderSide
 from nautilus_trader.model.enums import RecordFlag
 from nautilus_trader.model.identifiers import TradeId
-from nautilus_trader.model.objects import FIXED_SCALAR
 
 from prediction_market_extensions._native import (
+    fixed_raw_values,
     telonex_api_cache_relative_path,
     telonex_api_url,
     telonex_deltas_cache_relative_path,
@@ -109,12 +109,10 @@ _TELONEX_TRADE_TICKS_CACHE_COLUMNS = frozenset(
     }
 )
 _TELONEX_TRADE_TICK_CHANNELS = (TELONEX_ONCHAIN_FILLS_CHANNEL, TELONEX_TRADES_CHANNEL)
-_NAUTILUS_FIXED_SCALAR = int(FIXED_SCALAR)
 
 
 def _raw_fixed_values(values: Sequence[object], precision: int) -> list[int]:
-    rounded = np.round(np.asarray(values, dtype=np.float64), decimals=precision)
-    return [int(round(float(value) * _NAUTILUS_FIXED_SCALAR)) for value in rounded]
+    return fixed_raw_values(values, precision)
 
 
 @dataclass(frozen=True)

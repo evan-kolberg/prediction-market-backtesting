@@ -126,6 +126,11 @@ def _float_seconds_to_ms_string_python(value: float) -> str:
     return f"{value * 1000:.6f}"
 
 
+def _fixed_raw_values_python(values: Sequence[object], precision: int) -> list[int]:
+    rounded_values = [round(float(value), precision) for value in values]
+    return [int(round(value * 10_000_000_000_000_000)) for value in rounded_values]
+
+
 def _pmxt_payload_sort_key_python(update_type: str, payload_text: str) -> tuple[int, int]:
     if update_type == "book_snapshot":
         priority = 0
@@ -579,6 +584,19 @@ def float_seconds_to_ms_string(value: float) -> str:
     if module is not None:
         return str(module.float_seconds_to_ms_string(float(value)))
     return _float_seconds_to_ms_string_python(float(value))
+
+
+def fixed_raw_values(values: Sequence[object], precision: int) -> list[int]:
+    module = _extension_module()
+    if module is not None:
+        return [
+            int(value)
+            for value in _required_native_function(module, "fixed_raw_values")(
+                [float(value) for value in values],
+                int(precision),
+            )
+        ]
+    return _fixed_raw_values_python(values, precision)
 
 
 def pmxt_payload_sort_key(update_type: str, payload_text: str) -> tuple[int, int]:
@@ -1118,6 +1136,7 @@ __all__ = [
     "NATIVE_REQUIRE_ENV",
     "WindowSemantics",
     "decimal_seconds_to_ns",
+    "fixed_raw_values",
     "float_seconds_to_ms_string",
     "native_available",
     "pmxt_archive_hours_for_window_ns",

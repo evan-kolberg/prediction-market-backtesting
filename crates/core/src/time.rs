@@ -1,4 +1,5 @@
 const NANOS_PER_SECOND: i128 = 1_000_000_000;
+const NAUTILUS_FIXED_SCALAR: f64 = 10_000_000_000_000_000.0;
 
 pub fn decimal_seconds_to_ns(value: &str) -> Result<i128, String> {
     let trimmed = value.trim();
@@ -66,6 +67,26 @@ pub fn float_seconds_to_ms_string(value: f64) -> String {
     format!("{:.6}", value * 1000.0)
 }
 
+pub fn fixed_raw_values(values: &[f64], precision: u8) -> Result<Vec<i128>, String> {
+    let precision_factor = 10_f64.powi(i32::from(precision));
+    values
+        .iter()
+        .map(|value| fixed_raw_value(*value, precision_factor))
+        .collect()
+}
+
+fn fixed_raw_value(value: f64, precision_factor: f64) -> Result<i128, String> {
+    if !value.is_finite() {
+        return Err(format!("fixed-point value must be finite: {value:?}"));
+    }
+    let rounded = (value * precision_factor).round_ties_even() / precision_factor;
+    let raw = (rounded * NAUTILUS_FIXED_SCALAR).round_ties_even();
+    if !raw.is_finite() {
+        return Err(format!("fixed-point raw value must be finite: {value:?}"));
+    }
+    Ok(raw as i128)
+}
+
 fn parse_decimal_digits(value: &str) -> Result<i128, String> {
     let mut parsed = 0_i128;
     for byte in value.bytes() {
@@ -100,7 +121,7 @@ fn should_round_fraction_up(
 
 #[cfg(test)]
 mod tests {
-    use super::{decimal_seconds_to_ns, float_seconds_to_ms_string};
+    use super::{decimal_seconds_to_ns, fixed_raw_values, float_seconds_to_ms_string};
 
     #[test]
     fn converts_seconds_decimal_to_nanoseconds() {
@@ -137,6 +158,14 @@ mod tests {
         assert_eq!(
             float_seconds_to_ms_string(1_771_767_624.001_295),
             "1771767624001.295166"
+        );
+    }
+
+    #[test]
+    fn converts_fixed_raw_values_with_precision_rounding() {
+        assert_eq!(
+            fixed_raw_values(&[0.105, 1009.1234564], 2).unwrap(),
+            vec![1_000_000_000_000_000_i128, 10_091_200_000_000_000_000_i128]
         );
     }
 }
