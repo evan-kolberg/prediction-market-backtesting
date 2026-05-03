@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 const NANOS_PER_DAY: i128 = 86_400_000_000_000;
@@ -70,9 +70,11 @@ pub struct TelonexTradeRows {
     pub ts_init: Vec<i64>,
 }
 
-#[derive(Clone, Debug, PartialEq)]
-struct TelonexBookLevel {
-    size_text: String,
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct TelonexBookLevel<'a> {
+    price_text: &'a str,
+    size_text: &'a str,
+    original_index: usize,
     price: f64,
     size: f64,
 }
@@ -341,15 +343,15 @@ pub fn flat_book_snapshot_diff_rows(
     order.sort_by_key(|idx| timestamp_ns[*idx]);
 
     let mut rows = TelonexFlatBookDiffRows::default();
-    let mut previous_bids: Option<HashMap<String, TelonexBookLevel>> = None;
-    let mut previous_asks: Option<HashMap<String, TelonexBookLevel>> = None;
+    let mut previous_bids = None;
+    let mut previous_asks = None;
     let mut emitted_snapshot = false;
     let mut output_event_index: i32 = 0;
 
     for idx in order {
         let ts_event = timestamp_ns[idx];
-        let current_bids = flat_book_side_map(&bid_prices[idx], &bid_sizes[idx])?;
-        let current_asks = flat_book_side_map(&ask_prices[idx], &ask_sizes[idx])?;
+        let current_bids = flat_book_side_levels(&bid_prices[idx], &bid_sizes[idx])?;
+        let current_asks = flat_book_side_levels(&ask_prices[idx], &ask_sizes[idx])?;
 
         if ts_event < start_ns {
             previous_bids = Some(current_bids);
@@ -411,82 +413,118 @@ struct FlatBookChange {
     size: f64,
 }
 
-fn flat_book_side_map(
-    prices: &[String],
-    sizes: &[String],
-) -> Result<HashMap<String, TelonexBookLevel>, String> {
-    let mut levels = HashMap::with_capacity(prices.len().min(sizes.len()));
-    for (price_text, size_text) in prices.iter().zip(sizes.iter()) {
+fn flat_book_side_levels<'a>(
+    prices: &'a [String],
+    sizes: &'a [String],
+) -> Result<Vec<TelonexBookLevel<'a>>, String> {
+    let mut levels = Vec::with_capacity(prices.len().min(sizes.len()));
+    for (original_index, (price_text, size_text)) in prices.iter().zip(sizes.iter()).enumerate() {
         let size = parse_finite_f64(size_text, "size")?;
         if size <= 0.0 {
             continue;
         }
         let price = parse_finite_f64(price_text, "price")?;
-        levels.insert(
-            price_text.clone(),
-            TelonexBookLevel {
-                size_text: size_text.clone(),
-                price,
-                size,
-            },
-        );
+        levels.push(TelonexBookLevel {
+            price_text,
+            size_text,
+            original_index,
+            price,
+            size,
+        });
     }
-    Ok(levels)
+    levels.sort_by(compare_level);
+    let mut deduped: Vec<TelonexBookLevel<'a>> = Vec::with_capacity(levels.len());
+    for level in levels {
+        if let Some(previous) = deduped.last_mut()
+            && previous.price_text == level.price_text
+        {
+            *previous = level;
+            continue;
+        }
+        deduped.push(level);
+    }
+    Ok(deduped)
 }
 
 fn flat_book_side_changes(
     side: u8,
-    previous: &HashMap<String, TelonexBookLevel>,
-    current: &HashMap<String, TelonexBookLevel>,
+    previous: &[TelonexBookLevel<'_>],
+    current: &[TelonexBookLevel<'_>],
     reverse: bool,
 ) -> Vec<FlatBookChange> {
-    let mut price_keys: HashSet<&str> = HashSet::with_capacity(previous.len() + current.len());
-    price_keys.extend(previous.keys().map(String::as_str));
-    price_keys.extend(current.keys().map(String::as_str));
-
-    let mut keys: Vec<&str> = price_keys.into_iter().collect();
-    keys.sort_by(|left, right| {
-        let left_price = previous
-            .get(*left)
-            .or_else(|| current.get(*left))
-            .map_or(0.0, |level| level.price);
-        let right_price = previous
-            .get(*right)
-            .or_else(|| current.get(*right))
-            .map_or(0.0, |level| level.price);
-        let ordering = left_price
-            .partial_cmp(&right_price)
-            .unwrap_or(std::cmp::Ordering::Equal);
-        if reverse {
-            ordering.reverse()
-        } else {
-            ordering
-        }
-    });
-
     let mut changes = Vec::new();
-    for key in keys {
-        let previous_size = previous.get(key).map(|level| level.size_text.as_str());
-        let current_level = current.get(key);
-        let current_size = current_level.map(|level| level.size_text.as_str());
-        if current_size == previous_size {
-            continue;
-        }
-        if let Some(level) = current_level {
-            changes.push(FlatBookChange {
-                side,
-                price: level.price,
-                size: level.size,
-            });
-        } else if let Some(level) = previous.get(key) {
-            changes.push(FlatBookChange {
-                side,
-                price: level.price,
-                size: 0.0,
-            });
+    let mut previous_index = 0;
+    let mut current_index = 0;
+    while previous_index < previous.len() || current_index < current.len() {
+        match (previous.get(previous_index), current.get(current_index)) {
+            (Some(previous_level), Some(current_level)) => {
+                match compare_level_key(previous_level, current_level) {
+                    std::cmp::Ordering::Less => {
+                        changes.push(FlatBookChange {
+                            side,
+                            price: previous_level.price,
+                            size: 0.0,
+                        });
+                        previous_index += 1;
+                    }
+                    std::cmp::Ordering::Greater => {
+                        changes.push(FlatBookChange {
+                            side,
+                            price: current_level.price,
+                            size: current_level.size,
+                        });
+                        current_index += 1;
+                    }
+                    std::cmp::Ordering::Equal => {
+                        if previous_level.size_text != current_level.size_text {
+                            changes.push(FlatBookChange {
+                                side,
+                                price: current_level.price,
+                                size: current_level.size,
+                            });
+                        }
+                        previous_index += 1;
+                        current_index += 1;
+                    }
+                }
+            }
+            (Some(previous_level), None) => {
+                changes.push(FlatBookChange {
+                    side,
+                    price: previous_level.price,
+                    size: 0.0,
+                });
+                previous_index += 1;
+            }
+            (None, Some(current_level)) => {
+                changes.push(FlatBookChange {
+                    side,
+                    price: current_level.price,
+                    size: current_level.size,
+                });
+                current_index += 1;
+            }
+            (None, None) => break,
         }
     }
+    if reverse {
+        changes.reverse();
+    }
     changes
+}
+
+fn compare_level(left: &TelonexBookLevel<'_>, right: &TelonexBookLevel<'_>) -> std::cmp::Ordering {
+    compare_level_key(left, right).then_with(|| left.original_index.cmp(&right.original_index))
+}
+
+fn compare_level_key(
+    left: &TelonexBookLevel<'_>,
+    right: &TelonexBookLevel<'_>,
+) -> std::cmp::Ordering {
+    left.price
+        .partial_cmp(&right.price)
+        .unwrap_or(std::cmp::Ordering::Equal)
+        .then_with(|| left.price_text.cmp(right.price_text))
 }
 
 fn parse_finite_f64(value: &str, field: &str) -> Result<f64, String> {
