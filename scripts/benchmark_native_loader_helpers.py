@@ -511,7 +511,7 @@ def _bench_native_mode(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Benchmark native vs Python loader helper paths.")
+    parser = argparse.ArgumentParser(description="Benchmark Rust native loader helper paths.")
     parser.add_argument("--items", type=int, default=20_000)
     parser.add_argument("--telonex-events", type=int, default=5_000)
     parser.add_argument("--repeats", type=int, default=5)
@@ -520,6 +520,14 @@ def main() -> None:
         type=Path,
         default=None,
         help="Optional extension artifact to use for native-mode timings.",
+    )
+    parser.add_argument(
+        "--compare-disabled-fallback",
+        action="store_true",
+        help=(
+            "Also attempt timings with PREDICTION_MARKET_NATIVE=0. "
+            "On v4 this is expected to fail because loader helpers are native-required."
+        ),
     )
     args = parser.parse_args()
 
@@ -545,34 +553,43 @@ def main() -> None:
         telonex_trade_frame=telonex_trade_frame,
         native_extension_path=args.native_extension_path,
     )
-    python_results = _bench_native_mode(
-        enabled=False,
-        items=args.items,
-        telonex_events=args.telonex_events,
-        repeats=args.repeats,
-        pmxt_rows=pmxt_rows,
-        public_trade_rows=public_trade_rows,
-        telonex_rows=telonex_rows,
-        merge_inputs=merge_inputs,
-        telonex_frame=telonex_frame,
-        telonex_nested_frame=telonex_nested_frame,
-        telonex_trade_frame=telonex_trade_frame,
-        native_extension_path=args.native_extension_path,
-    )
+    python_results = None
+    if args.compare_disabled_fallback:
+        python_results = _bench_native_mode(
+            enabled=False,
+            items=args.items,
+            telonex_events=args.telonex_events,
+            repeats=args.repeats,
+            pmxt_rows=pmxt_rows,
+            public_trade_rows=public_trade_rows,
+            telonex_rows=telonex_rows,
+            merge_inputs=merge_inputs,
+            telonex_frame=telonex_frame,
+            telonex_nested_frame=telonex_nested_frame,
+            telonex_trade_frame=telonex_trade_frame,
+            native_extension_path=args.native_extension_path,
+        )
 
     print(f"items={args.items} telonex_events={args.telonex_events} repeats={args.repeats}")
     if args.native_extension_path is not None:
         print(f"native_extension_path={args.native_extension_path}")
     print(f"native_available(native mode)={native_results['native_available']}")
-    print(f"native_available(python fallback)={python_results['native_available']}")
-    print("case,native_s,python_s,speedup")
+    if python_results is not None:
+        print(f"native_available(disabled fallback mode)={python_results['native_available']}")
+        print("case,native_s,disabled_fallback_s,speedup")
+    else:
+        print("disabled fallback mode=not run (v4 loader helpers are native-required)")
+        print("case,native_s")
     for key in native_results:
         if key == "native_available":
             continue
         native_s = float(native_results[key])
-        python_s = float(python_results[key])
-        speedup = python_s / native_s if native_s else float("inf")
-        print(f"{key},{native_s:.6f},{python_s:.6f},{speedup:.2f}x")
+        if python_results is None:
+            print(f"{key},{native_s:.6f}")
+            continue
+        fallback_s = float(python_results[key])
+        speedup = fallback_s / native_s if native_s else float("inf")
+        print(f"{key},{native_s:.6f},{fallback_s:.6f},{speedup:.2f}x")
 
 
 if __name__ == "__main__":

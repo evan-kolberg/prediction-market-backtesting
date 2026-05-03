@@ -464,6 +464,122 @@ def test_runner_loader_emits_scan_progress_for_local_raw_mirror(monkeypatch, tmp
     }
 
 
+def test_runner_loader_persists_remote_archive_download_to_raw_root(monkeypatch, tmp_path) -> None:
+    loader = _make_loader(raw_root=tmp_path)
+    hour = pd.Timestamp("2026-03-21T12:00:00Z")
+    raw_path = tmp_path / "2026" / "03" / "21" / "polymarket_orderbook_2026-03-21T12.parquet"
+    downloaded: list[tuple[str, Path]] = []
+    loaded: dict[str, object] = {}
+
+    def fake_download(url: str, destination: Path) -> int:
+        downloaded.append((url, destination))
+        destination.write_bytes(b"raw")
+        return 3
+
+    def fake_load_raw_file(
+        parquet_path: Path, *, batch_size: int, progress_source: str, total_bytes: int | None
+    ):
+        loaded["parquet_path"] = parquet_path
+        loaded["batch_size"] = batch_size
+        loaded["source"] = progress_source
+        loaded["total_bytes"] = total_bytes
+        return ["batch"]
+
+    monkeypatch.setattr(loader, "_download_to_file_with_progress", fake_download)
+    monkeypatch.setattr(loader, "_load_raw_market_batches_from_local_file", fake_load_raw_file)
+
+    with capture_loader_events() as capture:
+        batches = loader._load_remote_market_batches_from_base_url(
+            "https://archive.vendor.test",
+            hour,
+            batch_size=1_000,
+        )
+
+    assert batches == ["batch"]
+    assert raw_path.read_bytes() == b"raw"
+    assert downloaded == [
+        (
+            "https://archive.vendor.test/polymarket_orderbook_2026-03-21T12.parquet",
+            raw_path.with_name(f".{raw_path.name}.{os.getpid()}.{threading.get_ident()}.tmp"),
+        )
+    ]
+    assert loaded == {
+        "parquet_path": raw_path,
+        "batch_size": 1_000,
+        "source": str(raw_path),
+        "total_bytes": None,
+    }
+    raw_write_events = [event for event in capture.events if event.stage == "raw_write"]
+    assert [(event.status, event.level, event.origin) for event in raw_write_events] == [
+        ("start", "INFO", "pmxt._download_remote_raw_to_local_root"),
+        ("complete", "INFO", "pmxt._download_remote_raw_to_local_root"),
+    ]
+    assert raw_write_events[1].bytes == 3
+    assert raw_write_events[1].cache_path == str(raw_path)
+
+
+def test_runner_loader_reuses_persisted_remote_archive_copy(monkeypatch, tmp_path) -> None:
+    loader = _make_loader(raw_root=tmp_path)
+    hour = pd.Timestamp("2026-03-21T12:00:00Z")
+    raw_path = tmp_path / "2026" / "03" / "21" / "polymarket_orderbook_2026-03-21T12.parquet"
+    raw_path.parent.mkdir(parents=True, exist_ok=True)
+    raw_path.write_bytes(b"raw")
+    loaded_paths: list[Path] = []
+
+    def fail_download(_url: str, _destination: Path) -> int:
+        raise AssertionError("persisted raw copy should avoid remote download")
+
+    def fake_load_raw_file(
+        parquet_path: Path, *, batch_size: int, progress_source: str, total_bytes: int | None
+    ):
+        del batch_size, progress_source, total_bytes
+        loaded_paths.append(parquet_path)
+        return ["batch"]
+
+    monkeypatch.setattr(loader, "_download_to_file_with_progress", fail_download)
+    monkeypatch.setattr(loader, "_load_raw_market_batches_from_local_file", fake_load_raw_file)
+
+    with capture_loader_events() as capture:
+        batches = loader._load_remote_market_batches_from_base_url(
+            "https://archive.vendor.test",
+            hour,
+            batch_size=1_000,
+        )
+
+    assert batches == ["batch"]
+    assert loaded_paths == [raw_path]
+    assert [event for event in capture.events if event.stage == "raw_write"] == []
+
+
+def test_runner_loader_emits_raw_archive_write_error(monkeypatch, tmp_path) -> None:
+    loader = _make_loader(raw_root=tmp_path)
+    hour = pd.Timestamp("2026-03-21T12:00:00Z")
+    raw_path = tmp_path / "2026" / "03" / "21" / "polymarket_orderbook_2026-03-21T12.parquet"
+
+    def fail_download(_url: str, _destination: Path) -> int:
+        raise OSError("disk full")
+
+    monkeypatch.setattr(loader, "_download_to_file_with_progress", fail_download)
+
+    with capture_loader_events() as capture:
+        assert (
+            loader._download_remote_raw_to_local_root(
+                "https://archive.vendor.test/polymarket_orderbook_2026-03-21T12.parquet",
+                raw_path,
+                hour,
+            )
+            is None
+        )
+
+    event = next(event for event in capture.events if event.status == "error")
+    assert event.level == "ERROR"
+    assert event.stage == "raw_write"
+    assert event.vendor == "pmxt"
+    assert event.origin == "pmxt._download_remote_raw_to_local_root"
+    assert event.cache_path == str(raw_path)
+    assert event.attrs["error"] == "disk full"
+
+
 def test_runner_loader_honors_per_entry_explicit_source_order(monkeypatch) -> None:
     loader = _make_loader()
     loader._pmxt_ordered_source_entries = (

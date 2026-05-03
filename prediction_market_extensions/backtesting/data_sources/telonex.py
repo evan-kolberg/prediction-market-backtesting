@@ -22,18 +22,9 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.dataset as ds
 import pyarrow.parquet as pq
-from nautilus_trader.adapters.polymarket.schemas.book import (
-    PolymarketBookLevel,
-    PolymarketBookSnapshot,
-)
 from nautilus_trader.model.data import OrderBookDelta
 from nautilus_trader.model.data import OrderBookDeltas
 from nautilus_trader.model.data import TradeTick
-from nautilus_trader.model.enums import AggressorSide
-from nautilus_trader.model.enums import BookAction
-from nautilus_trader.model.enums import OrderSide
-from nautilus_trader.model.enums import RecordFlag
-from nautilus_trader.model.identifiers import TradeId
 
 from prediction_market_extensions._native import (
     fixed_raw_values,
@@ -2103,130 +2094,6 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
                 return name
         raise ValueError(f"Telonex {label} data is missing required columns: {', '.join(names)}")
 
-    @staticmethod
-    def _book_levels_from_value(value: object, *, side: str) -> tuple[PolymarketBookLevel, ...]:
-        if value is None:
-            return ()
-
-        levels: list[tuple[float, str, str]] = []
-        try:
-            iterator = list(value)  # type: ignore[arg-type]
-        except TypeError:
-            return ()
-
-        for raw_level in iterator:
-            if raw_level is None:
-                continue
-            if isinstance(raw_level, dict):
-                raw_price = raw_level.get("price")
-                raw_size = raw_level.get("size")
-            else:
-                raw_price = getattr(raw_level, "price", None)
-                raw_size = getattr(raw_level, "size", None)
-            if raw_price is None or raw_size is None:
-                continue
-            price = float(raw_price)
-            size = float(raw_size)
-            if size <= 0:
-                continue
-            levels.append((price, str(raw_price), str(raw_size)))
-
-        # Nautilus' Polymarket parser takes bids[-1] and asks[-1] as the touch.
-        # Telonex stores bids best-first and asks best-first, so normalize the
-        # ordering before parsing snapshots or applying order-book updates.
-        reverse = side == "ask"
-        levels.sort(key=lambda item: item[0], reverse=reverse)
-        return tuple(PolymarketBookLevel(price=price, size=size) for _px, price, size in levels)
-
-    @staticmethod
-    def _book_levels_from_arrays(
-        *,
-        prices: object,
-        sizes: object,
-        side: str,
-    ) -> tuple[PolymarketBookLevel, ...]:
-        pairs: list[tuple[float, str, str]] = []
-        for p, s in zip(prices, sizes):
-            s_str = str(s)
-            if float(s_str) <= 0:
-                continue
-            pairs.append((float(p), str(p), s_str))
-        reverse = side == "ask"
-        pairs.sort(key=lambda t: t[0], reverse=reverse)
-        return tuple(PolymarketBookLevel(price=p_str, size=s_str) for _, p_str, s_str in pairs)
-
-    @staticmethod
-    def _book_side_map(levels: Sequence[PolymarketBookLevel]) -> dict[str, str]:
-        return {str(level.price): str(level.size) for level in levels}
-
-    def _snapshot_to_deltas(
-        self,
-        *,
-        bids: Sequence[PolymarketBookLevel],
-        asks: Sequence[PolymarketBookLevel],
-        ts_event: int,
-    ) -> OrderBookDeltas | None:
-        snapshot = PolymarketBookSnapshot(
-            market=str(getattr(self, "condition_id", "") or ""),
-            asset_id=str(getattr(self, "token_id", "") or ""),
-            bids=list(bids),
-            asks=list(asks),
-            timestamp=str(ts_event / 1_000_000),
-        )
-        return snapshot.parse_to_snapshot(instrument=self.instrument, ts_init=ts_event)
-
-    def _diff_to_deltas(
-        self,
-        *,
-        previous_bids: dict[str, str],
-        previous_asks: dict[str, str],
-        current_bids: dict[str, str],
-        current_asks: dict[str, str],
-        ts_event: int,
-    ) -> OrderBookDeltas | None:
-        changes: list[tuple[OrderSide, str, str]] = []
-
-        for price in sorted(previous_bids.keys() | current_bids.keys(), key=float):
-            size = current_bids.get(price)
-            if size == previous_bids.get(price):
-                continue
-            changes.append((OrderSide.BUY, price, size or "0"))
-
-        for price in sorted(previous_asks.keys() | current_asks.keys(), key=float, reverse=True):
-            size = current_asks.get(price)
-            if size == previous_asks.get(price):
-                continue
-            changes.append((OrderSide.SELL, price, size or "0"))
-
-        if not changes:
-            return None
-
-        deltas: list[OrderBookDelta] = []
-        instrument = self.instrument
-        price_precision = int(instrument.price_precision)
-        size_precision = int(instrument.size_precision)
-        price_raws = _raw_fixed_values([price for _side, price, _size in changes], price_precision)
-        size_raws = _raw_fixed_values([size for _side, _price, size in changes], size_precision)
-        for idx, (side, _price, _size) in enumerate(changes):
-            size_raw = size_raws[idx]
-            deltas.append(
-                OrderBookDelta.from_raw(
-                    instrument.id,
-                    BookAction.UPDATE if size_raw > 0 else BookAction.DELETE,
-                    side,
-                    price_raws[idx],
-                    price_precision,
-                    size_raw,
-                    size_precision,
-                    0,
-                    flags=RecordFlag.F_LAST if idx == len(changes) - 1 else 0,
-                    sequence=idx + 1,
-                    ts_event=ts_event,
-                    ts_init=ts_event,
-                )
-            )
-        return OrderBookDeltas(instrument.id, deltas)
-
     def _book_events_from_frame(
         self,
         frame: pd.DataFrame,
@@ -2254,6 +2121,8 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
         mask = ts_ns <= end_ns
         if not mask.any():
             return []
+        if not include_order_book:
+            return []
 
         if has_flat:
             bid_prices_values = frame["bid_prices"].to_numpy()[mask]
@@ -2267,130 +2136,55 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
             asks_values = frame[asks_column].to_numpy()[mask]
 
         ns_arr = ts_ns[mask]
-        order = np.argsort(ns_arr, kind="stable")
 
-        if include_order_book:
-            if has_flat:
-                native_rows = telonex_flat_book_snapshot_diff_rows(
-                    timestamp_ns=ns_arr,
-                    bid_prices=bid_prices_values,
-                    bid_sizes=bid_sizes_values,
-                    ask_prices=ask_prices_values,
-                    ask_sizes=ask_sizes_values,
-                    start_ns=start_ns,
-                    end_ns=end_ns,
-                )
-            else:
-                native_rows = telonex_nested_book_snapshot_diff_rows(
-                    timestamp_ns=ns_arr,
-                    bids=bids_values,
-                    asks=asks_values,
-                    start_ns=start_ns,
-                    end_ns=end_ns,
-                )
-            if native_rows is not None:
-                (
-                    first_snapshot_index,
-                    event_indexes,
-                    actions,
-                    sides,
-                    prices,
-                    sizes,
-                    flags,
-                    sequences,
-                    ts_events,
-                    ts_inits,
-                ) = native_rows
-
-                events: list[OrderBookDeltas] = []
-                if first_snapshot_index is not None:
-                    if has_flat:
-                        bids = self._book_levels_from_arrays(
-                            prices=bid_prices_values[first_snapshot_index],
-                            sizes=bid_sizes_values[first_snapshot_index],
-                            side="bid",
-                        )
-                        asks = self._book_levels_from_arrays(
-                            prices=ask_prices_values[first_snapshot_index],
-                            sizes=ask_sizes_values[first_snapshot_index],
-                            side="ask",
-                        )
-                    else:
-                        bids = self._book_levels_from_value(
-                            bids_values[first_snapshot_index], side="bid"
-                        )
-                        asks = self._book_levels_from_value(
-                            asks_values[first_snapshot_index], side="ask"
-                        )
-                    ts_event = int(ns_arr[first_snapshot_index])
-                    deltas = self._snapshot_to_deltas(bids=bids, asks=asks, ts_event=ts_event)
-                    if deltas is not None:
-                        events.append(deltas)
-
-                if event_indexes:
-                    events.extend(
-                        self._deltas_records_from_columns(
-                            {
-                                "event_index": event_indexes,
-                                "action": actions,
-                                "side": sides,
-                                "price": prices,
-                                "size": sizes,
-                                "flags": flags,
-                                "sequence": sequences,
-                                "ts_event": ts_events,
-                                "ts_init": ts_inits,
-                            }
-                        )
-                    )
-                events.sort(key=lambda record: int(record.ts_event))
-                return events
+        if has_flat:
+            native_rows = telonex_flat_book_snapshot_diff_rows(
+                timestamp_ns=ns_arr,
+                bid_prices=bid_prices_values,
+                bid_sizes=bid_sizes_values,
+                ask_prices=ask_prices_values,
+                ask_sizes=ask_sizes_values,
+                start_ns=start_ns,
+                end_ns=end_ns,
+            )
+        else:
+            native_rows = telonex_nested_book_snapshot_diff_rows(
+                timestamp_ns=ns_arr,
+                bids=bids_values,
+                asks=asks_values,
+                start_ns=start_ns,
+                end_ns=end_ns,
+            )
+        (
+            _first_snapshot_index,
+            event_indexes,
+            actions,
+            sides,
+            prices,
+            sizes,
+            flags,
+            sequences,
+            ts_events,
+            ts_inits,
+        ) = native_rows
 
         events: list[OrderBookDeltas] = []
-        previous_bids: dict[str, str] | None = None
-        previous_asks: dict[str, str] | None = None
-        emitted_snapshot = False
-
-        for idx in order:
-            ts_event = int(ns_arr[idx])
-            if has_flat:
-                bids = self._book_levels_from_arrays(
-                    prices=bid_prices_values[idx], sizes=bid_sizes_values[idx], side="bid"
+        if event_indexes:
+            events.extend(
+                self._deltas_records_from_columns(
+                    {
+                        "event_index": event_indexes,
+                        "action": actions,
+                        "side": sides,
+                        "price": prices,
+                        "size": sizes,
+                        "flags": flags,
+                        "sequence": sequences,
+                        "ts_event": ts_events,
+                        "ts_init": ts_inits,
+                    }
                 )
-                asks = self._book_levels_from_arrays(
-                    prices=ask_prices_values[idx], sizes=ask_sizes_values[idx], side="ask"
-                )
-            else:
-                bids = self._book_levels_from_value(bids_values[idx], side="bid")
-                asks = self._book_levels_from_value(asks_values[idx], side="ask")
-            current_bids = self._book_side_map(bids)
-            current_asks = self._book_side_map(asks)
-
-            if ts_event < start_ns:
-                previous_bids = current_bids
-                previous_asks = current_asks
-                continue
-
-            deltas: OrderBookDeltas | None
-            if not emitted_snapshot:
-                deltas = self._snapshot_to_deltas(bids=bids, asks=asks, ts_event=ts_event)
-                emitted_snapshot = deltas is not None
-            else:
-                assert previous_bids is not None
-                assert previous_asks is not None
-                deltas = self._diff_to_deltas(
-                    previous_bids=previous_bids,
-                    previous_asks=previous_asks,
-                    current_bids=current_bids,
-                    current_asks=current_asks,
-                    ts_event=ts_event,
-                )
-
-            if deltas is not None and include_order_book:
-                events.append(deltas)
-            previous_bids = current_bids
-            previous_asks = current_asks
-
+            )
         events.sort(key=lambda record: int(record.ts_event))
         return events
 
@@ -2400,15 +2194,6 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
             if name in frame.columns:
                 return name
         return None
-
-    @staticmethod
-    def _aggressor_side_from_value(value: object) -> AggressorSide:
-        normalized = str(value or "").strip().casefold().replace("-", "_")
-        if normalized in {"buy", "buyer", "bid", "bidder", "taker_buy", "buying"}:
-            return AggressorSide.BUYER
-        if normalized in {"sell", "seller", "ask", "offer", "taker_sell", "selling"}:
-            return AggressorSide.SELLER
-        return AggressorSide.NO_AGGRESSOR
 
     def _onchain_fill_trade_ticks_from_frame(
         self,
@@ -2483,67 +2268,7 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
             end_ns=end_ns,
             token_suffix=token_suffix,
         )
-        if native_rows is not None:
-            return self._trade_ticks_from_native_columns(native_rows)
-
-        order = np.argsort(ns_values, kind="stable")
-        make_price = self.instrument.make_price
-        make_qty = self.instrument.make_qty
-        instrument_id = self.instrument.id
-        timestamp_counts: dict[int, int] = {}
-        trade_id_counts: dict[str, int] = {}
-        trades: list[TradeTick] = []
-
-        for sorted_index, idx in enumerate(order):
-            raw_price = price_values[idx]
-            raw_size = size_values[idx]
-            if raw_price is None or raw_size is None:
-                continue
-            try:
-                price_float = float(raw_price)
-                size_float = float(raw_size)
-            except (TypeError, ValueError):
-                continue
-            if not (0.0 < price_float < 1.0) or size_float <= 0.0:
-                continue
-
-            base_ts_event = int(ns_values[idx])
-            occurrence_in_timestamp = timestamp_counts.get(base_ts_event, 0)
-            timestamp_counts[base_ts_event] = occurrence_in_timestamp + 1
-            ts_event = base_ts_event + min(occurrence_in_timestamp, 999)
-
-            if side_values is None:
-                aggressor_side = AggressorSide.NO_AGGRESSOR
-            else:
-                aggressor_side = self._aggressor_side_from_value(side_values[idx])
-
-            if id_values is None:
-                raw_id = f"telonex-{base_ts_event}-{sorted_index}"
-            else:
-                raw_id = str(id_values[idx])
-            raw_id = raw_id if raw_id and raw_id.casefold() != "nan" else f"telonex-{base_ts_event}"
-            sequence = trade_id_counts.get(raw_id, 0)
-            trade_id_counts[raw_id] = sequence + 1
-            id_suffix = raw_id[-24:]
-            if token_suffix:
-                trade_id = f"{id_suffix}-{token_suffix}-{sequence:06d}"
-            else:
-                trade_id = f"{id_suffix}-{sequence:06d}"
-
-            trades.append(
-                TradeTick(
-                    instrument_id=instrument_id,
-                    price=make_price(raw_price),
-                    size=make_qty(raw_size),
-                    aggressor_side=aggressor_side,
-                    trade_id=TradeId(trade_id),
-                    ts_event=ts_event,
-                    ts_init=ts_event,
-                )
-            )
-
-        trades.sort(key=lambda trade: (int(trade.ts_event), int(trade.ts_init)))
-        return trades
+        return self._trade_ticks_from_native_columns(native_rows)
 
     def _trade_ticks_from_native_columns(
         self,

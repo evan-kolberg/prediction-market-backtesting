@@ -15,10 +15,13 @@ const TELONEX_EXCHANGE: &str = "polymarket";
 const TELONEX_CACHE_SUBDIR: &str = "api-days";
 const TELONEX_DELTAS_CACHE_SUBDIR: &str = "book-deltas-v1";
 const TELONEX_TRADE_TICKS_CACHE_SUBDIR: &str = "trade-ticks-v1";
+const ORDER_SIDE_NO_ORDER_SIDE: u8 = 0;
 const ORDER_SIDE_BUY: u8 = 1;
 const ORDER_SIDE_SELL: u8 = 2;
+const BOOK_ACTION_ADD: u8 = 1;
 const BOOK_ACTION_UPDATE: u8 = 2;
 const BOOK_ACTION_DELETE: u8 = 3;
+const BOOK_ACTION_CLEAR: u8 = 4;
 const RECORD_FLAG_LAST: u8 = 128;
 const AGGRESSOR_NO_AGGRESSOR: u8 = 0;
 const AGGRESSOR_BUYER: u8 = 1;
@@ -360,8 +363,17 @@ pub fn flat_book_snapshot_diff_rows(
         }
 
         if !emitted_snapshot {
-            rows.first_snapshot_index = Some(idx);
-            emitted_snapshot = true;
+            if append_snapshot_rows(
+                &mut rows,
+                output_event_index,
+                &current_bids,
+                &current_asks,
+                ts_event,
+            ) {
+                rows.first_snapshot_index = Some(idx);
+                emitted_snapshot = true;
+                output_event_index += 1;
+            }
         } else if let (Some(prev_bids), Some(prev_asks)) =
             (previous_bids.as_ref(), previous_asks.as_ref())
         {
@@ -404,6 +416,57 @@ pub fn flat_book_snapshot_diff_rows(
     }
 
     Ok(rows)
+}
+
+fn append_snapshot_rows(
+    rows: &mut TelonexFlatBookDiffRows,
+    event_index: i32,
+    bids: &[TelonexBookLevel<'_>],
+    asks: &[TelonexBookLevel<'_>],
+    ts_event: i64,
+) -> bool {
+    if bids.is_empty() && asks.is_empty() {
+        return false;
+    }
+
+    rows.event_index.push(event_index);
+    rows.action.push(BOOK_ACTION_CLEAR);
+    rows.side.push(ORDER_SIDE_NO_ORDER_SIDE);
+    rows.price.push(0.0);
+    rows.size.push(0.0);
+    rows.flags.push(0);
+    rows.sequence.push(0);
+    rows.ts_event.push(ts_event);
+    rows.ts_init.push(ts_event);
+
+    for (idx, bid) in bids.iter().enumerate() {
+        let is_last = asks.is_empty() && idx + 1 == bids.len();
+        append_snapshot_level_row(rows, event_index, ORDER_SIDE_BUY, bid, is_last, ts_event);
+    }
+    for (idx, ask) in asks.iter().rev().enumerate() {
+        let is_last = idx + 1 == asks.len();
+        append_snapshot_level_row(rows, event_index, ORDER_SIDE_SELL, ask, is_last, ts_event);
+    }
+    true
+}
+
+fn append_snapshot_level_row(
+    rows: &mut TelonexFlatBookDiffRows,
+    event_index: i32,
+    side: u8,
+    level: &TelonexBookLevel<'_>,
+    is_last: bool,
+    ts_event: i64,
+) {
+    rows.event_index.push(event_index);
+    rows.action.push(BOOK_ACTION_ADD);
+    rows.side.push(side);
+    rows.price.push(level.price);
+    rows.size.push(level.size);
+    rows.flags.push(if is_last { RECORD_FLAG_LAST } else { 0 });
+    rows.sequence.push(0);
+    rows.ts_event.push(ts_event);
+    rows.ts_init.push(ts_event);
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -1354,17 +1417,35 @@ mod tests {
         .unwrap();
 
         assert_eq!(rows.first_snapshot_index, Some(1));
-        assert_eq!(rows.event_index, vec![0, 0, 0, 0, 0, 0, 1, 1]);
-        assert_eq!(rows.action, vec![2, 3, 2, 2, 3, 2, 3, 3]);
-        assert_eq!(rows.side, vec![1, 1, 1, 2, 2, 2, 1, 2]);
+        assert_eq!(
+            rows.event_index,
+            vec![0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 2, 2]
+        );
+        assert_eq!(rows.action, vec![4, 1, 1, 1, 1, 2, 3, 2, 2, 3, 2, 3, 3]);
+        assert_eq!(rows.side, vec![0, 1, 1, 2, 2, 1, 1, 1, 2, 2, 2, 1, 2]);
         assert_eq!(
             rows.price,
-            vec![0.08, 0.09, 0.10, 0.95, 0.90, 0.80, 0.10, 0.80]
+            vec![
+                0.0, 0.09, 0.10, 0.90, 0.80, 0.08, 0.09, 0.10, 0.95, 0.90, 0.80, 0.10, 0.80
+            ]
         );
-        assert_eq!(rows.size, vec![4.0, 0.0, 3.0, 4.0, 0.0, 3.0, 0.0, 0.0]);
-        assert_eq!(rows.flags, vec![0, 0, 0, 0, 0, 128, 0, 128]);
-        assert_eq!(rows.sequence, vec![1, 2, 3, 4, 5, 6, 1, 2]);
-        assert_eq!(rows.ts_event, vec![110, 110, 110, 110, 110, 110, 120, 120]);
+        assert_eq!(
+            rows.size,
+            vec![
+                0.0, 2.0, 1.0, 2.0, 1.0, 4.0, 0.0, 3.0, 4.0, 0.0, 3.0, 0.0, 0.0
+            ]
+        );
+        assert_eq!(
+            rows.flags,
+            vec![0, 0, 0, 0, 128, 0, 0, 0, 0, 0, 128, 0, 128]
+        );
+        assert_eq!(rows.sequence, vec![0, 0, 0, 0, 0, 1, 2, 3, 4, 5, 6, 1, 2]);
+        assert_eq!(
+            rows.ts_event,
+            vec![
+                100, 100, 100, 100, 100, 110, 110, 110, 110, 110, 110, 120, 120
+            ]
+        );
         assert_eq!(rows.ts_init, rows.ts_event);
     }
 
@@ -1382,14 +1463,14 @@ mod tests {
         .unwrap();
 
         assert_eq!(rows.first_snapshot_index, Some(0));
-        assert_eq!(rows.event_index, vec![0]);
-        assert_eq!(rows.action, vec![2]);
-        assert_eq!(rows.side, vec![1]);
-        assert_eq!(rows.price, vec![0.10]);
-        assert_eq!(rows.size, vec![2.0]);
-        assert_eq!(rows.flags, vec![128]);
-        assert_eq!(rows.sequence, vec![1]);
-        assert_eq!(rows.ts_event, vec![100]);
+        assert_eq!(rows.event_index, vec![0, 0, 1]);
+        assert_eq!(rows.action, vec![4, 1, 2]);
+        assert_eq!(rows.side, vec![0, 1, 1]);
+        assert_eq!(rows.price, vec![0.0, 0.10, 0.10]);
+        assert_eq!(rows.size, vec![0.0, 1.0, 2.0]);
+        assert_eq!(rows.flags, vec![0, 128, 128]);
+        assert_eq!(rows.sequence, vec![0, 0, 1]);
+        assert_eq!(rows.ts_event, vec![100, 100, 100]);
         assert_eq!(rows.ts_init, rows.ts_event);
     }
 

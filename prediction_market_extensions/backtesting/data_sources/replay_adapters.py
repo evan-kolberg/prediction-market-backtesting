@@ -490,13 +490,6 @@ async def _load_trade_ticks(
     return tuple(all_trades)
 
 
-def _record_sort_key(record: object) -> tuple[int, int, int]:
-    ts_event = int(getattr(record, "ts_event", getattr(record, "ts_init", 0)))
-    ts_init = int(getattr(record, "ts_init", ts_event))
-    priority = 0 if isinstance(record, OrderBookDeltas) else 1
-    return (ts_event, priority, ts_init)
-
-
 def _merge_records(
     *, book_records: tuple[OrderBookDeltas, ...], trade_records: tuple[TradeTick, ...]
 ) -> tuple[object, ...]:
@@ -506,14 +499,7 @@ def _merge_records(
         trade_ts_events=[int(record.ts_event) for record in trade_records],
         trade_ts_inits=[int(record.ts_init) for record in trade_records],
     )
-    if plan is not None:
-        return tuple(
-            book_records[index] if kind == 0 else trade_records[index] for kind, index in plan
-        )
-
-    records: list[object] = [*book_records, *trade_records]
-    records.sort(key=_record_sort_key)
-    return tuple(records)
+    return tuple(book_records[index] if kind == 0 else trade_records[index] for kind, index in plan)
 
 
 L2_BOOK_ENGINE_PROFILE = ReplayEngineProfile(

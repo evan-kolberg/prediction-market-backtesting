@@ -20,24 +20,14 @@ from typing import ClassVar
 from urllib.request import Request, urlopen
 
 import duckdb
-import msgspec
 import pandas as pd
 import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.dataset as ds
 import pyarrow.parquet as pq
-from nautilus_trader.adapters.polymarket.common.enums import PolymarketOrderSide
 from nautilus_trader.adapters.polymarket.loaders import PolymarketDataLoader
-from nautilus_trader.adapters.polymarket.schemas.book import (
-    PolymarketBookLevel,
-    PolymarketBookSnapshot,
-    PolymarketQuote,
-    PolymarketQuotes,
-)
-from nautilus_trader.model.book import OrderBook
 from nautilus_trader.model.data import OrderBookDelta
 from nautilus_trader.model.data import OrderBookDeltas
-from nautilus_trader.model.enums import BookType
 
 from prediction_market_extensions._native import (
     decimal_seconds_to_ns,
@@ -47,38 +37,8 @@ from prediction_market_extensions._native import (
     pmxt_fixed_delta_rows,
     pmxt_payload_delta_rows,
     pmxt_payload_sort_key,
-    pmxt_sort_payload_columns,
 )
 from prediction_market_extensions._runtime_log import emit_loader_event
-
-
-class _PMXTBookSnapshotPayload(msgspec.Struct, frozen=True):
-    update_type: str
-    market_id: str
-    token_id: str
-    side: str
-    best_bid: str | None
-    best_ask: str | None
-    timestamp: float
-    bids: list[list[str]]
-    asks: list[list[str]]
-
-
-class _PMXTPriceChangePayload(msgspec.Struct, frozen=True):
-    update_type: str
-    market_id: str
-    token_id: str
-    side: str
-    best_bid: str | None
-    best_ask: str | None
-    timestamp: float
-    change_price: str
-    change_size: str
-    change_side: str
-
-
-_PMXT_BOOK_SNAPSHOT_DECODER = msgspec.json.Decoder(type=_PMXTBookSnapshotPayload)
-_PMXT_PRICE_CHANGE_DECODER = msgspec.json.Decoder(type=_PMXTPriceChangePayload)
 
 
 def _raw_fixed_values(values: Sequence[object], precision: int) -> list[int]:
@@ -1180,55 +1140,6 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
         return float_seconds_to_ms_string(timestamp_secs)
 
     @staticmethod
-    def _decode_book_snapshot(payload_text: str) -> _PMXTBookSnapshotPayload:
-        return _PMXT_BOOK_SNAPSHOT_DECODER.decode(payload_text)
-
-    @staticmethod
-    def _decode_price_change(payload_text: str) -> _PMXTPriceChangePayload:
-        return _PMXT_PRICE_CHANGE_DECODER.decode(payload_text)
-
-    @staticmethod
-    def _to_book_snapshot(payload: _PMXTBookSnapshotPayload) -> PolymarketBookSnapshot:
-        bids = sorted(
-            (PolymarketBookLevel(price=price, size=size) for price, size in payload.bids),
-            key=lambda level: float(level.price),
-        )
-        asks = sorted(
-            (PolymarketBookLevel(price=price, size=size) for price, size in payload.asks),
-            key=lambda level: float(level.price),
-            reverse=True,
-        )
-        return PolymarketBookSnapshot(
-            market=payload.market_id,
-            asset_id=payload.token_id,
-            bids=bids,
-            asks=asks,
-            timestamp=PolymarketPMXTDataLoader._timestamp_to_ms_string(payload.timestamp),
-        )
-
-    @staticmethod
-    def _to_price_change(payload: _PMXTPriceChangePayload) -> PolymarketQuotes:
-        side = PolymarketOrderSide(payload.change_side)
-        return PolymarketQuotes(
-            market=payload.market_id,
-            price_changes=[
-                PolymarketQuote(
-                    asset_id=payload.token_id,
-                    price=payload.change_price,
-                    side=side,
-                    size=payload.change_size,
-                    hash=(
-                        f"pmxt:{payload.market_id}:{payload.token_id}:"
-                        f"{payload.timestamp:.6f}:{payload.change_side}:{payload.change_price}"
-                    ),
-                    best_bid=payload.best_bid,
-                    best_ask=payload.best_ask,
-                )
-            ],
-            timestamp=PolymarketPMXTDataLoader._timestamp_to_ms_string(payload.timestamp),
-        )
-
-    @staticmethod
     def _event_sort_key(record: OrderBookDeltas) -> tuple[int, int]:
         ts_event = int(getattr(record, "ts_event", getattr(record, "ts_init", 0)))
         ts_init = int(getattr(record, "ts_init", ts_event))
@@ -1290,77 +1201,6 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
     def _batches_use_fixed_schema(cls, batches: Sequence[pa.RecordBatch]) -> bool:
         return bool(batches) and cls._is_fixed_schema(batches[0].schema.names)
 
-    def _process_book_snapshot(
-        self,
-        payload_text: str,
-        *,
-        token_id: str,
-        instrument,
-        local_book: OrderBook,
-        has_snapshot: bool,
-        events: list[OrderBookDeltas],
-        start_ns: int,
-        end_ns: int,
-        include_order_book: bool,
-    ) -> tuple[OrderBook, bool]:
-        payload = self._decode_book_snapshot(payload_text)
-        if payload.token_id != token_id:
-            return local_book, has_snapshot
-
-        snapshot = self._to_book_snapshot(payload)
-        deltas = snapshot.parse_to_snapshot(
-            instrument=instrument, ts_init=self._timestamp_to_ns(payload.timestamp)
-        )
-        if deltas is None:
-            return local_book, has_snapshot
-
-        event_ns = deltas.ts_event
-        local_book = OrderBook(instrument.id, book_type=BookType.L2_MBP)
-        local_book.apply_deltas(deltas)
-        has_snapshot = True
-        if event_ns < start_ns or event_ns > end_ns:
-            return local_book, has_snapshot
-
-        if include_order_book:
-            events.append(deltas)
-
-        return local_book, has_snapshot
-
-    def _process_price_change(
-        self,
-        payload_text: str,
-        *,
-        token_id: str,
-        instrument,
-        local_book: OrderBook,
-        has_snapshot: bool,
-        events: list[OrderBookDeltas],
-        start_ns: int,
-        end_ns: int,
-        include_order_book: bool,
-    ) -> OrderBook:
-        if not has_snapshot:
-            return local_book
-
-        payload = self._decode_price_change(payload_text)
-        if payload.token_id != token_id:
-            return local_book
-
-        quotes = self._to_price_change(payload)
-        deltas = quotes.parse_to_deltas(
-            instrument=instrument, ts_init=self._timestamp_to_ns(payload.timestamp)
-        )
-        local_book.apply_deltas(deltas)
-
-        event_ns = deltas.ts_event
-        if event_ns < start_ns or event_ns > end_ns:
-            return local_book
-
-        if include_order_book:
-            events.append(deltas)
-
-        return local_book
-
     def load_order_book_deltas(
         self,
         start: pd.Timestamp,
@@ -1388,8 +1228,6 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
         start_ns = start_ts.value
         end_ns = end_ts.value
         token_id = self.token_id
-        instrument = self.instrument
-        local_book = OrderBook(instrument.id, book_type=BookType.L2_MBP)
         has_snapshot = False
         events: list[OrderBookDeltas] = []
         hours = self._archive_hours(start_ts, end_ts)
@@ -1412,7 +1250,6 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
                 # potentially stale state.
                 gap_hours.append(hour)
                 has_snapshot = False
-                local_book = OrderBook(instrument.id, book_type=BookType.L2_MBP)
                 continue
             if not batches:
                 continue
@@ -1433,12 +1270,6 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
                     has_snapshot=has_snapshot,
                     last_payload_key=last_payload_key,
                 )
-                if native_rows is None:
-                    raise RuntimeError(
-                        "PMXT fixed-column Parquet loading requires the Rust native extension. "
-                        "Set PREDICTION_MARKET_NATIVE_REQUIRE=1 to fail earlier if the extension "
-                        "is unavailable."
-                    )
                 has_snapshot, last_payload_key, delta_columns = native_rows
                 if include_order_book and delta_columns["event_index"]:
                     events.extend(self._deltas_records_from_columns(delta_columns))
@@ -1456,47 +1287,9 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
                 has_snapshot=has_snapshot,
                 last_payload_key=last_payload_key,
             )
-            if native_rows is not None:
-                has_snapshot, last_payload_key, delta_columns = native_rows
-                if include_order_book and delta_columns["event_index"]:
-                    events.extend(self._deltas_records_from_columns(delta_columns))
-                continue
-
-            for timestamp_ns, priority, update_type, payload_text in pmxt_sort_payload_columns(
-                update_type_columns,
-                payload_text_columns,
-            ):
-                payload_key = (timestamp_ns, priority)
-                if last_payload_key is not None and payload_key < last_payload_key:
-                    continue
-                if update_type == "book_snapshot":
-                    local_book, has_snapshot = self._process_book_snapshot(
-                        payload_text,
-                        token_id=token_id,
-                        instrument=instrument,
-                        local_book=local_book,
-                        has_snapshot=has_snapshot,
-                        events=events,
-                        start_ns=start_ns,
-                        end_ns=end_ns,
-                        include_order_book=include_order_book,
-                    )
-                    last_payload_key = payload_key
-                    continue
-
-                if update_type == "price_change":
-                    local_book = self._process_price_change(
-                        payload_text,
-                        token_id=token_id,
-                        instrument=instrument,
-                        local_book=local_book,
-                        has_snapshot=has_snapshot,
-                        events=events,
-                        start_ns=start_ns,
-                        end_ns=end_ns,
-                        include_order_book=include_order_book,
-                    )
-                    last_payload_key = payload_key
+            has_snapshot, last_payload_key, delta_columns = native_rows
+            if include_order_book and delta_columns["event_index"]:
+                events.extend(self._deltas_records_from_columns(delta_columns))
 
         events.sort(key=self._event_sort_key)
 

@@ -237,9 +237,12 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
         if self._pmxt_raw_root is None:
             return None
 
+        return self._raw_path_for_hour_at_root(Path(self._pmxt_raw_root), hour)
+
+    def _raw_path_for_hour_at_root(self, raw_root: Path, hour) -> Path:  # type: ignore[no-untyped-def]
         ts = hour.tz_convert("UTC")
         return (
-            self._pmxt_raw_root
+            raw_root.expanduser()
             / str(ts.year)
             / f"{ts.month:02d}"
             / f"{ts.day:02d}"
@@ -318,10 +321,127 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
         *,
         batch_size: int,
     ):  # type: ignore[no-untyped-def]
-        return self._load_raw_market_batches_via_download(
-            self._archive_url_for_base_url(base_url, hour),
+        archive_url = self._archive_url_for_base_url(base_url, hour)
+        persisted_batches = self._load_remote_market_batches_via_raw_root(
+            archive_url,
+            hour,
             batch_size=batch_size,
         )
+        if persisted_batches is not None:
+            return persisted_batches
+        return self._load_raw_market_batches_via_download(archive_url, batch_size=batch_size)
+
+    def _raw_persistence_root(self) -> Path | None:
+        raw_root = getattr(self, "_pmxt_raw_root", None)
+        if raw_root is not None:
+            return Path(raw_root).expanduser()
+
+        for kind, target in getattr(self, "_pmxt_ordered_source_entries", ()) or ():
+            if kind == _PMXT_SOURCE_STAGE_RAW_LOCAL:
+                return Path(target).expanduser()
+        return None
+
+    def _load_remote_market_batches_via_raw_root(
+        self,
+        archive_url: str,
+        hour,
+        *,
+        batch_size: int,
+    ):  # type: ignore[no-untyped-def]
+        raw_root = self._raw_persistence_root()
+        if raw_root is None:
+            return None
+
+        raw_path = self._raw_path_for_hour_at_root(raw_root, hour)
+        if raw_path.exists():
+            return self._load_raw_market_batches_from_local_file(
+                raw_path,
+                batch_size=batch_size,
+                progress_source=str(raw_path),
+                total_bytes=self._progress_total_bytes(str(raw_path)),
+            )
+
+        downloaded = self._download_remote_raw_to_local_root(
+            archive_url,
+            raw_path,
+            hour,
+        )
+        if downloaded is None:
+            return None
+
+        return self._load_raw_market_batches_from_local_file(
+            downloaded,
+            batch_size=batch_size,
+            progress_source=str(downloaded),
+            total_bytes=self._progress_total_bytes(str(downloaded)),
+        )
+
+    def _download_remote_raw_to_local_root(
+        self,
+        archive_url: str,
+        raw_path: Path,
+        hour,
+    ) -> Path | None:  # type: ignore[no-untyped-def]
+        raw_path = raw_path.expanduser()
+        temp_path = raw_path.with_name(
+            f".{raw_path.name}.{os.getpid()}.{threading.get_ident()}.tmp"
+        )
+        self._emit_pmxt_source_event(
+            message=f"Writing PMXT raw archive copy for {self._hour_label(hour)}",
+            stage="raw_write",
+            status="start",
+            hour=hour,
+            source_kind="local",
+            source=f"archive:{archive_url}",
+            cache_path=raw_path,
+            origin_function="_download_remote_raw_to_local_root",
+        )
+        try:
+            raw_path.parent.mkdir(parents=True, exist_ok=True)
+            total_bytes = self._download_to_file_with_progress(archive_url, temp_path)
+            if total_bytes is None and not temp_path.exists():
+                return None
+            if raw_path.exists():
+                temp_path.unlink(missing_ok=True)
+            else:
+                os.replace(temp_path, raw_path)
+            bytes_count = total_bytes
+            if bytes_count is None:
+                with suppress(OSError):
+                    bytes_count = raw_path.stat().st_size
+            cache = getattr(self, "_pmxt_progress_size_cache", None)
+            if cache is None:
+                cache = {}
+                self._pmxt_progress_size_cache = cache
+            cache[str(raw_path)] = bytes_count
+            self._emit_pmxt_source_event(
+                message=f"Wrote PMXT raw archive copy for {self._hour_label(hour)}",
+                stage="raw_write",
+                status="complete",
+                hour=hour,
+                source_kind="local",
+                source=f"archive:{archive_url}",
+                cache_path=raw_path,
+                bytes_count=bytes_count,
+                origin_function="_download_remote_raw_to_local_root",
+            )
+            return raw_path
+        except OSError as exc:
+            temp_path.unlink(missing_ok=True)
+            if "404" not in str(exc):
+                self._emit_pmxt_source_event(
+                    message=f"Failed to write PMXT raw archive copy for {self._hour_label(hour)}",
+                    level="ERROR",
+                    stage="raw_write",
+                    status="error",
+                    hour=hour,
+                    source_kind="local",
+                    source=f"archive:{archive_url}",
+                    cache_path=raw_path,
+                    extra_attrs={"error": str(exc)},
+                    origin_function="_download_remote_raw_to_local_root",
+                )
+            return None
 
     @classmethod
     def _resolve_source_priority(cls) -> tuple[str, ...]:

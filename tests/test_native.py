@@ -175,14 +175,28 @@ def test_telonex_flat_book_snapshot_diff_rows_uses_native_diff_engine() -> None:
         ts_init,
     ) = rows
     assert first_snapshot_index == 1
-    assert event_indexes == [0, 0, 0, 0, 0, 0, 1, 1]
-    assert actions == [2, 3, 2, 2, 3, 2, 3, 3]
-    assert sides == [1, 1, 1, 2, 2, 2, 1, 2]
-    assert prices == [0.08, 0.09, 0.10, 0.95, 0.90, 0.80, 0.10, 0.80]
-    assert sizes == [4.0, 0.0, 3.0, 4.0, 0.0, 3.0, 0.0, 0.0]
-    assert flags == [0, 0, 0, 0, 0, 128, 0, 128]
-    assert sequences == [1, 2, 3, 4, 5, 6, 1, 2]
-    assert ts == [110, 110, 110, 110, 110, 110, 120, 120]
+    assert event_indexes == [0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 2, 2]
+    assert actions == [4, 1, 1, 1, 1, 2, 3, 2, 2, 3, 2, 3, 3]
+    assert sides == [0, 1, 1, 2, 2, 1, 1, 1, 2, 2, 2, 1, 2]
+    assert prices == [
+        0.0,
+        0.09,
+        0.10,
+        0.90,
+        0.80,
+        0.08,
+        0.09,
+        0.10,
+        0.95,
+        0.90,
+        0.80,
+        0.10,
+        0.80,
+    ]
+    assert sizes == [0.0, 2.0, 1.0, 2.0, 1.0, 4.0, 0.0, 3.0, 4.0, 0.0, 3.0, 0.0, 0.0]
+    assert flags == [0, 0, 0, 0, 128, 0, 0, 0, 0, 0, 128, 0, 128]
+    assert sequences == [0, 0, 0, 0, 0, 1, 2, 3, 4, 5, 6, 1, 2]
+    assert ts == [100, 100, 100, 100, 100, 110, 110, 110, 110, 110, 110, 120, 120]
     assert ts_init == ts
 
 
@@ -206,12 +220,12 @@ def test_telonex_nested_book_snapshot_diff_rows_normalizes_in_native() -> None:
     assert rows is not None
     first_snapshot_index, event_indexes, actions, sides, prices, sizes, flags, *_rest = rows
     assert first_snapshot_index == 1
-    assert event_indexes == [0, 0, 0, 0, 0, 0]
-    assert actions == [2, 3, 2, 2, 3, 2]
-    assert sides == [1, 1, 1, 2, 2, 2]
-    assert prices == [0.08, 0.09, 0.10, 0.95, 0.90, 0.80]
-    assert sizes == [4.0, 0.0, 3.0, 4.0, 0.0, 3.0]
-    assert flags == [0, 0, 0, 0, 0, 128]
+    assert event_indexes == [0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1]
+    assert actions == [4, 1, 1, 1, 1, 2, 3, 2, 2, 3, 2]
+    assert sides == [0, 1, 1, 2, 2, 1, 1, 1, 2, 2, 2]
+    assert prices == [0.0, 0.09, 0.10, 0.90, 0.80, 0.08, 0.09, 0.10, 0.95, 0.90, 0.80]
+    assert sizes == [0.0, 2.0, 1.0, 2.0, 1.0, 4.0, 0.0, 3.0, 4.0, 0.0, 3.0]
+    assert flags == [0, 0, 0, 0, 128, 0, 0, 0, 0, 0, 128]
 
 
 def test_telonex_onchain_fill_trade_rows_normalizes_execution_ticks() -> None:
@@ -518,78 +532,35 @@ def test_polymarket_trade_helpers_use_native_sort_and_id_logic() -> None:
     assert skipped_price_records == [(0, 1.0)]
 
 
-def test_native_can_be_disabled_forces_python_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_native_can_be_disabled_fails_fast_for_data_loading(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setenv(native.NATIVE_ENV, "0")
     monkeypatch.setenv(native.NATIVE_REQUIRE_ENV, "0")
 
     assert native.native_available() is False
-    assert (
+
+    with pytest.raises(RuntimeError, match="Rust native data loading is required"):
         native.source_days_for_window_ns(
             APR_21_2026_NS,
             APR_28_2026_NS,
             semantics="half-open",
-        )[-1]
-        == "2026-04-27"
-    )
-    assert native.pmxt_archive_hours_for_window_ns(
-        APR_21_2026_NS,
-        APR_21_2026_NS + NANOS_PER_HOUR,
-    ) == [
-        APR_21_2026_NS - NANOS_PER_HOUR,
-        APR_21_2026_NS,
-        APR_21_2026_NS + NANOS_PER_HOUR,
-    ]
-    assert native.decimal_seconds_to_ns(1771767624.001295) == 1_771_767_624_001_295_000
-    assert native.float_seconds_to_ms_string(1771767624.001295) == "1771767624001.295166"
-    assert native.fixed_raw_values([0.105, 1009.1234564], 2) == [
-        1_000_000_000_000_000,
-        10_091_200_000_000_000_000,
-    ]
-    assert native.pmxt_payload_sort_key(
-        "price_change",
-        '{"update_type":"price_change","timestamp":1771767624.001296}',
-    ) == (1_771_767_624_001_296_000, 1)
-    assert native.pmxt_sort_payload_columns(
-        [["price_change"], ["book_snapshot"]],
-        [
-            ['{"update_type":"price_change","timestamp":1771767624.001296}'],
-            ['{"update_type":"book_snapshot","timestamp":1771767624.001295}'],
-        ],
-    ) == [
-        (
-            1_771_767_624_001_295_000,
-            0,
-            "book_snapshot",
-            '{"update_type":"book_snapshot","timestamp":1771767624.001295}',
-        ),
-        (
-            1_771_767_624_001_296_000,
-            1,
-            "price_change",
-            '{"update_type":"price_change","timestamp":1771767624.001296}',
-        ),
-    ]
-    assert (
-        native.polymarket_trade_id(
-            "0x1234567890abcdef1234567890abcdef",
-            "asset9876",
-            42,
         )
-        == "90abcdef1234567890abcdef-9876-000042"
-    )
-    assert native.polymarket_public_trade_rows(
-        [
-            {
-                "timestamp": 1_771_767_624,
-                "transactionHash": "0xaaaa",
-                "asset": "asset9876",
-                "side": "BUY",
-                "price": "0.41",
-                "size": "4",
-            },
-        ],
-        token_id="asset9876",
-    )[0] == [0.41]
+
+    with pytest.raises(RuntimeError, match="Rust native data loading is required"):
+        native.polymarket_public_trade_rows(
+            [
+                {
+                    "timestamp": 1_771_767_624,
+                    "transactionHash": "0xaaaa",
+                    "asset": "asset9876",
+                    "side": "BUY",
+                    "price": "0.41",
+                    "size": "4",
+                },
+            ],
+            token_id="asset9876",
+        )
 
 
 def test_native_require_raises_when_extension_missing(monkeypatch: pytest.MonkeyPatch) -> None:
