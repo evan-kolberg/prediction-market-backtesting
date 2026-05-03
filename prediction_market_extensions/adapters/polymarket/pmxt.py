@@ -14,7 +14,6 @@ import warnings
 from collections.abc import Callable, Iterator
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import contextmanager, suppress
-from decimal import Decimal
 from datetime import UTC
 from pathlib import Path
 from typing import ClassVar
@@ -37,6 +36,14 @@ from nautilus_trader.adapters.polymarket.schemas.book import (
 from nautilus_trader.model.book import OrderBook
 from nautilus_trader.model.data import OrderBookDeltas
 from nautilus_trader.model.enums import BookType
+
+from prediction_market_extensions._native import (
+    decimal_seconds_to_ns,
+    float_seconds_to_ms_string,
+    pmxt_archive_hours_for_window_ns,
+    pmxt_payload_sort_key,
+    pmxt_sort_payload_columns,
+)
 
 
 class _PMXTBookSnapshotPayload(msgspec.Struct, frozen=True):
@@ -126,13 +133,18 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
 
     @staticmethod
     def _archive_hours(start: pd.Timestamp, end: pd.Timestamp) -> list[pd.Timestamp]:
-        cursor = start.floor("h") - pd.Timedelta(hours=1)
-        final_hour = end.floor("h")
-        hours: list[pd.Timestamp] = []
-        while cursor <= final_hour:
-            hours.append(cursor)
-            cursor += pd.Timedelta(hours=1)
-        return hours
+        start_ts = PolymarketPMXTDataLoader._normalize_timestamp(start)
+        end_ts = PolymarketPMXTDataLoader._normalize_timestamp(end)
+        if start_ts is None or end_ts is None:
+            return []
+
+        return [
+            pd.Timestamp(hour_ns, unit="ns", tz=UTC)
+            for hour_ns in pmxt_archive_hours_for_window_ns(
+                int(start_ts.value),
+                int(end_ts.value),
+            )
+        ]
 
     @classmethod
     def _archive_filename_for_hour(cls, hour: pd.Timestamp) -> str:
@@ -780,7 +792,7 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
 
     @staticmethod
     def _timestamp_to_ms_string(timestamp_secs: float) -> str:
-        return f"{timestamp_secs * 1000:.6f}"
+        return float_seconds_to_ms_string(timestamp_secs)
 
     @staticmethod
     def _decode_book_snapshot(payload_text: str) -> _PMXTBookSnapshotPayload:
@@ -838,16 +850,7 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
         return (ts_event, ts_init)
 
     def _payload_sort_key(self, update_type: str, payload_text: str) -> tuple[int, int]:
-        if update_type == "book_snapshot":
-            timestamp = self._decode_book_snapshot(payload_text).timestamp
-            priority = 0
-        elif update_type == "price_change":
-            timestamp = self._decode_price_change(payload_text).timestamp
-            priority = 1
-        else:
-            timestamp = 0.0
-            priority = 2
-        return (self._timestamp_to_ns(timestamp), priority)
+        return pmxt_payload_sort_key(update_type, payload_text)
 
     def _process_book_snapshot(
         self,
@@ -971,16 +974,14 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
             if not batches:
                 continue
 
-            hour_payloads: list[tuple[str, str]] = []
-            for batch in batches:
-                update_types = batch.column("update_type").to_pylist()
-                payload_texts = batch.column("data").to_pylist()
-                hour_payloads.extend(zip(update_types, payload_texts, strict=False))
+            update_type_columns = [batch.column("update_type").to_pylist() for batch in batches]
+            payload_text_columns = [batch.column("data").to_pylist() for batch in batches]
 
-            for update_type, payload_text in sorted(
-                hour_payloads, key=lambda item: self._payload_sort_key(*item)
+            for timestamp_ns, priority, update_type, payload_text in pmxt_sort_payload_columns(
+                update_type_columns,
+                payload_text_columns,
             ):
-                payload_key = self._payload_sort_key(update_type, payload_text)
+                payload_key = (timestamp_ns, priority)
                 if last_payload_key is not None and payload_key < last_payload_key:
                     continue
                 if update_type == "book_snapshot":
@@ -1029,4 +1030,4 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
 
     @staticmethod
     def _timestamp_to_ns(value: object) -> int:
-        return int((Decimal(str(value)) * Decimal("1000000000")).to_integral_value())
+        return decimal_seconds_to_ns(value)

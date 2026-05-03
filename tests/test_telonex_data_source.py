@@ -19,6 +19,7 @@ from nautilus_trader.model.enums import AggressorSide
 
 import prediction_market_extensions.backtesting.data_sources.telonex as telonex_module
 from scripts import _telonex_data_download as telonex_download
+from prediction_market_extensions._runtime_log import capture_loader_events
 from prediction_market_extensions.backtesting.data_sources.telonex import (
     TELONEX_CACHE_ROOT_ENV,
     TELONEX_API_KEY_ENV,
@@ -698,6 +699,74 @@ def test_telonex_full_book_snapshots_replay_l2_deltas() -> None:
     assert len(records) == 2
 
 
+def test_telonex_flat_book_snapshots_use_native_diff_rows(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    loader = _make_polymarket_loader()
+    ts0 = 1_768_780_800_000_000_000
+    ts1 = 1_768_780_800_100_000_000
+    frame = pd.DataFrame(
+        {
+            "timestamp_us": [ts0 // 1_000, ts1 // 1_000],
+            "bid_prices": [["0.34"], ["0.34"]],
+            "bid_sizes": [["10"], ["7"]],
+            "ask_prices": [["0.39"], ["0.39"]],
+            "ask_sizes": [["11"], ["11"]],
+        }
+    )
+    calls: list[dict[str, object]] = []
+
+    def fake_native_diff_rows(
+        **kwargs: object,
+    ) -> tuple[
+        int,
+        list[int],
+        list[int],
+        list[int],
+        list[float],
+        list[float],
+        list[int],
+        list[int],
+        list[int],
+        list[int],
+    ]:
+        calls.append(kwargs)
+        return (
+            0,
+            [0],
+            [2],
+            [1],
+            [0.34],
+            [7.0],
+            [128],
+            [1],
+            [ts1],
+            [ts1],
+        )
+
+    monkeypatch.setattr(
+        telonex_module,
+        "telonex_flat_book_snapshot_diff_rows",
+        fake_native_diff_rows,
+    )
+
+    records = loader._book_events_from_frame(
+        frame,
+        start=pd.Timestamp("2026-01-19T00:00:00Z"),
+        end=pd.Timestamp("2026-01-20T00:00:00Z"),
+    )
+
+    assert calls
+    assert [int(value) for value in calls[0]["timestamp_ns"]] == [ts0, ts1]
+    assert len(records) == 2
+    assert len(records[0].deltas) == 3
+    assert int(records[1].deltas[0].action) == 2
+    assert int(records[1].deltas[0].order.side) == 1
+    assert float(records[1].deltas[0].order.price) == pytest.approx(0.34)
+    assert float(records[1].deltas[0].order.size) == pytest.approx(7.0)
+    assert int(records[1].deltas[0].flags) == 128
+
+
 def test_telonex_materialized_deltas_cache_round_trips(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -749,6 +818,31 @@ def test_telonex_materialized_deltas_cache_round_trips(
     assert [int(record.ts_event) for record in cached_records] == [
         int(record.ts_event) for record in records
     ]
+
+
+def test_telonex_day_progress_emits_loader_event() -> None:
+    loader = RunnerPolymarketTelonexBookDataLoader.__new__(RunnerPolymarketTelonexBookDataLoader)
+    loader._telonex_market_slug = "cache-test"
+    loader._telonex_token_index = 0
+    loader._telonex_outcome = "Yes"
+
+    with capture_loader_events() as capture:
+        loader._day_progress(
+            "2026-01-19",
+            "complete",
+            "telonex-deltas-cache::/tmp/day.parquet",
+            12,
+        )
+
+    assert len(capture.events) == 1
+    event = capture.events[0]
+    assert event.vendor == "telonex"
+    assert event.stage == "cache_read"
+    assert event.status == "cache_hit"
+    assert event.source_kind == "cache"
+    assert event.market_slug == "cache-test"
+    assert event.token_id == "0"
+    assert event.rows == 12
 
 
 def test_telonex_full_book_loader_uses_local_before_api_cache(

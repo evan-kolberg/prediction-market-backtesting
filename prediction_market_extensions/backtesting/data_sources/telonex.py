@@ -14,7 +14,6 @@ from hashlib import sha256
 from io import BytesIO
 from pathlib import Path
 from urllib.error import HTTPError, URLError
-from urllib.parse import quote, urlencode
 from urllib.request import HTTPRedirectHandler, Request, build_opener, urlopen
 
 import duckdb
@@ -37,6 +36,19 @@ from nautilus_trader.model.enums import OrderSide
 from nautilus_trader.model.enums import RecordFlag
 from nautilus_trader.model.identifiers import TradeId
 
+from prediction_market_extensions._native import (
+    telonex_api_cache_relative_path,
+    telonex_api_url,
+    telonex_deltas_cache_relative_path,
+    telonex_flat_book_snapshot_diff_rows,
+    telonex_local_consolidated_candidate_paths,
+    telonex_local_daily_candidate_paths,
+    telonex_source_days_for_window_ns,
+    telonex_source_label_kind,
+    telonex_stage_for_source,
+    telonex_trade_ticks_cache_relative_path,
+)
+from prediction_market_extensions._runtime_log import emit_loader_event
 from prediction_market_extensions.adapters.polymarket.loaders import PolymarketDataLoader
 from prediction_market_extensions.backtesting.data_sources._common import (
     DISABLED_ENV_VALUES,
@@ -378,7 +390,39 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
         if callback is not None:
             callback(url, downloaded_bytes, total_bytes, finished)
 
+    @staticmethod
+    def _telonex_source_kind(source: str) -> str | None:
+        return telonex_source_label_kind(source)
+
+    @staticmethod
+    def _telonex_stage_for_source(source: str) -> str:
+        return telonex_stage_for_source(source)
+
     def _day_progress(self, date: str, event: str, source: str, rows: int) -> None:
+        status = "start"
+        if event == "complete":
+            if source == "none" and rows == 0:
+                status = "skip"
+            elif "cache" in source:
+                status = "cache_hit"
+            else:
+                status = "complete"
+        emit_loader_event(
+            f"Telonex day {event} for {date}: {rows} rows from {source}",
+            level="INFO",
+            stage=self._telonex_stage_for_source(source),
+            status=status,
+            vendor="telonex",
+            platform="polymarket",
+            data_type="book",
+            source_kind=self._telonex_source_kind(source),
+            source=None if source == "none" else source,
+            market_slug=getattr(self, "_telonex_market_slug", None),
+            token_id=str(getattr(self, "_telonex_token_index", "")),
+            outcome=getattr(self, "_telonex_outcome", None),
+            rows=rows,
+            attrs={"date": date, "event": event},
+        )
         callback = getattr(self, "_telonex_day_progress_callback", None)
         if callback is not None:
             callback(date, event, source, rows)
@@ -405,14 +449,9 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
 
     @staticmethod
     def _date_range(start: pd.Timestamp, end: pd.Timestamp) -> list[str]:
-        first_day = start.tz_convert(UTC).floor("D")
-        last_day = end.tz_convert(UTC).floor("D")
-        days: list[str] = []
-        cursor = first_day
-        while cursor <= last_day:
-            days.append(cursor.strftime("%Y-%m-%d"))
-            cursor += pd.Timedelta(days=1)
-        return days
+        start_utc = RunnerPolymarketTelonexBookDataLoader._normalize_to_utc(start)
+        end_utc = RunnerPolymarketTelonexBookDataLoader._normalize_to_utc(end)
+        return telonex_source_days_for_window_ns(int(start_utc.value), int(end_utc.value))
 
     @staticmethod
     def _outcome_segments(*, token_index: int, outcome: str | None) -> tuple[str, ...]:
@@ -900,20 +939,13 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
         token_index: int,
         outcome: str | None,
     ) -> tuple[Path, ...]:
-        outcome_parts = cls._outcome_segments(token_index=token_index, outcome=outcome)
-        candidates = [
-            root / _TELONEX_EXCHANGE / market_slug / outcome_part / f"{channel}.parquet"
-            for outcome_part in outcome_parts
-        ]
-        candidates.extend(
-            root / _TELONEX_EXCHANGE / channel / market_slug / f"{outcome_part}.parquet"
-            for outcome_part in outcome_parts
+        return telonex_local_consolidated_candidate_paths(
+            root=root,
+            channel=channel,
+            market_slug=market_slug,
+            token_index=token_index,
+            outcome=outcome,
         )
-        candidates.extend(
-            root / channel / market_slug / f"{outcome_part}.parquet"
-            for outcome_part in outcome_parts
-        )
-        return tuple(candidates)
 
     @classmethod
     def _local_daily_candidates(
@@ -926,28 +958,14 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
         token_index: int,
         outcome: str | None,
     ) -> tuple[Path, ...]:
-        outcome_parts = cls._outcome_segments(token_index=token_index, outcome=outcome)
-        candidates = [
-            root / _TELONEX_EXCHANGE / market_slug / outcome_part / channel / f"{date}.parquet"
-            for outcome_part in outcome_parts
-        ]
-        candidates.extend(
-            root / _TELONEX_EXCHANGE / channel / market_slug / outcome_part / f"{date}.parquet"
-            for outcome_part in outcome_parts
+        return telonex_local_daily_candidate_paths(
+            root=root,
+            channel=channel,
+            date=date,
+            market_slug=market_slug,
+            token_index=token_index,
+            outcome=outcome,
         )
-        candidates.extend(
-            root / channel / market_slug / outcome_part / f"{date}.parquet"
-            for outcome_part in outcome_parts
-        )
-        candidates.extend(
-            [
-                root / _TELONEX_EXCHANGE / channel / f"{market_slug}_{token_index}_{date}.parquet",
-                root / channel / f"{market_slug}_{token_index}_{date}.parquet",
-                root / f"{market_slug}_{token_index}_{date}.parquet",
-                root / f"{date}.parquet",
-            ]
-        )
-        return tuple(candidates)
 
     def _local_consolidated_path(
         self,
@@ -1054,14 +1072,13 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
         token_index: int,
         outcome: str | None,
     ) -> str:
-        params: dict[str, str] = {"slug": market_slug}
-        if outcome:
-            params["outcome"] = outcome
-        else:
-            params["outcome_id"] = str(token_index)
-        return (
-            f"{base_url.rstrip('/')}/v1/downloads/{_TELONEX_EXCHANGE}/{channel}/{date}"
-            f"?{urlencode(params)}"
+        return telonex_api_url(
+            base_url=base_url,
+            channel=channel,
+            date=date,
+            market_slug=market_slug,
+            token_index=token_index,
+            outcome=outcome,
         )
 
     @classmethod
@@ -1080,18 +1097,13 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
             return None
         normalized_base_url = base_url.rstrip("/")
         base_url_key = sha256(normalized_base_url.encode("utf-8")).hexdigest()[:16]
-        outcome_segment = (
-            f"outcome={quote(outcome, safe='')}" if outcome else f"outcome_id={token_index}"
-        )
-        return (
-            cache_root
-            / _TELONEX_CACHE_SUBDIR
-            / base_url_key
-            / _TELONEX_EXCHANGE
-            / channel
-            / quote(market_slug, safe="")
-            / outcome_segment
-            / f"{date}.parquet"
+        return cache_root / telonex_api_cache_relative_path(
+            base_url_key=base_url_key,
+            channel=channel,
+            date=date,
+            market_slug=market_slug,
+            token_index=token_index,
+            outcome=outcome,
         )
 
     def _load_api_cache_day(
@@ -1374,21 +1386,18 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
         cache_root = cls._resolve_api_cache_root()
         if cache_root is None:
             return None
-        outcome_segment = (
-            f"outcome={quote(outcome, safe='')}" if outcome else f"outcome_id={token_index}"
-        )
         instrument_key = sha256(str(instrument_id).encode("utf-8")).hexdigest()[:16]
         start_ns = int(cls._normalize_to_utc(start).value)
         end_ns = int(cls._normalize_to_utc(end).value)
-        return (
-            cache_root
-            / _TELONEX_DELTAS_CACHE_SUBDIR
-            / _TELONEX_EXCHANGE
-            / channel
-            / quote(market_slug, safe="")
-            / outcome_segment
-            / f"instrument={instrument_key}"
-            / f"{date}.{start_ns}-{end_ns}.parquet"
+        return cache_root / telonex_deltas_cache_relative_path(
+            channel=channel,
+            date=date,
+            market_slug=market_slug,
+            token_index=token_index,
+            outcome=outcome,
+            instrument_key=instrument_key,
+            start_ns=start_ns,
+            end_ns=end_ns,
         )
 
     def _load_deltas_cache_day(
@@ -1491,21 +1500,18 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
         cache_root = cls._resolve_api_cache_root()
         if cache_root is None:
             return None
-        outcome_segment = (
-            f"outcome={quote(outcome, safe='')}" if outcome else f"outcome_id={token_index}"
-        )
         instrument_key = sha256(str(instrument_id).encode("utf-8")).hexdigest()[:16]
         start_ns = int(cls._normalize_to_utc(start).value)
         end_ns = int(cls._normalize_to_utc(end).value)
-        return (
-            cache_root
-            / _TELONEX_TRADE_TICKS_CACHE_SUBDIR
-            / _TELONEX_EXCHANGE
-            / channel
-            / quote(market_slug, safe="")
-            / outcome_segment
-            / f"instrument={instrument_key}"
-            / f"{date}.{start_ns}-{end_ns}.parquet"
+        return cache_root / telonex_trade_ticks_cache_relative_path(
+            channel=channel,
+            date=date,
+            market_slug=market_slug,
+            token_index=token_index,
+            outcome=outcome,
+            instrument_key=instrument_key,
+            start_ns=start_ns,
+            end_ns=end_ns,
         )
 
     def _load_trade_ticks_cache_day(
@@ -2055,6 +2061,66 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
 
         ns_arr = ts_ns[mask]
         order = np.argsort(ns_arr, kind="stable")
+
+        if has_flat and include_order_book:
+            native_rows = telonex_flat_book_snapshot_diff_rows(
+                timestamp_ns=ns_arr,
+                bid_prices=bid_prices_values,
+                bid_sizes=bid_sizes_values,
+                ask_prices=ask_prices_values,
+                ask_sizes=ask_sizes_values,
+                start_ns=start_ns,
+                end_ns=end_ns,
+            )
+            if native_rows is not None:
+                (
+                    first_snapshot_index,
+                    event_indexes,
+                    actions,
+                    sides,
+                    prices,
+                    sizes,
+                    flags,
+                    sequences,
+                    ts_events,
+                    ts_inits,
+                ) = native_rows
+
+                events: list[OrderBookDeltas] = []
+                if first_snapshot_index is not None:
+                    bids = self._book_levels_from_arrays(
+                        prices=bid_prices_values[first_snapshot_index],
+                        sizes=bid_sizes_values[first_snapshot_index],
+                        side="bid",
+                    )
+                    asks = self._book_levels_from_arrays(
+                        prices=ask_prices_values[first_snapshot_index],
+                        sizes=ask_sizes_values[first_snapshot_index],
+                        side="ask",
+                    )
+                    ts_event = int(ns_arr[first_snapshot_index])
+                    deltas = self._snapshot_to_deltas(bids=bids, asks=asks, ts_event=ts_event)
+                    if deltas is not None:
+                        events.append(deltas)
+
+                if event_indexes:
+                    events.extend(
+                        self._deltas_records_from_columns(
+                            {
+                                "event_index": event_indexes,
+                                "action": actions,
+                                "side": sides,
+                                "price": prices,
+                                "size": sizes,
+                                "flags": flags,
+                                "sequence": sequences,
+                                "ts_event": ts_events,
+                                "ts_init": ts_inits,
+                            }
+                        )
+                    )
+                events.sort(key=lambda record: int(record.ts_event))
+                return events
 
         events: list[OrderBookDeltas] = []
         previous_bids: dict[str, str] | None = None

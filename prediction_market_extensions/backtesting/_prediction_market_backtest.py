@@ -17,6 +17,7 @@ from nautilus_trader.model.objects import Money
 from nautilus_trader.risk.config import RiskEngineConfig
 from nautilus_trader.trading.strategy import Strategy
 
+from prediction_market_extensions._runtime_log import log_info
 from prediction_market_extensions import install_commission_patch
 from prediction_market_extensions.adapters.prediction_market import (
     LoadedReplay,
@@ -340,7 +341,7 @@ class PredictionMarketBacktest:
             platform=self.data.platform, data_type=self.data.data_type, vendor=self.data.vendor
         )
         with adapter.configure_sources(sources=self.data.sources) as data_source:
-            print(data_source.summary)
+            log_info(data_source.summary)
             loaded_sims: list[LoadedReplay] = []
             request = self._load_request()
             for replay in self.replays:

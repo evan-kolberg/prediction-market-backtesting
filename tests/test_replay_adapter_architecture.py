@@ -118,6 +118,17 @@ def test_new_adapter_registers_without_core_executor_changes(monkeypatch) -> Non
         unregister_market_data_support(("demo", "book", "fake"))
 
 
+def test_trade_days_for_window_uses_shared_native_window_planner() -> None:
+    assert replay_adapters._trade_days_for_window(
+        pd.Timestamp("2026-04-21T09:15:00Z"),
+        pd.Timestamp("2026-04-23T00:00:00Z"),
+    ) == (
+        pd.Timestamp("2026-04-21T00:00:00Z"),
+        pd.Timestamp("2026-04-22T00:00:00Z"),
+        pd.Timestamp("2026-04-23T00:00:00Z"),
+    )
+
+
 def test_preflight_midpoints_apply_l2_book_state(monkeypatch) -> None:
     class FakeDeltas:
         def __init__(self, updates: tuple[tuple[str, float], ...]) -> None:
@@ -185,7 +196,7 @@ def test_trade_tick_loader_reports_api_and_cache_progress(
             market_label="demo-market",
         )
     )
-    output = capsys.readouterr().out
+    output = capsys.readouterr().err
 
     assert trades == ()
     assert loader.calls == 1
@@ -200,7 +211,7 @@ def test_trade_tick_loader_reports_api_and_cache_progress(
             market_label="demo-market",
         )
     )
-    cached_output = capsys.readouterr().out
+    cached_output = capsys.readouterr().err
 
     assert cached_trades == ()
     assert loader.calls == 1
@@ -295,7 +306,7 @@ def test_trade_tick_loader_falls_through_when_telonex_onchain_fills_empty(
             market_label="demo-market",
         )
     )
-    output = capsys.readouterr().out
+    output = capsys.readouterr().err
 
     assert trades == ()
     assert loader.telonex_calls == 1
@@ -314,7 +325,7 @@ def test_trade_progress_labels_telonex_materialized_trade_cache(tmp_path, capsys
         rows=4,
         source=f"telonex-trade-cache::{cache_path}",
     )
-    output = capsys.readouterr().out
+    output = capsys.readouterr().err
 
     assert "telonex onchain_fills cache 2026-01-19.1-2.parquet" in output
 
@@ -346,7 +357,7 @@ def test_trade_progress_labels_telonex_trade_channels(tmp_path, capsys) -> None:
         rows=5,
         source="telonex-api::https://api.telonex.io/v1/downloads/polymarket/trades/2026-01-20",
     )
-    output = capsys.readouterr().out
+    output = capsys.readouterr().err
 
     assert "telonex local onchain_fills" in output
     assert "telonex local trades" in output

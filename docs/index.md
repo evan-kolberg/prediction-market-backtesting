@@ -16,6 +16,7 @@ surface. Telonex uses a local Hive-partitioned full-book mirror, materialized
 
 - [Setup](setup.md)
 - [Backtests And Runners](backtests.md)
+- [V4 Rust Data Loading Plan](v4-rust-data-loading-plan.md)
 - [Polymarket Account Ledger Replay](account-ledger-replay.md)
 - [Research](research.md)
 - [Execution Modeling](execution-modeling.md)

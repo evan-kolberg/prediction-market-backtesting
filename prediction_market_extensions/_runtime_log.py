@@ -1,0 +1,378 @@
+from __future__ import annotations
+
+import inspect
+import json
+import os
+import sys
+import threading
+import time
+from collections.abc import Callable, Iterator, Mapping, Sequence
+from contextlib import contextmanager
+from dataclasses import dataclass, field, replace
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any, Literal, Protocol, TextIO
+
+LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR"]
+
+TRACE_JSONL_ENV = "PREDICTION_MARKET_TRACE_JSONL"
+_VALID_LEVELS: frozenset[str] = frozenset({"DEBUG", "INFO", "WARNING", "ERROR"})
+_LOG_LOCK = threading.RLock()
+
+
+def format_utc_timestamp_ns(epoch_ns: int) -> str:
+    seconds, nanos = divmod(int(epoch_ns), 1_000_000_000)
+    base = datetime.fromtimestamp(seconds, UTC).strftime("%Y-%m-%dT%H:%M:%S")
+    return f"{base}.{nanos:09d}Z"
+
+
+def _normalize_level(level: str) -> str:
+    normalized_level = level.strip().upper()
+    if normalized_level not in _VALID_LEVELS:
+        raise ValueError(f"Unsupported log level {level!r}. Use one of: {sorted(_VALID_LEVELS)}.")
+    return normalized_level
+
+
+def _caller_origin(*, stacklevel: int) -> str:
+    frame = inspect.currentframe()
+    for _ in range(stacklevel):
+        if frame is None:
+            break
+        frame = frame.f_back
+    if frame is None:
+        return "unknown.unknown"
+
+    filename = Path(frame.f_code.co_filename).stem or "unknown"
+    function_name = frame.f_code.co_name or "unknown"
+    return f"{filename}.{function_name}"
+
+
+def _json_safe(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return {str(key): _json_safe(inner) for key, inner in value.items()}
+    if isinstance(value, Sequence) and not isinstance(value, str | bytes | bytearray):
+        return [_json_safe(inner) for inner in value]
+    if isinstance(value, Path):
+        return str(value)
+    if isinstance(value, datetime):
+        return value.astimezone(UTC).isoformat()
+    if isinstance(value, bool | int | float | str) or value is None:
+        return value
+    return str(value)
+
+
+@dataclass(frozen=True)
+class LoaderEvent:
+    level: str
+    message: str
+    origin: str
+    timestamp_ns: int
+    stage: str = "runtime"
+    vendor: str = "repo"
+    status: str = "complete"
+    platform: str | None = None
+    data_type: str | None = None
+    source_kind: str | None = None
+    source: str | None = None
+    cache_path: str | None = None
+    market_id: str | None = None
+    market_slug: str | None = None
+    token_id: str | None = None
+    condition_id: str | None = None
+    outcome: str | None = None
+    window_start_ns: int | None = None
+    window_end_ns: int | None = None
+    rows: int | None = None
+    book_events: int | None = None
+    trade_ticks: int | None = None
+    bytes: int | None = None
+    elapsed_ms: float | None = None
+    attempt: int | None = None
+    attrs: Mapping[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "level", _normalize_level(self.level))
+        object.__setattr__(self, "message", str(self.message))
+        object.__setattr__(self, "origin", str(self.origin or "unknown.unknown"))
+        object.__setattr__(self, "stage", str(self.stage or "runtime"))
+        object.__setattr__(self, "vendor", str(self.vendor or "repo"))
+        object.__setattr__(self, "status", str(self.status or "complete"))
+        object.__setattr__(self, "timestamp_ns", int(self.timestamp_ns))
+
+    def to_dict(self) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "timestamp_ns": self.timestamp_ns,
+            "timestamp": format_utc_timestamp_ns(self.timestamp_ns),
+            "level": self.level,
+            "origin": self.origin,
+            "stage": self.stage,
+            "vendor": self.vendor,
+            "status": self.status,
+            "message": self.message,
+        }
+        for key in (
+            "platform",
+            "data_type",
+            "source_kind",
+            "source",
+            "cache_path",
+            "market_id",
+            "market_slug",
+            "token_id",
+            "condition_id",
+            "outcome",
+            "window_start_ns",
+            "window_end_ns",
+            "rows",
+            "book_events",
+            "trade_ticks",
+            "bytes",
+            "elapsed_ms",
+            "attempt",
+        ):
+            value = getattr(self, key)
+            if value is not None:
+                payload[key] = value
+        if self.attrs:
+            payload["attrs"] = _json_safe(self.attrs)
+        return payload
+
+
+class LoaderEventSink(Protocol):
+    def emit(self, event: LoaderEvent) -> None: ...
+
+
+def _is_standard_stream(stream: TextIO) -> bool:
+    return stream is sys.stdout or stream is sys.stderr
+
+
+def _tqdm_write_line(line: str, *, stream: TextIO) -> bool:
+    try:
+        from tqdm import tqdm
+    except Exception:
+        return False
+
+    tqdm.write(line, file=stream)
+    stream.flush()
+    return True
+
+
+def _write_console_line(line: str, *, stream: TextIO) -> None:
+    if _is_standard_stream(stream) and _tqdm_write_line(line, stream=stream):
+        return
+    print(line, file=stream, flush=True)
+
+
+@dataclass
+class ConsoleEventSink:
+    stream: TextIO | None = None
+
+    def emit(self, event: LoaderEvent) -> None:
+        target = self.stream if self.stream is not None else sys.stderr
+        _write_console_line(
+            format_log_line(
+                event.message,
+                level=event.level,
+                origin=event.origin,
+                timestamp_ns=event.timestamp_ns,
+            ),
+            stream=target,
+        )
+
+
+@dataclass
+class JsonlEventSink:
+    path: Path | str
+
+    def emit(self, event: LoaderEvent) -> None:
+        path = Path(self.path).expanduser()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(event.to_dict(), sort_keys=True) + "\n")
+
+
+@dataclass
+class CaptureEventSink:
+    events: list[LoaderEvent] = field(default_factory=list)
+
+    def emit(self, event: LoaderEvent) -> None:
+        self.events.append(event)
+
+
+_DEFAULT_CONSOLE_SINK = ConsoleEventSink()
+
+
+def loader_event_sinks_from_env(
+    environ: Mapping[str, str] | None = None, *, include_console: bool = True
+) -> tuple[LoaderEventSink, ...]:
+    env = os.environ if environ is None else environ
+    sinks: list[LoaderEventSink] = []
+    if include_console:
+        sinks.append(_DEFAULT_CONSOLE_SINK)
+    trace_jsonl = str(env.get(TRACE_JSONL_ENV, "")).strip()
+    if trace_jsonl:
+        sinks.append(JsonlEventSink(trace_jsonl))
+    return tuple(sinks)
+
+
+_SINKS: list[LoaderEventSink] = list(loader_event_sinks_from_env())
+
+
+def format_log_line(
+    message: object,
+    *,
+    level: str,
+    origin: str,
+    timestamp_ns: int,
+) -> str:
+    return (
+        f"{format_utc_timestamp_ns(timestamp_ns)} [{_normalize_level(level)}] {origin}: {message}"
+    )
+
+
+def get_loader_event_sinks() -> tuple[LoaderEventSink, ...]:
+    with _LOG_LOCK:
+        return tuple(_SINKS)
+
+
+def set_loader_event_sinks(sinks: Sequence[LoaderEventSink]) -> None:
+    with _LOG_LOCK:
+        _SINKS.clear()
+        _SINKS.extend(sinks)
+
+
+def register_loader_event_sink(sink: LoaderEventSink) -> None:
+    with _LOG_LOCK:
+        _SINKS.append(sink)
+
+
+def configure_loader_event_sinks_from_env(environ: Mapping[str, str] | None = None) -> None:
+    set_loader_event_sinks(loader_event_sinks_from_env(environ))
+
+
+@contextmanager
+def loader_event_sinks(sinks: Sequence[LoaderEventSink]) -> Iterator[None]:
+    prior = get_loader_event_sinks()
+    set_loader_event_sinks(sinks)
+    try:
+        yield
+    finally:
+        set_loader_event_sinks(prior)
+
+
+@contextmanager
+def capture_loader_events() -> Iterator[CaptureEventSink]:
+    capture = CaptureEventSink()
+    with loader_event_sinks([capture]):
+        yield capture
+
+
+def _emit_event(event: LoaderEvent, *, sinks: Sequence[LoaderEventSink] | None = None) -> None:
+    with _LOG_LOCK:
+        active_sinks = tuple(sinks) if sinks is not None else tuple(_SINKS)
+        for sink in active_sinks:
+            sink.emit(event)
+
+
+def emit_loader_event(
+    message: object,
+    *,
+    level: LogLevel = "INFO",
+    stage: str = "runtime",
+    vendor: str = "repo",
+    status: str = "complete",
+    origin: str | None = None,
+    clock_ns: Callable[[], int] = time.time_ns,
+    stacklevel: int = 2,
+    sinks: Sequence[LoaderEventSink] | None = None,
+    **fields: Any,
+) -> None:
+    resolved_origin = origin or _caller_origin(stacklevel=stacklevel)
+    attrs = fields.pop("attrs", None)
+    event_fields = {
+        key: fields.pop(key)
+        for key in tuple(fields)
+        if key
+        in {
+            "platform",
+            "data_type",
+            "source_kind",
+            "source",
+            "cache_path",
+            "market_id",
+            "market_slug",
+            "token_id",
+            "condition_id",
+            "outcome",
+            "window_start_ns",
+            "window_end_ns",
+            "rows",
+            "book_events",
+            "trade_ticks",
+            "bytes",
+            "elapsed_ms",
+            "attempt",
+        }
+    }
+    merged_attrs: dict[str, Any] = {}
+    if isinstance(attrs, Mapping):
+        merged_attrs.update(attrs)
+    elif attrs is not None:
+        merged_attrs["attrs"] = attrs
+    merged_attrs.update(fields)
+
+    text = str(message)
+    lines = text.splitlines() or [""]
+    for line in lines:
+        event = LoaderEvent(
+            level=level,
+            message=line,
+            origin=resolved_origin,
+            timestamp_ns=clock_ns(),
+            stage=stage,
+            vendor=vendor,
+            status=status,
+            attrs=merged_attrs,
+            **event_fields,
+        )
+        _emit_event(event, sinks=sinks)
+
+
+def log_message(
+    message: object,
+    *,
+    level: LogLevel = "INFO",
+    origin: str | None = None,
+    stream: TextIO | None = None,
+    clock_ns: Callable[[], int] = time.time_ns,
+    stacklevel: int = 2,
+) -> None:
+    sinks = (ConsoleEventSink(stream=stream),) if stream is not None else None
+    emit_loader_event(
+        message,
+        level=level,
+        origin=origin,
+        clock_ns=clock_ns,
+        stacklevel=stacklevel + 1,
+        sinks=sinks,
+    )
+
+
+def log_debug(message: object, *, origin: str | None = None, stacklevel: int = 2) -> None:
+    log_message(message, level="DEBUG", origin=origin, stacklevel=stacklevel + 1)
+
+
+def log_info(message: object, *, origin: str | None = None, stacklevel: int = 2) -> None:
+    log_message(message, level="INFO", origin=origin, stacklevel=stacklevel + 1)
+
+
+def log_warning(message: object, *, origin: str | None = None, stacklevel: int = 2) -> None:
+    log_message(message, level="WARNING", origin=origin, stacklevel=stacklevel + 1)
+
+
+def log_error(message: object, *, origin: str | None = None, stacklevel: int = 2) -> None:
+    log_message(message, level="ERROR", origin=origin, stacklevel=stacklevel + 1)
+
+
+def clone_event(event: LoaderEvent, **changes: Any) -> LoaderEvent:
+    return replace(event, **changes)

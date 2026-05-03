@@ -19,6 +19,8 @@ from nautilus_trader.model.data import OrderBookDeltas, TradeTick
 from nautilus_trader.model.enums import AccountType, AggressorSide, BookType, OmsType
 from nautilus_trader.model.identifiers import TradeId
 
+from prediction_market_extensions._native import source_days_for_window_ns
+from prediction_market_extensions._runtime_log import emit_loader_event
 from prediction_market_extensions.adapters.polymarket.fee_model import PolymarketFeeModel
 from prediction_market_extensions.adapters.prediction_market import (
     HistoricalReplayAdapter,
@@ -143,11 +145,20 @@ def _validate_replay_window(
     min_price_range: float,
 ) -> bool:
     if count < min_record_count:
-        print(f"Skip {market_label}: {count} {count_label} < {min_record_count} required")
+        emit_loader_event(
+            f"Skip {market_label}: {count} {count_label} < {min_record_count} required",
+            level="WARNING",
+            stage="validate",
+            status="skip",
+            rows=count,
+        )
         return False
     if prices and _price_range(prices) < min_price_range:
-        print(
-            f"Skip {market_label}: price range {_price_range(prices):.3f} < {min_price_range:.3f}"
+        emit_loader_event(
+            f"Skip {market_label}: price range {_price_range(prices):.3f} < {min_price_range:.3f}",
+            level="WARNING",
+            stage="validate",
+            status="skip",
         )
         return False
     return True
@@ -232,9 +243,17 @@ def _trade_day_label(day: pd.Timestamp) -> str:
 def _print_trade_progress_header(
     *, market_label: str, start: pd.Timestamp, end: pd.Timestamp
 ) -> None:
-    print(
+    emit_loader_event(
         f"Loading Polymarket trade ticks for execution {market_label} "
-        f"(window_start={start.isoformat()}, window_end={end.isoformat()})..."
+        f"(window_start={start.isoformat()}, window_end={end.isoformat()})...",
+        stage="fetch",
+        vendor="polymarket",
+        status="start",
+        platform="polymarket",
+        data_type="book",
+        market_slug=market_label,
+        window_start_ns=int(start.value),
+        window_end_ns=int(end.value),
     )
 
 
@@ -268,9 +287,19 @@ def _print_trade_progress_line(
     rows: int,
     source: str,
 ) -> None:
-    print(
-        f"  trades {_trade_day_label(day):>10s}  {elapsed_secs:7.3f}s  "
-        f"{rows:8d} rows  {_trade_source_label(source)}"
+    emit_loader_event(
+        f"trades {_trade_day_label(day):>10s}  {elapsed_secs:7.3f}s  "
+        f"{rows:8d} rows  {_trade_source_label(source)}",
+        stage="fetch",
+        vendor="polymarket",
+        status="complete",
+        platform="polymarket",
+        data_type="book",
+        source=source,
+        rows=rows,
+        trade_ticks=rows,
+        elapsed_ms=elapsed_secs * 1000.0,
+        attrs={"day": _trade_day_label(day), "source_label": _trade_source_label(source)},
     )
 
 
@@ -282,16 +311,27 @@ def _polymarket_ceiling_warning(caught_warnings: list[warnings.WarningMessage]) 
     return None
 
 
+def _trade_days_for_window(start: pd.Timestamp, end: pd.Timestamp) -> tuple[pd.Timestamp, ...]:
+    start_utc = _normalize_timestamp(start)
+    end_utc = _normalize_timestamp(end)
+    return tuple(
+        pd.Timestamp(day, tz=UTC)
+        for day in source_days_for_window_ns(
+            int(start_utc.value),
+            int(end_utc.value),
+            semantics="inclusive",
+        )
+    )
+
+
 async def _load_trade_ticks(
     loader: Any, *, start: pd.Timestamp, end: pd.Timestamp, market_label: str
 ) -> tuple[TradeTick, ...]:
     start_utc = start.tz_convert(UTC)
     end_utc = end.tz_convert(UTC)
-    current_day = start_utc.floor("D")
-    final_day = end_utc.floor("D")
     all_trades: list[TradeTick] = []
     _print_trade_progress_header(market_label=market_label, start=start_utc, end=end_utc)
-    while current_day <= final_day:
+    for current_day in _trade_days_for_window(start_utc, end_utc):
         day_start = current_day
         day_end = min(current_day + pd.Timedelta(days=1) - pd.Timedelta(nanoseconds=1), end_utc)
         cache_path = _trade_cache_path(loader=loader, date=current_day)
@@ -311,6 +351,23 @@ async def _load_trade_ticks(
             day_trades = _deserialize_trade_ticks(loader=loader, frame=frame)
             source = f"polymarket cache {cache_path.name}"
         else:
+            emit_loader_event(
+                "Fetching Polymarket public trades API "
+                f"{market_label} day={_trade_day_label(current_day)} "
+                f"condition_id={getattr(loader, 'condition_id', None)} "
+                f"token_id={getattr(loader, 'token_id', None)}",
+                stage="fetch",
+                vendor="polymarket",
+                status="start",
+                platform="polymarket",
+                data_type="book",
+                source_kind="remote",
+                source="https://data-api.polymarket.com/trades",
+                market_slug=market_label,
+                condition_id=getattr(loader, "condition_id", None),
+                token_id=getattr(loader, "token_id", None),
+                attrs={"day": _trade_day_label(current_day)},
+            )
             with warnings.catch_warnings(record=True) as caught_warnings:
                 warnings.simplefilter("always", RuntimeWarning)
                 fetched = await loader.load_trades(day_start, day_end)
@@ -335,7 +392,6 @@ async def _load_trade_ticks(
             for trade in day_trades
             if int(start_utc.value) <= int(trade.ts_event) <= int(end_utc.value)
         )
-        current_day += pd.Timedelta(days=1)
     all_trades.sort(key=_trade_record_sort_key)
     return tuple(all_trades)
 
@@ -496,10 +552,19 @@ class PolymarketPMXTBookReplayAdapter(_BaseReplayAdapter):
                 f"start_time {start.isoformat()} must be earlier than end_time {end.isoformat()}"
             )
 
-        print(
+        emit_loader_event(
             f"Loading PMXT Polymarket market {replay.market_slug} "
             f"(token_index={replay.token_index}, window_start={start.isoformat()}, "
-            f"window_end={end.isoformat()})..."
+            f"window_end={end.isoformat()})...",
+            stage="fetch",
+            vendor="pmxt",
+            status="start",
+            platform="polymarket",
+            data_type="book",
+            market_slug=replay.market_slug,
+            token_id=str(replay.token_index),
+            window_start_ns=int(start.value),
+            window_end_ns=int(end.value),
         )
         try:
             loader_cls = _resolve_backtest_compat_symbol(
@@ -514,11 +579,29 @@ class PolymarketPMXTBookReplayAdapter(_BaseReplayAdapter):
             )
             records = _merge_records(book_records=book_records, trade_records=trade_records)
         except Exception as exc:
-            print(f"Skip {replay.market_slug}: unable to load PMXT L2 book data ({exc})")
+            emit_loader_event(
+                f"Skip {replay.market_slug}: unable to load PMXT L2 book data ({exc})",
+                level="WARNING",
+                stage="fetch",
+                vendor="pmxt",
+                status="error",
+                platform="polymarket",
+                data_type="book",
+                market_slug=replay.market_slug,
+            )
             return None
 
         if not records:
-            print(f"Skip {replay.market_slug}: no PMXT L2 book data returned")
+            emit_loader_event(
+                f"Skip {replay.market_slug}: no PMXT L2 book data returned",
+                level="WARNING",
+                stage="validate",
+                vendor="pmxt",
+                status="skip",
+                platform="polymarket",
+                data_type="book",
+                market_slug=replay.market_slug,
+            )
             return None
 
         deltas_type = _resolve_backtest_compat_symbol("OrderBookDeltas", OrderBookDeltas)
@@ -610,10 +693,19 @@ class PolymarketTelonexBookReplayAdapter(_BaseReplayAdapter):
                 f"start_time {start.isoformat()} must be earlier than end_time {end.isoformat()}"
             )
 
-        print(
+        emit_loader_event(
             f"Loading Telonex Polymarket market {replay.market_slug} "
             f"(token_index={replay.token_index}, window_start={start.isoformat()}, "
-            f"window_end={end.isoformat()})..."
+            f"window_end={end.isoformat()})...",
+            stage="fetch",
+            vendor="telonex",
+            status="start",
+            platform="polymarket",
+            data_type="book",
+            market_slug=replay.market_slug,
+            token_id=str(replay.token_index),
+            window_start_ns=int(start.value),
+            window_end_ns=int(end.value),
         )
         try:
             loader_cls = _resolve_backtest_compat_symbol(
@@ -637,11 +729,29 @@ class PolymarketTelonexBookReplayAdapter(_BaseReplayAdapter):
             )
             records = _merge_records(book_records=book_records, trade_records=trade_records)
         except Exception as exc:
-            print(f"Skip {replay.market_slug}: unable to load Telonex L2 book data ({exc})")
+            emit_loader_event(
+                f"Skip {replay.market_slug}: unable to load Telonex L2 book data ({exc})",
+                level="WARNING",
+                stage="fetch",
+                vendor="telonex",
+                status="error",
+                platform="polymarket",
+                data_type="book",
+                market_slug=replay.market_slug,
+            )
             return None
 
         if not records:
-            print(f"Skip {replay.market_slug}: no Telonex L2 book data returned")
+            emit_loader_event(
+                f"Skip {replay.market_slug}: no Telonex L2 book data returned",
+                level="WARNING",
+                stage="validate",
+                vendor="telonex",
+                status="skip",
+                platform="polymarket",
+                data_type="book",
+                market_slug=replay.market_slug,
+            )
             return None
 
         deltas_type = _resolve_backtest_compat_symbol("OrderBookDeltas", OrderBookDeltas)

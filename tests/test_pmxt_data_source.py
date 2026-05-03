@@ -13,6 +13,7 @@ import pyarrow.parquet as pq
 import pytest
 
 import prediction_market_extensions.backtesting.data_sources.pmxt as pmxt_module
+from prediction_market_extensions._runtime_log import capture_loader_events
 from prediction_market_extensions.backtesting.data_sources.pmxt import (
     PMXT_DATA_SOURCE_ENV,
     PMXT_LOCAL_RAWS_DIR_ENV,
@@ -238,6 +239,49 @@ def test_runner_loader_reads_market_rows_from_local_raw_mirror(tmp_path):
     assert pa.Table.from_batches(batches).to_pylist() == [
         {"update_type": "book_snapshot", "data": '{"token_id":"token-yes-123","seq":1}'}
     ]
+
+
+def test_runner_loader_emits_cache_hit_event(tmp_path) -> None:
+    loader = _make_loader(cache_dir=tmp_path)
+    hour = pd.Timestamp("2026-03-21T12:00:00Z")
+    cache_path = loader._cache_path_for_hour(hour)
+    assert cache_path is not None
+    cache_path.parent.mkdir(parents=True)
+    pq.write_table(
+        pa.table(
+            {
+                "update_type": ["book_snapshot"],
+                "data": ['{"token_id":"token-yes-123","seq":1}'],
+            }
+        ),
+        cache_path,
+    )
+
+    with capture_loader_events() as capture:
+        batches = loader._load_market_batches(hour, batch_size=1_000)
+
+    assert batches is not None
+    event = next(event for event in capture.events if event.stage == "cache_read")
+    assert event.status == "cache_hit"
+    assert event.vendor == "pmxt"
+    assert event.source_kind == "cache"
+    assert event.cache_path == str(cache_path)
+    assert event.rows == 1
+
+
+def test_runner_loader_emits_ordered_source_skip_event(tmp_path) -> None:
+    loader = _make_loader(cache_dir=None)
+    missing_root = tmp_path / "missing"
+    loader._pmxt_ordered_source_entries = (("raw-local", str(missing_root)),)
+    hour = pd.Timestamp("2026-03-21T12:00:00Z")
+
+    with capture_loader_events() as capture:
+        batches = loader._load_market_batches(hour, batch_size=1_000)
+
+    assert batches is None
+    statuses = [(event.status, event.source_kind, event.source) for event in capture.events]
+    assert ("start", "local", f"local:{missing_root}") in statuses
+    assert ("skip", "local", f"local:{missing_root}") in statuses
 
 
 def test_runner_loader_emits_scan_progress_for_local_raw_mirror(monkeypatch, tmp_path) -> None:

@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import asyncio
 import os
+from types import SimpleNamespace
 
+import msgspec
+
+from prediction_market_extensions.adapters.polymarket.loaders import PolymarketDataLoader
 from prediction_market_extensions.backtesting.data_sources.polymarket_native import (
     POLYMARKET_CLOB_BASE_URL_ENV,
     POLYMARKET_GAMMA_BASE_URL_ENV,
@@ -10,6 +14,17 @@ from prediction_market_extensions.backtesting.data_sources.polymarket_native imp
     RunnerPolymarketDataLoader,
     configured_polymarket_native_data_source,
 )
+
+
+class _FakeHttpClient:
+    def __init__(self, payload: object, *, status: int = 200) -> None:
+        self.payload = payload
+        self.status = status
+        self.requests: list[tuple[str, dict[str, object] | None]] = []
+
+    async def get(self, *, url: str, params: dict[str, object] | None = None):  # type: ignore[no-untyped-def]
+        self.requests.append((url, params))
+        return SimpleNamespace(status=self.status, body=msgspec.json.encode(self.payload))
 
 
 def test_configured_polymarket_native_data_source_maps_explicit_endpoints() -> None:
@@ -38,6 +53,38 @@ def test_configured_polymarket_native_data_source_maps_explicit_endpoints() -> N
     assert os.getenv(POLYMARKET_GAMMA_BASE_URL_ENV) is None
     assert os.getenv(POLYMARKET_TRADE_API_BASE_URL_ENV) is None
     assert os.getenv(POLYMARKET_CLOB_BASE_URL_ENV) is None
+
+
+def test_polymarket_clob_market_fetch_logs_source(capsys) -> None:
+    client = _FakeHttpClient({"condition_id": "0xcondition"})
+
+    details = asyncio.run(PolymarketDataLoader._fetch_market_details("0xcondition", client))
+    output = capsys.readouterr().err
+
+    assert details == {"condition_id": "0xcondition"}
+    assert client.requests == [("https://clob.polymarket.com/markets/0xcondition", None)]
+    assert "[INFO] loaders._fetch_market_details: Fetching Polymarket CLOB market details" in output
+    assert "[INFO] loaders._fetch_market_details: Loaded Polymarket CLOB market details" in output
+
+
+def test_polymarket_public_trade_fetch_logs_pages(capsys) -> None:
+    client = _FakeHttpClient([])
+    loader = object.__new__(PolymarketDataLoader)
+    loader._http_client = client
+
+    trades = asyncio.run(loader.fetch_trades("0xcondition"))
+    output = capsys.readouterr().err
+
+    assert trades == []
+    assert client.requests == [
+        (
+            "https://data-api.polymarket.com/trades",
+            {"market": "0xcondition", "limit": 1000, "offset": 0},
+        )
+    ]
+    assert "[INFO] loaders.fetch_trades: Fetching Polymarket public trades page" in output
+    assert "[INFO] loaders.fetch_trades: Loaded Polymarket public trades page" in output
+    assert "rows=0" in output
 
 
 def test_configured_polymarket_native_data_source_isolates_concurrent_loader_config() -> None:

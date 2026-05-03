@@ -524,6 +524,14 @@ def test_load_order_book_deltas_sorts_payloads_before_book_mutation(monkeypatch,
             ]
         )
     )
+    seen_sort_columns: list[tuple[list[list[str]], list[list[str]]]] = []
+    original_sort_payload_columns = pmxt_module.pmxt_sort_payload_columns
+
+    def _sort_payload_columns(update_type_columns, payload_text_columns):  # type: ignore[no-untyped-def]
+        seen_sort_columns.append((update_type_columns, payload_text_columns))
+        return original_sort_payload_columns(update_type_columns, payload_text_columns)
+
+    monkeypatch.setattr(pmxt_module, "pmxt_sort_payload_columns", _sort_payload_columns)
 
     def _process_book_snapshot(  # type: ignore[no-untyped-def]
         payload_text,
@@ -565,6 +573,8 @@ def test_load_order_book_deltas_sorts_payloads_before_book_mutation(monkeypatch,
     loader.load_order_book_deltas(hour, hour + pd.Timedelta(hours=1))
 
     assert processed == ["book_snapshot", "price_change"]
+    assert seen_sort_columns
+    assert seen_sort_columns[0][0] == [["price_change", "book_snapshot"]]
 
 
 def test_load_order_book_deltas_skips_stale_cross_hour_payloads(monkeypatch, tmp_path):

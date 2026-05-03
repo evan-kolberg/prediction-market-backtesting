@@ -37,6 +37,15 @@ from nautilus_trader.model.enums import AggressorSide
 from nautilus_trader.model.identifiers import TradeId
 from nautilus_trader.model.instruments import BinaryOption
 
+from prediction_market_extensions._native import (
+    polymarket_are_tradable_probability_prices,
+    polymarket_normalize_trade_sides,
+    polymarket_trade_event_timestamp_ns_batch,
+    polymarket_trade_ids,
+    polymarket_trade_sort_key,
+    polymarket_trade_sort_keys,
+)
+from prediction_market_extensions._runtime_log import emit_loader_event
 from prediction_market_extensions.adapters.polymarket.gamma_markets import infer_gamma_token_winners
 from prediction_market_extensions.adapters.prediction_market.info_sanitization import (
     extract_resolution_metadata,
@@ -45,14 +54,17 @@ from prediction_market_extensions.adapters.prediction_market.info_sanitization i
 
 
 def _trade_sort_key(trade: dict[str, Any]) -> tuple[int, str, str, str, str, str]:
-    return (
-        int(trade["timestamp"]),
-        str(trade.get("transactionHash", "")),
-        str(trade.get("asset", "")),
-        str(trade.get("side", "")),
-        str(trade.get("price", "")),
-        str(trade.get("size", "")),
-    )
+    return polymarket_trade_sort_key(trade)
+
+
+def _sort_trades_in_place(trades: list[dict[str, Any]]) -> None:
+    sort_keys = polymarket_trade_sort_keys(trades)
+    trades[:] = [
+        trade
+        for _sort_key, trade in sorted(
+            zip(sort_keys, trades, strict=True), key=lambda item: item[0]
+        )
+    ]
 
 
 class PolymarketDataLoader:
@@ -119,6 +131,16 @@ class PolymarketDataLoader:
     ) -> dict[str, Any]:
         PyCondition.valid_string(slug, "slug")
 
+        emit_loader_event(
+            f"Fetching Polymarket Gamma market slug={slug}",
+            stage="discover",
+            vendor="polymarket",
+            status="start",
+            platform="polymarket",
+            source_kind="remote",
+            source="https://gamma-api.polymarket.com/markets/slug",
+            market_slug=slug,
+        )
         response = await http_client.get(
             url=f"https://gamma-api.polymarket.com/markets/slug/{slug}"
         )
@@ -145,6 +167,16 @@ class PolymarketDataLoader:
                 f"Unexpected response type for slug '{slug}': {type(market).__name__}"
             )
 
+        emit_loader_event(
+            f"Loaded Polymarket Gamma market slug={slug}",
+            stage="discover",
+            vendor="polymarket",
+            status="complete",
+            platform="polymarket",
+            source_kind="remote",
+            source="https://gamma-api.polymarket.com/markets/slug",
+            market_slug=slug,
+        )
         return market
 
     @staticmethod
@@ -153,14 +185,47 @@ class PolymarketDataLoader:
     ) -> dict[str, Any]:
         PyCondition.valid_string(condition_id, "condition_id")
 
+        emit_loader_event(
+            f"Fetching Polymarket CLOB market details condition_id={condition_id}",
+            stage="discover",
+            vendor="polymarket",
+            status="start",
+            platform="polymarket",
+            source_kind="remote",
+            source="https://clob.polymarket.com/markets",
+            condition_id=condition_id,
+        )
         response = await http_client.get(url=f"https://clob.polymarket.com/markets/{condition_id}")
 
         if response.status != 200:
+            emit_loader_event(
+                "Polymarket CLOB market details request failed "
+                f"condition_id={condition_id} status={response.status}",
+                level="WARNING",
+                stage="discover",
+                vendor="polymarket",
+                status="error",
+                platform="polymarket",
+                source_kind="remote",
+                source="https://clob.polymarket.com/markets",
+                condition_id=condition_id,
+            )
             raise RuntimeError(
                 f"HTTP request failed with status {response.status}: {response.body.decode('utf-8')}"
             )
 
-        return msgspec.json.decode(response.body)
+        market_details = msgspec.json.decode(response.body)
+        emit_loader_event(
+            f"Loaded Polymarket CLOB market details condition_id={condition_id}",
+            stage="discover",
+            vendor="polymarket",
+            status="complete",
+            platform="polymarket",
+            source_kind="remote",
+            source="https://clob.polymarket.com/markets",
+            condition_id=condition_id,
+        )
+        return market_details
 
     @staticmethod
     def _coerce_fee_rate_bps(value: Any) -> Decimal | None:
@@ -178,8 +243,30 @@ class PolymarketDataLoader:
     ) -> Decimal | None:
         PyCondition.valid_string(token_id, "token_id")
 
+        emit_loader_event(
+            f"Fetching Polymarket CLOB fee rate token_id={token_id}",
+            stage="fetch",
+            vendor="polymarket",
+            status="start",
+            platform="polymarket",
+            source_kind="remote",
+            source=cls._FEE_RATE_URL,
+            token_id=token_id,
+        )
         response = await http_client.get(url=cls._FEE_RATE_URL, params={"token_id": token_id})
         if response.status != 200:
+            emit_loader_event(
+                f"Polymarket CLOB fee-rate request failed token_id={token_id} "
+                f"status={response.status}",
+                level="WARNING",
+                stage="fetch",
+                vendor="polymarket",
+                status="error",
+                platform="polymarket",
+                source_kind="remote",
+                source=cls._FEE_RATE_URL,
+                token_id=token_id,
+            )
             return None
 
         payload = msgspec.json.decode(response.body)
@@ -566,7 +653,7 @@ class PolymarketDataLoader:
         if end_ts is not None:
             token_trades = [t for t in token_trades if t["timestamp"] <= end_ts]
 
-        token_trades.sort(key=_trade_sort_key)
+        _sort_trades_in_place(token_trades)
 
         return self.parse_trades(token_trades)
 
@@ -826,6 +913,19 @@ class PolymarketDataLoader:
         while True:
             params: dict[str, Any] = {"market": condition_id, "limit": page_limit, "offset": offset}
 
+            emit_loader_event(
+                "Fetching Polymarket public trades page "
+                f"condition_id={condition_id} offset={offset} limit={page_limit}",
+                stage="fetch",
+                vendor="polymarket",
+                status="start",
+                platform="polymarket",
+                data_type="book",
+                source_kind="remote",
+                source="https://data-api.polymarket.com/trades",
+                condition_id=condition_id,
+                attrs={"offset": offset, "limit": page_limit},
+            )
             response = await self._http_client.get(
                 url="https://data-api.polymarket.com/trades", params=params
             )
@@ -833,6 +933,20 @@ class PolymarketDataLoader:
             if response.status != 200:
                 body_text = response.body.decode("utf-8")
                 if "max historical activity offset" in body_text:
+                    emit_loader_event(
+                        "Polymarket public trades API hit historical offset ceiling "
+                        f"condition_id={condition_id} offset={offset}",
+                        level="WARNING",
+                        stage="fetch",
+                        vendor="polymarket",
+                        status="skip",
+                        platform="polymarket",
+                        data_type="book",
+                        source_kind="remote",
+                        source="https://data-api.polymarket.com/trades",
+                        condition_id=condition_id,
+                        attrs={"offset": offset},
+                    )
                     warnings.warn(
                         "Polymarket public trades API hit its historical offset ceiling. "
                         "Returning the trades fetched before the ceiling; high-activity "
@@ -847,6 +961,20 @@ class PolymarketDataLoader:
                 )
 
             data = msgspec.json.decode(response.body)
+            emit_loader_event(
+                "Loaded Polymarket public trades page "
+                f"condition_id={condition_id} offset={offset} rows={len(data)}",
+                stage="fetch",
+                vendor="polymarket",
+                status="complete",
+                platform="polymarket",
+                data_type="book",
+                source_kind="remote",
+                source="https://data-api.polymarket.com/trades",
+                condition_id=condition_id,
+                rows=len(data),
+                attrs={"offset": offset, "limit": page_limit},
+            )
 
             if not data:
                 break
@@ -890,7 +1018,7 @@ class PolymarketDataLoader:
                 "or pass token_id to __init__()"
             )
 
-        trades: list[TradeTick] = []
+        candidate_trades: list[tuple[dict, int, int, int, str, str, int]] = []
         instrument_id = self._instrument.id
         make_price = self._instrument.make_price
         make_qty = self._instrument.make_qty
@@ -907,23 +1035,6 @@ class PolymarketDataLoader:
             base_ts_event = secs_to_nanos(trade_data["timestamp"])
             occurrence_in_second = timestamp_counts.get(base_ts_event, 0)
             timestamp_counts[base_ts_event] = occurrence_in_second + 1
-            _tiebreaker_ns = min(occurrence_in_second, 999_999_999)
-            ts_event = base_ts_event + _tiebreaker_ns
-
-            side_str = str(trade_data.get("side", "")).strip().upper()
-            if side_str == "BUY":
-                aggressor_side = AggressorSide.BUYER
-            elif side_str == "SELL":
-                aggressor_side = AggressorSide.SELLER
-            else:
-                warnings.warn(
-                    f"Polymarket trade {i} had unexpected side {trade_data.get('side')!r}; "
-                    "recording NO_AGGRESSOR for audit visibility.",
-                    RuntimeWarning,
-                    stacklevel=2,
-                )
-                aggressor_side = AggressorSide.NO_AGGRESSOR
-
             # Multi-token Polymarket transactions produce multiple fills that
             # share the same transactionHash.  Using only the last 36 chars can
             # collide, causing NautilusTrader to silently drop the second trade.
@@ -931,27 +1042,102 @@ class PolymarketDataLoader:
             # sequence number for same-token multi-fill transactions.
             _transaction_hash = str(trade_data["transactionHash"])
             _asset = str(trade_data.get("asset", ""))
-            _hash_suffix = _transaction_hash[-24:]
-            _asset_suffix = _asset[-4:]
             _tx_asset_key = (_transaction_hash, _asset)
             _tx_asset_sequence = tx_asset_counts.get(_tx_asset_key, 0)
             tx_asset_counts[_tx_asset_key] = _tx_asset_sequence + 1
 
-            _raw_price = float(trade_data["price"])
-            if not (0.0 < _raw_price < 1.0):
+            candidate_trades.append(
+                (
+                    trade_data,
+                    i,
+                    base_ts_event,
+                    occurrence_in_second,
+                    _transaction_hash,
+                    _asset,
+                    _tx_asset_sequence,
+                )
+            )
+
+        side_values = polymarket_normalize_trade_sides(
+            [str(trade_data.get("side", "")) for trade_data, *_rest in candidate_trades]
+        )
+        price_is_tradable = polymarket_are_tradable_probability_prices(
+            [str(trade_data["price"]) for trade_data, *_rest in candidate_trades]
+        )
+        event_timestamps = polymarket_trade_event_timestamp_ns_batch(
+            [
+                (base_ts_event, occurrence_in_second)
+                for _trade_data, _index, base_ts_event, occurrence_in_second, *_rest in candidate_trades
+            ]
+        )
+
+        parsed_trades: list[tuple[dict, AggressorSide, int, str, str, int]] = []
+        for (
+            trade_data,
+            original_index,
+            _base_ts_event,
+            _occurrence_in_second,
+            _transaction_hash,
+            _asset,
+            _tx_asset_sequence,
+        ), side_value, is_tradable, ts_event in zip(
+            candidate_trades, side_values, price_is_tradable, event_timestamps, strict=True
+        ):
+            if side_value == "BUY":
+                aggressor_side = AggressorSide.BUYER
+            elif side_value == "SELL":
+                aggressor_side = AggressorSide.SELLER
+            else:
+                warnings.warn(
+                    f"Polymarket trade {original_index} had unexpected side "
+                    f"{trade_data.get('side')!r}; recording NO_AGGRESSOR for audit visibility.",
+                    RuntimeWarning,
+                    stacklevel=2,
+                )
+                aggressor_side = AggressorSide.NO_AGGRESSOR
+
+            if not is_tradable:
+                _raw_price = float(trade_data["price"])
                 warnings.warn(
                     "Skipping Polymarket trade with out-of-range or untradable price "
-                    f"{_raw_price!r} at record {i}.",
+                    f"{_raw_price!r} at record {original_index}.",
                     RuntimeWarning,
                     stacklevel=2,
                 )
                 continue
+            parsed_trades.append(
+                (
+                    trade_data,
+                    aggressor_side,
+                    ts_event,
+                    _transaction_hash,
+                    _asset,
+                    _tx_asset_sequence,
+                )
+            )
+
+        trade_ids = polymarket_trade_ids(
+            [
+                (transaction_hash, asset, sequence)
+                for _trade_data, _aggressor_side, _ts_event, transaction_hash, asset, sequence in parsed_trades
+            ]
+        )
+
+        trades: list[TradeTick] = []
+        for (
+            trade_data,
+            aggressor_side,
+            ts_event,
+            _transaction_hash,
+            _asset,
+            _tx_asset_sequence,
+        ), trade_id in zip(parsed_trades, trade_ids, strict=True):
             trade = TradeTick(
                 instrument_id=instrument_id,
                 price=make_price(trade_data["price"]),
                 size=make_qty(trade_data["size"]),
                 aggressor_side=aggressor_side,
-                trade_id=TradeId(f"{_hash_suffix}-{_asset_suffix}-{_tx_asset_sequence:06d}"),
+                trade_id=TradeId(trade_id),
                 ts_event=ts_event,
                 ts_init=ts_event,
             )

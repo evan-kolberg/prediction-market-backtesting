@@ -59,10 +59,14 @@ def test_add_engine_data_by_type_splits_mixed_replay_records() -> None:
 
     class _DataEngineStub:
         def __init__(self) -> None:
-            self.added: list[list[object]] = []
+            self.added: list[tuple[list[object], bool]] = []
+            self.sort_calls = 0
 
-        def add_data(self, records):  # type: ignore[no-untyped-def]
-            self.added.append(list(records))
+        def add_data(self, records, *, sort=True):  # type: ignore[no-untyped-def]
+            self.added.append((list(records), bool(sort)))
+
+        def sort_data(self) -> None:
+            self.sort_calls += 1
 
     trade = _TradeRecord()
     first_book = _BookRecord()
@@ -71,7 +75,26 @@ def test_add_engine_data_by_type_splits_mixed_replay_records() -> None:
 
     add_engine_data_by_type(engine, [trade, first_book, second_book])
 
-    assert engine.added == [[trade], [first_book, second_book]]
+    assert engine.added == [([trade], False), ([first_book, second_book], False)]
+    assert engine.sort_calls == 1
+
+
+def test_add_engine_data_by_type_does_not_sort_empty_records() -> None:
+    class _DataEngineStub:
+        def __init__(self) -> None:
+            self.sort_calls = 0
+
+        def add_data(self, records, *, sort=True):  # type: ignore[no-untyped-def]
+            raise AssertionError("add_data should not be called")
+
+        def sort_data(self) -> None:
+            self.sort_calls += 1
+
+    engine = _DataEngineStub()
+
+    add_engine_data_by_type(engine, [])
+
+    assert engine.sort_calls == 0
 
 
 def test_prediction_market_backtest_build_engine_forwards_execution(monkeypatch):

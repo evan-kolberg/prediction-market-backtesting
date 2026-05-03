@@ -13,6 +13,7 @@ from urllib.request import Request, urlopen
 import pyarrow as pa
 import pyarrow.dataset as ds
 
+from prediction_market_extensions._runtime_log import emit_loader_event
 from prediction_market_extensions.adapters.polymarket.pmxt import PolymarketPMXTDataLoader
 from prediction_market_extensions.backtesting.data_sources._common import (
     DISABLED_ENV_VALUES,
@@ -106,6 +107,64 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
         self._pmxt_ordered_source_entries = (
             config.ordered_source_entries if config is not None else ()
         )
+
+    @staticmethod
+    def _row_count_from_batches(batches: Sequence[object]) -> int:
+        return sum(int(getattr(batch, "num_rows", 0)) for batch in batches)
+
+    @staticmethod
+    def _hour_label(hour) -> str:  # type: ignore[no-untyped-def]
+        try:
+            return hour.tz_convert("UTC").isoformat()
+        except Exception:
+            return str(hour)
+
+    def _emit_pmxt_source_event(
+        self,
+        *,
+        message: str,
+        stage: str,
+        status: str,
+        hour,
+        source_kind: str | None = None,
+        source: str | None = None,
+        cache_path: Path | None = None,
+        rows: int | None = None,
+        bytes_count: int | None = None,
+        level: str = "INFO",
+    ) -> None:  # type: ignore[no-untyped-def]
+        attrs: dict[str, object] = {"hour": self._hour_label(hour)}
+        emit_loader_event(
+            message,
+            level=level,
+            stage=stage,
+            status=status,
+            vendor="pmxt",
+            platform="polymarket",
+            data_type="book",
+            source_kind=source_kind,
+            source=source,
+            cache_path=str(cache_path) if cache_path is not None else None,
+            condition_id=getattr(self, "condition_id", None),
+            token_id=getattr(self, "token_id", None),
+            rows=rows,
+            bytes=bytes_count,
+            attrs=attrs,
+        )
+
+    @staticmethod
+    def _source_kind_for_stage(stage: str) -> str:
+        return "local" if stage == _PMXT_SOURCE_STAGE_RAW_LOCAL else "remote"
+
+    @staticmethod
+    def _source_label_for_stage(stage: str, target: str | None) -> str | None:
+        if target is None:
+            return None
+        if stage == _PMXT_SOURCE_STAGE_RAW_LOCAL:
+            return f"local:{target}"
+        if stage == _PMXT_SOURCE_STAGE_RAW_REMOTE:
+            return f"archive:{target}"
+        return target
 
     @classmethod
     def _resolve_raw_root(cls) -> Path | None:
@@ -367,8 +426,21 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
 
     def _write_cache_if_enabled(self, hour, table) -> None:  # type: ignore[no-untyped-def]
         if self._pmxt_cache_dir is not None:
+            cache_path = self._cache_path_for_hour(hour)
             with suppress(OSError, pa.ArrowException):
                 self._write_market_cache(hour, table)
+                self._emit_pmxt_source_event(
+                    message=(
+                        "Wrote PMXT filtered market cache "
+                        f"for {self._hour_label(hour)} ({table.num_rows} rows)"
+                    ),
+                    stage="cache_write",
+                    status="complete",
+                    hour=hour,
+                    source_kind="cache",
+                    cache_path=cache_path,
+                    rows=int(table.num_rows),
+                )
 
     def _load_market_table(self, hour, *, batch_size: int):  # type: ignore[no-untyped-def]
         table = self._load_cached_market_table(hour)
@@ -431,11 +503,44 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
     def _load_market_batches(self, hour, *, batch_size: int):  # type: ignore[no-untyped-def]
         batches = self._load_cached_market_batches(hour)
         if batches is not None:
+            cache_path = self._cache_path_for_hour(hour)
+            rows = self._row_count_from_batches(batches)
+            self._emit_pmxt_source_event(
+                message=f"Loaded PMXT filtered cache for {self._hour_label(hour)} ({rows} rows)",
+                stage="cache_read",
+                status="cache_hit",
+                hour=hour,
+                source_kind="cache",
+                cache_path=cache_path,
+                rows=rows,
+            )
             return batches
+        cache_path = self._cache_path_for_hour(hour)
+        if cache_path is not None:
+            self._emit_pmxt_source_event(
+                message=f"PMXT filtered cache miss for {self._hour_label(hour)}",
+                stage="cache_read",
+                status="cache_miss",
+                hour=hour,
+                source_kind="cache",
+                cache_path=cache_path,
+            )
 
         ordered_entries = getattr(self, "_pmxt_ordered_source_entries", ()) or ()
         if ordered_entries:
             for kind, target in ordered_entries:
+                source = self._source_label_for_stage(kind, target)
+                self._emit_pmxt_source_event(
+                    message=(
+                        f"Trying PMXT {self._source_kind_for_stage(kind)} source "
+                        f"for {self._hour_label(hour)}"
+                    ),
+                    stage="fetch",
+                    status="start",
+                    hour=hour,
+                    source_kind=self._source_kind_for_stage(kind),
+                    source=source,
+                )
                 entry_batches = self._load_ordered_entry_batches(
                     kind,
                     target,
@@ -443,6 +548,19 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
                     batch_size=batch_size,
                 )
                 if entry_batches is not None:
+                    rows = self._row_count_from_batches(entry_batches)
+                    self._emit_pmxt_source_event(
+                        message=(
+                            f"Loaded PMXT {self._source_kind_for_stage(kind)} source "
+                            f"for {self._hour_label(hour)} ({rows} rows)"
+                        ),
+                        stage="fetch",
+                        status="complete",
+                        hour=hour,
+                        source_kind=self._source_kind_for_stage(kind),
+                        source=source,
+                        rows=rows,
+                    )
                     if self._pmxt_cache_dir is not None:
                         table = (
                             pa.Table.from_batches(entry_batches)
@@ -451,12 +569,50 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
                         )
                         self._write_cache_if_enabled(hour, table)
                     return entry_batches
+                self._emit_pmxt_source_event(
+                    message=(
+                        f"PMXT {self._source_kind_for_stage(kind)} source had no usable data "
+                        f"for {self._hour_label(hour)}"
+                    ),
+                    stage="fetch",
+                    status="skip",
+                    hour=hour,
+                    source_kind=self._source_kind_for_stage(kind),
+                    source=source,
+                )
             return None
 
         for stage in self._pmxt_source_priority:
             if stage == _PMXT_SOURCE_STAGE_RAW_LOCAL:
+                source = (
+                    f"local:{self._pmxt_raw_root}"
+                    if self._pmxt_raw_root is not None
+                    else (
+                        f"local:{self._pmxt_local_archive_dir}"
+                        if getattr(self, "_pmxt_local_archive_dir", None) is not None
+                        else None
+                    )
+                )
+                self._emit_pmxt_source_event(
+                    message=f"Trying PMXT local source for {self._hour_label(hour)}",
+                    stage="fetch",
+                    status="start",
+                    hour=hour,
+                    source_kind="local",
+                    source=source,
+                )
                 batches = self._load_local_archive_market_batches(hour, batch_size=batch_size)
                 if batches is not None:
+                    rows = self._row_count_from_batches(batches)
+                    self._emit_pmxt_source_event(
+                        message=f"Loaded PMXT local source for {self._hour_label(hour)} ({rows} rows)",
+                        stage="fetch",
+                        status="complete",
+                        hour=hour,
+                        source_kind="local",
+                        source=source,
+                        rows=rows,
+                    )
                     if self._pmxt_cache_dir is not None:
                         table = (
                             pa.Table.from_batches(batches)
@@ -465,11 +621,45 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
                         )
                         self._write_cache_if_enabled(hour, table)
                     return batches
+                self._emit_pmxt_source_event(
+                    message=f"PMXT local source had no usable data for {self._hour_label(hour)}",
+                    stage="fetch",
+                    status="skip",
+                    hour=hour,
+                    source_kind="local",
+                    source=source,
+                )
                 continue
 
             if stage == _PMXT_SOURCE_STAGE_RAW_REMOTE:
+                remote_urls = getattr(self, "_pmxt_remote_base_urls", ()) or ()
+                source = ",".join(f"archive:{url}" for url in remote_urls) or (
+                    f"archive:{self._pmxt_remote_base_url}"
+                    if self._pmxt_remote_base_url is not None
+                    else None
+                )
+                self._emit_pmxt_source_event(
+                    message=f"Trying PMXT archive source for {self._hour_label(hour)}",
+                    stage="fetch",
+                    status="start",
+                    hour=hour,
+                    source_kind="remote",
+                    source=source,
+                )
                 batches = self._load_remote_market_batches(hour, batch_size=batch_size)
                 if batches is not None:
+                    rows = self._row_count_from_batches(batches)
+                    self._emit_pmxt_source_event(
+                        message=(
+                            f"Loaded PMXT archive source for {self._hour_label(hour)} ({rows} rows)"
+                        ),
+                        stage="fetch",
+                        status="complete",
+                        hour=hour,
+                        source_kind="remote",
+                        source=source,
+                        rows=rows,
+                    )
                     if self._pmxt_cache_dir is not None:
                         table = (
                             pa.Table.from_batches(batches)
@@ -478,6 +668,14 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
                         )
                         self._write_cache_if_enabled(hour, table)
                     return batches
+                self._emit_pmxt_source_event(
+                    message=f"PMXT archive source had no usable data for {self._hour_label(hour)}",
+                    stage="fetch",
+                    status="skip",
+                    hour=hour,
+                    source_kind="remote",
+                    source=source,
+                )
                 continue
 
         return None
