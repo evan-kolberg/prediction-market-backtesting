@@ -23,8 +23,10 @@ use native_core::time::{
     float_seconds_to_ms_string as core_float_seconds_to_ms_string,
 };
 use native_core::trades::{
+    PolymarketPublicTradeInput,
     polymarket_is_tradable_probability_price as core_polymarket_is_tradable_probability_price,
     polymarket_normalize_trade_side as core_polymarket_normalize_trade_side,
+    polymarket_public_trade_rows as core_polymarket_public_trade_rows,
     polymarket_trade_event_timestamp_ns as core_polymarket_trade_event_timestamp_ns,
     polymarket_trade_id as core_polymarket_trade_id,
     polymarket_trade_sort_key as core_polymarket_trade_sort_key,
@@ -65,6 +67,17 @@ type PyTelonexFlatBookDiffRows = (
 );
 
 type PyTelonexTradeTickRows = (Vec<f64>, Vec<f64>, Vec<u8>, Vec<String>, Vec<i64>, Vec<i64>);
+
+type PyPolymarketPublicTradeRows = (
+    Vec<f64>,
+    Vec<f64>,
+    Vec<u8>,
+    Vec<String>,
+    Vec<i64>,
+    Vec<i64>,
+    Vec<(usize, String)>,
+    Vec<(usize, f64)>,
+);
 
 type PyNestedBookSideColumns = (Vec<Vec<String>>, Vec<Vec<String>>);
 
@@ -733,6 +746,42 @@ fn polymarket_trade_event_timestamp_ns_batch(rows: Vec<(i64, usize)>) -> PyResul
 }
 
 #[pyfunction]
+fn polymarket_public_trade_rows(
+    rows: Vec<(usize, i64, String, String, String, String, String)>,
+    token_id: &str,
+    sort: bool,
+) -> PyResult<PyPolymarketPublicTradeRows> {
+    let inputs = rows
+        .into_iter()
+        .map(
+            |(original_index, timestamp, transaction_hash, asset, side, price, size)| {
+                PolymarketPublicTradeInput {
+                    original_index,
+                    timestamp,
+                    transaction_hash,
+                    asset,
+                    side,
+                    price,
+                    size,
+                }
+            },
+        )
+        .collect::<Vec<_>>();
+    let rows = core_polymarket_public_trade_rows(&inputs, token_id, sort)
+        .map_err(PyValueError::new_err)?;
+    Ok((
+        rows.price,
+        rows.size,
+        rows.aggressor_side,
+        rows.trade_id,
+        rows.ts_event,
+        rows.ts_init,
+        rows.unexpected_side_records,
+        rows.skipped_price_records,
+    ))
+}
+
+#[pyfunction]
 fn replay_merge_plan(
     book_ts_events: Vec<i64>,
     book_ts_inits: Vec<i64>,
@@ -790,6 +839,7 @@ fn _native_ext(module: &Bound<'_, PyModule>) -> PyResult<()> {
     )?)?;
     module.add_function(wrap_pyfunction!(polymarket_trade_id, module)?)?;
     module.add_function(wrap_pyfunction!(polymarket_trade_ids, module)?)?;
+    module.add_function(wrap_pyfunction!(polymarket_public_trade_rows, module)?)?;
     module.add_function(wrap_pyfunction!(polymarket_trade_sort_key, module)?)?;
     module.add_function(wrap_pyfunction!(polymarket_trade_sort_keys, module)?)?;
     module.add_function(wrap_pyfunction!(replay_merge_plan, module)?)?;

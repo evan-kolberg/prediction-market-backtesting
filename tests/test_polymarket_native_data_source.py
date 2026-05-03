@@ -5,6 +5,8 @@ import os
 from types import SimpleNamespace
 
 import msgspec
+import pytest
+from nautilus_trader.adapters.polymarket.common.parsing import parse_polymarket_instrument
 
 from prediction_market_extensions.adapters.polymarket.loaders import PolymarketDataLoader
 from prediction_market_extensions.backtesting.data_sources.polymarket_native import (
@@ -25,6 +27,28 @@ class _FakeHttpClient:
     async def get(self, *, url: str, params: dict[str, object] | None = None):  # type: ignore[no-untyped-def]
         self.requests.append((url, params))
         return SimpleNamespace(status=self.status, body=msgspec.json.encode(self.payload))
+
+
+def _make_polymarket_loader() -> PolymarketDataLoader:
+    instrument = parse_polymarket_instrument(
+        market_info={
+            "condition_id": "0x" + "1" * 64,
+            "question": "Synthetic Polymarket market",
+            "minimum_tick_size": "0.01",
+            "minimum_order_size": "1",
+            "end_date_iso": "2026-12-31T00:00:00Z",
+            "maker_base_fee": "0",
+            "taker_base_fee": "0",
+        },
+        token_id="asset9876",
+        outcome="Yes",
+        ts_init=0,
+    )
+    loader = object.__new__(PolymarketDataLoader)
+    loader._instrument = instrument
+    loader._token_id = "asset9876"
+    loader._condition_id = "0x" + "1" * 64
+    return loader
 
 
 def test_configured_polymarket_native_data_source_maps_explicit_endpoints() -> None:
@@ -85,6 +109,70 @@ def test_polymarket_public_trade_fetch_logs_pages(capsys) -> None:
     assert "[INFO] loaders.fetch_trades: Fetching Polymarket public trades page" in output
     assert "[INFO] loaders.fetch_trades: Loaded Polymarket public trades page" in output
     assert "rows=0" in output
+
+
+def test_polymarket_public_trades_parse_with_native_batch_warnings() -> None:
+    loader = _make_polymarket_loader()
+
+    with pytest.warns(RuntimeWarning) as caught:
+        trades = loader.parse_trades(
+            [
+                {
+                    "timestamp": 1_771_767_624,
+                    "transactionHash": "0xaaaa",
+                    "asset": "other-token",
+                    "side": "BUY",
+                    "price": "0.50",
+                    "size": "1",
+                },
+                {
+                    "timestamp": 1_771_767_624,
+                    "transactionHash": "0xbbbb",
+                    "asset": "asset9876",
+                    "side": "mint",
+                    "price": "0.42",
+                    "size": "2",
+                },
+                {
+                    "timestamp": 1_771_767_624,
+                    "transactionHash": "0xcccc",
+                    "asset": "asset9876",
+                    "side": "SELL",
+                    "price": "1.0",
+                    "size": "3",
+                },
+                {
+                    "timestamp": 1_771_767_624,
+                    "transactionHash": "0xdddd",
+                    "asset": "asset9876",
+                    "side": "BUY",
+                    "price": "0.41",
+                    "size": "4",
+                },
+            ]
+        )
+
+    assert [str(warning.message) for warning in caught] == [
+        "Polymarket trade 1 had unexpected side 'mint'; "
+        "recording NO_AGGRESSOR for audit visibility.",
+        "Skipping Polymarket trade with out-of-range or untradable price 1.0 at record 2.",
+    ]
+    assert [float(trade.price) for trade in trades] == [0.42, 0.41]
+    assert [float(trade.size) for trade in trades] == [2.0, 4.0]
+    assert [
+        getattr(trade.aggressor_side, "name", str(trade.aggressor_side)) for trade in trades
+    ] == [
+        "NO_AGGRESSOR",
+        "BUYER",
+    ]
+    assert [int(trade.ts_event) for trade in trades] == [
+        1_771_767_624_000_000_000,
+        1_771_767_624_000_000_002,
+    ]
+    assert [str(trade.trade_id) for trade in trades] == [
+        "0xbbbb-9876-000000",
+        "0xdddd-9876-000000",
+    ]
 
 
 def test_configured_polymarket_native_data_source_isolates_concurrent_loader_config() -> None:

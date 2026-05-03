@@ -14,6 +14,7 @@ import pandas as pd
 from nautilus_trader.adapters.polymarket.common.parsing import parse_polymarket_instrument
 
 import prediction_market_extensions._native as native
+from prediction_market_extensions.adapters.polymarket.loaders import PolymarketDataLoader
 from prediction_market_extensions.adapters.polymarket.pmxt import PolymarketPMXTDataLoader
 from prediction_market_extensions.backtesting.data_sources.telonex import (
     RunnerPolymarketTelonexBookDataLoader,
@@ -103,6 +104,22 @@ def _payloads(items: int) -> list[tuple[str, str]]:
     return rows
 
 
+def _public_trades(items: int) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    for index in range(items):
+        rows.append(
+            {
+                "timestamp": 1_771_767_624 + (index % 3600),
+                "transactionHash": f"0xsynthetic{index // 3:024x}",
+                "asset": "asset9876" if index % 10 else "other-token",
+                "side": "BUY" if index % 2 == 0 else "SELL",
+                "price": f"{0.01 + (index % 98) / 100:.2f}",
+                "size": f"{1 + index % 500}",
+            }
+        )
+    return rows
+
+
 def _telonex_inputs(items: int) -> list[tuple[str, str, str, int, str | None]]:
     rows: list[tuple[str, str, str, int, str | None]] = []
     for index in range(items):
@@ -167,6 +184,28 @@ def _make_pmxt_loader() -> PolymarketPMXTDataLoader:
     )
     loader = PolymarketPMXTDataLoader.__new__(PolymarketPMXTDataLoader)
     loader._instrument = instrument
+    return loader
+
+
+def _make_polymarket_trade_loader() -> PolymarketDataLoader:
+    instrument = parse_polymarket_instrument(
+        market_info={
+            "condition_id": "0x" + "5" * 64,
+            "question": "Synthetic Polymarket trade benchmark market",
+            "minimum_tick_size": "0.01",
+            "minimum_order_size": "1",
+            "end_date_iso": "2026-12-31T00:00:00Z",
+            "maker_base_fee": "0",
+            "taker_base_fee": "0",
+        },
+        token_id="asset9876",
+        outcome="Yes",
+        ts_init=0,
+    )
+    loader = PolymarketDataLoader.__new__(PolymarketDataLoader)
+    loader._instrument = instrument
+    loader._token_id = "asset9876"
+    loader._condition_id = "0x" + "5" * 64
     return loader
 
 
@@ -240,6 +279,7 @@ def _bench_native_mode(
     telonex_events: int,
     repeats: int,
     pmxt_rows: list[tuple[str, str]],
+    public_trade_rows: list[dict[str, object]],
     telonex_rows: list[tuple[str, str, str, int, str | None]],
     merge_inputs: tuple[list[int], list[int], list[int], list[int]],
     telonex_frame: pd.DataFrame,
@@ -405,6 +445,10 @@ def _bench_native_mode(
         entries.sort(key=lambda item: item[0])
         return sum(kind + index for _key, kind, index in entries)
 
+    def polymarket_public_trade_ticks() -> int:
+        loader = _make_polymarket_trade_loader()
+        return len(loader._parse_public_trade_rows(public_trade_rows, sort=True))
+
     def telonex_flat_book_events() -> int:
         loader = _make_telonex_loader()
         events = loader._book_events_from_frame(
@@ -453,6 +497,7 @@ def _bench_native_mode(
         "telonex_path_loop": telonex_path_loop,
         "window_planner_loop": window_planner_loop,
         "replay_merge_plan_batch": replay_merge_plan_batch,
+        "polymarket_public_trade_ticks": polymarket_public_trade_ticks,
         "telonex_flat_book_events": telonex_flat_book_events,
         "telonex_nested_book_events": telonex_nested_book_events,
         "telonex_onchain_fill_trade_ticks": telonex_onchain_fill_trade_ticks,
@@ -479,6 +524,7 @@ def main() -> None:
     args = parser.parse_args()
 
     pmxt_rows = _payloads(args.items)
+    public_trade_rows = _public_trades(args.items)
     telonex_rows = _telonex_inputs(args.items)
     merge_inputs = _merge_inputs(args.items)
     telonex_frame = _telonex_flat_frame(args.telonex_events)
@@ -491,6 +537,7 @@ def main() -> None:
         telonex_events=args.telonex_events,
         repeats=args.repeats,
         pmxt_rows=pmxt_rows,
+        public_trade_rows=public_trade_rows,
         telonex_rows=telonex_rows,
         merge_inputs=merge_inputs,
         telonex_frame=telonex_frame,
@@ -504,6 +551,7 @@ def main() -> None:
         telonex_events=args.telonex_events,
         repeats=args.repeats,
         pmxt_rows=pmxt_rows,
+        public_trade_rows=public_trade_rows,
         telonex_rows=telonex_rows,
         merge_inputs=merge_inputs,
         telonex_frame=telonex_frame,

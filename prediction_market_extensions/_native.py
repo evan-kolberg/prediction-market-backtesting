@@ -175,6 +175,91 @@ def _polymarket_trade_event_timestamp_ns_python(
     return base_timestamp_ns + min(occurrence_in_second, 999_999_999)
 
 
+def _polymarket_public_trade_rows_python(
+    trades: Sequence[Mapping[str, object]],
+    *,
+    token_id: str,
+    sort: bool,
+) -> tuple[
+    list[float],
+    list[float],
+    list[int],
+    list[str],
+    list[int],
+    list[int],
+    list[tuple[int, str]],
+    list[tuple[int, float]],
+]:
+    rows = [
+        (
+            index,
+            int(trade["timestamp"]),
+            str(trade.get("transactionHash", "")),
+            str(trade.get("asset", "")),
+            str(trade.get("side", "")),
+            str(trade.get("price", "")),
+            str(trade.get("size", "")),
+        )
+        for index, trade in enumerate(trades)
+    ]
+    candidates = [row for row in rows if row[3] == token_id]
+    if sort:
+        candidates.sort(key=lambda row: row[1:])
+
+    prices: list[float] = []
+    sizes: list[float] = []
+    aggressor_sides: list[int] = []
+    trade_ids: list[str] = []
+    ts_events: list[int] = []
+    ts_inits: list[int] = []
+    unexpected_side_records: list[tuple[int, str]] = []
+    skipped_price_records: list[tuple[int, float]] = []
+    timestamp_counts: dict[int, int] = {}
+    tx_asset_counts: dict[tuple[str, str], int] = {}
+
+    for candidate_index, row in enumerate(candidates):
+        original_index, timestamp, transaction_hash, asset, side, price_text, size_text = row
+        record_index = candidate_index if sort else original_index
+        base_ts_event = timestamp * 1_000_000_000
+        occurrence_in_second = timestamp_counts.get(base_ts_event, 0)
+        timestamp_counts[base_ts_event] = occurrence_in_second + 1
+        tx_asset_key = (transaction_hash, asset)
+        tx_asset_sequence = tx_asset_counts.get(tx_asset_key, 0)
+        tx_asset_counts[tx_asset_key] = tx_asset_sequence + 1
+        side_value = _polymarket_normalize_trade_side_python(side)
+        if side_value == "BUY":
+            aggressor_side = 1
+        elif side_value == "SELL":
+            aggressor_side = 2
+        else:
+            unexpected_side_records.append((record_index, side))
+            aggressor_side = 0
+        price = float(price_text)
+        if not 0.0 < price < 1.0:
+            skipped_price_records.append((record_index, price))
+            continue
+        ts_event = _polymarket_trade_event_timestamp_ns_python(
+            base_ts_event,
+            occurrence_in_second,
+        )
+        prices.append(price)
+        sizes.append(float(size_text))
+        aggressor_sides.append(aggressor_side)
+        trade_ids.append(_polymarket_trade_id_python(transaction_hash, asset, tx_asset_sequence))
+        ts_events.append(ts_event)
+        ts_inits.append(ts_event)
+    return (
+        prices,
+        sizes,
+        aggressor_sides,
+        trade_ids,
+        ts_events,
+        ts_inits,
+        unexpected_side_records,
+        skipped_price_records,
+    )
+
+
 def _telonex_source_label_kind_python(source: str) -> str | None:
     if source == "none":
         return None
@@ -746,6 +831,63 @@ def polymarket_trade_event_timestamp_ns_batch(
     ]
 
 
+def polymarket_public_trade_rows(
+    trades: Sequence[Mapping[str, object]],
+    *,
+    token_id: str,
+    sort: bool = False,
+) -> tuple[
+    list[float],
+    list[float],
+    list[int],
+    list[str],
+    list[int],
+    list[int],
+    list[tuple[int, str]],
+    list[tuple[int, float]],
+]:
+    module = _extension_module()
+    if module is not None:
+        rows = [
+            (
+                index,
+                int(trade["timestamp"]),
+                str(trade.get("transactionHash", "")),
+                str(trade.get("asset", "")),
+                str(trade.get("side", "")),
+                str(trade.get("price", "")),
+                str(trade.get("size", "")),
+            )
+            for index, trade in enumerate(trades)
+        ]
+        result = _required_native_function(module, "polymarket_public_trade_rows")(
+            rows,
+            token_id,
+            bool(sort),
+        )
+        (
+            prices,
+            sizes,
+            aggressor_sides,
+            trade_ids,
+            ts_events,
+            ts_inits,
+            unexpected_side_records,
+            skipped_price_records,
+        ) = result
+        return (
+            [float(value) for value in prices],
+            [float(value) for value in sizes],
+            [int(value) for value in aggressor_sides],
+            [str(value) for value in trade_ids],
+            [int(value) for value in ts_events],
+            [int(value) for value in ts_inits],
+            [(int(index), str(side)) for index, side in unexpected_side_records],
+            [(int(index), float(price)) for index, price in skipped_price_records],
+        )
+    return _polymarket_public_trade_rows_python(trades, token_id=token_id, sort=sort)
+
+
 def replay_merge_plan(
     *,
     book_ts_events: Sequence[int],
@@ -986,6 +1128,7 @@ __all__ = [
     "polymarket_is_tradable_probability_price",
     "polymarket_normalize_trade_side",
     "polymarket_normalize_trade_sides",
+    "polymarket_public_trade_rows",
     "polymarket_trade_id",
     "polymarket_trade_ids",
     "polymarket_trade_event_timestamp_ns",

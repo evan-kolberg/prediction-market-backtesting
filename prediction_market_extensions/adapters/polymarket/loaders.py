@@ -26,25 +26,16 @@ from decimal import Decimal, InvalidOperation
 from typing import Any
 
 import msgspec
+import numpy as np
 import pandas as pd
 from nautilus_trader.adapters.polymarket.common.constants import POLYMARKET_HTTP_RATE_LIMIT
 from nautilus_trader.adapters.polymarket.common.parsing import parse_polymarket_instrument
 from nautilus_trader.core import nautilus_pyo3
 from nautilus_trader.core.correctness import PyCondition
-from nautilus_trader.core.datetime import secs_to_nanos
 from nautilus_trader.model.data import TradeTick
-from nautilus_trader.model.enums import AggressorSide
-from nautilus_trader.model.identifiers import TradeId
 from nautilus_trader.model.instruments import BinaryOption
 
-from prediction_market_extensions._native import (
-    polymarket_are_tradable_probability_prices,
-    polymarket_normalize_trade_sides,
-    polymarket_trade_event_timestamp_ns_batch,
-    polymarket_trade_ids,
-    polymarket_trade_sort_key,
-    polymarket_trade_sort_keys,
-)
+from prediction_market_extensions._native import polymarket_public_trade_rows
 from prediction_market_extensions._runtime_log import emit_loader_event
 from prediction_market_extensions.adapters.polymarket.gamma_markets import infer_gamma_token_winners
 from prediction_market_extensions.adapters.prediction_market.info_sanitization import (
@@ -53,18 +44,8 @@ from prediction_market_extensions.adapters.prediction_market.info_sanitization i
 )
 
 
-def _trade_sort_key(trade: dict[str, Any]) -> tuple[int, str, str, str, str, str]:
-    return polymarket_trade_sort_key(trade)
-
-
-def _sort_trades_in_place(trades: list[dict[str, Any]]) -> None:
-    sort_keys = polymarket_trade_sort_keys(trades)
-    trades[:] = [
-        trade
-        for _sort_key, trade in sorted(
-            zip(sort_keys, trades, strict=True), key=lambda item: item[0]
-        )
-    ]
+def _rounded_float64_array(values: Any, precision: int) -> np.ndarray:
+    return np.round(np.asarray(values, dtype=np.float64), decimals=precision)
 
 
 class PolymarketDataLoader:
@@ -645,17 +626,13 @@ class PolymarketDataLoader:
             condition_id=self._condition_id, start_ts=start_ts, end_ts=end_ts
         )
 
-        # Filter by token_id (API returns trades for all tokens in the condition)
-        token_trades = [t for t in raw_trades if t["asset"] == self._token_id]
-
+        window_trades = raw_trades
         if start_ts is not None:
-            token_trades = [t for t in token_trades if t["timestamp"] >= start_ts]
+            window_trades = [trade for trade in window_trades if trade["timestamp"] >= start_ts]
         if end_ts is not None:
-            token_trades = [t for t in token_trades if t["timestamp"] <= end_ts]
+            window_trades = [trade for trade in window_trades if trade["timestamp"] <= end_ts]
 
-        _sort_trades_in_place(token_trades)
-
-        return self.parse_trades(token_trades)
+        return self._parse_public_trade_rows(window_trades, sort=True)
 
     async def fetch_event_by_slug(self, slug: str) -> dict[str, Any]:
         """
@@ -1011,6 +988,14 @@ class PolymarketDataLoader:
             List of TradeTicks for backtesting.
 
         """
+        return self._parse_public_trade_rows(trades_data, sort=False)
+
+    def _parse_public_trade_rows(
+        self,
+        trades_data: list[dict],
+        *,
+        sort: bool,
+    ) -> list[TradeTick]:
         if self._token_id is None:
             raise ValueError(
                 "token_id is required to parse trades. "
@@ -1018,129 +1003,46 @@ class PolymarketDataLoader:
                 "or pass token_id to __init__()"
             )
 
-        candidate_trades: list[tuple[dict, int, int, int, str, str, int]] = []
-        instrument_id = self._instrument.id
-        make_price = self._instrument.make_price
-        make_qty = self._instrument.make_qty
-        token_id = self._token_id
-
-        timestamp_counts: dict[int, int] = {}
-        tx_asset_counts: dict[tuple[str, str], int] = {}
-
-        for i, trade_data in enumerate(trades_data):
-            # Skip trades for other tokens in the same condition
-            if trade_data.get("asset") != token_id:
-                continue
-
-            base_ts_event = secs_to_nanos(trade_data["timestamp"])
-            occurrence_in_second = timestamp_counts.get(base_ts_event, 0)
-            timestamp_counts[base_ts_event] = occurrence_in_second + 1
-            # Multi-token Polymarket transactions produce multiple fills that
-            # share the same transactionHash.  Using only the last 36 chars can
-            # collide, causing NautilusTrader to silently drop the second trade.
-            # Disambiguate by appending the token suffix and a same-transaction
-            # sequence number for same-token multi-fill transactions.
-            _transaction_hash = str(trade_data["transactionHash"])
-            _asset = str(trade_data.get("asset", ""))
-            _tx_asset_key = (_transaction_hash, _asset)
-            _tx_asset_sequence = tx_asset_counts.get(_tx_asset_key, 0)
-            tx_asset_counts[_tx_asset_key] = _tx_asset_sequence + 1
-
-            candidate_trades.append(
-                (
-                    trade_data,
-                    i,
-                    base_ts_event,
-                    occurrence_in_second,
-                    _transaction_hash,
-                    _asset,
-                    _tx_asset_sequence,
-                )
+        (
+            prices,
+            sizes,
+            aggressor_sides,
+            trade_ids,
+            ts_events,
+            ts_inits,
+            unexpected_side_records,
+            skipped_price_records,
+        ) = polymarket_public_trade_rows(trades_data, token_id=self._token_id, sort=sort)
+        for original_index, side in unexpected_side_records:
+            warnings.warn(
+                f"Polymarket trade {original_index} had unexpected side "
+                f"{side!r}; recording NO_AGGRESSOR for audit visibility.",
+                RuntimeWarning,
+                stacklevel=2,
             )
-
-        side_values = polymarket_normalize_trade_sides(
-            [str(trade_data.get("side", "")) for trade_data, *_rest in candidate_trades]
-        )
-        price_is_tradable = polymarket_are_tradable_probability_prices(
-            [str(trade_data["price"]) for trade_data, *_rest in candidate_trades]
-        )
-        event_timestamps = polymarket_trade_event_timestamp_ns_batch(
-            [
-                (base_ts_event, occurrence_in_second)
-                for _trade_data, _index, base_ts_event, occurrence_in_second, *_rest in candidate_trades
-            ]
-        )
-
-        parsed_trades: list[tuple[dict, AggressorSide, int, str, str, int]] = []
-        for (
-            trade_data,
-            original_index,
-            _base_ts_event,
-            _occurrence_in_second,
-            _transaction_hash,
-            _asset,
-            _tx_asset_sequence,
-        ), side_value, is_tradable, ts_event in zip(
-            candidate_trades, side_values, price_is_tradable, event_timestamps, strict=True
-        ):
-            if side_value == "BUY":
-                aggressor_side = AggressorSide.BUYER
-            elif side_value == "SELL":
-                aggressor_side = AggressorSide.SELLER
-            else:
-                warnings.warn(
-                    f"Polymarket trade {original_index} had unexpected side "
-                    f"{trade_data.get('side')!r}; recording NO_AGGRESSOR for audit visibility.",
-                    RuntimeWarning,
-                    stacklevel=2,
-                )
-                aggressor_side = AggressorSide.NO_AGGRESSOR
-
-            if not is_tradable:
-                _raw_price = float(trade_data["price"])
-                warnings.warn(
-                    "Skipping Polymarket trade with out-of-range or untradable price "
-                    f"{_raw_price!r} at record {original_index}.",
-                    RuntimeWarning,
-                    stacklevel=2,
-                )
-                continue
-            parsed_trades.append(
-                (
-                    trade_data,
-                    aggressor_side,
-                    ts_event,
-                    _transaction_hash,
-                    _asset,
-                    _tx_asset_sequence,
-                )
+        for original_index, raw_price in skipped_price_records:
+            warnings.warn(
+                "Skipping Polymarket trade with out-of-range or untradable price "
+                f"{raw_price!r} at record {original_index}.",
+                RuntimeWarning,
+                stacklevel=2,
             )
+        if not prices:
+            return []
 
-        trade_ids = polymarket_trade_ids(
-            [
-                (transaction_hash, asset, sequence)
-                for _trade_data, _aggressor_side, _ts_event, transaction_hash, asset, sequence in parsed_trades
-            ]
-        )
-
-        trades: list[TradeTick] = []
-        for (
-            trade_data,
-            aggressor_side,
-            ts_event,
-            _transaction_hash,
-            _asset,
-            _tx_asset_sequence,
-        ), trade_id in zip(parsed_trades, trade_ids, strict=True):
-            trade = TradeTick(
-                instrument_id=instrument_id,
-                price=make_price(trade_data["price"]),
-                size=make_qty(trade_data["size"]),
-                aggressor_side=aggressor_side,
-                trade_id=TradeId(trade_id),
-                ts_event=ts_event,
-                ts_init=ts_event,
+        instrument = self._instrument
+        price_precision = int(instrument.price_precision)
+        size_precision = int(instrument.size_precision)
+        return list(
+            TradeTick.from_raw_arrays_to_list(
+                instrument.id,
+                price_precision,
+                size_precision,
+                _rounded_float64_array(prices, price_precision),
+                _rounded_float64_array(sizes, size_precision),
+                np.asarray(aggressor_sides, dtype=np.uint8),
+                trade_ids,
+                np.asarray(ts_events, dtype=np.uint64),
+                np.asarray(ts_inits, dtype=np.uint64),
             )
-            trades.append(trade)
-
-        return trades
+        )

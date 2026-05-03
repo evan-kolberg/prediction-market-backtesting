@@ -418,6 +418,64 @@ def test_polymarket_trade_helpers_use_native_sort_and_id_logic() -> None:
     assert native.polymarket_trade_event_timestamp_ns_batch(
         [(1_771_767_624_000_000_000, 0), (1_771_767_624_000_000_000, 42)]
     ) == [1_771_767_624_000_000_000, 1_771_767_624_000_000_042]
+    (
+        prices,
+        sizes,
+        aggressor_sides,
+        trade_ids,
+        ts_events,
+        ts_inits,
+        unexpected_side_records,
+        skipped_price_records,
+    ) = native.polymarket_public_trade_rows(
+        [
+            {
+                "timestamp": 1_771_767_624,
+                "transactionHash": "0xbbbb",
+                "asset": "other-token",
+                "side": "BUY",
+                "price": "0.50",
+                "size": "1",
+            },
+            {
+                "timestamp": 1_771_767_624,
+                "transactionHash": "0xcccc",
+                "asset": "asset9876",
+                "side": "mint",
+                "price": "0.42",
+                "size": "2",
+            },
+            {
+                "timestamp": 1_771_767_624,
+                "transactionHash": "0xaaaa",
+                "asset": "asset9876",
+                "side": "BUY",
+                "price": "1.0",
+                "size": "3",
+            },
+            {
+                "timestamp": 1_771_767_624,
+                "transactionHash": "0xaaaa",
+                "asset": "asset9876",
+                "side": "SELL",
+                "price": "0.41",
+                "size": "4",
+            },
+        ],
+        token_id="asset9876",
+        sort=True,
+    )
+    assert prices == [0.41, 0.42]
+    assert sizes == [4.0, 2.0]
+    assert aggressor_sides == [2, 0]
+    assert trade_ids == ["0xaaaa-9876-000001", "0xcccc-9876-000000"]
+    assert ts_events == [
+        1_771_767_624_000_000_001,
+        1_771_767_624_000_000_002,
+    ]
+    assert ts_inits == ts_events
+    assert unexpected_side_records == [(2, "mint")]
+    assert skipped_price_records == [(0, 1.0)]
 
 
 def test_native_can_be_disabled_forces_python_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -475,6 +533,19 @@ def test_native_can_be_disabled_forces_python_fallback(monkeypatch: pytest.Monke
         )
         == "90abcdef1234567890abcdef-9876-000042"
     )
+    assert native.polymarket_public_trade_rows(
+        [
+            {
+                "timestamp": 1_771_767_624,
+                "transactionHash": "0xaaaa",
+                "asset": "asset9876",
+                "side": "BUY",
+                "price": "0.41",
+                "size": "4",
+            },
+        ],
+        token_id="asset9876",
+    )[0] == [0.41]
 
 
 def test_native_require_raises_when_extension_missing(monkeypatch: pytest.MonkeyPatch) -> None:
