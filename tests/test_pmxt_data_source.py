@@ -264,9 +264,37 @@ def test_runner_loader_emits_cache_hit_event(tmp_path) -> None:
     event = next(event for event in capture.events if event.stage == "cache_read")
     assert event.status == "cache_hit"
     assert event.vendor == "pmxt"
+    assert event.origin == "pmxt._load_market_batches"
     assert event.source_kind == "cache"
     assert event.cache_path == str(cache_path)
     assert event.rows == 1
+
+
+def test_runner_loader_emits_cache_write_error(tmp_path, monkeypatch) -> None:
+    loader = _make_loader(cache_dir=tmp_path)
+    hour = pd.Timestamp("2026-03-21T12:00:00Z")
+    table = pa.table(
+        {
+            "update_type": ["book_snapshot"],
+            "data": ['{"token_id":"token-yes-123","seq":1}'],
+        }
+    )
+
+    def fail_write(_hour, _table):  # type: ignore[no-untyped-def]
+        raise OSError("disk full")
+
+    monkeypatch.setattr(loader, "_write_market_cache", fail_write)
+
+    with capture_loader_events() as capture:
+        loader._write_cache_if_enabled(hour, table)
+
+    event = next(event for event in capture.events if event.stage == "cache_write")
+    assert event.level == "ERROR"
+    assert event.status == "error"
+    assert event.vendor == "pmxt"
+    assert event.origin == "pmxt._write_cache_if_enabled"
+    assert event.source_kind == "cache"
+    assert event.attrs["error"] == "disk full"
 
 
 def test_runner_loader_emits_ordered_source_skip_event(tmp_path) -> None:

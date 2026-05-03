@@ -19,6 +19,7 @@ from prediction_market_extensions.adapters.prediction_market import (
     ReplayEngineProfile,
     ReplayLoadRequest,
 )
+from prediction_market_extensions._runtime_log import capture_loader_events
 from prediction_market_extensions.backtesting import _prediction_market_backtest as backtest_module
 from prediction_market_extensions.backtesting._experiments import (
     build_backtest_for_experiment,
@@ -358,6 +359,27 @@ def test_trade_progress_labels_telonex_materialized_trade_cache(tmp_path, capsys
     output = capsys.readouterr().err
 
     assert "telonex onchain_fills cache 2026-01-19.1-2.parquet" in output
+
+
+def test_trade_cache_write_failure_emits_error(tmp_path) -> None:
+    bad_cache_root = tmp_path / "not-a-directory"
+    bad_cache_root.write_text("occupied", encoding="utf-8")
+
+    with capture_loader_events() as capture:
+        replay_adapters._write_trade_cache(
+            path=bad_cache_root / "trade.parquet",
+            trades=(),
+            market_label="demo-market",
+            day=pd.Timestamp("2026-04-21T00:00:00Z"),
+        )
+
+    event = next(event for event in capture.events if event.stage == "cache_write")
+    assert event.level == "ERROR"
+    assert event.status == "error"
+    assert event.vendor == "polymarket"
+    assert event.source_kind == "cache"
+    assert event.market_slug == "demo-market"
+    assert event.origin == "replay_adapters._write_trade_cache"
 
 
 def test_trade_progress_labels_telonex_trade_channels(tmp_path, capsys) -> None:

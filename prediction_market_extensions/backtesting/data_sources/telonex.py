@@ -448,6 +448,54 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
         if callback is not None:
             callback(date, event, source, rows)
 
+    def _emit_cache_write_event(
+        self,
+        *,
+        cache_kind: str,
+        cache_path: Path,
+        channel: str,
+        date: str,
+        market_slug: str,
+        token_index: int,
+        outcome: str | None,
+        level: str,
+        status: str,
+        message: str,
+        rows: int | None = None,
+        bytes_count: int | None = None,
+        book_events: int | None = None,
+        trade_ticks: int | None = None,
+        error: str | None = None,
+    ) -> None:
+        attrs: dict[str, object] = {
+            "cache_kind": cache_kind,
+            "channel": channel,
+            "date": date,
+        }
+        if error is not None:
+            attrs["error"] = error
+        emit_loader_event(
+            message,
+            level=level,
+            stage="cache_write",
+            vendor="telonex",
+            status=status,
+            platform="polymarket",
+            data_type="book",
+            source_kind="cache",
+            source=f"telonex-{cache_kind}-cache::{cache_path}",
+            cache_path=str(cache_path),
+            market_slug=market_slug,
+            token_id=str(token_index),
+            outcome=outcome,
+            rows=rows,
+            book_events=book_events,
+            trade_ticks=trade_ticks,
+            bytes=bytes_count,
+            attrs=attrs,
+            stacklevel=3,
+        )
+
     @classmethod
     def _resolve_api_cache_root(cls) -> Path | None:
         return _resolve_api_cache_root()
@@ -1183,14 +1231,37 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
             cache_path.parent.mkdir(parents=True, exist_ok=True)
             tmp_path.write_bytes(payload)
             os.replace(tmp_path, cache_path)
+            self._emit_cache_write_event(
+                cache_kind="api",
+                cache_path=cache_path,
+                channel=channel,
+                date=date,
+                market_slug=market_slug,
+                token_index=token_index,
+                outcome=outcome,
+                level="INFO",
+                status="complete",
+                message=f"Wrote Telonex API cache for {market_slug} {date}",
+                bytes_count=len(payload),
+            )
         except OSError as exc:
             try:
                 tmp_path.unlink()
             except OSError:
                 pass
-            warnings.warn(
-                f"Telonex: failed to write API cache {cache_path} ({exc})",
-                stacklevel=2,
+            self._emit_cache_write_event(
+                cache_kind="api",
+                cache_path=cache_path,
+                channel=channel,
+                date=date,
+                market_slug=market_slug,
+                token_index=token_index,
+                outcome=outcome,
+                level="ERROR",
+                status="error",
+                message=f"Failed to write Telonex API cache for {market_slug} {date}",
+                bytes_count=len(payload),
+                error=str(exc),
             )
 
     @classmethod
@@ -1308,14 +1379,37 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
             fast_path.parent.mkdir(parents=True, exist_ok=True)
             fast_frame.to_parquet(tmp_path, compression="zstd", index=False)
             os.replace(tmp_path, fast_path)
+            self._emit_cache_write_event(
+                cache_kind="fast",
+                cache_path=fast_path,
+                channel=channel,
+                date=date,
+                market_slug=market_slug,
+                token_index=token_index,
+                outcome=outcome,
+                level="INFO",
+                status="complete",
+                message=f"Wrote Telonex fast cache for {market_slug} {date}",
+                rows=int(len(fast_frame)),
+            )
         except OSError as exc:
             try:
                 tmp_path.unlink()
             except OSError:
                 pass
-            warnings.warn(
-                f"Telonex: failed to write fast cache {fast_path} ({exc})",
-                stacklevel=2,
+            self._emit_cache_write_event(
+                cache_kind="fast",
+                cache_path=fast_path,
+                channel=channel,
+                date=date,
+                market_slug=market_slug,
+                token_index=token_index,
+                outcome=outcome,
+                level="ERROR",
+                status="error",
+                message=f"Failed to write Telonex fast cache for {market_slug} {date}",
+                rows=int(len(fast_frame)),
+                error=str(exc),
             )
 
     def _load_api_day_cached(
@@ -1495,14 +1589,39 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
                 compression="zstd",
             )
             os.replace(tmp_path, cache_path)
+            self._emit_cache_write_event(
+                cache_kind="deltas",
+                cache_path=cache_path,
+                channel=channel,
+                date=date,
+                market_slug=market_slug,
+                token_index=token_index,
+                outcome=outcome,
+                level="INFO",
+                status="complete",
+                message=f"Wrote Telonex materialized deltas cache for {market_slug} {date}",
+                rows=len(records),
+                book_events=len(records),
+            )
         except Exception as exc:  # noqa: BLE001 - cache writes must not break replay
             try:
                 tmp_path.unlink()
             except OSError:
                 pass
-            warnings.warn(
-                f"Telonex: failed to write materialized deltas cache {cache_path} ({exc})",
-                stacklevel=2,
+            self._emit_cache_write_event(
+                cache_kind="deltas",
+                cache_path=cache_path,
+                channel=channel,
+                date=date,
+                market_slug=market_slug,
+                token_index=token_index,
+                outcome=outcome,
+                level="ERROR",
+                status="error",
+                message=f"Failed to write Telonex materialized deltas cache for {market_slug} {date}",
+                rows=len(records),
+                book_events=len(records),
+                error=str(exc),
             )
 
     @classmethod
@@ -1620,14 +1739,39 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
                 compression="zstd",
             )
             os.replace(tmp_path, cache_path)
+            self._emit_cache_write_event(
+                cache_kind="trade",
+                cache_path=cache_path,
+                channel=channel,
+                date=date,
+                market_slug=market_slug,
+                token_index=token_index,
+                outcome=outcome,
+                level="INFO",
+                status="complete",
+                message=f"Wrote Telonex materialized trade cache for {market_slug} {date}",
+                rows=len(records),
+                trade_ticks=len(records),
+            )
         except Exception as exc:  # noqa: BLE001 - cache writes must not break replay
             try:
                 tmp_path.unlink()
             except OSError:
                 pass
-            warnings.warn(
-                f"Telonex: failed to write materialized trade cache {cache_path} ({exc})",
-                stacklevel=2,
+            self._emit_cache_write_event(
+                cache_kind="trade",
+                cache_path=cache_path,
+                channel=channel,
+                date=date,
+                market_slug=market_slug,
+                token_index=token_index,
+                outcome=outcome,
+                level="ERROR",
+                status="error",
+                message=f"Failed to write Telonex materialized trade cache for {market_slug} {date}",
+                rows=len(records),
+                trade_ticks=len(records),
+                error=str(exc),
             )
 
     @staticmethod

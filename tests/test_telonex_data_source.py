@@ -1040,6 +1040,35 @@ def test_telonex_day_progress_emits_loader_event() -> None:
     assert event.rows == 12
 
 
+def test_telonex_api_cache_write_failure_emits_error(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    bad_cache_root = tmp_path / "not-a-directory"
+    bad_cache_root.write_text("occupied", encoding="utf-8")
+    monkeypatch.setenv(TELONEX_CACHE_ROOT_ENV, str(bad_cache_root))
+    loader = RunnerPolymarketTelonexBookDataLoader.__new__(RunnerPolymarketTelonexBookDataLoader)
+
+    with capture_loader_events() as capture:
+        loader._write_api_cache_day(
+            payload=b"payload",
+            base_url="https://api.telonex.io",
+            channel=TELONEX_FULL_BOOK_CHANNEL,
+            date="2026-04-21",
+            market_slug="cache-test",
+            token_index=0,
+            outcome="Yes",
+        )
+
+    event = next(event for event in capture.events if event.stage == "cache_write")
+    assert event.level == "ERROR"
+    assert event.status == "error"
+    assert event.vendor == "telonex"
+    assert event.origin == "telonex._write_api_cache_day"
+    assert event.source_kind == "cache"
+    assert event.market_slug == "cache-test"
+    assert event.attrs["cache_kind"] == "api"
+
+
 def test_telonex_full_book_loader_uses_local_before_api_cache(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

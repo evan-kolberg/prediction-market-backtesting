@@ -273,12 +273,56 @@ def _deserialize_trade_ticks(*, loader: Any, frame: pd.DataFrame) -> tuple[Trade
     return _trade_ticks_from_cache_frame_native(loader=loader, frame=frame)
 
 
-def _write_trade_cache(*, path: Path, trades: tuple[TradeTick, ...]) -> None:
+def _write_trade_cache(
+    *,
+    path: Path,
+    trades: tuple[TradeTick, ...],
+    market_label: str,
+    day: pd.Timestamp,
+) -> None:
     tmp_path = path.with_name(f"{path.name}.tmp")
     frame = _serialize_trade_ticks(trades)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    frame.to_parquet(tmp_path, compression="zstd", index=False)
-    os.replace(tmp_path, path)
+    day_label = _trade_day_label(day)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        frame.to_parquet(tmp_path, compression="zstd", index=False)
+        os.replace(tmp_path, path)
+        emit_loader_event(
+            f"Wrote Polymarket trade cache for {market_label} {day_label}",
+            stage="cache_write",
+            vendor="polymarket",
+            status="complete",
+            platform="polymarket",
+            data_type="book",
+            source_kind="cache",
+            source=f"polymarket-trade-cache::{path}",
+            cache_path=str(path),
+            market_slug=market_label,
+            rows=len(trades),
+            trade_ticks=len(trades),
+            attrs={"day": day_label},
+        )
+    except Exception as exc:  # noqa: BLE001 - cache writes must not break replay
+        try:
+            tmp_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+        emit_loader_event(
+            f"Failed to write Polymarket trade cache for {market_label} {day_label}",
+            level="ERROR",
+            stage="cache_write",
+            vendor="polymarket",
+            status="error",
+            platform="polymarket",
+            data_type="book",
+            source_kind="cache",
+            source=f"polymarket-trade-cache::{path}",
+            cache_path=str(path),
+            market_slug=market_label,
+            rows=len(trades),
+            trade_ticks=len(trades),
+            attrs={"day": day_label, "error": str(exc)},
+        )
 
 
 def _trade_day_label(day: pd.Timestamp) -> str:
@@ -424,7 +468,12 @@ async def _load_trade_ticks(
                 )
             day_trades = tuple(sorted(fetched, key=_trade_record_sort_key))
             if cache_path is not None:
-                _write_trade_cache(path=cache_path, trades=day_trades)
+                _write_trade_cache(
+                    path=cache_path,
+                    trades=day_trades,
+                    market_label=market_label,
+                    day=current_day,
+                )
             source = "polymarket api"
         _print_trade_progress_line(
             day=current_day,

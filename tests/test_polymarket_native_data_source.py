@@ -9,6 +9,7 @@ import pytest
 from nautilus_trader.adapters.polymarket.common.parsing import parse_polymarket_instrument
 
 from prediction_market_extensions.adapters.polymarket.loaders import PolymarketDataLoader
+from prediction_market_extensions._runtime_log import capture_loader_events
 from prediction_market_extensions.backtesting.data_sources.polymarket_native import (
     POLYMARKET_CLOB_BASE_URL_ENV,
     POLYMARKET_GAMMA_BASE_URL_ENV,
@@ -135,7 +136,10 @@ def test_polymarket_clob_market_fetch_logs_source(capsys) -> None:
     assert "[INFO] loaders._fetch_market_details: Loaded Polymarket CLOB market details" in output
 
 
-def test_from_market_slug_uses_run_metadata_cache_and_sanitizes_resolution() -> None:
+def test_from_market_slug_uses_run_metadata_cache_and_sanitizes_resolution(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    monkeypatch.setenv(PolymarketDataLoader._METADATA_CACHE_DIR_ENV, str(tmp_path))
     PolymarketDataLoader.clear_metadata_cache()
     condition_id = "0x" + "2" * 64
     client = _RoutingHttpClient(
@@ -175,7 +179,99 @@ def test_from_market_slug_uses_run_metadata_cache_and_sanitizes_resolution() -> 
     PolymarketDataLoader.clear_metadata_cache()
 
 
-def test_metadata_cache_separates_native_source_configuration() -> None:
+def test_from_market_slug_reuses_disk_metadata_cache(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    monkeypatch.setenv(PolymarketDataLoader._METADATA_CACHE_DIR_ENV, str(tmp_path))
+    PolymarketDataLoader.clear_metadata_cache()
+    condition_id = "0x" + "4" * 64
+    client = _RoutingHttpClient(
+        {
+            (
+                "https://gamma-api.polymarket.com/markets/slug/demo-market",
+                None,
+            ): _metadata_market_payload(condition_id=condition_id),
+            (
+                f"https://clob.polymarket.com/markets/{condition_id}",
+                None,
+            ): _metadata_details_payload(condition_id=condition_id),
+            (
+                "https://clob.polymarket.com/fee-rate",
+                (("token_id", "asset9876"),),
+            ): {"fee_rate_bps": "30"},
+        }
+    )
+
+    async def _load_once():
+        return await PolymarketDataLoader.from_market_slug("demo-market", http_client=client)
+
+    with capture_loader_events() as capture:
+        first = asyncio.run(_load_once())
+    assert len(client.requests) == 3
+    cache_write_events = [
+        event
+        for event in capture.events
+        if event.stage == "cache_write" and event.status == "complete"
+    ]
+    assert [event.attrs["kind"] for event in cache_write_events] == [
+        "gamma-market",
+        "clob-market",
+        "fee-rate",
+    ]
+    assert all(event.origin == "loaders._write_metadata_disk_cache" for event in cache_write_events)
+    assert all(event.source_kind == "cache" for event in cache_write_events)
+    assert all(event.cache_path for event in cache_write_events)
+
+    PolymarketDataLoader.clear_metadata_cache()
+    client.requests.clear()
+    with capture_loader_events() as second_capture:
+        second = asyncio.run(_load_once())
+
+    assert client.requests == []
+    cache_read_events = [
+        event
+        for event in second_capture.events
+        if event.stage == "cache_read" and event.status == "cache_hit"
+    ]
+    assert [event.attrs["kind"] for event in cache_read_events] == [
+        "gamma-market",
+        "clob-market",
+        "fee-rate",
+    ]
+    assert all(event.origin == "loaders._read_metadata_disk_cache" for event in cache_read_events)
+    assert first.instrument.id == second.instrument.id
+    assert "result" not in second.instrument.info
+    PolymarketDataLoader.clear_metadata_cache()
+
+
+def test_metadata_disk_write_failure_emits_error(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    bad_cache_root = tmp_path / "not-a-directory"
+    bad_cache_root.write_text("occupied", encoding="utf-8")
+    monkeypatch.setenv(PolymarketDataLoader._METADATA_CACHE_DIR_ENV, str(bad_cache_root))
+
+    with capture_loader_events() as capture:
+        PolymarketDataLoader._write_metadata_disk_cache(
+            "gamma-market",
+            "https://gamma-api.polymarket.com",
+            "demo-market",
+            {"closed": True},
+        )
+
+    error_events = [
+        event
+        for event in capture.events
+        if event.stage == "cache_write" and event.status == "error"
+    ]
+    assert len(error_events) == 1
+    assert error_events[0].level == "ERROR"
+    assert error_events[0].attrs["kind"] == "gamma-market"
+    assert error_events[0].market_slug == "demo-market"
+
+
+def test_metadata_cache_separates_native_source_configuration(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    monkeypatch.setenv(PolymarketDataLoader._METADATA_CACHE_DIR_ENV, str(tmp_path))
     RunnerPolymarketDataLoader.clear_metadata_cache()
     condition_id = "0x" + "3" * 64
     client = _RoutingHttpClient(

@@ -47,6 +47,7 @@ from prediction_market_extensions._native import (
     pmxt_payload_sort_key,
     pmxt_sort_payload_columns,
 )
+from prediction_market_extensions._runtime_log import emit_loader_event
 
 
 class _PMXTBookSnapshotPayload(msgspec.Struct, frozen=True):
@@ -237,6 +238,75 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
         return self._market_cache_path_for_hour(
             self._pmxt_cache_dir, self.condition_id, self.token_id, hour
         )
+
+    @staticmethod
+    def _hour_label(hour: pd.Timestamp) -> str:
+        try:
+            return hour.tz_convert(UTC).strftime("%Y-%m-%dT%H:00Z")
+        except Exception:
+            return str(hour)
+
+    def _emit_cache_write_event(
+        self,
+        *,
+        hour: pd.Timestamp,
+        cache_path: Path,
+        table: pa.Table,
+        level: str,
+        status: str,
+        message: str,
+        error: str | None = None,
+    ) -> None:
+        attrs: dict[str, object] = {"hour": self._hour_label(hour)}
+        if error is not None:
+            attrs["error"] = error
+        emit_loader_event(
+            message,
+            level=level,
+            stage="cache_write",
+            vendor="pmxt",
+            status=status,
+            platform="polymarket",
+            data_type="book",
+            source_kind="cache",
+            source=f"pmxt-cache::{cache_path}",
+            cache_path=str(cache_path),
+            condition_id=getattr(self, "condition_id", None),
+            token_id=getattr(self, "token_id", None),
+            rows=int(table.num_rows),
+            attrs=attrs,
+            stacklevel=3,
+        )
+
+    def _write_market_cache_if_enabled(self, hour: pd.Timestamp, table: pa.Table) -> None:
+        if self._pmxt_cache_dir is None:
+            return
+        cache_path = self._cache_path_for_hour(hour)
+        if cache_path is None:
+            return
+        try:
+            self._write_market_cache(hour, table)
+            self._emit_cache_write_event(
+                hour=hour,
+                cache_path=cache_path,
+                table=table,
+                level="INFO",
+                status="complete",
+                message=(
+                    f"Wrote PMXT filtered market cache for {self._hour_label(hour)} "
+                    f"({table.num_rows} rows)"
+                ),
+            )
+        except (OSError, pa.ArrowException) as exc:
+            self._emit_cache_write_event(
+                hour=hour,
+                cache_path=cache_path,
+                table=table,
+                level="ERROR",
+                status="error",
+                message=f"Failed to write PMXT filtered market cache for {self._hour_label(hour)}",
+                error=str(exc),
+            )
 
     @classmethod
     def _local_archive_candidate_paths_for_hour(
@@ -475,16 +545,14 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
                 else self._empty_market_table()
             )
             if self._pmxt_cache_dir is not None:
-                with suppress(OSError, pa.ArrowException):
-                    self._write_market_cache(hour, table)
+                self._write_market_cache_if_enabled(hour, table)
             return table
 
         remote_table = self._load_remote_market_table(hour, batch_size=batch_size)
         if remote_table is not None:
             remote_table = self._filter_table_to_token(remote_table)
             if self._pmxt_cache_dir is not None:
-                with suppress(OSError, pa.ArrowException):
-                    self._write_market_cache(hour, remote_table)
+                self._write_market_cache_if_enabled(hour, remote_table)
             return remote_table
 
         return None
@@ -500,16 +568,14 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
         if batches is not None:
             if self._pmxt_cache_dir is not None:
                 table = pa.Table.from_batches(batches) if batches else self._empty_market_table()
-                with suppress(OSError, pa.ArrowException):
-                    self._write_market_cache(hour, table)
+                self._write_market_cache_if_enabled(hour, table)
             return batches
 
         batches = self._load_remote_market_batches(hour, batch_size=batch_size)
         if batches is not None:
             if self._pmxt_cache_dir is not None:
                 table = pa.Table.from_batches(batches) if batches else self._empty_market_table()
-                with suppress(OSError, pa.ArrowException):
-                    self._write_market_cache(hour, table)
+                self._write_market_cache_if_enabled(hour, table)
             return batches
 
         return None

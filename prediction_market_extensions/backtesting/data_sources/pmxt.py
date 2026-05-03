@@ -132,8 +132,11 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
         rows: int | None = None,
         bytes_count: int | None = None,
         level: str = "INFO",
+        extra_attrs: dict[str, object] | None = None,
     ) -> None:  # type: ignore[no-untyped-def]
         attrs: dict[str, object] = {"hour": self._hour_label(hour)}
+        if extra_attrs:
+            attrs.update(extra_attrs)
         emit_loader_event(
             message,
             level=level,
@@ -150,6 +153,7 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
             rows=rows,
             bytes=bytes_count,
             attrs=attrs,
+            stacklevel=3,
         )
 
     @staticmethod
@@ -425,22 +429,37 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
         return None
 
     def _write_cache_if_enabled(self, hour, table) -> None:  # type: ignore[no-untyped-def]
-        if self._pmxt_cache_dir is not None:
-            cache_path = self._cache_path_for_hour(hour)
-            with suppress(OSError, pa.ArrowException):
-                self._write_market_cache(hour, table)
-                self._emit_pmxt_source_event(
-                    message=(
-                        "Wrote PMXT filtered market cache "
-                        f"for {self._hour_label(hour)} ({table.num_rows} rows)"
-                    ),
-                    stage="cache_write",
-                    status="complete",
-                    hour=hour,
-                    source_kind="cache",
-                    cache_path=cache_path,
-                    rows=int(table.num_rows),
-                )
+        if self._pmxt_cache_dir is None:
+            return
+        cache_path = self._cache_path_for_hour(hour)
+        if cache_path is None:
+            return
+        try:
+            self._write_market_cache(hour, table)
+            self._emit_pmxt_source_event(
+                message=(
+                    "Wrote PMXT filtered market cache "
+                    f"for {self._hour_label(hour)} ({table.num_rows} rows)"
+                ),
+                stage="cache_write",
+                status="complete",
+                hour=hour,
+                source_kind="cache",
+                cache_path=cache_path,
+                rows=int(table.num_rows),
+            )
+        except (OSError, pa.ArrowException) as exc:
+            self._emit_pmxt_source_event(
+                message=f"Failed to write PMXT filtered market cache for {self._hour_label(hour)}",
+                level="ERROR",
+                stage="cache_write",
+                status="error",
+                hour=hour,
+                source_kind="cache",
+                cache_path=cache_path,
+                rows=int(table.num_rows),
+                extra_attrs={"error": str(exc)},
+            )
 
     def _load_market_table(self, hour, *, batch_size: int):  # type: ignore[no-untyped-def]
         table = self._load_cached_market_table(hour)
