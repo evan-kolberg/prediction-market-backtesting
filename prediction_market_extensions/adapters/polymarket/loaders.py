@@ -21,9 +21,10 @@ Provides data loaders for historical Polymarket data from various APIs.
 
 from __future__ import annotations
 
+import copy
 import warnings
 from decimal import Decimal, InvalidOperation
-from typing import Any
+from typing import Any, ClassVar
 
 import msgspec
 import numpy as np
@@ -75,6 +76,10 @@ class PolymarketDataLoader:
 
     _TRADES_PAGE_LIMIT = 1_000
     _FEE_RATE_URL = "https://clob.polymarket.com/fee-rate"
+    _MARKET_SLUG_CACHE: ClassVar[dict[tuple[type, str, str], dict[str, Any]]] = {}
+    _MARKET_DETAILS_CACHE: ClassVar[dict[tuple[type, str, str], dict[str, Any]]] = {}
+    _EVENT_SLUG_CACHE: ClassVar[dict[tuple[type, str, str], dict[str, Any]]] = {}
+    _FEE_RATE_CACHE: ClassVar[dict[tuple[type, str, str], Decimal | None]] = {}
 
     def __init__(
         self,
@@ -105,6 +110,93 @@ class PolymarketDataLoader:
         return nautilus_pyo3.HttpClient(
             default_quota=nautilus_pyo3.Quota.rate_per_minute(POLYMARKET_HTTP_RATE_LIMIT)
         )
+
+    @classmethod
+    def clear_metadata_cache(cls) -> None:
+        cls._MARKET_SLUG_CACHE.clear()
+        cls._MARKET_DETAILS_CACHE.clear()
+        cls._EVENT_SLUG_CACHE.clear()
+        cls._FEE_RATE_CACHE.clear()
+
+    @classmethod
+    def _gamma_metadata_cache_key(cls) -> str:
+        return "https://gamma-api.polymarket.com"
+
+    @classmethod
+    def _clob_metadata_cache_key(cls) -> str:
+        return "https://clob.polymarket.com"
+
+    @classmethod
+    async def _get_market_by_slug(
+        cls, slug: str, http_client: nautilus_pyo3.HttpClient
+    ) -> dict[str, Any]:
+        key = (cls, cls._gamma_metadata_cache_key(), slug)
+        cached = cls._MARKET_SLUG_CACHE.get(key)
+        if cached is not None:
+            emit_loader_event(
+                f"Loaded Polymarket Gamma market slug={slug} from metadata cache",
+                stage="discover",
+                vendor="polymarket",
+                status="cache_hit",
+                platform="polymarket",
+                source_kind="memory",
+                source="metadata-cache",
+                market_slug=slug,
+            )
+            return copy.deepcopy(cached)
+
+        market = await cls._fetch_market_by_slug(slug, http_client)
+        cls._MARKET_SLUG_CACHE[key] = copy.deepcopy(market)
+        return market
+
+    @classmethod
+    async def _get_market_details(
+        cls, condition_id: str, http_client: nautilus_pyo3.HttpClient
+    ) -> dict[str, Any]:
+        key = (cls, cls._clob_metadata_cache_key(), condition_id)
+        cached = cls._MARKET_DETAILS_CACHE.get(key)
+        if cached is not None:
+            emit_loader_event(
+                f"Loaded Polymarket CLOB market details condition_id={condition_id} "
+                "from metadata cache",
+                stage="discover",
+                vendor="polymarket",
+                status="cache_hit",
+                platform="polymarket",
+                source_kind="memory",
+                source="metadata-cache",
+                condition_id=condition_id,
+            )
+            return copy.deepcopy(cached)
+
+        market_details = await cls._fetch_market_details(condition_id, http_client)
+        cls._MARKET_DETAILS_CACHE[key] = copy.deepcopy(market_details)
+        return market_details
+
+    @classmethod
+    async def _get_event_by_slug(
+        cls, slug: str, http_client: nautilus_pyo3.HttpClient
+    ) -> dict[str, Any]:
+        key = (cls, cls._gamma_metadata_cache_key(), slug)
+        cached = cls._EVENT_SLUG_CACHE.get(key)
+        if cached is not None:
+            return copy.deepcopy(cached)
+
+        event = await cls._fetch_event_by_slug(slug, http_client)
+        cls._EVENT_SLUG_CACHE[key] = copy.deepcopy(event)
+        return event
+
+    @classmethod
+    async def _get_market_fee_rate_bps(
+        cls, token_id: str, http_client: nautilus_pyo3.HttpClient
+    ) -> Decimal | None:
+        key = (cls, cls._clob_metadata_cache_key(), token_id)
+        if key in cls._FEE_RATE_CACHE:
+            return cls._FEE_RATE_CACHE[key]
+
+        fee_rate_bps = await cls._fetch_market_fee_rate_bps(token_id, http_client)
+        cls._FEE_RATE_CACHE[key] = fee_rate_bps
+        return fee_rate_bps
 
     @staticmethod
     async def _fetch_market_by_slug(
@@ -271,7 +363,7 @@ class PolymarketDataLoader:
         ):
             return market_details
 
-        fee_rate_bps = await cls._fetch_market_fee_rate_bps(token_id, http_client)
+        fee_rate_bps = await cls._get_market_fee_rate_bps(token_id, http_client)
         if fee_rate_bps is None:
             return market_details
 
@@ -334,10 +426,10 @@ class PolymarketDataLoader:
 
         """
         client = http_client or cls._create_http_client()
-        market = await cls._fetch_market_by_slug(slug, client)
+        market = await cls._get_market_by_slug(slug, client)
         condition_id = market["conditionId"]
-        market_details = await cls._fetch_market_details(condition_id, client)
-        tokens = market_details.get("tokens", [])
+        market_details = await cls._get_market_details(condition_id, client)
+        tokens = [dict(token) for token in market_details.get("tokens", [])]
         winner_lookup, is_50_50_outcome = infer_gamma_token_winners(market)
 
         if not tokens:
@@ -357,6 +449,7 @@ class PolymarketDataLoader:
             if token_outcome in winner_lookup:
                 market_token["winner"] = winner_lookup[token_outcome]
 
+        market_details = dict(market_details)
         market_details["tokens"] = tokens
         market_details["market_slug"] = market.get("slug") or market_details.get("market_slug")
         market_details["question"] = market.get("question") or market_details.get("question")
@@ -420,7 +513,7 @@ class PolymarketDataLoader:
 
         """
         client = http_client or cls._create_http_client()
-        event = await cls._fetch_event_by_slug(slug, client)
+        event = await cls._get_event_by_slug(slug, client)
         markets = event.get("markets", [])
 
         if not markets:
@@ -433,9 +526,9 @@ class PolymarketDataLoader:
             if not condition_id:
                 continue
 
-            market_details = await cls._fetch_market_details(condition_id, client)
+            market_details = await cls._get_market_details(condition_id, client)
 
-            tokens = market_details.get("tokens", [])
+            tokens = [dict(token) for token in market_details.get("tokens", [])]
             if not tokens:
                 continue
 
@@ -447,6 +540,8 @@ class PolymarketDataLoader:
             token = tokens[token_index]
             token_id = token["token_id"]
             outcome = token["outcome"]
+            market_details = dict(market_details)
+            market_details["tokens"] = tokens
             market_details = await cls._enrich_market_details_with_fee_rate(
                 market_details, token_id, client
             )

@@ -116,8 +116,15 @@ pub fn sort_payloads(
     items: impl IntoIterator<Item = (String, String)>,
 ) -> Result<Vec<PmxtSortedPayload>, String> {
     let mut sorted_payloads = Vec::new();
+    let mut previous_key: Option<(i128, u8)> = None;
+    let mut already_sorted = true;
     for (update_type, payload_text) in items {
         let (timestamp_ns, priority) = payload_sort_key(&update_type, &payload_text)?;
+        let payload_key = (timestamp_ns, priority);
+        if previous_key.is_some_and(|previous_key| payload_key < previous_key) {
+            already_sorted = false;
+        }
+        previous_key = Some(payload_key);
         sorted_payloads.push(PmxtSortedPayload {
             timestamp_ns,
             priority,
@@ -125,9 +132,11 @@ pub fn sort_payloads(
             payload_text,
         });
     }
-    sorted_payloads.sort_by(|left, right| {
-        (left.timestamp_ns, left.priority).cmp(&(right.timestamp_ns, right.priority))
-    });
+    if !already_sorted {
+        sorted_payloads.sort_by(|left, right| {
+            (left.timestamp_ns, left.priority).cmp(&(right.timestamp_ns, right.priority))
+        });
+    }
     Ok(sorted_payloads)
 }
 
@@ -145,6 +154,8 @@ pub fn sort_payload_columns(
 
     let row_count = update_type_columns.iter().map(Vec::len).sum();
     let mut sorted_payloads = Vec::with_capacity(row_count);
+    let mut previous_key: Option<(i128, u8)> = None;
+    let mut already_sorted = true;
     for (column_index, (update_types, payload_texts)) in update_type_columns
         .into_iter()
         .zip(payload_text_columns)
@@ -164,6 +175,11 @@ pub fn sort_payload_columns(
                 payload_sort_key(&update_type, &payload_text).map_err(|err| {
                     format!("PMXT payload sort key failed in column {column_index}, row {row_index}: {err}")
                 })?;
+            let payload_key = (timestamp_ns, priority);
+            if previous_key.is_some_and(|previous_key| payload_key < previous_key) {
+                already_sorted = false;
+            }
+            previous_key = Some(payload_key);
             sorted_payloads.push(PmxtSortedPayload {
                 timestamp_ns,
                 priority,
@@ -172,9 +188,11 @@ pub fn sort_payload_columns(
             });
         }
     }
-    sorted_payloads.sort_by(|left, right| {
-        (left.timestamp_ns, left.priority).cmp(&(right.timestamp_ns, right.priority))
-    });
+    if !already_sorted {
+        sorted_payloads.sort_by(|left, right| {
+            (left.timestamp_ns, left.priority).cmp(&(right.timestamp_ns, right.priority))
+        });
+    }
     Ok(sorted_payloads)
 }
 
