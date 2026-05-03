@@ -6,12 +6,25 @@ import pytest
 
 from prediction_market_extensions.backtesting._timing_test import (
     _active_transfer_progress,
+    _loader_progress_enabled,
     _progress_bar_description,
     _progress_bar_position,
     _progress_bar_total,
     _transfer_label,
     _transfer_progress_fraction,
 )
+
+
+def test_loader_progress_enabled_by_default(monkeypatch) -> None:
+    monkeypatch.delenv("BACKTEST_LOADER_PROGRESS", raising=False)
+
+    assert _loader_progress_enabled()
+
+
+def test_loader_progress_can_be_disabled(monkeypatch) -> None:
+    monkeypatch.setenv("BACKTEST_LOADER_PROGRESS", "0")
+
+    assert not _loader_progress_enabled()
 
 
 def test_transfer_label_identifies_local_raw_paths() -> None:

@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 import os
 import time
 import warnings
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -134,6 +135,26 @@ def _book_event_count_and_midpoints(
         if midpoint is not None:
             prices.append(midpoint)
     return book_event_count, tuple(prices)
+
+
+def _book_event_count(records: tuple[object, ...], *, deltas_type: type[Any]) -> int:
+    return sum(1 for record in records if isinstance(record, deltas_type))
+
+
+def _book_event_count_and_prices_for_request(
+    *,
+    instrument: Any,
+    records: tuple[object, ...],
+    deltas_type: type[Any],
+    request: ReplayLoadRequest,
+) -> tuple[int, tuple[float, ...]]:
+    if request.min_price_range > 0.0:
+        return _book_event_count_and_midpoints(
+            instrument=instrument,
+            records=records,
+            deltas_type=deltas_type,
+        )
+    return _book_event_count(records, deltas_type=deltas_type), ()
 
 
 def _validate_replay_window(
@@ -429,15 +450,17 @@ async def _load_trade_ticks(
         telonex_loader = getattr(loader, "load_telonex_onchain_fill_ticks", None)
         telonex_trades = None
         if callable(telonex_loader):
-            telonex_trades = telonex_loader(day_start, day_end)
+            telonex_trades = await asyncio.to_thread(telonex_loader, day_start, day_end)
         if telonex_trades:
             day_trades = tuple(sorted(telonex_trades, key=_trade_record_sort_key))
             source = str(
                 getattr(loader, "_telonex_last_trade_source", None) or "telonex onchain_fills"
             )
         elif cache_path is not None and cache_path.exists():
-            frame = pd.read_parquet(cache_path)
-            day_trades = _deserialize_trade_ticks(loader=loader, frame=frame)
+            frame = await asyncio.to_thread(pd.read_parquet, cache_path)
+            day_trades = await asyncio.to_thread(
+                _deserialize_trade_ticks, loader=loader, frame=frame
+            )
             source = f"polymarket cache {cache_path.name}"
         else:
             emit_loader_event(
@@ -468,7 +491,8 @@ async def _load_trade_ticks(
                 )
             day_trades = tuple(sorted(fetched, key=_trade_record_sort_key))
             if cache_path is not None:
-                _write_trade_cache(
+                await asyncio.to_thread(
+                    _write_trade_cache,
                     path=cache_path,
                     trades=day_trades,
                     market_label=market_label,
@@ -515,6 +539,51 @@ L2_BOOK_ENGINE_PROFILE = ReplayEngineProfile(
 
 
 @dataclass(frozen=True)
+class _ResolvedBookReplay:
+    replay: BookReplay
+    start: pd.Timestamp
+    end: pd.Timestamp
+
+
+@dataclass(frozen=True)
+class _PreparedBookReplay:
+    resolved: _ResolvedBookReplay
+    loader: Any
+    outcome: str
+
+
+@dataclass(frozen=True)
+class _LoadedBookReplay:
+    prepared: _PreparedBookReplay
+    book_records: tuple[OrderBookDeltas, ...]
+
+
+async def _gather_bounded(
+    values: Sequence[Any],
+    *,
+    workers: int,
+    func: Callable[[Any], Any],
+) -> list[Any]:
+    worker_count = min(max(1, int(workers)), max(1, len(values)))
+    if worker_count <= 1:
+        return [await func(value) for value in values]
+
+    semaphore = asyncio.Semaphore(worker_count)
+
+    async def _run(value: Any) -> Any:
+        async with semaphore:
+            return await func(value)
+
+    return list(await asyncio.gather(*(_run(value) for value in values)))
+
+
+def _chunks(values: Sequence[Any], size: int) -> Iterator[Sequence[Any]]:
+    chunk_size = max(1, int(size))
+    for start in range(0, len(values), chunk_size):
+        yield values[start : start + chunk_size]
+
+
+@dataclass(frozen=True)
 class _BaseReplayAdapter(HistoricalReplayAdapter):
     _key: ReplayAdapterKey
     _replay_spec_type: type[Any]
@@ -552,6 +621,122 @@ class _BaseReplayAdapter(HistoricalReplayAdapter):
             if value is not None:
                 replay_fields[field_name] = value
         return self._single_market_replay_factory(replay_fields)
+
+    def _resolve_book_replay_window(
+        self, replay: BookReplay, *, request: ReplayLoadRequest, source_label: str
+    ) -> _ResolvedBookReplay:
+        end = _normalize_timestamp(
+            replay.end_time if replay.end_time is not None else request.default_end_time,
+            default_now=True,
+        )
+        if replay.start_time is not None:
+            start = _normalize_timestamp(replay.start_time)
+        else:
+            lookback_hours = (
+                replay.lookback_hours
+                if replay.lookback_hours is not None
+                else request.default_lookback_hours
+            )
+            if lookback_hours is None:
+                raise ValueError(
+                    f"start_time/end_time or lookback_hours is required for {source_label} book replays."
+                )
+            start = end - pd.Timedelta(hours=float(lookback_hours))
+
+        if start >= end:
+            raise ValueError(
+                f"start_time {start.isoformat()} must be earlier than end_time {end.isoformat()}"
+            )
+        return _ResolvedBookReplay(replay=replay, start=start, end=end)
+
+    @staticmethod
+    def _emit_book_replay_start(*, resolved: _ResolvedBookReplay, vendor: str) -> None:
+        replay = resolved.replay
+        label = vendor.upper() if vendor == "pmxt" else vendor.title()
+        emit_loader_event(
+            f"Loading {label} Polymarket market {replay.market_slug} "
+            f"(token_index={replay.token_index}, window_start={resolved.start.isoformat()}, "
+            f"window_end={resolved.end.isoformat()})...",
+            stage="fetch",
+            vendor=vendor,
+            status="start",
+            platform="polymarket",
+            data_type="book",
+            market_slug=replay.market_slug,
+            token_id=str(replay.token_index),
+            window_start_ns=int(resolved.start.value),
+            window_end_ns=int(resolved.end.value),
+        )
+
+    @staticmethod
+    def _emit_book_replay_fetch_error(
+        *, replay: BookReplay, vendor: str, source_label: str, error: Exception
+    ) -> None:
+        emit_loader_event(
+            f"Skip {replay.market_slug}: unable to load {source_label} L2 book data ({error})",
+            level="WARNING",
+            stage="fetch",
+            vendor=vendor,
+            status="error",
+            platform="polymarket",
+            data_type="book",
+            market_slug=replay.market_slug,
+        )
+
+    def _build_loaded_book_replay_or_none(
+        self,
+        *,
+        prepared: _PreparedBookReplay,
+        records: tuple[object, ...],
+        request: ReplayLoadRequest,
+        vendor: str,
+        source_label: str,
+    ) -> LoadedReplay | None:
+        replay = prepared.resolved.replay
+        if not records:
+            emit_loader_event(
+                f"Skip {replay.market_slug}: no {source_label} L2 book data returned",
+                level="WARNING",
+                stage="validate",
+                vendor=vendor,
+                status="skip",
+                platform="polymarket",
+                data_type="book",
+                market_slug=replay.market_slug,
+            )
+            return None
+
+        deltas_type = _resolve_backtest_compat_symbol("OrderBookDeltas", OrderBookDeltas)
+        book_event_count, prices_tuple = _book_event_count_and_prices_for_request(
+            instrument=prepared.loader.instrument,
+            records=records,
+            deltas_type=deltas_type,
+            request=request,
+        )
+        if not _validate_replay_window(
+            market_label=replay.market_slug,
+            count_label="book events",
+            count=book_event_count,
+            min_record_count=request.min_record_count,
+            prices=prices_tuple,
+            min_price_range=request.min_price_range,
+        ):
+            return None
+
+        return self._build_loaded_replay(
+            replay=replay,
+            instrument=prepared.loader.instrument,
+            records=records,
+            count=book_event_count,
+            count_key="book_events",
+            market_key="slug",
+            market_id=replay.market_slug,
+            prices=prices_tuple,
+            outcome=prepared.outcome,
+            realized_outcome=_loader_realized_outcome(prepared.loader),
+            metadata=dict(replay.metadata or {}),
+            requested_window=_requested_window(prepared.resolved.start, prepared.resolved.end),
+        )
 
     def _build_loaded_replay(
         self,
@@ -664,7 +849,7 @@ class PolymarketPMXTBookReplayAdapter(_BaseReplayAdapter):
             loader = await loader_cls.from_market_slug(
                 replay.market_slug, token_index=replay.token_index
             )
-            book_records = tuple(loader.load_order_book_deltas(start, end))
+            book_records = tuple(await asyncio.to_thread(loader.load_order_book_deltas, start, end))
             trade_records = await _load_trade_ticks(
                 loader, start=start, end=end, market_label=replay.market_slug
             )
@@ -696,10 +881,11 @@ class PolymarketPMXTBookReplayAdapter(_BaseReplayAdapter):
             return None
 
         deltas_type = _resolve_backtest_compat_symbol("OrderBookDeltas", OrderBookDeltas)
-        book_event_count, prices_tuple = _book_event_count_and_midpoints(
+        book_event_count, prices_tuple = _book_event_count_and_prices_for_request(
             instrument=loader.instrument,
             records=records,
             deltas_type=deltas_type,
+            request=request,
         )
         if not _validate_replay_window(
             market_label=replay.market_slug,
@@ -807,7 +993,8 @@ class PolymarketTelonexBookReplayAdapter(_BaseReplayAdapter):
             )
             selected_outcome = str(loader.instrument.outcome or replay.outcome or "")
             book_records = tuple(
-                loader.load_order_book_deltas(
+                await asyncio.to_thread(
+                    loader.load_order_book_deltas,
                     start,
                     end,
                     market_slug=replay.market_slug,
@@ -846,10 +1033,11 @@ class PolymarketTelonexBookReplayAdapter(_BaseReplayAdapter):
             return None
 
         deltas_type = _resolve_backtest_compat_symbol("OrderBookDeltas", OrderBookDeltas)
-        book_event_count, prices_tuple = _book_event_count_and_midpoints(
+        book_event_count, prices_tuple = _book_event_count_and_prices_for_request(
             instrument=loader.instrument,
             records=records,
             deltas_type=deltas_type,
+            request=request,
         )
         if not _validate_replay_window(
             market_label=replay.market_slug,
@@ -875,6 +1063,119 @@ class PolymarketTelonexBookReplayAdapter(_BaseReplayAdapter):
             metadata=dict(replay.metadata or {}),
             requested_window=_requested_window(start, end),
         )
+
+    async def load_replays(
+        self,
+        replays: Sequence[BookReplay],
+        *,
+        request: ReplayLoadRequest,
+        workers: int,
+    ) -> list[LoadedReplay]:
+        resolved_replays = [
+            self._resolve_book_replay_window(replay, request=request, source_label="Telonex")
+            for replay in replays
+        ]
+        for resolved in resolved_replays:
+            self._emit_book_replay_start(resolved=resolved, vendor="telonex")
+
+        loader_cls = _resolve_backtest_compat_symbol(
+            "PolymarketTelonexBookDataLoader", PolymarketTelonexBookDataLoader
+        )
+
+        async def _prepare(resolved: _ResolvedBookReplay) -> _PreparedBookReplay | None:
+            replay = resolved.replay
+            try:
+                loader = await loader_cls.from_market_slug(
+                    replay.market_slug, token_index=replay.token_index
+                )
+                return _PreparedBookReplay(
+                    resolved=resolved,
+                    loader=loader,
+                    outcome=str(loader.instrument.outcome or replay.outcome or ""),
+                )
+            except Exception as exc:
+                self._emit_book_replay_fetch_error(
+                    replay=replay,
+                    vendor="telonex",
+                    source_label="Telonex",
+                    error=exc,
+                )
+                return None
+
+        prepared = [
+            item
+            for item in await _gather_bounded(resolved_replays, workers=workers, func=_prepare)
+            if item is not None
+        ]
+
+        async def _load_book(prepared_replay: _PreparedBookReplay) -> _LoadedBookReplay | None:
+            replay = prepared_replay.resolved.replay
+            try:
+                records = tuple(
+                    await asyncio.to_thread(
+                        prepared_replay.loader.load_order_book_deltas,
+                        prepared_replay.resolved.start,
+                        prepared_replay.resolved.end,
+                        market_slug=replay.market_slug,
+                        token_index=replay.token_index,
+                        outcome=prepared_replay.outcome or None,
+                    )
+                )
+                return _LoadedBookReplay(prepared=prepared_replay, book_records=records)
+            except Exception as exc:
+                self._emit_book_replay_fetch_error(
+                    replay=replay,
+                    vendor="telonex",
+                    source_label="Telonex",
+                    error=exc,
+                )
+                return None
+
+        async def _load_trades_and_build(loaded_book: _LoadedBookReplay) -> LoadedReplay | None:
+            prepared_replay = loaded_book.prepared
+            replay = prepared_replay.resolved.replay
+            try:
+                trade_records = await _load_trade_ticks(
+                    prepared_replay.loader,
+                    start=prepared_replay.resolved.start,
+                    end=prepared_replay.resolved.end,
+                    market_label=replay.market_slug,
+                )
+                records = await asyncio.to_thread(
+                    _merge_records,
+                    book_records=loaded_book.book_records,
+                    trade_records=trade_records,
+                )
+                return await asyncio.to_thread(
+                    self._build_loaded_book_replay_or_none,
+                    prepared=prepared_replay,
+                    records=records,
+                    request=request,
+                    vendor="telonex",
+                    source_label="Telonex",
+                )
+            except Exception as exc:
+                self._emit_book_replay_fetch_error(
+                    replay=replay,
+                    vendor="telonex",
+                    source_label="Telonex",
+                    error=exc,
+                )
+                return None
+
+        loaded_sims: list[LoadedReplay] = []
+        chunk_size = max(1, int(workers) * 2)
+        for prepared_chunk in _chunks(prepared, chunk_size):
+            loaded_books = [
+                item
+                for item in await _gather_bounded(prepared_chunk, workers=workers, func=_load_book)
+                if item is not None
+            ]
+            loaded = await _gather_bounded(
+                loaded_books, workers=workers, func=_load_trades_and_build
+            )
+            loaded_sims.extend(loaded_sim for loaded_sim in loaded if loaded_sim is not None)
+        return loaded_sims
 
 
 BUILTIN_REPLAY_ADAPTERS: tuple[HistoricalReplayAdapter, ...] = (

@@ -200,6 +200,28 @@ def test_preflight_midpoints_apply_l2_book_state(monkeypatch) -> None:
     assert replay_adapters._price_range(midpoints) == pytest.approx(0.02)
 
 
+def test_preflight_skips_midpoints_when_price_range_filter_disabled(monkeypatch) -> None:
+    class FakeDeltas:
+        pass
+
+    class ExplodingOrderBook:
+        def __init__(self, instrument_id, book_type):  # type: ignore[no-untyped-def]
+            del instrument_id, book_type
+            raise AssertionError("midpoints should not be computed")
+
+    monkeypatch.setattr(replay_adapters, "OrderBook", ExplodingOrderBook)
+
+    count, midpoints = replay_adapters._book_event_count_and_prices_for_request(
+        instrument=SimpleNamespace(id="POLYMARKET.TEST"),
+        records=(FakeDeltas(), object(), FakeDeltas()),
+        deltas_type=FakeDeltas,
+        request=ReplayLoadRequest(min_price_range=0.0),
+    )
+
+    assert count == 2
+    assert midpoints == ()
+
+
 def test_trade_tick_loader_reports_api_and_cache_progress(
     monkeypatch: pytest.MonkeyPatch, tmp_path, capsys
 ) -> None:

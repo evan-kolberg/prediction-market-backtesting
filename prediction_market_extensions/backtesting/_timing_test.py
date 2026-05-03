@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import importlib.util
+import os
 import sys
 import threading
 import time
@@ -31,6 +32,17 @@ if str(_REPO_ROOT) not in sys.path:
 
 _installed = False
 _TELONEX_TIMING_WORKERS_ENV = "TELONEX_TIMING_WORKERS"
+_LOADER_PROGRESS_ENV = "BACKTEST_LOADER_PROGRESS"
+
+
+def _env_flag_enabled(value: str | None) -> bool:
+    if value is None:
+        return True
+    return value.strip().casefold() not in {"0", "false", "no", "off"}
+
+
+def _loader_progress_enabled() -> bool:
+    return _env_flag_enabled(os.getenv(_LOADER_PROGRESS_ENV))
 
 
 def _hour_label(source: str) -> str:
@@ -467,6 +479,10 @@ def install_timing() -> None:
             return result
 
         def patched_iter(self, hours, *, batch_size):
+            if not _loader_progress_enabled():
+                yield from orig_iter(self, hours, batch_size=batch_size)
+                return
+
             with pbar_lock:
                 stop_event: threading.Event = transfer_state["stop"]  # type: ignore[assignment]
                 stop_event.clear()
@@ -623,6 +639,17 @@ def install_timing() -> None:
             outcome: str | None,
             include_order_book: bool = True,
         ):
+            if not _loader_progress_enabled():
+                return orig_load_order_book_deltas(
+                    self,
+                    start,
+                    end,
+                    market_slug=market_slug,
+                    token_index=token_index,
+                    outcome=outcome,
+                    include_order_book=include_order_book,
+                )
+
             dates = self._date_range(start, end)
             return _run_with_telonex_day_timing(
                 self,

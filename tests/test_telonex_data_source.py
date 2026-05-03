@@ -1101,8 +1101,11 @@ def test_telonex_full_book_loader_uses_local_before_api_cache(
     monkeypatch.setattr(loader, "_try_load_day_from_api_entry", fail_source)
     monkeypatch.setattr(
         loader,
-        "_book_events_from_frame",
-        lambda _frame, *, start, end, include_order_book: [SimpleNamespace(ts_event=1, ts_init=1)],
+        "_book_events_and_delta_columns_from_frame",
+        lambda _frame, *, start, end, include_order_book: (
+            [SimpleNamespace(ts_event=1, ts_init=1)],
+            None,
+        ),
     )
 
     records = loader.load_order_book_deltas(
@@ -1166,13 +1169,16 @@ def test_telonex_full_book_loader_prefetches_api_days(monkeypatch: pytest.Monkey
     monkeypatch.setattr(loader, "_load_api_day", fake_api_day)
     monkeypatch.setattr(
         loader,
-        "_book_events_from_frame",
-        lambda frame, *, start, end, include_order_book: [
-            SimpleNamespace(
-                ts_event=int(frame["timestamp_us"].iloc[0]),
-                ts_init=int(frame["timestamp_us"].iloc[0]),
-            )
-        ],
+        "_book_events_and_delta_columns_from_frame",
+        lambda frame, *, start, end, include_order_book: (
+            [
+                SimpleNamespace(
+                    ts_event=int(frame["timestamp_us"].iloc[0]),
+                    ts_init=int(frame["timestamp_us"].iloc[0]),
+                )
+            ],
+            None,
+        ),
     )
 
     records = loader.load_order_book_deltas(
@@ -1270,8 +1276,11 @@ def test_telonex_full_book_loader_falls_back_to_api_when_blob_partition_is_incom
     monkeypatch.setattr(loader, "_load_api_day", fake_api_day)
     monkeypatch.setattr(
         loader,
-        "_book_events_from_frame",
-        lambda _frame, *, start, end, include_order_book: [SimpleNamespace(ts_event=1, ts_init=1)],
+        "_book_events_and_delta_columns_from_frame",
+        lambda _frame, *, start, end, include_order_book: (
+            [SimpleNamespace(ts_event=1, ts_init=1)],
+            None,
+        ),
     )
 
     with pytest.warns(UserWarning, match="skipping blob store"):

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import warnings
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
+from contextlib import contextmanager
 from datetime import datetime
 from typing import Any
 
@@ -69,6 +71,10 @@ type StrategyFactory = Callable[[InstrumentId], Strategy]
 
 LARGE_DATA_GAP_NS = 4 * 60 * 60 * 1_000_000_000
 REPO_STATUS_TOPIC = "prediction_market.backtest.status"
+REPLAY_LOAD_WORKERS_ENV = "BACKTEST_REPLAY_LOAD_WORKERS"
+LOADER_PROGRESS_ENV = "BACKTEST_LOADER_PROGRESS"
+DEFAULT_REPLAY_LOAD_WORKERS = 4
+MAX_REPLAY_LOAD_WORKERS = 16
 
 
 def _record_ts_event(record: Any) -> int | None:
@@ -93,6 +99,49 @@ def _largest_record_gap_ns(records: Sequence[Any]) -> int | None:
             largest_gap = gap if largest_gap is None else max(largest_gap, gap)
         previous_ts = ts_event
     return largest_gap
+
+
+def _resolve_replay_load_workers(replay_count: int) -> int:
+    if replay_count <= 1:
+        return 1
+
+    configured = os.getenv(REPLAY_LOAD_WORKERS_ENV)
+    if configured is None or not configured.strip():
+        workers = DEFAULT_REPLAY_LOAD_WORKERS
+    else:
+        try:
+            workers = int(configured.strip())
+        except ValueError:
+            workers = DEFAULT_REPLAY_LOAD_WORKERS
+
+    return min(max(1, workers), MAX_REPLAY_LOAD_WORKERS, replay_count)
+
+
+@contextmanager
+def _loader_progress_env_for_workers(workers: int) -> Iterator[None]:
+    if workers <= 1 or LOADER_PROGRESS_ENV in os.environ:
+        yield
+        return
+
+    os.environ[LOADER_PROGRESS_ENV] = "0"
+    try:
+        yield
+    finally:
+        os.environ.pop(LOADER_PROGRESS_ENV, None)
+
+
+def _warn_on_large_loaded_gap(loaded_sim: LoadedReplay) -> None:
+    largest_gap_ns = _largest_record_gap_ns(loaded_sim.records)
+    if largest_gap_ns is None or largest_gap_ns <= LARGE_DATA_GAP_NS:
+        return
+    warnings.warn(
+        f"Loaded replay {loaded_sim.market_id!r} contains a "
+        f"{largest_gap_ns / 1_000_000_000 / 3600:.2f} hour data gap. "
+        "Time-dependent strategy behavior across this window may be "
+        "less reliable.",
+        RuntimeWarning,
+        stacklevel=3,
+    )
 
 
 def _emit_engine_status(engine: BacktestEngine, message: str) -> None:
@@ -342,23 +391,50 @@ class PredictionMarketBacktest:
         )
         with adapter.configure_sources(sources=self.data.sources) as data_source:
             log_info(data_source.summary)
-            loaded_sims: list[LoadedReplay] = []
             request = self._load_request()
-            for replay in self.replays:
-                loaded_sim = await adapter.load_replay(replay, request=request)
-                if loaded_sim is not None:
-                    largest_gap_ns = _largest_record_gap_ns(loaded_sim.records)
-                    if largest_gap_ns is not None and largest_gap_ns > LARGE_DATA_GAP_NS:
-                        warnings.warn(
-                            f"Loaded replay {loaded_sim.market_id!r} contains a "
-                            f"{largest_gap_ns / 1_000_000_000 / 3600:.2f} hour data gap. "
-                            "Time-dependent strategy behavior across this window may be "
-                            "less reliable.",
-                            RuntimeWarning,
-                            stacklevel=2,
-                        )
-                    loaded_sims.append(loaded_sim)
-            return loaded_sims
+            workers = _resolve_replay_load_workers(len(self.replays))
+            if workers > 1:
+                log_info(
+                    f"Loading {len(self.replays)} replay(s) with {workers} worker(s) "
+                    f"({REPLAY_LOAD_WORKERS_ENV}=1 restores sequential loading)"
+                )
+
+            with _loader_progress_env_for_workers(workers):
+                batch_loader = getattr(adapter, "load_replays", None)
+                if callable(batch_loader):
+                    loaded_sims = await batch_loader(
+                        self.replays,
+                        request=request,
+                        workers=workers,
+                    )
+                    for loaded_sim in loaded_sims:
+                        _warn_on_large_loaded_gap(loaded_sim)
+                    return list(loaded_sims)
+
+                async def _load_one(replay: ReplaySpec) -> LoadedReplay | None:
+                    loaded_sim = await adapter.load_replay(replay, request=request)
+                    if loaded_sim is not None:
+                        _warn_on_large_loaded_gap(loaded_sim)
+                    return loaded_sim
+
+                if workers <= 1:
+                    loaded_sims: list[LoadedReplay] = []
+                    for replay in self.replays:
+                        loaded_sim = await _load_one(replay)
+                        if loaded_sim is not None:
+                            loaded_sims.append(loaded_sim)
+                    return loaded_sims
+
+                semaphore = asyncio.Semaphore(workers)
+
+                async def _load_one_bounded(replay: ReplaySpec) -> LoadedReplay | None:
+                    async with semaphore:
+                        return await _load_one(replay)
+
+                loaded = await asyncio.gather(
+                    *(_load_one_bounded(replay) for replay in self.replays)
+                )
+                return [loaded_sim for loaded_sim in loaded if loaded_sim is not None]
 
     def _build_engine(self) -> BacktestEngine:
         engine = BacktestEngine(
