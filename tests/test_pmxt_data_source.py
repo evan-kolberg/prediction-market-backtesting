@@ -281,6 +281,11 @@ def test_runner_loader_reads_fixed_schema_market_rows_from_local_raw_mirror(tmp_
         raw_path,
     )
 
+    def _fail_duckdb(*args, **kwargs):  # type: ignore[no-untyped-def]
+        raise AssertionError("fixed-schema local raw mirror should use the PyArrow row-group path")
+
+    loader._load_raw_market_batches_duckdb = _fail_duckdb  # type: ignore[method-assign]
+
     batches = loader._load_local_archive_market_batches(hour, batch_size=1_000)
 
     assert batches is not None

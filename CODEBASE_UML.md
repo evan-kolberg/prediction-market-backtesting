@@ -1,8 +1,8 @@
 # Codebase UML Inventory
 
 This file is generated from Python AST metadata and excludes `tests/`.
-Generated: 2026-05-03T20:33:27+00:00
-Modules: 110 | Classes: 161 | Functions/methods: 1395
+Generated: 2026-05-03T21:03:41+00:00
+Modules: 110 | Classes: 161 | Functions/methods: 1402
 
 ## Backtesting Data Flow
 
@@ -90,38 +90,42 @@ flowchart TD
 - Imports: `__future__, importlib, pathlib, sys`
 
 ### `main.py`
-- Imports: `__future__, ast, asyncio, functools, importlib, inspect, os, pathlib, prediction_market_extensions, re, string, subprocess, sys, time, typing`
-- Function L66: `_env_flag_enabled(name: str) -> bool`
-- Function L73: `_discoverable_backtest_paths(backtests_root: Path) -> list[Path]`
-- Function L91: `_warn(message: str) -> None`
-- Function L95: `_literal_string(node: ast.AST | None) -> str | None`
-- Function L105: `_assignment_targets(node: ast.Assign | ast.AnnAssign) -> list[str]`
-- Function L113: `_has_assignment(module_ast: ast.Module, target_name: str) -> bool`
-- Function L122: `_call_name(node: ast.AST) -> str | None`
-- Function L130: `_literal_runner_kwargs(call: ast.Call) -> dict[str, str]`
-- Function L140: `_experiment_constructor_kwargs(module_ast: ast.Module) -> dict[str, str] | None`
-- Function L163: `_has_run_entrypoint(module_ast: ast.Module) -> bool`
-- Function L170: `_load_runner_metadata(path: Path) -> dict[str, Any] | None`
-- Function L212: `discover() -> list[dict]`
-- Function L225: `_relative_parts(backtest: dict[str, Any]) -> tuple[str, ...]`
-- Function L234: `_relative_runner_path(backtest: dict[str, Any]) -> Path`
-- Function L238: `_runner_stem(backtest: dict[str, Any]) -> str`
-- Function L242: `_menu_label(backtest: dict[str, Any]) -> str`
-- Function L246: `_textual_menu_label(backtest: dict[str, Any], shortcut: str | None) -> str`
-- Function L253: `_runner_search_text(backtest: dict[str, Any]) -> str`
-- Function L265: `_filter_backtests(backtests: list[dict[str, Any]], query: str) -> list[int]`
-- Function L276: `_shortcut_candidates(backtest: dict[str, Any]) -> list[str]`
-- Function L307: `_assign_shortcuts(backtests: list[dict[str, Any]]) -> dict[str, str | None]`
-- Function L325: `_runner_file_preview(path: Path) -> str`
-- Function L332: `_runner_preview(backtest: dict[str, Any]) -> str`
-- Function L580: `_load_runner(backtest: dict[str, Any]) -> Any`
-- Function L631: `_supports_textual_menu() -> bool`
-- Function L652: `_show_basic_menu(backtests: list[dict[str, Any]]) -> int`
-- Function L680: `_show_textual_menu(backtests: list[dict[str, Any]]) -> int`
-- Function L690: `_build_menu_tree(backtests: list[dict[str, Any]]) -> dict[str, Any]`
-- Function L701: `_render_menu_tree(node: dict[str, Any], *, prefix: str = '') -> list[str]`
-- Function L728: `show_menu(backtests: list[dict]) -> int`
-- Function L738: `main() -> None`
+- Imports: `__future__, ast, asyncio, functools, importlib, inspect, json, os, pathlib, re, string, subprocess, sys, time, typing`
+- Function L64: `_env_flag_enabled(name: str) -> bool`
+- Function L71: `_discoverable_backtest_paths(backtests_root: Path) -> list[Path]`
+- Function L89: `_warn(message: str) -> None`
+- Function L93: `_literal_string(node: ast.AST | None) -> str | None`
+- Function L103: `_assignment_targets(node: ast.Assign | ast.AnnAssign) -> list[str]`
+- Function L111: `_has_assignment(module_ast: ast.Module, target_name: str) -> bool`
+- Function L120: `_call_name(node: ast.AST) -> str | None`
+- Function L128: `_literal_runner_kwargs(call: ast.Call) -> dict[str, str]`
+- Function L138: `_experiment_constructor_kwargs(module_ast: ast.Module) -> dict[str, str] | None`
+- Function L161: `_has_run_entrypoint(module_ast: ast.Module) -> bool`
+- Function L168: `_load_runner_metadata(path: Path) -> dict[str, Any] | None`
+- Function L208: `_notebook_source_text(cell: dict[str, Any]) -> str`
+- Function L215: `_notebook_description(cells: list[dict[str, Any]]) -> str`
+- Function L230: `_load_notebook_metadata(path: Path, *, project_root: Path) -> dict[str, Any] | None`
+- Function L272: `discover() -> list[dict]`
+- Function L285: `_relative_parts(backtest: dict[str, Any]) -> tuple[str, ...]`
+- Function L294: `_relative_runner_path(backtest: dict[str, Any]) -> Path`
+- Function L298: `_runner_stem(backtest: dict[str, Any]) -> str`
+- Function L302: `_menu_label(backtest: dict[str, Any]) -> str`
+- Function L306: `_textual_menu_label(backtest: dict[str, Any], shortcut: str | None) -> str`
+- Function L313: `_runner_search_text(backtest: dict[str, Any]) -> str`
+- Function L325: `_filter_backtests(backtests: list[dict[str, Any]], query: str) -> list[int]`
+- Function L336: `_shortcut_candidates(backtest: dict[str, Any]) -> list[str]`
+- Function L367: `_assign_shortcuts(backtests: list[dict[str, Any]]) -> dict[str, str | None]`
+- Function L385: `_runner_file_preview(path: Path) -> str`
+- Function L392: `_runner_preview(backtest: dict[str, Any]) -> str`
+- Function L640: `_load_runner(backtest: dict[str, Any]) -> Any`
+- Function L691: `_install_runtime_patches() -> None`
+- Function L697: `_supports_textual_menu() -> bool`
+- Function L718: `_show_basic_menu(backtests: list[dict[str, Any]]) -> int`
+- Function L746: `_show_textual_menu(backtests: list[dict[str, Any]]) -> int`
+- Function L756: `_build_menu_tree(backtests: list[dict[str, Any]]) -> dict[str, Any]`
+- Function L767: `_render_menu_tree(node: dict[str, Any], *, prefix: str = '') -> list[str]`
+- Function L794: `show_menu(backtests: list[dict]) -> int`
+- Function L804: `main() -> None`
 
 ### `prediction_market_extensions/__init__.py`
 - Imports: `__future__`
@@ -524,40 +528,43 @@ flowchart TD
   - Method L461: `_load_cached_market_batches(self, hour: pd.Timestamp) -> list[pa.RecordBatch] | None`
   - Method L479: `_write_market_cache(self, hour: pd.Timestamp, table: pa.Table) -> None`
   - Method L492: `_scan_raw_market_batches(self, dataset: ds.Dataset, *, batch_size: int, source: str | None = None, total_bytes: int | None = None) -> list[pa.RecordBatch]`
-  - Method L547: `_load_raw_market_batches_duckdb(self, parquet_path: Path, *, batch_size: int, progress_source: str, total_bytes: int | None) -> list[pa.RecordBatch] | None`
-  - Method L621: `_load_remote_market_table(self, hour: pd.Timestamp, *, batch_size: int) -> pa.Table | None`
-  - Method L629: `_load_remote_market_batches(self, hour: pd.Timestamp, *, batch_size: int) -> list[pa.RecordBatch] | None`
-  - Method L635: `_load_raw_market_batches_via_download(self, archive_url: str, *, batch_size: int) -> list[pa.RecordBatch] | None`
-  - Method L658: `_load_local_archive_market_batches(self, hour: pd.Timestamp, *, batch_size: int) -> list[pa.RecordBatch] | None`
-  - Method L676: `_filter_table_to_token(self, table: pa.Table) -> pa.Table`
-  - Method L691: `_load_market_table(self, hour: pd.Timestamp, *, batch_size: int) -> pa.Table | None`
-  - Method L716: `_load_market_batches(self, hour: pd.Timestamp, *, batch_size: int) -> list[pa.RecordBatch] | None`
-  - Method L739: `_emit_download_progress(self, url: str, *, downloaded_bytes: int, total_bytes: int | None, finished: bool) -> None`
-  - Method L747: `_emit_scan_progress(self, source: str, *, scanned_batches: int, scanned_rows: int, matched_rows: int, total_bytes: int | None, finished: bool) -> None`
-  - Method L763: `_content_length_from_response(response: object) -> int | None`
-  - Method L775: `_progress_total_bytes(self, source: str) -> int | None`
-  - Method L802: `_download_to_file_with_progress(self, url: str, destination: Path) -> int | None`
-  - Method L851: `_download_payload_with_progress(self, url: str) -> bytes | None`
-  - Method L890: `_load_raw_market_batches_from_local_file(self, parquet_path: Path, *, batch_size: int, progress_source: str, total_bytes: int | None) -> list[pa.RecordBatch] | None`
-  - Method L914: `_temporary_download_filename(url: str) -> str`
-  - Method L919: `_pid_is_active(pid: int) -> bool`
-  - Method L931: `_temporary_download_path(self, url: str) -> Iterator[Path]`
-  - Method L943: `_cleanup_stale_temp_downloads(self) -> None`
-  - Method L972: `_iter_market_tables(self, hours: list[pd.Timestamp], *, batch_size: int) -> Iterator[tuple[pd.Timestamp, pa.Table | None]]`
-  - Method L1003: `_iter_market_batches(self, hours: list[pd.Timestamp], *, batch_size: int) -> Iterator[tuple[pd.Timestamp, list[pa.RecordBatch] | None]]`
-  - Method L1035: `_timestamp_to_ms_string(timestamp_secs: float) -> str`
-  - Method L1039: `_decode_book_snapshot(payload_text: str) -> _PMXTBookSnapshotPayload`
-  - Method L1043: `_decode_price_change(payload_text: str) -> _PMXTPriceChangePayload`
-  - Method L1047: `_to_book_snapshot(payload: _PMXTBookSnapshotPayload) -> PolymarketBookSnapshot`
-  - Method L1066: `_to_price_change(payload: _PMXTPriceChangePayload) -> PolymarketQuotes`
-  - Method L1088: `_event_sort_key(record: OrderBookDeltas) -> tuple[int, int]`
-  - Method L1093: `_deltas_records_from_columns(self, data: dict[str, list[object]]) -> list[OrderBookDeltas]`
-  - Method L1142: `_payload_sort_key(self, update_type: str, payload_text: str) -> tuple[int, int]`
-  - Method L1146: `_batches_use_fixed_schema(cls, batches: Sequence[pa.RecordBatch]) -> bool`
-  - Method L1149: `_process_book_snapshot(self, payload_text: str, *, token_id: str, instrument, local_book: OrderBook, has_snapshot: bool, events: list[OrderBookDeltas], start_ns: int, end_ns: int, include_order_book: bool) -> tuple[OrderBook, bool]`
-  - Method L1185: `_process_price_change(self, payload_text: str, *, token_id: str, instrument, local_book: OrderBook, has_snapshot: bool, events: list[OrderBookDeltas], start_ns: int, end_ns: int, include_order_book: bool) -> OrderBook`
-  - Method L1220: `load_order_book_deltas(self, start: pd.Timestamp, end: pd.Timestamp, *, batch_size: int | None = None, include_order_book: bool = True) -> list[OrderBookDeltas]`
-  - Method L1373: `_timestamp_to_ns(value: object) -> int`
+  - Method L548: `_market_stats_value(market_type: pa.DataType, condition_id: str) -> bytes | str`
+  - Method L557: `_matching_raw_fixed_market_row_groups(self, parquet_file: pq.ParquetFile) -> list[int] | None`
+  - Method L583: `_load_raw_fixed_market_batches_pyarrow(self, parquet_path: Path, *, batch_size: int, progress_source: str, total_bytes: int | None) -> list[pa.RecordBatch] | None`
+  - Method L679: `_load_raw_market_batches_duckdb(self, parquet_path: Path, *, batch_size: int, progress_source: str, total_bytes: int | None) -> list[pa.RecordBatch] | None`
+  - Method L753: `_load_remote_market_table(self, hour: pd.Timestamp, *, batch_size: int) -> pa.Table | None`
+  - Method L761: `_load_remote_market_batches(self, hour: pd.Timestamp, *, batch_size: int) -> list[pa.RecordBatch] | None`
+  - Method L767: `_load_raw_market_batches_via_download(self, archive_url: str, *, batch_size: int) -> list[pa.RecordBatch] | None`
+  - Method L790: `_load_local_archive_market_batches(self, hour: pd.Timestamp, *, batch_size: int) -> list[pa.RecordBatch] | None`
+  - Method L808: `_filter_table_to_token(self, table: pa.Table) -> pa.Table`
+  - Method L823: `_load_market_table(self, hour: pd.Timestamp, *, batch_size: int) -> pa.Table | None`
+  - Method L848: `_load_market_batches(self, hour: pd.Timestamp, *, batch_size: int) -> list[pa.RecordBatch] | None`
+  - Method L871: `_emit_download_progress(self, url: str, *, downloaded_bytes: int, total_bytes: int | None, finished: bool) -> None`
+  - Method L879: `_emit_scan_progress(self, source: str, *, scanned_batches: int, scanned_rows: int, matched_rows: int, total_bytes: int | None, finished: bool) -> None`
+  - Method L895: `_content_length_from_response(response: object) -> int | None`
+  - Method L907: `_progress_total_bytes(self, source: str) -> int | None`
+  - Method L934: `_download_to_file_with_progress(self, url: str, destination: Path) -> int | None`
+  - Method L983: `_download_payload_with_progress(self, url: str) -> bytes | None`
+  - Method L1022: `_load_raw_market_batches_from_local_file(self, parquet_path: Path, *, batch_size: int, progress_source: str, total_bytes: int | None) -> list[pa.RecordBatch] | None`
+  - Method L1058: `_temporary_download_filename(url: str) -> str`
+  - Method L1063: `_pid_is_active(pid: int) -> bool`
+  - Method L1075: `_temporary_download_path(self, url: str) -> Iterator[Path]`
+  - Method L1087: `_cleanup_stale_temp_downloads(self) -> None`
+  - Method L1116: `_iter_market_tables(self, hours: list[pd.Timestamp], *, batch_size: int) -> Iterator[tuple[pd.Timestamp, pa.Table | None]]`
+  - Method L1147: `_iter_market_batches(self, hours: list[pd.Timestamp], *, batch_size: int) -> Iterator[tuple[pd.Timestamp, list[pa.RecordBatch] | None]]`
+  - Method L1179: `_timestamp_to_ms_string(timestamp_secs: float) -> str`
+  - Method L1183: `_decode_book_snapshot(payload_text: str) -> _PMXTBookSnapshotPayload`
+  - Method L1187: `_decode_price_change(payload_text: str) -> _PMXTPriceChangePayload`
+  - Method L1191: `_to_book_snapshot(payload: _PMXTBookSnapshotPayload) -> PolymarketBookSnapshot`
+  - Method L1210: `_to_price_change(payload: _PMXTPriceChangePayload) -> PolymarketQuotes`
+  - Method L1232: `_event_sort_key(record: OrderBookDeltas) -> tuple[int, int]`
+  - Method L1237: `_deltas_records_from_columns(self, data: dict[str, list[object]]) -> list[OrderBookDeltas]`
+  - Method L1286: `_payload_sort_key(self, update_type: str, payload_text: str) -> tuple[int, int]`
+  - Method L1290: `_batches_use_fixed_schema(cls, batches: Sequence[pa.RecordBatch]) -> bool`
+  - Method L1293: `_process_book_snapshot(self, payload_text: str, *, token_id: str, instrument, local_book: OrderBook, has_snapshot: bool, events: list[OrderBookDeltas], start_ns: int, end_ns: int, include_order_book: bool) -> tuple[OrderBook, bool]`
+  - Method L1329: `_process_price_change(self, payload_text: str, *, token_id: str, instrument, local_book: OrderBook, has_snapshot: bool, events: list[OrderBookDeltas], start_ns: int, end_ns: int, include_order_book: bool) -> OrderBook`
+  - Method L1364: `load_order_book_deltas(self, start: pd.Timestamp, end: pd.Timestamp, *, batch_size: int | None = None, include_order_book: bool = True) -> list[OrderBookDeltas]`
+  - Method L1517: `_timestamp_to_ns(value: object) -> int`
 
 ### `prediction_market_extensions/adapters/polymarket/research.py`
 - Imports: `__future__, collections, datetime, msgspec, nautilus_trader, pandas, prediction_market_extensions, typing`

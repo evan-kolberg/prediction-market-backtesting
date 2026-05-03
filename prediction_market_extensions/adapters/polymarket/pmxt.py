@@ -544,6 +544,138 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
             )
         return batches
 
+    @staticmethod
+    def _market_stats_value(market_type: pa.DataType, condition_id: str) -> bytes | str:
+        if (
+            pa.types.is_binary(market_type)
+            or pa.types.is_large_binary(market_type)
+            or pa.types.is_fixed_size_binary(market_type)
+        ):
+            return condition_id.encode("utf-8")
+        return condition_id
+
+    def _matching_raw_fixed_market_row_groups(
+        self, parquet_file: pq.ParquetFile
+    ) -> list[int] | None:
+        if self.condition_id is None:
+            return None
+
+        schema = parquet_file.schema_arrow
+        try:
+            market_index = schema.names.index("market")
+        except ValueError:
+            return None
+
+        market_value = self._market_stats_value(schema.field("market").type, self.condition_id)
+        row_groups: list[int] = []
+        for index in range(parquet_file.num_row_groups):
+            column = parquet_file.metadata.row_group(index).column(market_index)
+            stats = column.statistics
+            if stats is None or stats.min is None or stats.max is None:
+                return None
+            try:
+                if stats.min <= market_value <= stats.max:
+                    row_groups.append(index)
+            except TypeError:
+                return None
+        return row_groups
+
+    def _load_raw_fixed_market_batches_pyarrow(
+        self,
+        parquet_path: Path,
+        *,
+        batch_size: int,
+        progress_source: str,
+        total_bytes: int | None,
+    ) -> list[pa.RecordBatch] | None:
+        if self.condition_id is None:
+            return None
+
+        parquet_file = pq.ParquetFile(parquet_path)
+        if not self._is_raw_fixed_schema(parquet_file.schema_arrow.names):
+            return None
+
+        row_groups = self._matching_raw_fixed_market_row_groups(parquet_file)
+        if row_groups is None:
+            return None
+
+        if progress_source is not None:
+            self._emit_scan_progress(
+                progress_source,
+                scanned_batches=0,
+                scanned_rows=0,
+                matched_rows=0,
+                total_bytes=total_bytes,
+                finished=False,
+            )
+
+        if not row_groups:
+            if progress_source is not None:
+                self._emit_scan_progress(
+                    progress_source,
+                    scanned_batches=0,
+                    scanned_rows=0,
+                    matched_rows=0,
+                    total_bytes=total_bytes,
+                    finished=True,
+                )
+            return []
+
+        raw_columns = [
+            "event_type",
+            "timestamp",
+            "market",
+            "asset_id",
+            "bids",
+            "asks",
+            "price",
+            "size",
+            "side",
+        ]
+        raw_table = parquet_file.read_row_groups(row_groups, columns=raw_columns)
+        market_value = self._market_stats_value(
+            raw_table.schema.field("market").type, self.condition_id
+        )
+        market_mask = pc.equal(raw_table.column("market"), pa.scalar(market_value))
+        event_type_mask = pc.is_in(
+            raw_table.column("event_type"), value_set=pa.array(["book", "price_change"])
+        )
+        mask = pc.and_(pc.fill_null(market_mask, False), pc.fill_null(event_type_mask, False))
+        if self.token_id is not None:
+            token_mask = pc.equal(raw_table.column("asset_id"), self.token_id)
+            mask = pc.and_(mask, pc.fill_null(token_mask, False))
+
+        filtered = raw_table.filter(mask)
+        timestamp_ns = pc.cast(
+            pc.cast(filtered.column("timestamp"), pa.timestamp("ns", tz="UTC")),
+            pa.int64(),
+        )
+        table = pa.Table.from_arrays(
+            [
+                filtered.column("event_type"),
+                timestamp_ns,
+                filtered.column("asset_id"),
+                filtered.column("bids"),
+                filtered.column("asks"),
+                pc.cast(filtered.column("price"), pa.string()),
+                pc.cast(filtered.column("size"), pa.string()),
+                filtered.column("side"),
+            ],
+            names=self._PMXT_FIXED_COLUMNS,
+        )
+
+        batches = list(table.to_batches(max_chunksize=batch_size))
+        if progress_source is not None:
+            self._emit_scan_progress(
+                progress_source,
+                scanned_batches=len(row_groups),
+                scanned_rows=int(raw_table.num_rows),
+                matched_rows=int(table.num_rows),
+                total_bytes=total_bytes,
+                finished=True,
+            )
+        return batches
+
     def _load_raw_market_batches_duckdb(
         self,
         parquet_path: Path,
@@ -890,6 +1022,18 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
     def _load_raw_market_batches_from_local_file(
         self, parquet_path: Path, *, batch_size: int, progress_source: str, total_bytes: int | None
     ) -> list[pa.RecordBatch] | None:
+        try:
+            pyarrow_batches = self._load_raw_fixed_market_batches_pyarrow(
+                parquet_path,
+                batch_size=batch_size,
+                progress_source=progress_source,
+                total_bytes=total_bytes,
+            )
+            if pyarrow_batches is not None:
+                return pyarrow_batches
+        except (OSError, TypeError, ValueError, pa.ArrowException):
+            pass
+
         try:
             duckdb_batches = self._load_raw_market_batches_duckdb(
                 parquet_path,

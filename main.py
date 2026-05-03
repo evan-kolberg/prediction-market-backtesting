@@ -21,6 +21,7 @@ import asyncio
 import importlib
 import importlib.util
 import inspect
+import json
 import os
 import re
 import subprocess
@@ -30,8 +31,6 @@ from functools import cache
 from pathlib import Path
 from string import ascii_lowercase, ascii_uppercase
 from typing import Any, ClassVar
-
-from prediction_market_extensions import install_commission_patch
 
 try:
     from textual.app import App, ComposeResult
@@ -50,10 +49,9 @@ except ImportError:  # pragma: no cover - fallback is covered through non-TTY te
     Key = None  # type: ignore[assignment]
     TEXTUAL_AVAILABLE = False
 
-install_commission_patch()
-
 PROJECT_ROOT = Path(__file__).parent
 BACKTESTS_ROOT = PROJECT_ROOT / "backtests"
+NOTEBOOK_METADATA_KEY = "prediction_market_backtest"
 
 DIM = "\033[2m"
 BOLD = "\033[1m"
@@ -169,9 +167,7 @@ def _has_run_entrypoint(module_ast: ast.Module) -> bool:
 
 def _load_runner_metadata(path: Path) -> dict[str, Any] | None:
     if path.suffix == ".ipynb":
-        from prediction_market_extensions.backtesting._notebook_runner import load_notebook_metadata
-
-        return load_notebook_metadata(path, project_root=PROJECT_ROOT)
+        return _load_notebook_metadata(path, project_root=PROJECT_ROOT)
 
     relative_path = path.relative_to(PROJECT_ROOT)
 
@@ -206,6 +202,70 @@ def _load_runner_metadata(path: Path) -> dict[str, Any] | None:
         "description": description,
         "module_name": ".".join(relative_path.with_suffix("").parts),
         "relative_parts": path.relative_to(BACKTESTS_ROOT).parts,
+    }
+
+
+def _notebook_source_text(cell: dict[str, Any]) -> str:
+    source = cell.get("source", "")
+    if isinstance(source, list):
+        return "".join(str(part) for part in source)
+    return str(source)
+
+
+def _notebook_description(cells: list[dict[str, Any]]) -> str:
+    for cell in cells:
+        source = _notebook_source_text(cell).strip()
+        if not source:
+            continue
+        if cell.get("cell_type") == "markdown":
+            for line in source.splitlines():
+                stripped = line.strip()
+                if stripped:
+                    return stripped.lstrip("#").strip()
+        if cell.get("cell_type") == "code":
+            return ""
+    return ""
+
+
+def _load_notebook_metadata(path: Path, *, project_root: Path) -> dict[str, Any] | None:
+    relative_path = path.relative_to(project_root)
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            notebook = json.load(handle)
+    except OSError as exc:
+        _warn(f"could not read {relative_path}: {exc}")
+        return None
+    except json.JSONDecodeError as exc:
+        _warn(f"could not parse {relative_path}: {exc}")
+        return None
+
+    cells = notebook.get("cells", [])
+    if not isinstance(cells, list):
+        return None
+    typed_cells = [cell for cell in cells if isinstance(cell, dict)]
+    if not any(cell.get("cell_type") == "code" for cell in typed_cells):
+        return None
+
+    metadata = notebook.get("metadata", {}) or {}
+    if not isinstance(metadata, dict):
+        metadata = {}
+    runner_metadata = metadata.get(NOTEBOOK_METADATA_KEY, {}) or {}
+    if not isinstance(runner_metadata, dict):
+        runner_metadata = {}
+
+    name = runner_metadata.get("name")
+    if not isinstance(name, str) or not name.strip():
+        name = path.stem
+
+    description = runner_metadata.get("description")
+    if not isinstance(description, str) or not description.strip():
+        description = _notebook_description(typed_cells)
+
+    return {
+        "name": name.strip(),
+        "description": description.strip(),
+        "module_name": ".".join(relative_path.with_suffix("").parts),
+        "relative_parts": path.relative_to(project_root / "backtests").parts,
     }
 
 
@@ -628,6 +688,12 @@ def _load_runner(backtest: dict[str, Any]) -> Any:
     return _run_manifest
 
 
+def _install_runtime_patches() -> None:
+    from prediction_market_extensions import install_commission_patch
+
+    install_commission_patch()
+
+
 def _supports_textual_menu() -> bool:
     if not TEXTUAL_AVAILABLE or App is None:
         return False
@@ -751,6 +817,7 @@ def main() -> None:
         sys.exit(0)
 
     chosen = backtests[idx]
+    _install_runtime_patches()
     try:
         runner = _load_runner(chosen)
     except RuntimeError as exc:
