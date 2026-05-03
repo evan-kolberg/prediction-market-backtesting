@@ -4,7 +4,7 @@ import os
 import re
 import threading
 import warnings
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -1551,6 +1551,7 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
         self,
         *,
         records: Sequence[OrderBookDeltas],
+        delta_columns: Mapping[str, Sequence[object]] | None = None,
         channel: str,
         date: str,
         market_slug: str,
@@ -1574,8 +1575,13 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
         tmp_path = cache_path.with_name(f"{cache_path.name}.tmp.{os.getpid()}")
         try:
             cache_path.parent.mkdir(parents=True, exist_ok=True)
+            table = (
+                self._deltas_columns_to_table(delta_columns)
+                if delta_columns is not None
+                else self._deltas_records_to_table(records)
+            )
             pq.write_table(
-                self._deltas_records_to_table(records),
+                table,
                 tmp_path,
                 compression="zstd",
             )
@@ -1829,6 +1835,22 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
                 sorted_frame["ts_event"].to_numpy(dtype=np.uint64),
                 sorted_frame["ts_init"].to_numpy(dtype=np.uint64),
             )
+        )
+
+    @staticmethod
+    def _deltas_columns_to_table(data: Mapping[str, Sequence[object]]) -> pa.Table:
+        return pa.table(
+            {
+                "event_index": pa.array(data["event_index"], pa.int32()),
+                "action": pa.array(data["action"], pa.uint8()),
+                "side": pa.array(data["side"], pa.uint8()),
+                "price": pa.array(data["price"], pa.float64()),
+                "size": pa.array(data["size"], pa.float64()),
+                "flags": pa.array(data["flags"], pa.uint8()),
+                "sequence": pa.array(data["sequence"], pa.int32()),
+                "ts_event": pa.array(data["ts_event"], pa.int64()),
+                "ts_init": pa.array(data["ts_init"], pa.int64()),
+            }
         )
 
     @staticmethod
@@ -2102,8 +2124,24 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
         end: pd.Timestamp,
         include_order_book: bool = True,
     ) -> list[OrderBookDeltas]:
+        records, _delta_columns = self._book_events_and_delta_columns_from_frame(
+            frame,
+            start=start,
+            end=end,
+            include_order_book=include_order_book,
+        )
+        return records
+
+    def _book_events_and_delta_columns_from_frame(
+        self,
+        frame: pd.DataFrame,
+        *,
+        start: pd.Timestamp,
+        end: pd.Timestamp,
+        include_order_book: bool = True,
+    ) -> tuple[list[OrderBookDeltas], Mapping[str, Sequence[object]] | None]:
         if frame.empty:
-            return []
+            return [], None
 
         timestamp_column = self._first_present_column(
             frame, ("timestamp_us", "timestamp_ms", "timestamp", "time"), label="book snapshot"
@@ -2120,9 +2158,9 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
         )
         mask = ts_ns <= end_ns
         if not mask.any():
-            return []
+            return [], None
         if not include_order_book:
-            return []
+            return [], None
 
         if has_flat:
             bid_prices_values = frame["bid_prices"].to_numpy()[mask]
@@ -2169,24 +2207,22 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
         ) = native_rows
 
         events: list[OrderBookDeltas] = []
+        delta_columns: Mapping[str, Sequence[object]] | None = None
         if event_indexes:
-            events.extend(
-                self._deltas_records_from_columns(
-                    {
-                        "event_index": event_indexes,
-                        "action": actions,
-                        "side": sides,
-                        "price": prices,
-                        "size": sizes,
-                        "flags": flags,
-                        "sequence": sequences,
-                        "ts_event": ts_events,
-                        "ts_init": ts_inits,
-                    }
-                )
-            )
+            delta_columns = {
+                "event_index": event_indexes,
+                "action": actions,
+                "side": sides,
+                "price": prices,
+                "size": sizes,
+                "flags": flags,
+                "sequence": sequences,
+                "ts_event": ts_events,
+                "ts_init": ts_inits,
+            }
+            events.extend(self._deltas_records_from_columns(delta_columns))
         events.sort(key=lambda record: int(record.ts_event))
-        return events
+        return events, delta_columns
 
     @staticmethod
     def _optional_column(frame: pd.DataFrame, names: Sequence[str]) -> str | None:
@@ -2819,7 +2855,7 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
                 emitted_day_complete = True
                 return _TelonexDayResult(date=date, records=[], source=day_source)
 
-            day_records = self._book_events_from_frame(
+            day_records, delta_columns = self._book_events_and_delta_columns_from_frame(
                 frame,
                 start=day_start,
                 end=day_end,
@@ -2828,6 +2864,7 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
             if include_order_book:
                 self._write_deltas_cache_day(
                     records=day_records,
+                    delta_columns=delta_columns,
                     channel=config.channel,
                     date=date,
                     market_slug=market_slug,
