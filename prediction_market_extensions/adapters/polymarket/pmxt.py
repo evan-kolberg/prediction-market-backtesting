@@ -100,7 +100,9 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
     _PMXT_DISABLE_CACHE_ENV = "PMXT_DISABLE_CACHE"
     _PMXT_LOCAL_ARCHIVE_DIR_ENV = "PMXT_LOCAL_ARCHIVE_DIR"
     _PMXT_PREFETCH_WORKERS_ENV = "PMXT_PREFETCH_WORKERS"
+    _PMXT_SCAN_BATCH_SIZE_ENV = "PMXT_SCAN_BATCH_SIZE"
     _PMXT_DEFAULT_PREFETCH_WORKERS = 16
+    _PMXT_DEFAULT_SCAN_BATCH_SIZE = 100_000
     _PMXT_DOWNLOAD_CHUNK_SIZE = 4 * 1024 * 1024
     _PMXT_TEMP_DOWNLOAD_ROOT = Path(tempfile.gettempdir()) / "nautilus_trader" / "pmxt-downloads"
     _PMXT_TEMP_DOWNLOAD_STALE_SECONDS = 24 * 60 * 60
@@ -110,6 +112,7 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
         self._pmxt_cache_dir = self._resolve_cache_dir()
         self._pmxt_local_archive_dir = self._resolve_local_archive_dir()
         self._pmxt_prefetch_workers = self._resolve_prefetch_workers()
+        self._pmxt_scan_batch_size = self._resolve_scan_batch_size()
         self._pmxt_download_progress_callback: (
             Callable[[str, int, int | None, bool], None] | None
         ) = None
@@ -224,6 +227,21 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
             return max(1, int(value))
         except ValueError:
             return cls._PMXT_DEFAULT_PREFETCH_WORKERS
+
+    @classmethod
+    def _resolve_scan_batch_size(cls) -> int:
+        configured = os.getenv(cls._PMXT_SCAN_BATCH_SIZE_ENV)
+        if configured is None:
+            return cls._PMXT_DEFAULT_SCAN_BATCH_SIZE
+
+        value = configured.strip()
+        if not value:
+            return cls._PMXT_DEFAULT_SCAN_BATCH_SIZE
+
+        try:
+            return max(1, int(value))
+        except ValueError:
+            return cls._PMXT_DEFAULT_SCAN_BATCH_SIZE
 
     @classmethod
     def _market_cache_path_for_hour(
@@ -1050,7 +1068,7 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
         start: pd.Timestamp,
         end: pd.Timestamp,
         *,
-        batch_size: int = 25_000,
+        batch_size: int | None = None,
         include_order_book: bool = True,
     ) -> list[OrderBookDeltas]:
         """
@@ -1077,11 +1095,16 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
         has_snapshot = False
         events: list[OrderBookDeltas] = []
         hours = self._archive_hours(start_ts, end_ts)
+        resolved_batch_size = (
+            max(1, int(batch_size))
+            if batch_size is not None
+            else int(getattr(self, "_pmxt_scan_batch_size", self._PMXT_DEFAULT_SCAN_BATCH_SIZE))
+        )
         last_payload_key: tuple[int, int] | None = None
         gap_hours: list[pd.Timestamp] = []
         self._pmxt_last_load_gap_hours = ()
 
-        for hour, batches in self._iter_market_batches(hours, batch_size=batch_size):
+        for hour, batches in self._iter_market_batches(hours, batch_size=resolved_batch_size):
             if batches is None:
                 # Distinguish "no source could supply this hour" from "hour
                 # loaded fine but had no events for this market". A None

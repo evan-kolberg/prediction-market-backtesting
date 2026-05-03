@@ -1,8 +1,8 @@
 # Codebase UML Inventory
 
 This file is generated from Python AST metadata and excludes `tests/`.
-Generated: 2026-05-03T04:53:01+00:00
-Modules: 110 | Classes: 161 | Functions/methods: 1388
+Generated: 2026-05-03T04:58:25+00:00
+Modules: 110 | Classes: 161 | Functions/methods: 1389
 
 ## Backtesting Data Flow
 
@@ -491,66 +491,67 @@ flowchart TD
 - Class L53: `_PMXTBookSnapshotPayload(msgspec.Struct)`
 - Class L65: `_PMXTPriceChangePayload(msgspec.Struct)`
 - Class L86: `PolymarketPMXTDataLoader(PolymarketDataLoader)`
-  - Method L108: `__init__(self, *args, **kwargs) -> None`
-  - Method L129: `last_load_gap_hours(self) -> tuple[pd.Timestamp, ...]`
-  - Method L134: `_normalize_timestamp(value: pd.Timestamp | str | None) -> pd.Timestamp | None`
-  - Method L143: `_archive_hours(start: pd.Timestamp, end: pd.Timestamp) -> list[pd.Timestamp]`
-  - Method L158: `_archive_filename_for_hour(cls, hour: pd.Timestamp) -> str`
-  - Method L163: `_archive_url_for_hour(cls, hour: pd.Timestamp) -> str`
-  - Method L167: `_archive_relative_path_for_hour(cls, hour: pd.Timestamp) -> str`
-  - Method L175: `_env_flag_enabled(value: str | None) -> bool`
-  - Method L181: `_default_cache_dir(cls) -> Path`
-  - Method L187: `_resolve_cache_dir(cls) -> Path | None`
-  - Method L203: `_resolve_local_archive_dir(cls) -> Path | None`
-  - Method L214: `_resolve_prefetch_workers(cls) -> int`
-  - Method L229: `_market_cache_path_for_hour(cls, cache_dir: Path, condition_id: str, token_id: str, hour: pd.Timestamp) -> Path`
-  - Method L234: `_cache_path_for_hour(self, hour: pd.Timestamp) -> Path | None`
-  - Method L243: `_hour_label(hour: pd.Timestamp) -> str`
-  - Method L249: `_emit_cache_write_event(self, *, hour: pd.Timestamp, cache_path: Path, table: pa.Table, level: str, status: str, message: str, error: str | None = None) -> None`
-  - Method L281: `_write_market_cache_if_enabled(self, hour: pd.Timestamp, table: pa.Table) -> None`
-  - Method L312: `_local_archive_candidate_paths_for_hour(cls, archive_dir: Path, hour: pd.Timestamp) -> tuple[Path, ...]`
-  - Method L319: `_local_archive_paths_for_hour(self, hour: pd.Timestamp) -> tuple[Path, ...]`
-  - Method L324: `_market_filter(self) -> Any`
-  - Method L331: `_empty_market_table(cls) -> pa.Table`
-  - Method L337: `_to_market_batch(cls, batch: pa.RecordBatch) -> pa.RecordBatch`
-  - Method L344: `_filter_batch_to_token(self, batch: pa.RecordBatch) -> pa.RecordBatch`
-  - Method L354: `_filter_raw_batch(self, batch: pa.RecordBatch) -> pa.RecordBatch`
-  - Method L371: `_load_cached_market_table(self, hour: pd.Timestamp) -> pa.Table | None`
-  - Method L383: `_load_cached_market_batches(self, hour: pd.Timestamp) -> list[pa.RecordBatch] | None`
-  - Method L396: `_write_market_cache(self, hour: pd.Timestamp, table: pa.Table) -> None`
-  - Method L409: `_scan_raw_market_batches(self, dataset: ds.Dataset, *, batch_size: int, source: str | None = None, total_bytes: int | None = None) -> list[pa.RecordBatch]`
-  - Method L464: `_load_remote_market_table(self, hour: pd.Timestamp, *, batch_size: int) -> pa.Table | None`
-  - Method L472: `_load_remote_market_batches(self, hour: pd.Timestamp, *, batch_size: int) -> list[pa.RecordBatch] | None`
-  - Method L478: `_load_raw_market_batches_via_download(self, archive_url: str, *, batch_size: int) -> list[pa.RecordBatch] | None`
-  - Method L501: `_load_local_archive_market_batches(self, hour: pd.Timestamp, *, batch_size: int) -> list[pa.RecordBatch] | None`
-  - Method L525: `_filter_table_to_token(self, table: pa.Table) -> pa.Table`
-  - Method L535: `_load_market_table(self, hour: pd.Timestamp, *, batch_size: int) -> pa.Table | None`
-  - Method L560: `_load_market_batches(self, hour: pd.Timestamp, *, batch_size: int) -> list[pa.RecordBatch] | None`
-  - Method L583: `_emit_download_progress(self, url: str, *, downloaded_bytes: int, total_bytes: int | None, finished: bool) -> None`
-  - Method L591: `_emit_scan_progress(self, source: str, *, scanned_batches: int, scanned_rows: int, matched_rows: int, total_bytes: int | None, finished: bool) -> None`
-  - Method L607: `_content_length_from_response(response: object) -> int | None`
-  - Method L619: `_progress_total_bytes(self, source: str) -> int | None`
-  - Method L646: `_download_to_file_with_progress(self, url: str, destination: Path) -> int | None`
-  - Method L695: `_download_payload_with_progress(self, url: str) -> bytes | None`
-  - Method L734: `_load_raw_market_batches_from_local_file(self, parquet_path: Path, *, batch_size: int, progress_source: str, total_bytes: int | None) -> list[pa.RecordBatch] | None`
-  - Method L746: `_temporary_download_filename(url: str) -> str`
-  - Method L751: `_pid_is_active(pid: int) -> bool`
-  - Method L763: `_temporary_download_path(self, url: str) -> Iterator[Path]`
-  - Method L775: `_cleanup_stale_temp_downloads(self) -> None`
-  - Method L804: `_iter_market_tables(self, hours: list[pd.Timestamp], *, batch_size: int) -> Iterator[tuple[pd.Timestamp, pa.Table | None]]`
-  - Method L835: `_iter_market_batches(self, hours: list[pd.Timestamp], *, batch_size: int) -> Iterator[tuple[pd.Timestamp, list[pa.RecordBatch] | None]]`
-  - Method L867: `_timestamp_to_ms_string(timestamp_secs: float) -> str`
-  - Method L871: `_decode_book_snapshot(payload_text: str) -> _PMXTBookSnapshotPayload`
-  - Method L875: `_decode_price_change(payload_text: str) -> _PMXTPriceChangePayload`
-  - Method L879: `_to_book_snapshot(payload: _PMXTBookSnapshotPayload) -> PolymarketBookSnapshot`
-  - Method L898: `_to_price_change(payload: _PMXTPriceChangePayload) -> PolymarketQuotes`
-  - Method L920: `_event_sort_key(record: OrderBookDeltas) -> tuple[int, int]`
-  - Method L925: `_deltas_records_from_columns(self, data: dict[str, list[object]]) -> list[OrderBookDeltas]`
-  - Method L974: `_payload_sort_key(self, update_type: str, payload_text: str) -> tuple[int, int]`
-  - Method L977: `_process_book_snapshot(self, payload_text: str, *, token_id: str, instrument, local_book: OrderBook, has_snapshot: bool, events: list[OrderBookDeltas], start_ns: int, end_ns: int, include_order_book: bool) -> tuple[OrderBook, bool]`
-  - Method L1013: `_process_price_change(self, payload_text: str, *, token_id: str, instrument, local_book: OrderBook, has_snapshot: bool, events: list[OrderBookDeltas], start_ns: int, end_ns: int, include_order_book: bool) -> OrderBook`
-  - Method L1048: `load_order_book_deltas(self, start: pd.Timestamp, end: pd.Timestamp, *, batch_size: int = 25000, include_order_book: bool = True) -> list[OrderBookDeltas]`
-  - Method L1169: `_timestamp_to_ns(value: object) -> int`
+  - Method L110: `__init__(self, *args, **kwargs) -> None`
+  - Method L132: `last_load_gap_hours(self) -> tuple[pd.Timestamp, ...]`
+  - Method L137: `_normalize_timestamp(value: pd.Timestamp | str | None) -> pd.Timestamp | None`
+  - Method L146: `_archive_hours(start: pd.Timestamp, end: pd.Timestamp) -> list[pd.Timestamp]`
+  - Method L161: `_archive_filename_for_hour(cls, hour: pd.Timestamp) -> str`
+  - Method L166: `_archive_url_for_hour(cls, hour: pd.Timestamp) -> str`
+  - Method L170: `_archive_relative_path_for_hour(cls, hour: pd.Timestamp) -> str`
+  - Method L178: `_env_flag_enabled(value: str | None) -> bool`
+  - Method L184: `_default_cache_dir(cls) -> Path`
+  - Method L190: `_resolve_cache_dir(cls) -> Path | None`
+  - Method L206: `_resolve_local_archive_dir(cls) -> Path | None`
+  - Method L217: `_resolve_prefetch_workers(cls) -> int`
+  - Method L232: `_resolve_scan_batch_size(cls) -> int`
+  - Method L247: `_market_cache_path_for_hour(cls, cache_dir: Path, condition_id: str, token_id: str, hour: pd.Timestamp) -> Path`
+  - Method L252: `_cache_path_for_hour(self, hour: pd.Timestamp) -> Path | None`
+  - Method L261: `_hour_label(hour: pd.Timestamp) -> str`
+  - Method L267: `_emit_cache_write_event(self, *, hour: pd.Timestamp, cache_path: Path, table: pa.Table, level: str, status: str, message: str, error: str | None = None) -> None`
+  - Method L299: `_write_market_cache_if_enabled(self, hour: pd.Timestamp, table: pa.Table) -> None`
+  - Method L330: `_local_archive_candidate_paths_for_hour(cls, archive_dir: Path, hour: pd.Timestamp) -> tuple[Path, ...]`
+  - Method L337: `_local_archive_paths_for_hour(self, hour: pd.Timestamp) -> tuple[Path, ...]`
+  - Method L342: `_market_filter(self) -> Any`
+  - Method L349: `_empty_market_table(cls) -> pa.Table`
+  - Method L355: `_to_market_batch(cls, batch: pa.RecordBatch) -> pa.RecordBatch`
+  - Method L362: `_filter_batch_to_token(self, batch: pa.RecordBatch) -> pa.RecordBatch`
+  - Method L372: `_filter_raw_batch(self, batch: pa.RecordBatch) -> pa.RecordBatch`
+  - Method L389: `_load_cached_market_table(self, hour: pd.Timestamp) -> pa.Table | None`
+  - Method L401: `_load_cached_market_batches(self, hour: pd.Timestamp) -> list[pa.RecordBatch] | None`
+  - Method L414: `_write_market_cache(self, hour: pd.Timestamp, table: pa.Table) -> None`
+  - Method L427: `_scan_raw_market_batches(self, dataset: ds.Dataset, *, batch_size: int, source: str | None = None, total_bytes: int | None = None) -> list[pa.RecordBatch]`
+  - Method L482: `_load_remote_market_table(self, hour: pd.Timestamp, *, batch_size: int) -> pa.Table | None`
+  - Method L490: `_load_remote_market_batches(self, hour: pd.Timestamp, *, batch_size: int) -> list[pa.RecordBatch] | None`
+  - Method L496: `_load_raw_market_batches_via_download(self, archive_url: str, *, batch_size: int) -> list[pa.RecordBatch] | None`
+  - Method L519: `_load_local_archive_market_batches(self, hour: pd.Timestamp, *, batch_size: int) -> list[pa.RecordBatch] | None`
+  - Method L543: `_filter_table_to_token(self, table: pa.Table) -> pa.Table`
+  - Method L553: `_load_market_table(self, hour: pd.Timestamp, *, batch_size: int) -> pa.Table | None`
+  - Method L578: `_load_market_batches(self, hour: pd.Timestamp, *, batch_size: int) -> list[pa.RecordBatch] | None`
+  - Method L601: `_emit_download_progress(self, url: str, *, downloaded_bytes: int, total_bytes: int | None, finished: bool) -> None`
+  - Method L609: `_emit_scan_progress(self, source: str, *, scanned_batches: int, scanned_rows: int, matched_rows: int, total_bytes: int | None, finished: bool) -> None`
+  - Method L625: `_content_length_from_response(response: object) -> int | None`
+  - Method L637: `_progress_total_bytes(self, source: str) -> int | None`
+  - Method L664: `_download_to_file_with_progress(self, url: str, destination: Path) -> int | None`
+  - Method L713: `_download_payload_with_progress(self, url: str) -> bytes | None`
+  - Method L752: `_load_raw_market_batches_from_local_file(self, parquet_path: Path, *, batch_size: int, progress_source: str, total_bytes: int | None) -> list[pa.RecordBatch] | None`
+  - Method L764: `_temporary_download_filename(url: str) -> str`
+  - Method L769: `_pid_is_active(pid: int) -> bool`
+  - Method L781: `_temporary_download_path(self, url: str) -> Iterator[Path]`
+  - Method L793: `_cleanup_stale_temp_downloads(self) -> None`
+  - Method L822: `_iter_market_tables(self, hours: list[pd.Timestamp], *, batch_size: int) -> Iterator[tuple[pd.Timestamp, pa.Table | None]]`
+  - Method L853: `_iter_market_batches(self, hours: list[pd.Timestamp], *, batch_size: int) -> Iterator[tuple[pd.Timestamp, list[pa.RecordBatch] | None]]`
+  - Method L885: `_timestamp_to_ms_string(timestamp_secs: float) -> str`
+  - Method L889: `_decode_book_snapshot(payload_text: str) -> _PMXTBookSnapshotPayload`
+  - Method L893: `_decode_price_change(payload_text: str) -> _PMXTPriceChangePayload`
+  - Method L897: `_to_book_snapshot(payload: _PMXTBookSnapshotPayload) -> PolymarketBookSnapshot`
+  - Method L916: `_to_price_change(payload: _PMXTPriceChangePayload) -> PolymarketQuotes`
+  - Method L938: `_event_sort_key(record: OrderBookDeltas) -> tuple[int, int]`
+  - Method L943: `_deltas_records_from_columns(self, data: dict[str, list[object]]) -> list[OrderBookDeltas]`
+  - Method L992: `_payload_sort_key(self, update_type: str, payload_text: str) -> tuple[int, int]`
+  - Method L995: `_process_book_snapshot(self, payload_text: str, *, token_id: str, instrument, local_book: OrderBook, has_snapshot: bool, events: list[OrderBookDeltas], start_ns: int, end_ns: int, include_order_book: bool) -> tuple[OrderBook, bool]`
+  - Method L1031: `_process_price_change(self, payload_text: str, *, token_id: str, instrument, local_book: OrderBook, has_snapshot: bool, events: list[OrderBookDeltas], start_ns: int, end_ns: int, include_order_book: bool) -> OrderBook`
+  - Method L1066: `load_order_book_deltas(self, start: pd.Timestamp, end: pd.Timestamp, *, batch_size: int | None = None, include_order_book: bool = True) -> list[OrderBookDeltas]`
+  - Method L1192: `_timestamp_to_ns(value: object) -> int`
 
 ### `prediction_market_extensions/adapters/polymarket/research.py`
 - Imports: `__future__, collections, datetime, msgspec, nautilus_trader, pandas, prediction_market_extensions, typing`

@@ -95,6 +95,43 @@ def test_resolve_prefetch_workers_parses_env(monkeypatch):
     assert PolymarketPMXTDataLoader._resolve_prefetch_workers() == 16
 
 
+def test_resolve_scan_batch_size_parses_env(monkeypatch):
+    monkeypatch.delenv(PolymarketPMXTDataLoader._PMXT_SCAN_BATCH_SIZE_ENV, raising=False)
+    assert (
+        PolymarketPMXTDataLoader._resolve_scan_batch_size()
+        == PolymarketPMXTDataLoader._PMXT_DEFAULT_SCAN_BATCH_SIZE
+    )
+
+    monkeypatch.setenv(PolymarketPMXTDataLoader._PMXT_SCAN_BATCH_SIZE_ENV, "250000")
+    assert PolymarketPMXTDataLoader._resolve_scan_batch_size() == 250_000
+
+    monkeypatch.setenv(PolymarketPMXTDataLoader._PMXT_SCAN_BATCH_SIZE_ENV, "invalid")
+    assert (
+        PolymarketPMXTDataLoader._resolve_scan_batch_size()
+        == PolymarketPMXTDataLoader._PMXT_DEFAULT_SCAN_BATCH_SIZE
+    )
+
+
+def test_load_order_book_deltas_uses_large_default_scan_batch(tmp_path):
+    loader = _make_loader(tmp_path)
+    loader._instrument = _make_instrument()
+    hour = pd.Timestamp("2026-03-16T12:00:00Z")
+    captured: dict[str, int] = {}
+
+    loader._archive_hours = lambda _start, _end: [hour]  # type: ignore[method-assign]
+
+    def _iter_market_batches(hours, *, batch_size):  # type: ignore[no-untyped-def]
+        captured["batch_size"] = batch_size
+        return iter((hour, []) for hour in hours)
+
+    loader._iter_market_batches = _iter_market_batches  # type: ignore[method-assign]
+
+    data = loader.load_order_book_deltas(hour, hour + pd.Timedelta(hours=1))
+
+    assert data == []
+    assert captured["batch_size"] == PolymarketPMXTDataLoader._PMXT_DEFAULT_SCAN_BATCH_SIZE
+
+
 def test_resolve_local_archive_dir_parses_env(monkeypatch, tmp_path):
     monkeypatch.delenv(PolymarketPMXTDataLoader._PMXT_LOCAL_ARCHIVE_DIR_ENV, raising=False)
     assert PolymarketPMXTDataLoader._resolve_local_archive_dir() is None
