@@ -51,6 +51,23 @@ pub struct PmxtSortedPayload {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
+struct PmxtOwnedPriceChangeFields {
+    side: String,
+    price: String,
+    size: String,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+struct PmxtParsedPayload {
+    timestamp_ns: i128,
+    priority: u8,
+    update_type: String,
+    payload_text: String,
+    token_id: String,
+    price_change: Option<PmxtOwnedPriceChangeFields>,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct PmxtFixedEvent {
     pub timestamp_ns: i128,
     pub priority: u8,
@@ -209,6 +226,103 @@ pub fn sort_payload_columns(
     Ok(sorted_payloads)
 }
 
+fn parsed_payload_from_row(
+    column_index: usize,
+    row_index: usize,
+    update_type: String,
+    payload_text: String,
+) -> Result<PmxtParsedPayload, String> {
+    let update_class = PmxtUpdateClass::from_update_type(&update_type);
+    let priority = update_class.sort_priority();
+    let fields = extract_payload_fields(&payload_text).map_err(|err| {
+        format!("PMXT payload field parse failed in column {column_index}, row {row_index}: {err}")
+    })?;
+    let timestamp_ns = fields.timestamp_ns;
+    let token_id = fields.token_id.to_string();
+    let price_change =
+        fields
+            .price_change
+            .as_ref()
+            .map(|price_change| PmxtOwnedPriceChangeFields {
+                side: price_change.side.to_string(),
+                price: price_change.price.to_string(),
+                size: price_change.size.to_string(),
+            });
+    drop(fields);
+    Ok(PmxtParsedPayload {
+        timestamp_ns,
+        priority,
+        update_type,
+        payload_text,
+        token_id,
+        price_change,
+    })
+}
+
+fn other_payload_from_row(update_type: String, payload_text: String) -> PmxtParsedPayload {
+    PmxtParsedPayload {
+        timestamp_ns: 0,
+        priority: PmxtUpdateClass::Other.sort_priority(),
+        update_type,
+        payload_text,
+        token_id: String::new(),
+        price_change: None,
+    }
+}
+
+fn sort_parsed_payload_columns(
+    update_type_columns: Vec<Vec<String>>,
+    payload_text_columns: Vec<Vec<String>>,
+) -> Result<Vec<PmxtParsedPayload>, String> {
+    if update_type_columns.len() != payload_text_columns.len() {
+        return Err(format!(
+            "PMXT payload column count mismatch: {} update_type column(s), {} payload column(s)",
+            update_type_columns.len(),
+            payload_text_columns.len()
+        ));
+    }
+
+    let row_count = update_type_columns.iter().map(Vec::len).sum();
+    let mut parsed_payloads = Vec::with_capacity(row_count);
+    let mut previous_key: Option<(i128, u8)> = None;
+    let mut already_sorted = true;
+    for (column_index, (update_types, payload_texts)) in update_type_columns
+        .into_iter()
+        .zip(payload_text_columns)
+        .enumerate()
+    {
+        if update_types.len() != payload_texts.len() {
+            return Err(format!(
+                "PMXT payload row count mismatch in column {column_index}: {} update_type row(s), {} payload row(s)",
+                update_types.len(),
+                payload_texts.len()
+            ));
+        }
+        for (row_index, (update_type, payload_text)) in
+            update_types.into_iter().zip(payload_texts).enumerate()
+        {
+            let parsed_payload =
+                if PmxtUpdateClass::from_update_type(&update_type) == PmxtUpdateClass::Other {
+                    other_payload_from_row(update_type, payload_text)
+                } else {
+                    parsed_payload_from_row(column_index, row_index, update_type, payload_text)?
+                };
+            let payload_key = (parsed_payload.timestamp_ns, parsed_payload.priority);
+            if previous_key.is_some_and(|previous_key| payload_key < previous_key) {
+                already_sorted = false;
+            }
+            previous_key = Some(payload_key);
+            parsed_payloads.push(parsed_payload);
+        }
+    }
+    if !already_sorted {
+        parsed_payloads.sort_by(|left, right| {
+            (left.timestamp_ns, left.priority).cmp(&(right.timestamp_ns, right.priority))
+        });
+    }
+    Ok(parsed_payloads)
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn payload_delta_rows(
     update_type_columns: Vec<Vec<String>>,
@@ -220,7 +334,7 @@ pub fn payload_delta_rows(
     last_timestamp_ns: Option<i128>,
     last_priority: Option<u8>,
 ) -> Result<PmxtDeltaRows, String> {
-    let sorted_payloads = sort_payload_columns(update_type_columns, payload_text_columns)?;
+    let sorted_payloads = sort_parsed_payload_columns(update_type_columns, payload_text_columns)?;
     let mut rows = PmxtDeltaRows {
         has_snapshot: initial_has_snapshot,
         last_timestamp_ns,
@@ -240,12 +354,11 @@ pub fn payload_delta_rows(
 
         match payload.update_type.as_str() {
             "book_snapshot" => {
-                process_book_snapshot_payload(
+                process_parsed_book_snapshot_payload(
                     &mut rows,
                     &mut output_event_index,
-                    &payload.payload_text,
+                    &payload,
                     token_id,
-                    payload.timestamp_ns,
                     start_ns,
                     end_ns,
                 )?;
@@ -253,12 +366,11 @@ pub fn payload_delta_rows(
                 rows.last_priority = Some(payload.priority);
             }
             "price_change" => {
-                process_price_change_payload(
+                process_parsed_price_change_payload(
                     &mut rows,
                     &mut output_event_index,
-                    &payload.payload_text,
+                    &payload,
                     token_id,
-                    payload.timestamp_ns,
                     start_ns,
                     end_ns,
                 )?;
@@ -585,27 +697,25 @@ fn process_fixed_price_change(
     Ok(())
 }
 
-fn process_book_snapshot_payload(
+fn process_parsed_book_snapshot_payload(
     rows: &mut PmxtDeltaRows,
     output_event_index: &mut i32,
-    payload_text: &str,
+    payload: &PmxtParsedPayload,
     token_id: &str,
-    ts_event: i128,
     start_ns: i128,
     end_ns: i128,
 ) -> Result<(), String> {
-    let fields = extract_payload_fields(payload_text)?;
-    if fields.token_id != token_id {
+    if payload.token_id != token_id {
         return Ok(());
     }
 
-    let bids = json_string_pair_array_field(payload_text, "bids")?;
-    let asks = json_string_pair_array_field(payload_text, "asks")?;
+    let bids = json_string_pair_array_field(&payload.payload_text, "bids")?;
+    let asks = json_string_pair_array_field(&payload.payload_text, "asks")?;
     if bids.is_empty() && asks.is_empty() {
         return Ok(());
     }
     rows.has_snapshot = true;
-    if ts_event < start_ns || ts_event > end_ns {
+    if payload.timestamp_ns < start_ns || payload.timestamp_ns > end_ns {
         return Ok(());
     }
 
@@ -619,7 +729,7 @@ fn process_book_snapshot_payload(
         0.0,
         0,
         0,
-        ts_event,
+        payload.timestamp_ns,
     );
 
     let bids_len = bids.len();
@@ -639,7 +749,7 @@ fn process_book_snapshot_payload(
             parse_finite_f64(size_text, "size")?,
             flags,
             0,
-            ts_event,
+            payload.timestamp_ns,
         );
     }
     for (idx, (price_text, size_text)) in asks.into_iter().enumerate() {
@@ -657,39 +767,37 @@ fn process_book_snapshot_payload(
             parse_finite_f64(size_text, "size")?,
             flags,
             0,
-            ts_event,
+            payload.timestamp_ns,
         );
     }
     *output_event_index += 1;
     Ok(())
 }
 
-fn process_price_change_payload(
+fn process_parsed_price_change_payload(
     rows: &mut PmxtDeltaRows,
     output_event_index: &mut i32,
-    payload_text: &str,
+    payload: &PmxtParsedPayload,
     token_id: &str,
-    ts_event: i128,
     start_ns: i128,
     end_ns: i128,
 ) -> Result<(), String> {
-    let fields = extract_payload_fields(payload_text)?;
-    if fields.token_id != token_id || !rows.has_snapshot {
+    if payload.token_id != token_id || !rows.has_snapshot {
         return Ok(());
     }
-    let Some(price_change) = fields.price_change else {
+    let Some(price_change) = payload.price_change.as_ref() else {
         return Ok(());
     };
-    if ts_event < start_ns || ts_event > end_ns {
+    if payload.timestamp_ns < start_ns || payload.timestamp_ns > end_ns {
         return Ok(());
     }
 
-    let side = match price_change.side {
+    let side = match price_change.side.as_str() {
         "BUY" => ORDER_SIDE_BUY,
         "SELL" => ORDER_SIDE_SELL,
         value => return Err(format!("invalid PMXT price_change side: {value:?}")),
     };
-    let size = parse_finite_f64(price_change.size, "size")?;
+    let size = parse_finite_f64(&price_change.size, "size")?;
     push_delta_row(
         rows,
         *output_event_index,
@@ -699,11 +807,11 @@ fn process_price_change_payload(
             BOOK_ACTION_DELETE
         },
         side,
-        parse_finite_f64(price_change.price, "price")?,
+        parse_finite_f64(&price_change.price, "price")?,
         size,
         RECORD_FLAG_LAST,
         0,
-        ts_event,
+        payload.timestamp_ns,
     );
     *output_event_index += 1;
     Ok(())
@@ -1281,6 +1389,26 @@ mod tests {
             ]
         );
         assert_eq!(rows.ts_init, rows.ts_event);
+    }
+
+    #[test]
+    fn payload_delta_rows_validates_common_payload_fields() {
+        let err = payload_delta_rows(
+            vec![vec!["book_snapshot".to_string()]],
+            vec![vec![
+                r#"{"update_type":"book_snapshot","token_id":"target-token","timestamp":100.0}"#
+                    .to_string(),
+            ]],
+            "target-token",
+            100_000_000_000,
+            101_000_000_000,
+            false,
+            None,
+            None,
+        )
+        .unwrap_err();
+
+        assert!(err.contains("missing JSON field \"market_id\""));
     }
 
     #[test]
