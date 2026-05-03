@@ -9,6 +9,7 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.dataset as ds
 import pyarrow.parquet as pq
+from nautilus_trader.adapters.polymarket.common.parsing import parse_polymarket_instrument
 
 from prediction_market_extensions.adapters.polymarket import pmxt as pmxt_module
 from prediction_market_extensions.adapters.polymarket.pmxt import PolymarketPMXTDataLoader
@@ -31,6 +32,46 @@ def _make_loader(
     ) / ".pmxt-temp-downloads"
     loader._pmxt_last_load_gap_hours = ()
     return loader
+
+
+def _make_instrument():
+    return parse_polymarket_instrument(
+        market_info={
+            "condition_id": "0x" + "1" * 64,
+            "question": "Synthetic PMXT market",
+            "minimum_tick_size": "0.01",
+            "minimum_order_size": "1",
+            "end_date_iso": "2026-12-31T00:00:00Z",
+            "maker_base_fee": "0",
+            "taker_base_fee": "0",
+        },
+        token_id="2" * 64,
+        outcome="Yes",
+        ts_init=0,
+    )
+
+
+def test_delta_columns_preserve_instrument_rounding(tmp_path):
+    loader = _make_loader(tmp_path)
+    loader._instrument = _make_instrument()
+
+    records = loader._deltas_records_from_columns(
+        {
+            "event_index": [0],
+            "action": [1],
+            "side": [1],
+            "price": [0.105],
+            "size": [1009.1234564],
+            "flags": [0],
+            "sequence": [0],
+            "ts_event": [100],
+            "ts_init": [100],
+        }
+    )
+    delta = records[0].deltas[0]
+
+    assert delta.order.price.raw == loader.instrument.make_price(0.105).raw
+    assert delta.order.size.raw == loader.instrument.make_qty(1009.1234564).raw
 
 
 def test_resolve_cache_dir_defaults_to_xdg_cache_home(monkeypatch, tmp_path):

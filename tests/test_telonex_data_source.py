@@ -699,6 +699,27 @@ def test_telonex_full_book_snapshots_replay_l2_deltas() -> None:
     assert len(records) == 2
 
 
+def test_telonex_delta_columns_preserve_instrument_rounding() -> None:
+    loader = _make_polymarket_loader()
+    records = loader._deltas_records_from_columns(
+        {
+            "event_index": [0],
+            "action": [1],
+            "side": [1],
+            "price": [0.105],
+            "size": [1009.1234564],
+            "flags": [0],
+            "sequence": [0],
+            "ts_event": [100],
+            "ts_init": [100],
+        }
+    )
+    delta = records[0].deltas[0]
+
+    assert delta.order.price.raw == loader.instrument.make_price(0.105).raw
+    assert delta.order.size.raw == loader.instrument.make_qty(1009.1234564).raw
+
+
 def test_telonex_flat_book_snapshots_use_native_diff_rows(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -812,6 +833,16 @@ def test_telonex_onchain_fills_use_native_trade_rows(
     assert trades[0].aggressor_side == AggressorSide.BUYER
     assert str(trades[0].trade_id) == "native-trade-id"
     assert int(trades[0].ts_event) == ts_event
+
+
+def test_telonex_native_trade_rows_preserve_instrument_rounding() -> None:
+    loader = _make_polymarket_loader()
+    trade = loader._trade_ticks_from_native_columns(
+        ([0.105], [7.1234564], [1], ["rounding-check"], [100], [100])
+    )[0]
+
+    assert trade.price.raw == loader.instrument.make_price(0.105).raw
+    assert trade.size.raw == loader.instrument.make_qty(7.1234564).raw
 
 
 def test_telonex_materialized_deltas_cache_round_trips(

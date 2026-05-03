@@ -35,6 +35,7 @@ from nautilus_trader.model.enums import BookAction
 from nautilus_trader.model.enums import OrderSide
 from nautilus_trader.model.enums import RecordFlag
 from nautilus_trader.model.identifiers import TradeId
+from nautilus_trader.model.objects import FIXED_SCALAR
 
 from prediction_market_extensions._native import (
     telonex_api_cache_relative_path,
@@ -108,6 +109,12 @@ _TELONEX_TRADE_TICKS_CACHE_COLUMNS = frozenset(
     }
 )
 _TELONEX_TRADE_TICK_CHANNELS = (TELONEX_ONCHAIN_FILLS_CHANNEL, TELONEX_TRADES_CHANNEL)
+_NAUTILUS_FIXED_SCALAR = int(FIXED_SCALAR)
+
+
+def _raw_fixed_values(values: Sequence[object], precision: int) -> list[int]:
+    rounded = np.round(np.asarray(values, dtype=np.float64), decimals=precision)
+    return [int(round(float(value) * _NAUTILUS_FIXED_SCALAR)) for value in rounded]
 
 
 @dataclass(frozen=True)
@@ -1542,8 +1549,7 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
             table = pq.read_table(cache_path)
             if not _TELONEX_TRADE_TICKS_CACHE_COLUMNS.issubset(set(table.schema.names)):
                 raise ValueError("missing required trade tick cache columns")
-            frame = table.to_pandas()
-            if frame.empty:
+            if table.num_rows == 0:
                 # Empty Telonex onchain-fill caches are not authoritative for
                 # execution matching. They can come from 404/no-file manifest
                 # entries or older cache writes, and Polymarket may still have
@@ -1553,7 +1559,7 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
                 except OSError:
                     pass
                 return None, "none"
-            records = self._trade_ticks_from_cache_frame(frame)
+            records = self._trade_ticks_from_cache_table(table)
         except Exception as exc:  # noqa: BLE001 - stale/corrupt cache should self-heal
             try:
                 cache_path.unlink()
@@ -1639,27 +1645,43 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
             }
         )
 
+    def _trade_ticks_from_cache_table(self, table: pa.Table) -> tuple[TradeTick, ...]:
+        return self._trade_ticks_from_cache_frame(table.to_pandas())
+
     def _trade_ticks_from_cache_frame(self, frame: pd.DataFrame) -> tuple[TradeTick, ...]:
         if frame.empty:
             return ()
-        instrument = self.instrument
-        records: list[TradeTick] = []
-        for row in frame.itertuples(index=False):
-            aggressor_name = str(getattr(row, "aggressor_side"))
-            aggressor_side = getattr(AggressorSide, aggressor_name, AggressorSide.NO_AGGRESSOR)
-            records.append(
-                TradeTick(
-                    instrument_id=instrument.id,
-                    price=instrument.make_price(getattr(row, "price")),
-                    size=instrument.make_qty(getattr(row, "size")),
-                    aggressor_side=aggressor_side,
-                    trade_id=TradeId(str(getattr(row, "trade_id"))),
-                    ts_event=int(getattr(row, "ts_event")),
-                    ts_init=int(getattr(row, "ts_init")),
-                )
+        sorted_frame = frame.sort_values(["ts_event", "ts_init"], kind="stable")
+        price_precision = int(self.instrument.price_precision)
+        size_precision = int(self.instrument.size_precision)
+        aggressor_sides = (
+            sorted_frame["aggressor_side"]
+            .astype(str)
+            .str.strip()
+            .str.upper()
+            .map({"BUYER": 1, "SELLER": 2})
+            .fillna(0)
+            .to_numpy(dtype=np.uint8)
+        )
+        return tuple(
+            TradeTick.from_raw_arrays_to_list(
+                self.instrument.id,
+                price_precision,
+                size_precision,
+                self._rounded_float64_array(
+                    sorted_frame["price"].to_numpy(dtype=np.float64),
+                    price_precision,
+                ),
+                self._rounded_float64_array(
+                    sorted_frame["size"].to_numpy(dtype=np.float64),
+                    size_precision,
+                ),
+                aggressor_sides,
+                sorted_frame["trade_id"].astype(str).tolist(),
+                sorted_frame["ts_event"].to_numpy(dtype=np.uint64),
+                sorted_frame["ts_init"].to_numpy(dtype=np.uint64),
             )
-        records.sort(key=lambda trade: (int(trade.ts_event), int(trade.ts_init)))
-        return tuple(records)
+        )
 
     @staticmethod
     def _deltas_records_to_table(records: Sequence[OrderBookDeltas]) -> pa.Table:
@@ -1713,6 +1735,10 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
         deltas: list[OrderBookDelta] = []
         instrument = self.instrument
         instrument_id = instrument.id
+        price_precision = int(instrument.price_precision)
+        size_precision = int(instrument.size_precision)
+        price_raws = _raw_fixed_values(prices, price_precision)
+        size_raws = _raw_fixed_values(sizes, size_precision)
         for idx, raw_event_index in enumerate(event_indexes):
             event_index = int(raw_event_index)
             if current_event_index is None:
@@ -1722,17 +1748,16 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
                 deltas = []
                 current_event_index = event_index
 
-            order = BookOrder(
-                side=OrderSide(int(sides[idx])),
-                price=instrument.make_price(float(prices[idx])),
-                size=instrument.make_qty(float(sizes[idx])),
-                order_id=0,
-            )
             deltas.append(
-                OrderBookDelta(
-                    instrument_id=instrument_id,
-                    action=BookAction(int(actions[idx])),
-                    order=order,
+                OrderBookDelta.from_raw(
+                    instrument_id,
+                    int(actions[idx]),
+                    int(sides[idx]),
+                    price_raws[idx],
+                    price_precision,
+                    size_raws[idx],
+                    size_precision,
+                    0,
                     flags=int(flags[idx]),
                     sequence=int(sequences[idx]),
                     ts_event=int(ts_events[idx]),
@@ -2334,31 +2359,25 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
         ],
     ) -> list[TradeTick]:
         prices, sizes, aggressor_sides, trade_ids, ts_events, ts_inits = data
-        make_price = self.instrument.make_price
-        make_qty = self.instrument.make_qty
-        instrument_id = self.instrument.id
-        trades = [
-            TradeTick(
-                instrument_id=instrument_id,
-                price=make_price(price),
-                size=make_qty(size),
-                aggressor_side=AggressorSide(int(aggressor_side)),
-                trade_id=TradeId(trade_id),
-                ts_event=int(ts_event),
-                ts_init=int(ts_init),
-            )
-            for price, size, aggressor_side, trade_id, ts_event, ts_init in zip(
-                prices,
-                sizes,
-                aggressor_sides,
-                trade_ids,
-                ts_events,
-                ts_inits,
-                strict=True,
-            )
-        ]
+        price_precision = int(self.instrument.price_precision)
+        size_precision = int(self.instrument.size_precision)
+        trades = TradeTick.from_raw_arrays_to_list(
+            self.instrument.id,
+            price_precision,
+            size_precision,
+            self._rounded_float64_array(prices, price_precision),
+            self._rounded_float64_array(sizes, size_precision),
+            np.asarray(aggressor_sides, dtype=np.uint8),
+            [str(value) for value in trade_ids],
+            np.asarray(ts_events, dtype=np.uint64),
+            np.asarray(ts_inits, dtype=np.uint64),
+        )
         trades.sort(key=lambda trade: (int(trade.ts_event), int(trade.ts_init)))
         return trades
+
+    @staticmethod
+    def _rounded_float64_array(values: object, precision: int) -> np.ndarray:
+        return np.round(np.asarray(values, dtype=np.float64), decimals=precision)
 
     def _empty_local_blob_day_frame(
         self,

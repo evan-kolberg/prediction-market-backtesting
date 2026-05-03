@@ -12,12 +12,12 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
+import numpy as np
 from nautilus_trader.adapters.polymarket import POLYMARKET_VENUE
 from nautilus_trader.model.book import OrderBook
 from nautilus_trader.model.currencies import USDC_POS
 from nautilus_trader.model.data import OrderBookDeltas, TradeTick
-from nautilus_trader.model.enums import AccountType, AggressorSide, BookType, OmsType
-from nautilus_trader.model.identifiers import TradeId
+from nautilus_trader.model.enums import AccountType, BookType, OmsType
 
 from prediction_market_extensions._native import replay_merge_plan
 from prediction_market_extensions._native import source_days_for_window_ns
@@ -204,29 +204,73 @@ def _serialize_trade_ticks(trades: tuple[TradeTick, ...]) -> pd.DataFrame:
     return pd.DataFrame.from_records(rows)
 
 
-def _deserialize_trade_ticks(*, loader: Any, frame: pd.DataFrame) -> tuple[TradeTick, ...]:
+def _trade_ticks_from_native_columns(
+    *,
+    loader: Any,
+    data: tuple[list[float], list[float], list[int], list[str], list[int], list[int]],
+) -> tuple[TradeTick, ...]:
+    prices, sizes, aggressor_sides, trade_ids, ts_events, ts_inits = data
+    instrument = loader.instrument
+    return tuple(
+        TradeTick.from_raw_arrays_to_list(
+            instrument.id,
+            int(instrument.price_precision),
+            int(instrument.size_precision),
+            _rounded_float64_array(prices, int(instrument.price_precision)),
+            _rounded_float64_array(sizes, int(instrument.size_precision)),
+            np.asarray(aggressor_sides, dtype=np.uint8),
+            [str(value) for value in trade_ids],
+            np.asarray(ts_events, dtype=np.uint64),
+            np.asarray(ts_inits, dtype=np.uint64),
+        )
+    )
+
+
+def _trade_ticks_from_cache_frame_native(
+    *, loader: Any, frame: pd.DataFrame
+) -> tuple[TradeTick, ...]:
     if frame.empty:
         return ()
     instrument = loader.instrument
-    make_price = instrument.make_price
-    make_qty = instrument.make_qty
-    trades: list[TradeTick] = []
-    for row in frame.itertuples(index=False):
-        aggressor_name = str(getattr(row, "aggressor_side"))
-        aggressor_side = getattr(AggressorSide, aggressor_name, AggressorSide.NO_AGGRESSOR)
-        trades.append(
-            TradeTick(
-                instrument_id=instrument.id,
-                price=make_price(getattr(row, "price")),
-                size=make_qty(getattr(row, "size")),
-                aggressor_side=aggressor_side,
-                trade_id=TradeId(str(getattr(row, "trade_id"))),
-                ts_event=int(getattr(row, "ts_event")),
-                ts_init=int(getattr(row, "ts_init")),
-            )
+    sorted_frame = frame.sort_values(["ts_event", "ts_init"], kind="stable")
+    aggressor_sides = (
+        sorted_frame["aggressor_side"]
+        .astype(str)
+        .str.strip()
+        .str.upper()
+        .map({"BUYER": 1, "SELLER": 2})
+        .fillna(0)
+        .to_numpy(dtype=np.uint8)
+    )
+    return tuple(
+        TradeTick.from_raw_arrays_to_list(
+            instrument.id,
+            int(instrument.price_precision),
+            int(instrument.size_precision),
+            _rounded_float64_array(
+                sorted_frame["price"].to_numpy(dtype=np.float64),
+                int(instrument.price_precision),
+            ),
+            _rounded_float64_array(
+                sorted_frame["size"].to_numpy(dtype=np.float64),
+                int(instrument.size_precision),
+            ),
+            aggressor_sides,
+            sorted_frame["trade_id"].astype(str).tolist(),
+            sorted_frame["ts_event"].to_numpy(dtype=np.uint64),
+            sorted_frame["ts_init"].to_numpy(dtype=np.uint64),
         )
-    trades.sort(key=_trade_record_sort_key)
-    return tuple(trades)
+    )
+
+
+def _rounded_float64_array(values: Any, precision: int) -> np.ndarray:
+    return np.round(np.asarray(values, dtype=np.float64), decimals=precision)
+
+
+def _deserialize_trade_ticks(*, loader: Any, frame: pd.DataFrame) -> tuple[TradeTick, ...]:
+    if frame.empty:
+        return ()
+    return _trade_ticks_from_cache_frame_native(loader=loader, frame=frame)
 
 
 def _write_trade_cache(*, path: Path, trades: tuple[TradeTick, ...]) -> None:

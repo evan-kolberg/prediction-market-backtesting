@@ -20,6 +20,7 @@ from typing import ClassVar
 from urllib.request import Request, urlopen
 
 import msgspec
+import numpy as np
 import pandas as pd
 import pyarrow as pa
 import pyarrow.compute as pc
@@ -34,12 +35,10 @@ from nautilus_trader.adapters.polymarket.schemas.book import (
     PolymarketQuotes,
 )
 from nautilus_trader.model.book import OrderBook
-from nautilus_trader.model.data import BookOrder
 from nautilus_trader.model.data import OrderBookDelta
 from nautilus_trader.model.data import OrderBookDeltas
-from nautilus_trader.model.enums import BookAction
 from nautilus_trader.model.enums import BookType
-from nautilus_trader.model.enums import OrderSide
+from nautilus_trader.model.objects import FIXED_SCALAR
 
 from prediction_market_extensions._native import (
     decimal_seconds_to_ns,
@@ -78,6 +77,12 @@ class _PMXTPriceChangePayload(msgspec.Struct, frozen=True):
 
 _PMXT_BOOK_SNAPSHOT_DECODER = msgspec.json.Decoder(type=_PMXTBookSnapshotPayload)
 _PMXT_PRICE_CHANGE_DECODER = msgspec.json.Decoder(type=_PMXTPriceChangePayload)
+_NAUTILUS_FIXED_SCALAR = int(FIXED_SCALAR)
+
+
+def _raw_fixed_values(values: list[object], precision: int) -> list[int]:
+    rounded = np.round(np.asarray(values, dtype=np.float64), decimals=precision)
+    return [int(round(float(value) * _NAUTILUS_FIXED_SCALAR)) for value in rounded]
 
 
 class PolymarketPMXTDataLoader(PolymarketDataLoader):
@@ -870,6 +875,10 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
         deltas: list[OrderBookDelta] = []
         instrument = self.instrument
         instrument_id = instrument.id
+        price_precision = int(instrument.price_precision)
+        size_precision = int(instrument.size_precision)
+        price_raws = _raw_fixed_values(prices, price_precision)
+        size_raws = _raw_fixed_values(sizes, size_precision)
         for idx, raw_event_index in enumerate(event_indexes):
             event_index = int(raw_event_index)
             if current_event_index is None:
@@ -879,17 +888,16 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
                 deltas = []
                 current_event_index = event_index
 
-            order = BookOrder(
-                side=OrderSide(int(sides[idx])),
-                price=instrument.make_price(float(prices[idx])),
-                size=instrument.make_qty(float(sizes[idx])),
-                order_id=0,
-            )
             deltas.append(
-                OrderBookDelta(
-                    instrument_id=instrument_id,
-                    action=BookAction(int(actions[idx])),
-                    order=order,
+                OrderBookDelta.from_raw(
+                    instrument_id,
+                    int(actions[idx]),
+                    int(sides[idx]),
+                    price_raws[idx],
+                    price_precision,
+                    size_raws[idx],
+                    size_precision,
+                    0,
                     flags=int(flags[idx]),
                     sequence=int(sequences[idx]),
                     ts_event=int(ts_events[idx]),
