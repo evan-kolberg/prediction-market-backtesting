@@ -37,6 +37,7 @@ use native_core::windows::{
 };
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
+use pyo3::types::PyDict;
 
 type PyPmxtDeltaRows = (
     bool,
@@ -206,22 +207,19 @@ fn py_sequence_string_columns(py: Python<'_>, values: &[Py<PyAny>]) -> PyResult<
 fn py_nested_book_side_columns(
     py: Python<'_>,
     values: &[Py<PyAny>],
-    reverse: bool,
+    _reverse: bool,
 ) -> PyResult<PyNestedBookSideColumns> {
     let mut price_columns = Vec::with_capacity(values.len());
     let mut size_columns = Vec::with_capacity(values.len());
     for value in values {
-        let (prices, sizes) = py_nested_book_side(value.bind(py), reverse)?;
+        let (prices, sizes) = py_nested_book_side(value.bind(py))?;
         price_columns.push(prices);
         size_columns.push(sizes);
     }
     Ok((price_columns, size_columns))
 }
 
-fn py_nested_book_side(
-    value: &Bound<'_, PyAny>,
-    reverse: bool,
-) -> PyResult<(Vec<String>, Vec<String>)> {
+fn py_nested_book_side(value: &Bound<'_, PyAny>) -> PyResult<(Vec<String>, Vec<String>)> {
     if value.is_none() {
         return Ok((Vec::new(), Vec::new()));
     }
@@ -229,7 +227,8 @@ fn py_nested_book_side(
         return Ok((Vec::new(), Vec::new()));
     };
 
-    let mut levels: Vec<(f64, String, String)> = Vec::new();
+    let mut prices = Vec::new();
+    let mut sizes = Vec::new();
     for raw_level in iterator {
         let raw_level = raw_level?;
         if raw_level.is_none() {
@@ -241,28 +240,6 @@ fn py_nested_book_side(
         let Some(size_text) = py_level_field_string(&raw_level, "size")? else {
             continue;
         };
-        let size = parse_py_book_level_f64(&size_text, "size")?;
-        if size <= 0.0 {
-            continue;
-        }
-        let price = parse_py_book_level_f64(&price_text, "price")?;
-        levels.push((price, price_text, size_text));
-    }
-
-    levels.sort_by(|left, right| {
-        let ordering = left
-            .0
-            .partial_cmp(&right.0)
-            .unwrap_or(std::cmp::Ordering::Equal);
-        if reverse {
-            ordering.reverse()
-        } else {
-            ordering
-        }
-    });
-    let mut prices = Vec::with_capacity(levels.len());
-    let mut sizes = Vec::with_capacity(levels.len());
-    for (_price, price_text, size_text) in levels {
         prices.push(price_text);
         sizes.push(size_text);
     }
@@ -270,6 +247,15 @@ fn py_nested_book_side(
 }
 
 fn py_level_field_string(value: &Bound<'_, PyAny>, field: &str) -> PyResult<Option<String>> {
+    if let Ok(dict) = value.downcast::<PyDict>() {
+        let Some(field_value) = dict.get_item(field)? else {
+            return Ok(None);
+        };
+        if field_value.is_none() {
+            return Ok(None);
+        }
+        return Ok(Some(py_required_string(&field_value)?));
+    }
     if let Ok(field_value) = value.getattr(field) {
         if field_value.is_none() {
             return Ok(None);
@@ -283,18 +269,6 @@ fn py_level_field_string(value: &Bound<'_, PyAny>, field: &str) -> PyResult<Opti
         return Ok(Some(py_required_string(&field_value)?));
     }
     Ok(None)
-}
-
-fn parse_py_book_level_f64(value: &str, field: &str) -> PyResult<f64> {
-    let parsed = value.parse::<f64>().map_err(|_| {
-        PyValueError::new_err(format!("invalid Telonex book level {field}: {value:?}"))
-    })?;
-    if !parsed.is_finite() {
-        return Err(PyValueError::new_err(format!(
-            "invalid Telonex book level {field}: {value:?}"
-        )));
-    }
-    Ok(parsed)
 }
 
 fn py_required_string(value: &Bound<'_, PyAny>) -> PyResult<String> {
