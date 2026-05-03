@@ -63,7 +63,7 @@ def test_configured_pmxt_data_source_sets_raw_local_overrides(monkeypatch, tmp_p
         assert str(mirror_root) in selection.summary
         assert RunnerPolymarketPMXTDataLoader._resolve_remote_base_url() is None
         assert RunnerPolymarketPMXTDataLoader._resolve_raw_root() == mirror_root
-        assert RunnerPolymarketPMXTDataLoader._resolve_prefetch_workers() == 4
+        assert RunnerPolymarketPMXTDataLoader._resolve_prefetch_workers() == 8
 
     assert os.getenv(PMXT_RAW_ROOT_ENV) is None
 
@@ -109,7 +109,7 @@ def test_configured_pmxt_data_source_preserves_explicit_source_order(monkeypatch
             "raw-remote",
             "raw-local",
         )
-        assert RunnerPolymarketPMXTDataLoader._resolve_prefetch_workers() == 4
+        assert RunnerPolymarketPMXTDataLoader._resolve_prefetch_workers() == 8
 
     assert os.getenv(PMXT_RAW_ROOT_ENV) is None
     assert os.getenv(PMXT_REMOTE_BASE_URL_ENV) is None

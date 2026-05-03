@@ -13,6 +13,7 @@ build/
 dist/
 wheels/
 *.egg-info
+*.pyd
 
 # Virtual environment
 .venv
@@ -46,4 +47,13 @@ crates/*/uv.lock
 .pytest_cache/
 .ruff_cache/
 .benchmarks/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+.hypothesis/
+.nox/
+.tox/
+junit.xml
+test-results/
 .claude/worktrees/
