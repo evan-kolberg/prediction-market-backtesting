@@ -536,7 +536,10 @@ def pmxt_sort_payload_columns(
                 f"{column_index}: {len(update_types)} update_type row(s), "
                 f"{len(payload_texts)} payload row(s)"
             )
-        items.extend(zip(update_types, payload_texts, strict=True))
+        items.extend(
+            (str(update_type), str(payload_text))
+            for update_type, payload_text in zip(update_types, payload_texts, strict=True)
+        )
     keyed_items = [
         (_pmxt_payload_sort_key_python(update_type, payload_text), update_type, payload_text)
         for update_type, payload_text in items

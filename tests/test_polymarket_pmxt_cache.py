@@ -617,7 +617,10 @@ def test_load_order_book_deltas_sorts_payloads_before_book_mutation(monkeypatch,
 
     assert processed == ["book_snapshot", "price_change"]
     assert seen_sort_columns
-    assert seen_sort_columns[0][0] == [["price_change", "book_snapshot"]]
+    assert [str(value) for value in seen_sort_columns[0][0][0]] == [
+        "price_change",
+        "book_snapshot",
+    ]
 
 
 def test_load_order_book_deltas_uses_native_payload_delta_rows(monkeypatch, tmp_path):

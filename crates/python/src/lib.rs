@@ -522,34 +522,39 @@ fn pmxt_payload_sort_key(update_type: &str, payload_text: &str) -> PyResult<(i64
 
 #[pyfunction]
 fn pmxt_sort_payload_columns(
-    update_type_columns: Vec<Vec<String>>,
-    payload_text_columns: Vec<Vec<String>>,
+    py: Python<'_>,
+    update_type_columns: Vec<Py<PyAny>>,
+    payload_text_columns: Vec<Py<PyAny>>,
 ) -> PyResult<Vec<(i64, u8, String, String)>> {
-    core_pmxt_sort_payload_columns(update_type_columns, payload_text_columns)
-        .map_err(PyValueError::new_err)?
-        .into_iter()
-        .map(|payload| {
-            let timestamp_ns = i64::try_from(payload.timestamp_ns).map_err(|_| {
-                PyValueError::new_err(format!(
-                    "PMXT payload timestamp nanoseconds are outside Python int64 timestamp bounds: {}",
-                    payload.timestamp_ns
-                ))
-            })?;
-            Ok((
-                timestamp_ns,
-                payload.priority,
-                payload.update_type,
-                payload.payload_text,
+    core_pmxt_sort_payload_columns(
+        py_sequence_string_columns(py, &update_type_columns)?,
+        py_sequence_string_columns(py, &payload_text_columns)?,
+    )
+    .map_err(PyValueError::new_err)?
+    .into_iter()
+    .map(|payload| {
+        let timestamp_ns = i64::try_from(payload.timestamp_ns).map_err(|_| {
+            PyValueError::new_err(format!(
+                "PMXT payload timestamp nanoseconds are outside Python int64 timestamp bounds: {}",
+                payload.timestamp_ns
             ))
-        })
-        .collect()
+        })?;
+        Ok((
+            timestamp_ns,
+            payload.priority,
+            payload.update_type,
+            payload.payload_text,
+        ))
+    })
+    .collect()
 }
 
 #[pyfunction]
 #[allow(clippy::too_many_arguments)]
 fn pmxt_payload_delta_rows(
-    update_type_columns: Vec<Vec<String>>,
-    payload_text_columns: Vec<Vec<String>>,
+    py: Python<'_>,
+    update_type_columns: Vec<Py<PyAny>>,
+    payload_text_columns: Vec<Py<PyAny>>,
     token_id: &str,
     start_ns: i64,
     end_ns: i64,
@@ -558,8 +563,8 @@ fn pmxt_payload_delta_rows(
     last_priority: Option<u8>,
 ) -> PyResult<PyPmxtDeltaRows> {
     let rows = core_pmxt_payload_delta_rows(
-        update_type_columns,
-        payload_text_columns,
+        py_sequence_string_columns(py, &update_type_columns)?,
+        py_sequence_string_columns(py, &payload_text_columns)?,
         token_id,
         i128::from(start_ns),
         i128::from(end_ns),

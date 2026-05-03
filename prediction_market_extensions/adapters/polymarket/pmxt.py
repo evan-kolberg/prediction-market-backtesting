@@ -1033,8 +1033,8 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
             if not batches:
                 continue
 
-            update_type_columns = [batch.column("update_type").to_pylist() for batch in batches]
-            payload_text_columns = [batch.column("data").to_pylist() for batch in batches]
+            update_type_columns = [batch.column("update_type") for batch in batches]
+            payload_text_columns = [batch.column("data") for batch in batches]
 
             native_rows = pmxt_payload_delta_rows(
                 update_type_columns=update_type_columns,
