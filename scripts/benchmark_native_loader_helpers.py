@@ -118,6 +118,16 @@ def _telonex_inputs(items: int) -> list[tuple[str, str, str, int, str | None]]:
     return rows
 
 
+def _merge_inputs(items: int) -> tuple[list[int], list[int], list[int], list[int]]:
+    book_ts_events = [APR_21_2026_NS + (index % items) * 1_000 for index in range(items)]
+    book_ts_inits = [timestamp + 50 for timestamp in book_ts_events]
+    trade_ts_events = [
+        APR_21_2026_NS + (index % items) * 1_000 for index in range(max(1, items // 4))
+    ]
+    trade_ts_inits = [timestamp + 25 for timestamp in trade_ts_events]
+    return book_ts_events, book_ts_inits, trade_ts_events, trade_ts_inits
+
+
 def _make_telonex_loader() -> RunnerPolymarketTelonexBookDataLoader:
     instrument = parse_polymarket_instrument(
         market_info={
@@ -203,6 +213,7 @@ def _bench_native_mode(
     repeats: int,
     pmxt_rows: list[tuple[str, str]],
     telonex_rows: list[tuple[str, str, str, int, str | None]],
+    merge_inputs: tuple[list[int], list[int], list[int], list[int]],
     telonex_frame: pd.DataFrame,
     telonex_trade_frame: pd.DataFrame,
     native_extension_path: Path | None,
@@ -350,6 +361,29 @@ def _bench_native_mode(
                 total += day_window[1] - day_window[0]
         return total
 
+    def replay_merge_plan_batch() -> int:
+        book_ts_events, book_ts_inits, trade_ts_events, trade_ts_inits = merge_inputs
+        plan = mod.replay_merge_plan(
+            book_ts_events=book_ts_events,
+            book_ts_inits=book_ts_inits,
+            trade_ts_events=trade_ts_events,
+            trade_ts_inits=trade_ts_inits,
+        )
+        if plan is not None:
+            return sum(kind + index for kind, index in plan)
+
+        entries: list[tuple[tuple[int, int, int], int, int]] = []
+        entries.extend(
+            ((ts_event, 0, ts_init), 0, index)
+            for index, (ts_event, ts_init) in enumerate(zip(book_ts_events, book_ts_inits))
+        )
+        entries.extend(
+            ((ts_event, 1, ts_init), 1, index)
+            for index, (ts_event, ts_init) in enumerate(zip(trade_ts_events, trade_ts_inits))
+        )
+        entries.sort(key=lambda item: item[0])
+        return sum(kind + index for _key, kind, index in entries)
+
     def telonex_flat_book_events() -> int:
         loader = _make_telonex_loader()
         events = loader._book_events_from_frame(
@@ -385,6 +419,7 @@ def _bench_native_mode(
         "pmxt_extract_payload_fields_loop": pmxt_extract_payload_fields_loop,
         "telonex_path_loop": telonex_path_loop,
         "window_planner_loop": window_planner_loop,
+        "replay_merge_plan_batch": replay_merge_plan_batch,
         "telonex_flat_book_events": telonex_flat_book_events,
         "telonex_onchain_fill_trade_ticks": telonex_onchain_fill_trade_ticks,
     }
@@ -411,6 +446,7 @@ def main() -> None:
 
     pmxt_rows = _payloads(args.items)
     telonex_rows = _telonex_inputs(args.items)
+    merge_inputs = _merge_inputs(args.items)
     telonex_frame = _telonex_flat_frame(args.telonex_events)
     telonex_trade_frame = _telonex_trade_frame(args.telonex_events)
 
@@ -421,6 +457,7 @@ def main() -> None:
         repeats=args.repeats,
         pmxt_rows=pmxt_rows,
         telonex_rows=telonex_rows,
+        merge_inputs=merge_inputs,
         telonex_frame=telonex_frame,
         telonex_trade_frame=telonex_trade_frame,
         native_extension_path=args.native_extension_path,
@@ -432,6 +469,7 @@ def main() -> None:
         repeats=args.repeats,
         pmxt_rows=pmxt_rows,
         telonex_rows=telonex_rows,
+        merge_inputs=merge_inputs,
         telonex_frame=telonex_frame,
         telonex_trade_frame=telonex_trade_frame,
         native_extension_path=args.native_extension_path,

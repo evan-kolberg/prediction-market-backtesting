@@ -129,6 +129,36 @@ def test_trade_days_for_window_uses_shared_native_window_planner() -> None:
     )
 
 
+def test_merge_records_uses_native_merge_plan(monkeypatch: pytest.MonkeyPatch) -> None:
+    books = (
+        SimpleNamespace(name="book-late", ts_event=10, ts_init=30),
+        SimpleNamespace(name="book-early", ts_event=5, ts_init=5),
+    )
+    trades = (SimpleNamespace(name="trade", ts_event=10, ts_init=1),)
+    calls: list[dict[str, object]] = []
+
+    def fake_merge_plan(**kwargs: object) -> list[tuple[int, int]]:
+        calls.append(kwargs)
+        return [(0, 1), (0, 0), (1, 0)]
+
+    monkeypatch.setattr(replay_adapters, "replay_merge_plan", fake_merge_plan)
+
+    merged = replay_adapters._merge_records(  # type: ignore[arg-type]
+        book_records=books,
+        trade_records=trades,
+    )
+
+    assert calls == [
+        {
+            "book_ts_events": [10, 5],
+            "book_ts_inits": [30, 5],
+            "trade_ts_events": [10],
+            "trade_ts_inits": [1],
+        }
+    ]
+    assert [record.name for record in merged] == ["book-early", "book-late", "trade"]
+
+
 def test_preflight_midpoints_apply_l2_book_state(monkeypatch) -> None:
     class FakeDeltas:
         def __init__(self, updates: tuple[tuple[str, float], ...]) -> None:

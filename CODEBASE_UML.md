@@ -1,8 +1,8 @@
 # Codebase UML Inventory
 
 This file is generated from Python AST metadata and excludes `tests/`.
-Generated: 2026-05-03T02:30:27+00:00
-Modules: 110 | Classes: 161 | Functions/methods: 1350
+Generated: 2026-05-03T02:46:28+00:00
+Modules: 110 | Classes: 161 | Functions/methods: 1352
 
 ## Backtesting Data Flow
 
@@ -175,17 +175,18 @@ flowchart TD
 - Function L722: `polymarket_are_tradable_probability_prices(prices: Sequence[str]) -> list[bool]`
 - Function L731: `polymarket_trade_event_timestamp_ns(base_timestamp_ns: int, occurrence_in_second: int) -> int`
 - Function L743: `polymarket_trade_event_timestamp_ns_batch(rows: Sequence[tuple[int, int]]) -> list[int]`
-- Function L757: `pmxt_archive_hours_for_window_ns(start_ns: int, end_ns: int) -> list[int]`
-- Function L764: `telonex_source_label_kind(source: str) -> str | None`
-- Function L772: `telonex_stage_for_source(source: str) -> str`
-- Function L779: `telonex_api_url(*, base_url: str, channel: str, date: str, market_slug: str, token_index: int, outcome: str | None) -> str`
-- Function L796: `_telonex_outcome_cache_segment(token_index: int, outcome: str | None) -> str`
-- Function L802: `quote_path_component(value: str) -> str`
-- Function L806: `telonex_api_cache_relative_path(*, base_url_key: str, channel: str, date: str, market_slug: str, token_index: int, outcome: str | None) -> Path`
-- Function L835: `telonex_deltas_cache_relative_path(*, channel: str, date: str, market_slug: str, token_index: int, outcome: str | None, instrument_key: str, start_ns: int, end_ns: int) -> Path`
-- Function L873: `telonex_trade_ticks_cache_relative_path(*, channel: str, date: str, market_slug: str, token_index: int, outcome: str | None, instrument_key: str, start_ns: int, end_ns: int) -> Path`
-- Function L911: `telonex_local_consolidated_candidate_paths(*, root: Path, channel: str, market_slug: str, token_index: int, outcome: str | None) -> tuple[Path, ...]`
-- Function L935: `telonex_local_daily_candidate_paths(*, root: Path, channel: str, date: str, market_slug: str, token_index: int, outcome: str | None) -> tuple[Path, ...]`
+- Function L757: `replay_merge_plan(*, book_ts_events: Sequence[int], book_ts_inits: Sequence[int], trade_ts_events: Sequence[int], trade_ts_inits: Sequence[int]) -> list[tuple[int, int]] | None`
+- Function L778: `pmxt_archive_hours_for_window_ns(start_ns: int, end_ns: int) -> list[int]`
+- Function L785: `telonex_source_label_kind(source: str) -> str | None`
+- Function L793: `telonex_stage_for_source(source: str) -> str`
+- Function L800: `telonex_api_url(*, base_url: str, channel: str, date: str, market_slug: str, token_index: int, outcome: str | None) -> str`
+- Function L817: `_telonex_outcome_cache_segment(token_index: int, outcome: str | None) -> str`
+- Function L823: `quote_path_component(value: str) -> str`
+- Function L827: `telonex_api_cache_relative_path(*, base_url_key: str, channel: str, date: str, market_slug: str, token_index: int, outcome: str | None) -> Path`
+- Function L856: `telonex_deltas_cache_relative_path(*, channel: str, date: str, market_slug: str, token_index: int, outcome: str | None, instrument_key: str, start_ns: int, end_ns: int) -> Path`
+- Function L894: `telonex_trade_ticks_cache_relative_path(*, channel: str, date: str, market_slug: str, token_index: int, outcome: str | None, instrument_key: str, start_ns: int, end_ns: int) -> Path`
+- Function L932: `telonex_local_consolidated_candidate_paths(*, root: Path, channel: str, market_slug: str, token_index: int, outcome: str | None) -> tuple[Path, ...]`
+- Function L956: `telonex_local_daily_candidate_paths(*, root: Path, channel: str, date: str, market_slug: str, token_index: int, outcome: str | None) -> tuple[Path, ...]`
 
 ### `prediction_market_extensions/_runtime_log.py`
 - Imports: `__future__, collections, contextlib, dataclasses, datetime, inspect, json, os, pathlib, sys, threading, time, typing`
@@ -1198,43 +1199,43 @@ flowchart TD
 
 ### `prediction_market_extensions/backtesting/data_sources/replay_adapters.py`
 - Imports: `__future__, collections, contextlib, dataclasses, datetime, importlib, nautilus_trader, os, pandas, pathlib, prediction_market_extensions, time, typing, warnings`
-- Function L53: `_resolve_backtest_compat_symbol(name: str, default) -> Any`
-- Function L63: `_loader_realized_outcome(loader) -> float | None`
-- Function L71: `_normalize_timestamp(value: object | None, *, default_now: bool = False) -> pd.Timestamp`
-- Function L87: `_loaded_window(records: tuple[object, ...]) -> ReplayWindow | None`
-- Function L103: `_requested_window(start: pd.Timestamp, end: pd.Timestamp) -> ReplayWindow`
-- Function L107: `_price_range(prices: tuple[float, ...]) -> float`
-- Function L113: `_best_book_midpoint(book: OrderBook) -> float | None`
-- Function L121: `_book_event_count_and_midpoints(*, instrument, records: tuple[object, ...], deltas_type: type[Any]) -> tuple[int, tuple[float, ...]]`
-- Function L138: `_validate_replay_window(*, market_label: str, count_label: str, count: int, min_record_count: int, prices: tuple[float, ...], min_price_range: float) -> bool`
-- Function L167: `_cache_home() -> Path`
-- Function L172: `_trade_cache_path(*, loader, date: pd.Timestamp) -> Path | None`
-- Function L187: `_trade_record_sort_key(record: TradeTick) -> tuple[int, int]`
-- Function L191: `_serialize_trade_ticks(trades: tuple[TradeTick, ...]) -> pd.DataFrame`
-- Function L206: `_deserialize_trade_ticks(*, loader, frame: pd.DataFrame) -> tuple[TradeTick, ...]`
-- Function L231: `_write_trade_cache(*, path: Path, trades: tuple[TradeTick, ...]) -> None`
-- Function L239: `_trade_day_label(day: pd.Timestamp) -> str`
-- Function L243: `_print_trade_progress_header(*, market_label: str, start: pd.Timestamp, end: pd.Timestamp) -> None`
-- Function L260: `_trade_source_label(source: str) -> str`
-- Function L283: `_print_trade_progress_line(*, day: pd.Timestamp, elapsed_secs: float, rows: int, source: str) -> None`
-- Function L306: `_polymarket_ceiling_warning(caught_warnings: list[warnings.WarningMessage]) -> str | None`
-- Function L314: `_trade_days_for_window(start: pd.Timestamp, end: pd.Timestamp) -> tuple[pd.Timestamp, ...]`
-- Function L327: `async _load_trade_ticks(loader, *, start: pd.Timestamp, end: pd.Timestamp, market_label: str) -> tuple[TradeTick, ...]`
-- Function L399: `_record_sort_key(record: object) -> tuple[int, int, int]`
-- Function L406: `_merge_records(*, book_records: tuple[OrderBookDeltas, ...], trade_records: tuple[TradeTick, ...]) -> tuple[object, ...]`
-- Class L427: `_BaseReplayAdapter(HistoricalReplayAdapter)`
-  - Method L437: `key(self) -> ReplayAdapterKey`
-  - Method L441: `replay_spec_type(self) -> type[Any]`
-  - Method L444: `configure_sources(self, *, sources: tuple[str, ...] | list[str]) -> AbstractContextManager[Any]`
-  - Method L450: `engine_profile(self) -> ReplayEngineProfile`
-  - Method L453: `build_single_market_replay(self, *, field_values: Mapping[str, Any]) -> Any`
-  - Method L465: `_build_loaded_replay(self, *, replay, instrument, records: tuple[Any, ...], count: int, count_key: str, market_key: str, market_id: str, prices: tuple[float, ...], outcome: str, realized_outcome: float | None, metadata: dict[str, Any], requested_window: ReplayWindow) -> LoadedReplay`
-- Class L501: `PolymarketPMXTBookReplayAdapter(_BaseReplayAdapter)`
-  - Method L502: `__init__(self) -> None`
-  - Method L529: `async load_replay(self, replay: BookReplay, *, request: ReplayLoadRequest) -> LoadedReplay | None`
-- Class L639: `PolymarketTelonexBookReplayAdapter(_BaseReplayAdapter)`
-  - Method L640: `__init__(self) -> None`
-  - Method L670: `async load_replay(self, replay: BookReplay, *, request: ReplayLoadRequest) -> LoadedReplay | None`
+- Function L54: `_resolve_backtest_compat_symbol(name: str, default) -> Any`
+- Function L64: `_loader_realized_outcome(loader) -> float | None`
+- Function L72: `_normalize_timestamp(value: object | None, *, default_now: bool = False) -> pd.Timestamp`
+- Function L88: `_loaded_window(records: tuple[object, ...]) -> ReplayWindow | None`
+- Function L104: `_requested_window(start: pd.Timestamp, end: pd.Timestamp) -> ReplayWindow`
+- Function L108: `_price_range(prices: tuple[float, ...]) -> float`
+- Function L114: `_best_book_midpoint(book: OrderBook) -> float | None`
+- Function L122: `_book_event_count_and_midpoints(*, instrument, records: tuple[object, ...], deltas_type: type[Any]) -> tuple[int, tuple[float, ...]]`
+- Function L139: `_validate_replay_window(*, market_label: str, count_label: str, count: int, min_record_count: int, prices: tuple[float, ...], min_price_range: float) -> bool`
+- Function L168: `_cache_home() -> Path`
+- Function L173: `_trade_cache_path(*, loader, date: pd.Timestamp) -> Path | None`
+- Function L188: `_trade_record_sort_key(record: TradeTick) -> tuple[int, int]`
+- Function L192: `_serialize_trade_ticks(trades: tuple[TradeTick, ...]) -> pd.DataFrame`
+- Function L207: `_deserialize_trade_ticks(*, loader, frame: pd.DataFrame) -> tuple[TradeTick, ...]`
+- Function L232: `_write_trade_cache(*, path: Path, trades: tuple[TradeTick, ...]) -> None`
+- Function L240: `_trade_day_label(day: pd.Timestamp) -> str`
+- Function L244: `_print_trade_progress_header(*, market_label: str, start: pd.Timestamp, end: pd.Timestamp) -> None`
+- Function L261: `_trade_source_label(source: str) -> str`
+- Function L284: `_print_trade_progress_line(*, day: pd.Timestamp, elapsed_secs: float, rows: int, source: str) -> None`
+- Function L307: `_polymarket_ceiling_warning(caught_warnings: list[warnings.WarningMessage]) -> str | None`
+- Function L315: `_trade_days_for_window(start: pd.Timestamp, end: pd.Timestamp) -> tuple[pd.Timestamp, ...]`
+- Function L328: `async _load_trade_ticks(loader, *, start: pd.Timestamp, end: pd.Timestamp, market_label: str) -> tuple[TradeTick, ...]`
+- Function L400: `_record_sort_key(record: object) -> tuple[int, int, int]`
+- Function L407: `_merge_records(*, book_records: tuple[OrderBookDeltas, ...], trade_records: tuple[TradeTick, ...]) -> tuple[object, ...]`
+- Class L439: `_BaseReplayAdapter(HistoricalReplayAdapter)`
+  - Method L449: `key(self) -> ReplayAdapterKey`
+  - Method L453: `replay_spec_type(self) -> type[Any]`
+  - Method L456: `configure_sources(self, *, sources: tuple[str, ...] | list[str]) -> AbstractContextManager[Any]`
+  - Method L462: `engine_profile(self) -> ReplayEngineProfile`
+  - Method L465: `build_single_market_replay(self, *, field_values: Mapping[str, Any]) -> Any`
+  - Method L477: `_build_loaded_replay(self, *, replay, instrument, records: tuple[Any, ...], count: int, count_key: str, market_key: str, market_id: str, prices: tuple[float, ...], outcome: str, realized_outcome: float | None, metadata: dict[str, Any], requested_window: ReplayWindow) -> LoadedReplay`
+- Class L513: `PolymarketPMXTBookReplayAdapter(_BaseReplayAdapter)`
+  - Method L514: `__init__(self) -> None`
+  - Method L541: `async load_replay(self, replay: BookReplay, *, request: ReplayLoadRequest) -> LoadedReplay | None`
+- Class L651: `PolymarketTelonexBookReplayAdapter(_BaseReplayAdapter)`
+  - Method L652: `__init__(self) -> None`
+  - Method L682: `async load_replay(self, replay: BookReplay, *, request: ReplayLoadRequest) -> LoadedReplay | None`
 
 ### `prediction_market_extensions/backtesting/data_sources/telonex.py`
 - Imports: `__future__, collections, concurrent, contextlib, contextvars, dataclasses, datetime, duckdb, hashlib, io, nautilus_trader, numpy, os, pandas, pathlib, prediction_market_extensions, pyarrow, re, threading, urllib, warnings`
@@ -1508,12 +1509,13 @@ flowchart TD
 - Function L66: `_time_call(fn: Callable[[], object], repeats: int) -> list[float]`
 - Function L75: `_payloads(items: int) -> list[tuple[str, str]]`
 - Function L106: `_telonex_inputs(items: int) -> list[tuple[str, str, str, int, str | None]]`
-- Function L121: `_make_telonex_loader() -> RunnerPolymarketTelonexBookDataLoader`
-- Function L143: `_make_pmxt_loader() -> PolymarketPMXTDataLoader`
-- Function L163: `_telonex_flat_frame(items: int) -> pd.DataFrame`
-- Function L185: `_telonex_trade_frame(items: int) -> pd.DataFrame`
-- Function L198: `_bench_native_mode(*, enabled: bool, items: int, telonex_events: int, repeats: int, pmxt_rows: list[tuple[str, str]], telonex_rows: list[tuple[str, str, str, int, str | None]], telonex_frame: pd.DataFrame, telonex_trade_frame: pd.DataFrame, native_extension_path: Path | None) -> dict[str, float | bool]`
-- Function L399: `main() -> None`
+- Function L121: `_merge_inputs(items: int) -> tuple[list[int], list[int], list[int], list[int]]`
+- Function L131: `_make_telonex_loader() -> RunnerPolymarketTelonexBookDataLoader`
+- Function L153: `_make_pmxt_loader() -> PolymarketPMXTDataLoader`
+- Function L173: `_telonex_flat_frame(items: int) -> pd.DataFrame`
+- Function L195: `_telonex_trade_frame(items: int) -> pd.DataFrame`
+- Function L208: `_bench_native_mode(*, enabled: bool, items: int, telonex_events: int, repeats: int, pmxt_rows: list[tuple[str, str]], telonex_rows: list[tuple[str, str, str, int, str | None]], merge_inputs: tuple[list[int], list[int], list[int], list[int]], telonex_frame: pd.DataFrame, telonex_trade_frame: pd.DataFrame, native_extension_path: Path | None) -> dict[str, float | bool]`
+- Function L434: `main() -> None`
 
 ### `scripts/generate_codebase_uml.py`
 - Imports: `__future__, ast, dataclasses, datetime, pathlib`

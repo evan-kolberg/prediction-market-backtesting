@@ -1,4 +1,5 @@
 pub mod events;
+pub mod merge;
 pub mod pmxt;
 pub mod telonex;
 pub mod time;

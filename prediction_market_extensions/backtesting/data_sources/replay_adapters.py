@@ -19,6 +19,7 @@ from nautilus_trader.model.data import OrderBookDeltas, TradeTick
 from nautilus_trader.model.enums import AccountType, AggressorSide, BookType, OmsType
 from nautilus_trader.model.identifiers import TradeId
 
+from prediction_market_extensions._native import replay_merge_plan
 from prediction_market_extensions._native import source_days_for_window_ns
 from prediction_market_extensions._runtime_log import emit_loader_event
 from prediction_market_extensions.adapters.polymarket.fee_model import PolymarketFeeModel
@@ -406,6 +407,17 @@ def _record_sort_key(record: object) -> tuple[int, int, int]:
 def _merge_records(
     *, book_records: tuple[OrderBookDeltas, ...], trade_records: tuple[TradeTick, ...]
 ) -> tuple[object, ...]:
+    plan = replay_merge_plan(
+        book_ts_events=[int(record.ts_event) for record in book_records],
+        book_ts_inits=[int(record.ts_init) for record in book_records],
+        trade_ts_events=[int(record.ts_event) for record in trade_records],
+        trade_ts_inits=[int(record.ts_init) for record in trade_records],
+    )
+    if plan is not None:
+        return tuple(
+            book_records[index] if kind == 0 else trade_records[index] for kind, index in plan
+        )
+
     records: list[object] = [*book_records, *trade_records]
     records.sort(key=_record_sort_key)
     return tuple(records)

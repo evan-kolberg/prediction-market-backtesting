@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use native_core::merge::{ReplayRecordKind, replay_merge_plan as core_replay_merge_plan};
 use native_core::pmxt::{
     PmxtUpdateClass, extract_payload_fields as core_pmxt_extract_payload_fields,
     payload_delta_rows as core_pmxt_payload_delta_rows,
@@ -75,6 +76,8 @@ type PyTelonexFlatBookDiffRows = (
 );
 
 type PyTelonexTradeTickRows = (Vec<f64>, Vec<f64>, Vec<u8>, Vec<String>, Vec<i64>, Vec<i64>);
+
+type PyReplayMergePlan = Vec<(u8, usize)>;
 
 #[derive(Clone, Debug, Default)]
 struct PyTelonexFlatBookRows {
@@ -998,6 +1001,36 @@ fn polymarket_trade_event_timestamp_ns_batch(rows: Vec<(i64, usize)>) -> PyResul
         .collect()
 }
 
+#[pyfunction]
+fn replay_merge_plan(
+    book_ts_events: Vec<i64>,
+    book_ts_inits: Vec<i64>,
+    trade_ts_events: Vec<i64>,
+    trade_ts_inits: Vec<i64>,
+) -> PyResult<PyReplayMergePlan> {
+    core_replay_merge_plan(
+        &book_ts_events,
+        &book_ts_inits,
+        &trade_ts_events,
+        &trade_ts_inits,
+    )
+    .map(|entries| {
+        entries
+            .into_iter()
+            .map(|entry| {
+                (
+                    match entry.kind {
+                        ReplayRecordKind::Book => 0,
+                        ReplayRecordKind::Trade => 1,
+                    },
+                    entry.index,
+                )
+            })
+            .collect()
+    })
+    .map_err(PyValueError::new_err)
+}
+
 #[pymodule]
 fn _native_ext(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(decimal_seconds_to_ns, module)?)?;
@@ -1031,6 +1064,7 @@ fn _native_ext(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(polymarket_trade_ids, module)?)?;
     module.add_function(wrap_pyfunction!(polymarket_trade_sort_key, module)?)?;
     module.add_function(wrap_pyfunction!(polymarket_trade_sort_keys, module)?)?;
+    module.add_function(wrap_pyfunction!(replay_merge_plan, module)?)?;
     module.add_function(wrap_pyfunction!(source_days_for_window, module)?)?;
     module.add_function(wrap_pyfunction!(pmxt_archive_hours_for_window, module)?)?;
     module.add_function(wrap_pyfunction!(telonex_api_cache_relative_path, module)?)?;

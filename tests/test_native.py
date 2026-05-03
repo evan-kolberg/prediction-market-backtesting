@@ -218,6 +218,15 @@ def test_telonex_onchain_fill_trade_rows_normalizes_execution_ticks() -> None:
     assert ts_inits == ts_events
 
 
+def test_replay_merge_plan_preserves_book_before_trade_priority() -> None:
+    assert native.replay_merge_plan(
+        book_ts_events=[10, 5, 10],
+        book_ts_inits=[30, 5, 20],
+        trade_ts_events=[10, 5],
+        trade_ts_inits=[1, 6],
+    ) == [(0, 1), (1, 1), (0, 2), (0, 0), (1, 0)]
+
+
 def test_pmxt_archive_hour_planner_includes_prior_snapshot_hour_and_final_hour() -> None:
     start_ns = APR_21_2026_NS + 9 * NANOS_PER_HOUR + 15 * NANOS_PER_MINUTE
     end_ns = APR_21_2026_NS + 10 * NANOS_PER_HOUR + 10 * NANOS_PER_MINUTE

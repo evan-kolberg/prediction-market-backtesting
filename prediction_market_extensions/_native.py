@@ -754,6 +754,27 @@ def polymarket_trade_event_timestamp_ns_batch(
     ]
 
 
+def replay_merge_plan(
+    *,
+    book_ts_events: Sequence[int],
+    book_ts_inits: Sequence[int],
+    trade_ts_events: Sequence[int],
+    trade_ts_inits: Sequence[int],
+) -> list[tuple[int, int]] | None:
+    module = _extension_module()
+    if module is None or not hasattr(module, "replay_merge_plan"):
+        return None
+    return [
+        (int(kind), int(index))
+        for kind, index in module.replay_merge_plan(
+            [int(value) for value in book_ts_events],
+            [int(value) for value in book_ts_inits],
+            [int(value) for value in trade_ts_events],
+            [int(value) for value in trade_ts_inits],
+        )
+    ]
+
+
 def pmxt_archive_hours_for_window_ns(start_ns: int, end_ns: int) -> list[int]:
     module = _extension_module()
     if module is not None:
@@ -981,6 +1002,7 @@ __all__ = [
     "polymarket_trade_event_timestamp_ns_batch",
     "polymarket_trade_sort_key",
     "polymarket_trade_sort_keys",
+    "replay_merge_plan",
     "source_days_for_window_ns",
     "telonex_api_url",
     "telonex_api_cache_relative_path",
