@@ -477,9 +477,31 @@ class PolymarketDataLoader:
         )
 
         if response.status == 404:
+            emit_loader_event(
+                f"Polymarket Gamma market request missed slug={slug} status={response.status}",
+                level="WARNING",
+                stage="discover",
+                vendor="polymarket",
+                status="skip",
+                platform="polymarket",
+                source_kind="remote",
+                source="https://gamma-api.polymarket.com/markets/slug",
+                market_slug=slug,
+            )
             raise ValueError(f"Market with slug '{slug}' not found")
 
         if response.status != 200:
+            emit_loader_event(
+                f"Polymarket Gamma market request failed slug={slug} status={response.status}",
+                level="ERROR",
+                stage="discover",
+                vendor="polymarket",
+                status="error",
+                platform="polymarket",
+                source_kind="remote",
+                source="https://gamma-api.polymarket.com/markets/slug",
+                market_slug=slug,
+            )
             raise RuntimeError(
                 f"HTTP request failed with status {response.status}: {response.body.decode('utf-8')}"
             )
@@ -605,10 +627,20 @@ class PolymarketDataLoader:
             return None
 
         fee_rate_bps = cls._coerce_fee_rate_bps(payload.get("fee_rate_bps"))
-        if fee_rate_bps is not None:
-            return fee_rate_bps
+        if fee_rate_bps is None:
+            fee_rate_bps = cls._coerce_fee_rate_bps(payload.get("base_fee"))
 
-        return cls._coerce_fee_rate_bps(payload.get("base_fee"))
+        emit_loader_event(
+            f"Loaded Polymarket CLOB fee rate token_id={token_id}",
+            stage="fetch",
+            vendor="polymarket",
+            status="complete",
+            platform="polymarket",
+            source_kind="remote",
+            source=cls._FEE_RATE_URL,
+            token_id=token_id,
+        )
+        return fee_rate_bps
 
     @classmethod
     async def _enrich_market_details_with_fee_rate(
@@ -636,14 +668,49 @@ class PolymarketDataLoader:
     ) -> dict[str, Any]:
         PyCondition.valid_string(slug, "slug")
 
+        emit_loader_event(
+            f"Fetching Polymarket Gamma event slug={slug}",
+            stage="discover",
+            vendor="polymarket",
+            status="start",
+            platform="polymarket",
+            data_type="metadata",
+            source_kind="remote",
+            source="https://gamma-api.polymarket.com/events",
+            market_slug=slug,
+        )
         response = await http_client.get(
             url="https://gamma-api.polymarket.com/events", params={"slug": slug}
         )
 
         if response.status == 404:
+            emit_loader_event(
+                f"Polymarket Gamma event request missed slug={slug} status={response.status}",
+                level="WARNING",
+                stage="discover",
+                vendor="polymarket",
+                status="skip",
+                platform="polymarket",
+                data_type="metadata",
+                source_kind="remote",
+                source="https://gamma-api.polymarket.com/events",
+                market_slug=slug,
+            )
             raise ValueError(f"Event with slug '{slug}' not found")
 
         if response.status != 200:
+            emit_loader_event(
+                f"Polymarket Gamma event request failed slug={slug} status={response.status}",
+                level="ERROR",
+                stage="discover",
+                vendor="polymarket",
+                status="error",
+                platform="polymarket",
+                data_type="metadata",
+                source_kind="remote",
+                source="https://gamma-api.polymarket.com/events",
+                market_slug=slug,
+            )
             raise RuntimeError(
                 f"HTTP request failed with status {response.status}: {response.body.decode('utf-8')}"
             )
@@ -651,8 +718,33 @@ class PolymarketDataLoader:
         events = msgspec.json.decode(response.body)
 
         if not events:
+            emit_loader_event(
+                f"Polymarket Gamma event response was empty slug={slug}",
+                level="WARNING",
+                stage="discover",
+                vendor="polymarket",
+                status="skip",
+                platform="polymarket",
+                data_type="metadata",
+                source_kind="remote",
+                source="https://gamma-api.polymarket.com/events",
+                market_slug=slug,
+                rows=0,
+            )
             raise ValueError(f"Event with slug '{slug}' not found")
 
+        emit_loader_event(
+            f"Loaded Polymarket Gamma event slug={slug}",
+            stage="discover",
+            vendor="polymarket",
+            status="complete",
+            platform="polymarket",
+            data_type="metadata",
+            source_kind="remote",
+            source="https://gamma-api.polymarket.com/events",
+            market_slug=slug,
+            rows=len(events) if isinstance(events, list) else None,
+        )
         return events[0]
 
     @classmethod
@@ -1051,16 +1143,60 @@ class PolymarketDataLoader:
             "limit": str(limit),
             "offset": str(offset),
         }
+        emit_loader_event(
+            "Fetching Polymarket Gamma events page "
+            f"offset={offset} limit={limit} active={active} closed={closed} archived={archived}",
+            stage="discover",
+            vendor="polymarket",
+            status="start",
+            platform="polymarket",
+            data_type="metadata",
+            source_kind="remote",
+            source="https://gamma-api.polymarket.com/events",
+            attrs={
+                "offset": offset,
+                "limit": limit,
+                "active": active,
+                "closed": closed,
+                "archived": archived,
+            },
+        )
         response = await self._http_client.get(
             url="https://gamma-api.polymarket.com/events", params=params
         )
 
         if response.status != 200:
+            emit_loader_event(
+                f"Polymarket Gamma events page request failed offset={offset} "
+                f"limit={limit} status={response.status}",
+                level="ERROR",
+                stage="discover",
+                vendor="polymarket",
+                status="error",
+                platform="polymarket",
+                data_type="metadata",
+                source_kind="remote",
+                source="https://gamma-api.polymarket.com/events",
+                attrs={"offset": offset, "limit": limit},
+            )
             raise RuntimeError(
                 f"HTTP request failed with status {response.status}: {response.body.decode('utf-8')}"
             )
 
-        return msgspec.json.decode(response.body)
+        events = msgspec.json.decode(response.body)
+        emit_loader_event(
+            f"Loaded Polymarket Gamma events page offset={offset} rows={len(events)}",
+            stage="discover",
+            vendor="polymarket",
+            status="complete",
+            platform="polymarket",
+            data_type="metadata",
+            source_kind="remote",
+            source="https://gamma-api.polymarket.com/events",
+            rows=len(events),
+            attrs={"offset": offset, "limit": limit},
+        )
+        return events
 
     async def get_event_markets(self, slug: str) -> list[dict[str, Any]]:
         """
@@ -1124,16 +1260,60 @@ class PolymarketDataLoader:
             "limit": str(limit),
             "offset": str(offset),
         }
+        emit_loader_event(
+            "Fetching Polymarket Gamma markets page "
+            f"offset={offset} limit={limit} active={active} closed={closed} archived={archived}",
+            stage="discover",
+            vendor="polymarket",
+            status="start",
+            platform="polymarket",
+            data_type="metadata",
+            source_kind="remote",
+            source="https://gamma-api.polymarket.com/markets",
+            attrs={
+                "offset": offset,
+                "limit": limit,
+                "active": active,
+                "closed": closed,
+                "archived": archived,
+            },
+        )
         response = await self._http_client.get(
             url="https://gamma-api.polymarket.com/markets", params=params
         )
 
         if response.status != 200:
+            emit_loader_event(
+                f"Polymarket Gamma markets page request failed offset={offset} "
+                f"limit={limit} status={response.status}",
+                level="ERROR",
+                stage="discover",
+                vendor="polymarket",
+                status="error",
+                platform="polymarket",
+                data_type="metadata",
+                source_kind="remote",
+                source="https://gamma-api.polymarket.com/markets",
+                attrs={"offset": offset, "limit": limit},
+            )
             raise RuntimeError(
                 f"HTTP request failed with status {response.status}: {response.body.decode('utf-8')}"
             )
 
-        return msgspec.json.decode(response.body)
+        markets = msgspec.json.decode(response.body)
+        emit_loader_event(
+            f"Loaded Polymarket Gamma markets page offset={offset} rows={len(markets)}",
+            stage="discover",
+            vendor="polymarket",
+            status="complete",
+            platform="polymarket",
+            data_type="metadata",
+            source_kind="remote",
+            source="https://gamma-api.polymarket.com/markets",
+            rows=len(markets),
+            attrs={"offset": offset, "limit": limit},
+        )
+        return markets
 
     async def fetch_market_by_slug(self, slug: str) -> dict[str, Any]:
         """

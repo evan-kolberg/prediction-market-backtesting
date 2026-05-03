@@ -1,7 +1,7 @@
 # Codebase UML Inventory
 
 This file is generated from Python AST metadata and excludes `tests/`.
-Generated: 2026-05-03T21:03:41+00:00
+Generated: 2026-05-03T21:23:46+00:00
 Modules: 110 | Classes: 161 | Functions/methods: 1402
 
 ## Backtesting Data Flow
@@ -445,30 +445,30 @@ flowchart TD
   - Method L412: `async _get_event_by_slug(cls, slug: str, http_client: nautilus_pyo3.HttpClient) -> dict[str, Any]`
   - Method L432: `async _get_market_fee_rate_bps(cls, token_id: str, http_client: nautilus_pyo3.HttpClient) -> Decimal | None`
   - Method L460: `async _fetch_market_by_slug(slug: str, http_client: nautilus_pyo3.HttpClient) -> dict[str, Any]`
-  - Method L514: `async _fetch_market_details(condition_id: str, http_client: nautilus_pyo3.HttpClient) -> dict[str, Any]`
-  - Method L562: `_coerce_fee_rate_bps(value) -> Decimal | None`
-  - Method L572: `async _fetch_market_fee_rate_bps(cls, token_id: str, http_client: nautilus_pyo3.HttpClient) -> Decimal | None`
-  - Method L614: `async _enrich_market_details_with_fee_rate(cls, market_details: dict[str, Any], token_id: str, http_client: nautilus_pyo3.HttpClient) -> dict[str, Any]`
-  - Method L634: `async _fetch_event_by_slug(slug: str, http_client: nautilus_pyo3.HttpClient) -> dict[str, Any]`
-  - Method L659: `async from_market_slug(cls, slug: str, token_index: int = 0, http_client: nautilus_pyo3.HttpClient | None = None) -> PolymarketDataLoader`
-  - Method L744: `async from_event_slug(cls, slug: str, token_index: int = 0, http_client: nautilus_pyo3.HttpClient | None = None) -> list[PolymarketDataLoader]`
-  - Method L827: `async query_market_by_slug(slug: str, http_client: nautilus_pyo3.HttpClient | None = None) -> dict[str, Any]`
-  - Method L857: `async query_market_details(condition_id: str, http_client: nautilus_pyo3.HttpClient | None = None) -> dict[str, Any]`
-  - Method L885: `async query_event_by_slug(slug: str, http_client: nautilus_pyo3.HttpClient | None = None) -> dict[str, Any]`
-  - Method L915: `instrument(self) -> BinaryOption`
-  - Method L922: `token_id(self) -> str | None`
-  - Method L929: `condition_id(self) -> str | None`
-  - Method L935: `async load_trades(self, start: pd.Timestamp | None = None, end: pd.Timestamp | None = None) -> list[TradeTick]`
-  - Method L990: `async fetch_event_by_slug(self, slug: str) -> dict[str, Any]`
-  - Method L1017: `async fetch_events(self, active: bool = True, closed: bool = False, archived: bool = False, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]`
-  - Method L1065: `async get_event_markets(self, slug: str) -> list[dict[str, Any]]`
-  - Method L1090: `async fetch_markets(self, active: bool = True, closed: bool = False, archived: bool = False, limit: int = 100, offset: int = 0) -> list[dict]`
-  - Method L1138: `async fetch_market_by_slug(self, slug: str) -> dict[str, Any]`
-  - Method L1162: `async find_market_by_slug(self, slug: str) -> dict[str, Any]`
-  - Method L1184: `async fetch_market_details(self, condition_id: str) -> dict[str, Any]`
-  - Method L1201: `async fetch_trades(self, condition_id: str, limit: int = _TRADES_PAGE_LIMIT, start_ts: int | None = None, end_ts: int | None = None) -> list[dict[str, Any]]`
-  - Method L1329: `parse_trades(self, trades_data: list[dict]) -> list[TradeTick]`
-  - Method L1346: `_parse_public_trade_rows(self, trades_data: list[dict], *, sort: bool) -> list[TradeTick]`
+  - Method L536: `async _fetch_market_details(condition_id: str, http_client: nautilus_pyo3.HttpClient) -> dict[str, Any]`
+  - Method L584: `_coerce_fee_rate_bps(value) -> Decimal | None`
+  - Method L594: `async _fetch_market_fee_rate_bps(cls, token_id: str, http_client: nautilus_pyo3.HttpClient) -> Decimal | None`
+  - Method L646: `async _enrich_market_details_with_fee_rate(cls, market_details: dict[str, Any], token_id: str, http_client: nautilus_pyo3.HttpClient) -> dict[str, Any]`
+  - Method L666: `async _fetch_event_by_slug(slug: str, http_client: nautilus_pyo3.HttpClient) -> dict[str, Any]`
+  - Method L751: `async from_market_slug(cls, slug: str, token_index: int = 0, http_client: nautilus_pyo3.HttpClient | None = None) -> PolymarketDataLoader`
+  - Method L836: `async from_event_slug(cls, slug: str, token_index: int = 0, http_client: nautilus_pyo3.HttpClient | None = None) -> list[PolymarketDataLoader]`
+  - Method L919: `async query_market_by_slug(slug: str, http_client: nautilus_pyo3.HttpClient | None = None) -> dict[str, Any]`
+  - Method L949: `async query_market_details(condition_id: str, http_client: nautilus_pyo3.HttpClient | None = None) -> dict[str, Any]`
+  - Method L977: `async query_event_by_slug(slug: str, http_client: nautilus_pyo3.HttpClient | None = None) -> dict[str, Any]`
+  - Method L1007: `instrument(self) -> BinaryOption`
+  - Method L1014: `token_id(self) -> str | None`
+  - Method L1021: `condition_id(self) -> str | None`
+  - Method L1027: `async load_trades(self, start: pd.Timestamp | None = None, end: pd.Timestamp | None = None) -> list[TradeTick]`
+  - Method L1082: `async fetch_event_by_slug(self, slug: str) -> dict[str, Any]`
+  - Method L1109: `async fetch_events(self, active: bool = True, closed: bool = False, archived: bool = False, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]`
+  - Method L1201: `async get_event_markets(self, slug: str) -> list[dict[str, Any]]`
+  - Method L1226: `async fetch_markets(self, active: bool = True, closed: bool = False, archived: bool = False, limit: int = 100, offset: int = 0) -> list[dict]`
+  - Method L1318: `async fetch_market_by_slug(self, slug: str) -> dict[str, Any]`
+  - Method L1342: `async find_market_by_slug(self, slug: str) -> dict[str, Any]`
+  - Method L1364: `async fetch_market_details(self, condition_id: str) -> dict[str, Any]`
+  - Method L1381: `async fetch_trades(self, condition_id: str, limit: int = _TRADES_PAGE_LIMIT, start_ts: int | None = None, end_ts: int | None = None) -> list[dict[str, Any]]`
+  - Method L1509: `parse_trades(self, trades_data: list[dict]) -> list[TradeTick]`
+  - Method L1526: `_parse_public_trade_rows(self, trades_data: list[dict], *, sort: bool) -> list[TradeTick]`
 
 ### `prediction_market_extensions/adapters/polymarket/market_selection.py`
 - Imports: `__future__, collections, datetime, msgspec, re, typing`

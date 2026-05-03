@@ -136,6 +136,66 @@ def test_polymarket_clob_market_fetch_logs_source(capsys) -> None:
     assert "[INFO] loaders._fetch_market_details: Loaded Polymarket CLOB market details" in output
 
 
+def test_polymarket_gamma_event_fetch_logs_source(capsys) -> None:
+    client = _FakeHttpClient([{"slug": "demo-event", "markets": []}])
+
+    event = asyncio.run(PolymarketDataLoader._fetch_event_by_slug("demo-event", client))
+    output = capsys.readouterr().err
+
+    assert event == {"slug": "demo-event", "markets": []}
+    assert client.requests == [("https://gamma-api.polymarket.com/events", {"slug": "demo-event"})]
+    assert "[INFO] loaders._fetch_event_by_slug: Fetching Polymarket Gamma event" in output
+    assert "[INFO] loaders._fetch_event_by_slug: Loaded Polymarket Gamma event" in output
+
+
+def test_polymarket_gamma_list_fetches_log_pages(capsys) -> None:
+    events_client = _FakeHttpClient([{"slug": "event-a"}])
+    events_loader = object.__new__(PolymarketDataLoader)
+    events_loader._http_client = events_client
+
+    events = asyncio.run(events_loader.fetch_events(limit=1, offset=2))
+    events_output = capsys.readouterr().err
+
+    assert events == [{"slug": "event-a"}]
+    assert events_client.requests == [
+        (
+            "https://gamma-api.polymarket.com/events",
+            {
+                "active": "true",
+                "closed": "false",
+                "archived": "false",
+                "limit": "1",
+                "offset": "2",
+            },
+        )
+    ]
+    assert "[INFO] loaders.fetch_events: Fetching Polymarket Gamma events page" in events_output
+    assert "[INFO] loaders.fetch_events: Loaded Polymarket Gamma events page" in events_output
+
+    markets_client = _FakeHttpClient([{"slug": "market-a"}])
+    markets_loader = object.__new__(PolymarketDataLoader)
+    markets_loader._http_client = markets_client
+
+    markets = asyncio.run(markets_loader.fetch_markets(limit=3, offset=4))
+    markets_output = capsys.readouterr().err
+
+    assert markets == [{"slug": "market-a"}]
+    assert markets_client.requests == [
+        (
+            "https://gamma-api.polymarket.com/markets",
+            {
+                "active": "true",
+                "closed": "false",
+                "archived": "false",
+                "limit": "3",
+                "offset": "4",
+            },
+        )
+    ]
+    assert "[INFO] loaders.fetch_markets: Fetching Polymarket Gamma markets page" in markets_output
+    assert "[INFO] loaders.fetch_markets: Loaded Polymarket Gamma markets page" in markets_output
+
+
 def test_from_market_slug_uses_run_metadata_cache_and_sanitizes_resolution(
     monkeypatch: pytest.MonkeyPatch, tmp_path
 ) -> None:
