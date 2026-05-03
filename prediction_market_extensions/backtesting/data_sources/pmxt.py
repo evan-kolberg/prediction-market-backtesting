@@ -43,6 +43,16 @@ _PMXT_VALID_SOURCE_STAGES = (
     _PMXT_SOURCE_STAGE_RAW_REMOTE,
 )
 
+
+@dataclass
+class _RawDownloadLockEntry:
+    lock: threading.Lock
+    users: int = 0
+
+
+_PMXT_RAW_DOWNLOAD_LOCKS_LOCK = threading.Lock()
+_PMXT_RAW_DOWNLOAD_LOCKS: dict[str, _RawDownloadLockEntry] = {}
+
 _MODE_ALIASES = {
     "": "auto",
     "auto": "auto",
@@ -341,6 +351,25 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
                 return Path(target).expanduser()
         return None
 
+    @staticmethod
+    @contextmanager
+    def _raw_download_lock(raw_path: Path) -> Iterator[None]:
+        key = str(raw_path.expanduser())
+        with _PMXT_RAW_DOWNLOAD_LOCKS_LOCK:
+            entry = _PMXT_RAW_DOWNLOAD_LOCKS.get(key)
+            if entry is None:
+                entry = _RawDownloadLockEntry(lock=threading.Lock())
+                _PMXT_RAW_DOWNLOAD_LOCKS[key] = entry
+            entry.users += 1
+        try:
+            with entry.lock:
+                yield
+        finally:
+            with _PMXT_RAW_DOWNLOAD_LOCKS_LOCK:
+                entry.users -= 1
+                if entry.users == 0 and _PMXT_RAW_DOWNLOAD_LOCKS.get(key) is entry:
+                    del _PMXT_RAW_DOWNLOAD_LOCKS[key]
+
     def _load_remote_market_batches_via_raw_root(
         self,
         archive_url: str,
@@ -361,11 +390,20 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
                 total_bytes=self._progress_total_bytes(str(raw_path)),
             )
 
-        downloaded = self._download_remote_raw_to_local_root(
-            archive_url,
-            raw_path,
-            hour,
-        )
+        with self._raw_download_lock(raw_path):
+            if raw_path.exists():
+                return self._load_raw_market_batches_from_local_file(
+                    raw_path,
+                    batch_size=batch_size,
+                    progress_source=str(raw_path),
+                    total_bytes=self._progress_total_bytes(str(raw_path)),
+                )
+
+            downloaded = self._download_remote_raw_to_local_root(
+                archive_url,
+                raw_path,
+                hour,
+            )
         if downloaded is None:
             return None
 

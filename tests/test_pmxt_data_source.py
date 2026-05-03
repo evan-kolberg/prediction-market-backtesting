@@ -4,6 +4,7 @@ import asyncio
 import os
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from urllib.request import Request
 
@@ -549,6 +550,63 @@ def test_runner_loader_reuses_persisted_remote_archive_copy(monkeypatch, tmp_pat
     assert batches == ["batch"]
     assert loaded_paths == [raw_path]
     assert [event for event in capture.events if event.stage == "raw_write"] == []
+
+
+def test_runner_loader_serializes_concurrent_remote_archive_persistence(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    loader_a = _make_loader(raw_root=tmp_path)
+    loader_b = _make_loader(raw_root=tmp_path)
+    hour = pd.Timestamp("2026-03-21T12:00:00Z")
+    download_count = 0
+    active_downloads = 0
+    max_active_downloads = 0
+    lock = threading.Lock()
+
+    def fake_download(self, url: str, destination: Path) -> int:  # type: ignore[no-untyped-def]
+        del self, url
+        nonlocal download_count, active_downloads, max_active_downloads
+        with lock:
+            download_count += 1
+            active_downloads += 1
+            max_active_downloads = max(max_active_downloads, active_downloads)
+        time.sleep(0.05)
+        destination.write_bytes(b"raw")
+        with lock:
+            active_downloads -= 1
+        return 3
+
+    def fake_load_raw_file(
+        self, parquet_path: Path, *, batch_size: int, progress_source: str, total_bytes: int | None
+    ):
+        del self, batch_size, progress_source, total_bytes
+        return [parquet_path.read_bytes()]
+
+    monkeypatch.setattr(
+        RunnerPolymarketPMXTDataLoader,
+        "_download_to_file_with_progress",
+        fake_download,
+    )
+    monkeypatch.setattr(
+        RunnerPolymarketPMXTDataLoader,
+        "_load_raw_market_batches_from_local_file",
+        fake_load_raw_file,
+    )
+
+    def load(loader: RunnerPolymarketPMXTDataLoader):
+        return loader._load_remote_market_batches_from_base_url(
+            "https://archive.vendor.test",
+            hour,
+            batch_size=1_000,
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = list(executor.map(load, (loader_a, loader_b)))
+
+    assert results == [[b"raw"], [b"raw"]]
+    assert download_count == 1
+    assert max_active_downloads == 1
 
 
 def test_runner_loader_emits_raw_archive_write_error(monkeypatch, tmp_path) -> None:
