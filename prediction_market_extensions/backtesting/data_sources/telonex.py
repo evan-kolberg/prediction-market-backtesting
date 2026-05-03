@@ -26,7 +26,6 @@ from nautilus_trader.adapters.polymarket.schemas.book import (
     PolymarketBookLevel,
     PolymarketBookSnapshot,
 )
-from nautilus_trader.model.data import BookOrder
 from nautilus_trader.model.data import OrderBookDelta
 from nautilus_trader.model.data import OrderBookDeltas
 from nautilus_trader.model.data import TradeTick
@@ -2025,19 +2024,22 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
 
         deltas: list[OrderBookDelta] = []
         instrument = self.instrument
-        for idx, (side, price, size) in enumerate(changes):
-            qty = instrument.make_qty(float(size))
-            order = BookOrder(
-                side=side,
-                price=instrument.make_price(float(price)),
-                size=qty,
-                order_id=0,
-            )
+        price_precision = int(instrument.price_precision)
+        size_precision = int(instrument.size_precision)
+        price_raws = _raw_fixed_values([price for _side, price, _size in changes], price_precision)
+        size_raws = _raw_fixed_values([size for _side, _price, size in changes], size_precision)
+        for idx, (side, _price, _size) in enumerate(changes):
+            size_raw = size_raws[idx]
             deltas.append(
-                OrderBookDelta(
-                    instrument_id=instrument.id,
-                    action=BookAction.UPDATE if qty > 0 else BookAction.DELETE,
-                    order=order,
+                OrderBookDelta.from_raw(
+                    instrument.id,
+                    BookAction.UPDATE if size_raw > 0 else BookAction.DELETE,
+                    side,
+                    price_raws[idx],
+                    price_precision,
+                    size_raw,
+                    size_precision,
+                    0,
                     flags=RecordFlag.F_LAST if idx == len(changes) - 1 else 0,
                     sequence=idx + 1,
                     ts_event=ts_event,

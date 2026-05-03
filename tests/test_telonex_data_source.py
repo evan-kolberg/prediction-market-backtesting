@@ -16,6 +16,7 @@ import pytest
 from nautilus_trader.adapters.polymarket.common.parsing import parse_polymarket_instrument
 from nautilus_trader.model.data import OrderBookDeltas
 from nautilus_trader.model.enums import AggressorSide
+from nautilus_trader.model.enums import BookAction
 
 import prediction_market_extensions.backtesting.data_sources.telonex as telonex_module
 from scripts import _telonex_data_download as telonex_download
@@ -718,6 +719,23 @@ def test_telonex_delta_columns_preserve_instrument_rounding() -> None:
 
     assert delta.order.price.raw == loader.instrument.make_price(0.105).raw
     assert delta.order.size.raw == loader.instrument.make_qty(1009.1234564).raw
+
+
+def test_telonex_diff_deltas_preserve_instrument_rounding() -> None:
+    loader = _make_polymarket_loader()
+    records = loader._diff_to_deltas(
+        previous_bids={"0.105": "1009.1234564"},
+        previous_asks={},
+        current_bids={"0.105": "0"},
+        current_asks={},
+        ts_event=100,
+    )
+    assert records is not None
+    delta = records.deltas[0]
+
+    assert delta.action == BookAction.DELETE
+    assert delta.order.price.raw == loader.instrument.make_price(0.105).raw
+    assert delta.order.size.raw == loader.instrument.make_qty(0).raw
 
 
 def test_telonex_flat_book_snapshots_use_native_diff_rows(
