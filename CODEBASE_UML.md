@@ -1,8 +1,8 @@
 # Codebase UML Inventory
 
 This file is generated from Python AST metadata and excludes `tests/`.
-Generated: 2026-05-03T03:47:34+00:00
-Modules: 110 | Classes: 161 | Functions/methods: 1359
+Generated: 2026-05-03T03:56:15+00:00
+Modules: 110 | Classes: 161 | Functions/methods: 1358
 
 ## Backtesting Data Flow
 
@@ -1046,21 +1046,20 @@ flowchart TD
 
 ### `prediction_market_extensions/backtesting/_timing_test.py`
 - Imports: `__future__, asyncio, importlib, pathlib, sys, threading, time, urllib`
-- Function L39: `_hour_label(source: str) -> str`
-- Function L48: `_filename_label(source: str) -> str`
-- Function L54: `_format_bytes(size: int | None) -> str`
-- Function L67: `_transfer_label(source: str) -> str`
-- Function L95: `_progress_bar_description(*, total_hours: int, started_hours: int, completed_hours: int, active_hours: int | None = None, item_label: str = 'hours') -> str`
-- Function L124: `_hour_progress_key(hour) -> str`
-- Function L131: `_progress_bar_total(total_hours: int) -> int`
-- Function L135: `_progress_bar_position(*, total_hours: int, completed_hours: int, active_hours_progress: float = 0.0) -> float`
-- Function L145: `_format_completed_hour_line(hour, *, elapsed: float, rows: int, source: str, timestamp_width: int = _COMPLETED_HOUR_TIMESTAMP_WIDTH) -> str`
-- Function L160: `_hour_label_from_hour(hour) -> str`
-- Function L167: `_is_local_scan_source(source: str | None) -> bool`
-- Function L176: `_transfer_progress_fraction(*, mode: str | None, source: str | None = None, downloaded_bytes: int, total_bytes: int | None, scanned_batches: int) -> float`
-- Function L204: `_active_transfer_progress(downloads: dict[str, dict[str, object]]) -> tuple[int, float]`
-- Function L225: `install_timing() -> None`
-- Function L732: `_load_backtest_module(path_str: str) -> Any`
+- Function L36: `_hour_label(source: str) -> str`
+- Function L45: `_filename_label(source: str) -> str`
+- Function L51: `_format_bytes(size: int | None) -> str`
+- Function L64: `_transfer_label(source: str) -> str`
+- Function L92: `_progress_bar_description(*, total_hours: int, started_hours: int, completed_hours: int, active_hours: int | None = None, item_label: str = 'hours') -> str`
+- Function L121: `_hour_progress_key(hour) -> str`
+- Function L128: `_progress_bar_total(total_hours: int) -> int`
+- Function L132: `_progress_bar_position(*, total_hours: int, completed_hours: int, active_hours_progress: float = 0.0) -> float`
+- Function L142: `_hour_label_from_hour(hour) -> str`
+- Function L149: `_is_local_scan_source(source: str | None) -> bool`
+- Function L158: `_transfer_progress_fraction(*, mode: str | None, source: str | None = None, downloaded_bytes: int, total_bytes: int | None, scanned_batches: int) -> float`
+- Function L186: `_active_transfer_progress(downloads: dict[str, dict[str, object]]) -> tuple[int, float]`
+- Function L207: `install_timing() -> None`
+- Function L654: `_load_backtest_module(path_str: str) -> Any`
 
 ### `prediction_market_extensions/backtesting/data_sources/__init__.py`
 - Imports: `prediction_market_extensions`

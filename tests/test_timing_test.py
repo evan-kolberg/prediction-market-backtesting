@@ -1,13 +1,11 @@
 from __future__ import annotations
 
 import importlib
-from datetime import datetime, timezone
 
 import pytest
 
 from prediction_market_extensions.backtesting._timing_test import (
     _active_transfer_progress,
-    _format_completed_hour_line,
     _progress_bar_description,
     _progress_bar_position,
     _progress_bar_total,
@@ -65,17 +63,6 @@ def test_transfer_label_identifies_telonex_sources() -> None:
     assert local_blob_label == "telonex local"
     assert local_label == "telonex local"
     assert api_label == "telonex api"
-
-
-def test_format_completed_hour_line_keeps_long_elapsed_values_aligned() -> None:
-    line = _format_completed_hour_line(
-        datetime(2026, 2, 22, 1, tzinfo=timezone.utc),
-        elapsed=22.608,
-        rows=4156,
-        source="local-raw::/Volumes/LaCie/pmxt_data/2026/02/22/polymarket_orderbook_2026-02-22T01.parquet",
-    )
-
-    assert line == "  2026-02-22T01:00:00+00:00     22.608s      4156 rows  local raw"
 
 
 def test_progress_bar_description_reports_started_hours_before_completion() -> None:

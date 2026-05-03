@@ -30,9 +30,6 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 _installed = False
-_COMPLETED_HOUR_TIMESTAMP_WIDTH = 25
-_COMPLETED_HOUR_ELAPSED_WIDTH = 9
-_COMPLETED_HOUR_ROWS_WIDTH = 8
 _TELONEX_TIMING_WORKERS_ENV = "TELONEX_TIMING_WORKERS"
 
 
@@ -142,21 +139,6 @@ def _progress_bar_position(
     return completed + active_progress
 
 
-def _format_completed_hour_line(
-    hour,  # type: ignore[no-untyped-def]
-    *,
-    elapsed: float,
-    rows: int,
-    source: str,
-    timestamp_width: int = _COMPLETED_HOUR_TIMESTAMP_WIDTH,
-) -> str:
-    return (
-        f"  {_hour_progress_key(hour):>{timestamp_width}s}"
-        f"  {elapsed:{_COMPLETED_HOUR_ELAPSED_WIDTH}.3f}s"
-        f"  {rows:>{_COMPLETED_HOUR_ROWS_WIDTH}} rows  {_transfer_label(source)}"
-    )
-
-
 def _hour_label_from_hour(hour) -> str:  # type: ignore[no-untyped-def]
     try:
         return hour.strftime("%Y-%m-%dT%H")
@@ -246,7 +228,6 @@ def install_timing() -> None:
     except ImportError:
         RunnerPolymarketTelonexBookDataLoader = None
 
-    source_local = threading.local()
     pbar_state: dict = {"bar": None}
     pbar_lock = threading.Lock()
     progress_state: dict[str, int] = {"total_hours": 0, "started_hours": 0, "completed_hours": 0}
@@ -410,10 +391,6 @@ def install_timing() -> None:
         total_bytes: int | None,
         finished: bool,
     ) -> None:
-        if source.startswith(("http://", "https://")):
-            source_local.source = f"remote-raw::{source}"
-        else:
-            source_local.source = f"local-raw::{source}"
         with pbar_lock:
             state = _ensure_transfer_state(
                 url=source,
@@ -466,57 +443,27 @@ def install_timing() -> None:
         orig_iter = loader_cls._iter_market_batches
 
         def patched_cached(self, hour):
-            result = orig_cached(self, hour)
-            if result is not None:
-                cache_path = self._cache_path_for_hour(hour)
-                source_local.source = f"cache::{cache_path}"
-            return result
+            return orig_cached(self, hour)
 
         def patched_local_archive(self, hour, *, batch_size):
-            result = orig_local_archive(self, hour, batch_size=batch_size)
-            if result is not None:
-                archive_paths = self._local_archive_paths_for_hour(hour)
-                existing_path = next((path for path in archive_paths if path.exists()), None)
-                source_local.source = (
-                    f"local-raw::{existing_path}" if existing_path is not None else "local raw"
-                )
-            return result
+            return orig_local_archive(self, hour, batch_size=batch_size)
 
         def patched_remote(self, hour, *, batch_size):
             remote_url = self._archive_url_for_hour(hour)
             _start_transfer(hour, remote_url)
             try:
-                result = orig_remote(self, hour, batch_size=batch_size)
+                return orig_remote(self, hour, batch_size=batch_size)
             finally:
                 _finish_transfer(remote_url)
-            if result is not None:
-                source_local.source = f"remote-raw::{remote_url}"
-            return result
 
         def timed_load(self, hour, *, batch_size):
-            source_local.source = "none"
-            t0 = time.perf_counter()
             with pbar_lock:
                 _mark_hour_started(hour)
                 _refresh_transfer_status()
             result = orig_load(self, hour, batch_size=batch_size)
-            elapsed = time.perf_counter() - t0
-            rows = sum(b.num_rows for b in result) if result else 0
-            source = getattr(source_local, "source", "unknown")
-
             with pbar_lock:
-                bar = pbar_state["bar"]
-                if bar is not None:
-                    bar.write(
-                        _format_completed_hour_line(
-                            hour,
-                            elapsed=elapsed,
-                            rows=rows,
-                            source=source,
-                        )
-                    )
-                    _mark_hour_completed(hour)
-                    _refresh_transfer_status()
+                _mark_hour_completed(hour)
+                _refresh_transfer_status()
             return result
 
         def patched_iter(self, hours, *, batch_size):
@@ -585,18 +532,7 @@ def install_timing() -> None:
         orig_local_archive = loader_cls._load_local_archive_market_batches
 
         def patched_local_archive(self, hour, *, batch_size):
-            result = orig_local_archive(self, hour, batch_size=batch_size)
-            if result is not None:
-                raw_path = self._raw_path_for_hour(hour)
-                if raw_path is not None and raw_path.exists():
-                    source_local.source = f"local-raw::{raw_path}"
-                else:
-                    archive_paths = self._local_archive_paths_for_hour(hour)
-                    existing_path = next((path for path in archive_paths if path.exists()), None)
-                    source_local.source = (
-                        f"local-raw::{existing_path}" if existing_path is not None else "local raw"
-                    )
-            return result
+            return orig_local_archive(self, hour, batch_size=batch_size)
 
         loader_cls._load_local_archive_market_batches = patched_local_archive
 
@@ -604,31 +540,17 @@ def install_timing() -> None:
         orig_load_order_book_deltas = loader_cls.load_order_book_deltas
 
         def _run_with_telonex_day_timing(self, dates, load_fn):  # type: ignore[no-untyped-def]
-            day_started_at: dict[str, float] = {}
-
             def _day_progress(date: str, event: str, source: str, rows: int) -> None:
+                del source, rows
                 with pbar_lock:
                     if event == "start":
-                        day_started_at[date] = time.perf_counter()
                         _mark_hour_started(date)
                         _refresh_transfer_status()
                         return
                     if event != "complete":
                         return
-                    elapsed = time.perf_counter() - day_started_at.get(date, time.perf_counter())
-                    bar = pbar_state["bar"]
-                    if bar is not None:
-                        bar.write(
-                            _format_completed_hour_line(
-                                date,
-                                elapsed=elapsed,
-                                rows=rows,
-                                source=source,
-                                timestamp_width=10,
-                            )
-                        )
-                        _mark_hour_completed(date)
-                        _refresh_transfer_status()
+                    _mark_hour_completed(date)
+                    _refresh_transfer_status()
 
             with pbar_lock:
                 stop_event: threading.Event = transfer_state["stop"]  # type: ignore[assignment]
