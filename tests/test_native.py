@@ -186,6 +186,38 @@ def test_telonex_flat_book_snapshot_diff_rows_uses_native_diff_engine() -> None:
     assert ts_init == ts
 
 
+def test_telonex_onchain_fill_trade_rows_normalizes_execution_ticks() -> None:
+    rows = native.telonex_onchain_fill_trade_rows(
+        timestamp_ns=[99, 100, 100, 101, 102],
+        prices=["0.20", "bad", "0.42", "0.43", "0.44"],
+        sizes=["1", "8", "9", "10", "11"],
+        sides=["buy", "sell", "ask", "taker-sell", "none"],
+        ids=[
+            "pre",
+            "bad",
+            "txabcdefghijklmnopqrstuvwxyz",
+            "txabcdefghijklmnopqrstuvwxyz",
+            "nan",
+        ],
+        start_ns=100,
+        end_ns=102,
+        token_suffix="3456",
+    )
+
+    assert rows is not None
+    prices, sizes, aggressor_sides, trade_ids, ts_events, ts_inits = rows
+    assert prices == [0.42, 0.43, 0.44]
+    assert sizes == [9.0, 10.0, 11.0]
+    assert aggressor_sides == [2, 2, 0]
+    assert trade_ids == [
+        "cdefghijklmnopqrstuvwxyz-3456-000000",
+        "cdefghijklmnopqrstuvwxyz-3456-000001",
+        "telonex-102-3456-000000",
+    ]
+    assert ts_events == [100, 101, 102]
+    assert ts_inits == ts_events
+
+
 def test_pmxt_archive_hour_planner_includes_prior_snapshot_hour_and_final_hour() -> None:
     start_ns = APR_21_2026_NS + 9 * NANOS_PER_HOUR + 15 * NANOS_PER_MINUTE
     end_ns = APR_21_2026_NS + 10 * NANOS_PER_HOUR + 10 * NANOS_PER_MINUTE

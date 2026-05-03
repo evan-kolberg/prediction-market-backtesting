@@ -387,6 +387,57 @@ def telonex_flat_book_snapshot_diff_rows(
     )
 
 
+def telonex_onchain_fill_trade_rows(
+    *,
+    timestamp_ns: Sequence[int],
+    prices: Sequence[object],
+    sizes: Sequence[object],
+    sides: Sequence[object] | None,
+    ids: Sequence[object] | None,
+    start_ns: int,
+    end_ns: int,
+    token_suffix: str,
+) -> (
+    tuple[
+        list[float],
+        list[float],
+        list[int],
+        list[str],
+        list[int],
+        list[int],
+    ]
+    | None
+):
+    module = _extension_module()
+    if module is None:
+        return None
+    (
+        out_prices,
+        out_sizes,
+        aggressor_sides,
+        trade_ids,
+        ts_events,
+        ts_inits,
+    ) = module.telonex_onchain_fill_trade_rows(
+        [int(value) for value in timestamp_ns],
+        list(prices),
+        list(sizes),
+        None if sides is None else list(sides),
+        None if ids is None else list(ids),
+        int(start_ns),
+        int(end_ns),
+        str(token_suffix),
+    )
+    return (
+        [float(value) for value in out_prices],
+        [float(value) for value in out_sizes],
+        [int(value) for value in aggressor_sides],
+        [str(value) for value in trade_ids],
+        [int(value) for value in ts_events],
+        [int(value) for value in ts_inits],
+    )
+
+
 def pd_day_start_ns(date: str) -> int:
     return int(datetime.fromisoformat(date).replace(tzinfo=UTC).timestamp() * 1_000_000_000)
 
@@ -872,6 +923,7 @@ __all__ = [
     "telonex_flat_book_snapshot_diff_rows",
     "telonex_local_consolidated_candidate_paths",
     "telonex_local_daily_candidate_paths",
+    "telonex_onchain_fill_trade_rows",
     "telonex_source_days_for_window_ns",
     "telonex_source_label_kind",
     "telonex_stage_for_source",

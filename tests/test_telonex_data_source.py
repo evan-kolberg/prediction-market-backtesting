@@ -767,6 +767,53 @@ def test_telonex_flat_book_snapshots_use_native_diff_rows(
     assert int(records[1].deltas[0].flags) == 128
 
 
+def test_telonex_onchain_fills_use_native_trade_rows(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    loader = _make_polymarket_loader()
+    ts_event = 1_768_780_800_000_000_000
+    frame = pd.DataFrame(
+        {
+            "timestamp_us": [ts_event // 1_000],
+            "price": ["0.42"],
+            "size": ["7"],
+            "side": ["BUY"],
+            "transaction_hash": ["0xnative"],
+        }
+    )
+    calls: list[dict[str, object]] = []
+
+    def fake_native_trade_rows(
+        **kwargs: object,
+    ) -> tuple[
+        list[float],
+        list[float],
+        list[int],
+        list[str],
+        list[int],
+        list[int],
+    ]:
+        calls.append(kwargs)
+        return ([0.42], [7.0], [1], ["native-trade-id"], [ts_event], [ts_event])
+
+    monkeypatch.setattr(telonex_module, "telonex_onchain_fill_trade_rows", fake_native_trade_rows)
+
+    trades = loader._onchain_fill_trade_ticks_from_frame(
+        frame,
+        start=pd.Timestamp("2026-01-19T00:00:00Z"),
+        end=pd.Timestamp("2026-01-20T00:00:00Z"),
+    )
+
+    assert calls
+    assert [int(value) for value in calls[0]["timestamp_ns"]] == [ts_event]
+    assert len(trades) == 1
+    assert float(trades[0].price) == pytest.approx(0.42)
+    assert float(trades[0].size) == pytest.approx(7.0)
+    assert trades[0].aggressor_side == AggressorSide.BUYER
+    assert str(trades[0].trade_id) == "native-trade-id"
+    assert int(trades[0].ts_event) == ts_event
+
+
 def test_telonex_materialized_deltas_cache_round_trips(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

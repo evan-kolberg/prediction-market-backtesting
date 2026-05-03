@@ -43,6 +43,7 @@ from prediction_market_extensions._native import (
     telonex_flat_book_snapshot_diff_rows,
     telonex_local_consolidated_candidate_paths,
     telonex_local_daily_candidate_paths,
+    telonex_onchain_fill_trade_rows,
     telonex_source_days_for_window_ns,
     telonex_source_label_kind,
     telonex_stage_for_source,
@@ -2247,12 +2248,25 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
         size_values = frame[size_column].to_numpy()[mask]
         side_values = frame[side_column].to_numpy()[mask] if side_column is not None else None
         id_values = frame[id_column].to_numpy()[mask] if id_column is not None else None
-        order = np.argsort(ns_values, kind="stable")
 
+        token_suffix = str(getattr(self, "token_id", "") or "")[-4:]
+        native_rows = telonex_onchain_fill_trade_rows(
+            timestamp_ns=ns_values,
+            prices=price_values,
+            sizes=size_values,
+            sides=side_values,
+            ids=id_values,
+            start_ns=start_ns,
+            end_ns=end_ns,
+            token_suffix=token_suffix,
+        )
+        if native_rows is not None:
+            return self._trade_ticks_from_native_columns(native_rows)
+
+        order = np.argsort(ns_values, kind="stable")
         make_price = self.instrument.make_price
         make_qty = self.instrument.make_qty
         instrument_id = self.instrument.id
-        token_suffix = str(getattr(self, "token_id", "") or "")[-4:]
         timestamp_counts: dict[int, int] = {}
         trade_id_counts: dict[str, int] = {}
         trades: list[TradeTick] = []
@@ -2305,6 +2319,44 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
                 )
             )
 
+        trades.sort(key=lambda trade: (int(trade.ts_event), int(trade.ts_init)))
+        return trades
+
+    def _trade_ticks_from_native_columns(
+        self,
+        data: tuple[
+            list[float],
+            list[float],
+            list[int],
+            list[str],
+            list[int],
+            list[int],
+        ],
+    ) -> list[TradeTick]:
+        prices, sizes, aggressor_sides, trade_ids, ts_events, ts_inits = data
+        make_price = self.instrument.make_price
+        make_qty = self.instrument.make_qty
+        instrument_id = self.instrument.id
+        trades = [
+            TradeTick(
+                instrument_id=instrument_id,
+                price=make_price(price),
+                size=make_qty(size),
+                aggressor_side=AggressorSide(int(aggressor_side)),
+                trade_id=TradeId(trade_id),
+                ts_event=int(ts_event),
+                ts_init=int(ts_init),
+            )
+            for price, size, aggressor_side, trade_id, ts_event, ts_init in zip(
+                prices,
+                sizes,
+                aggressor_sides,
+                trade_ids,
+                ts_events,
+                ts_inits,
+                strict=True,
+            )
+        ]
         trades.sort(key=lambda trade: (int(trade.ts_event), int(trade.ts_init)))
         return trades
 

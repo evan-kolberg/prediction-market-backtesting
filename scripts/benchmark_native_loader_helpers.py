@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import argparse
 import importlib
+import importlib.machinery
+import importlib.util
 import os
 import statistics
 import time
@@ -25,6 +27,39 @@ def _configure_native(enabled: bool):
     os.environ[native.NATIVE_ENV] = "1" if enabled else "0"
     os.environ[native.NATIVE_REQUIRE_ENV] = "1" if enabled else "0"
     return importlib.reload(native)
+
+
+def _load_extension_from_path(path: Path):
+    loader = importlib.machinery.ExtensionFileLoader(
+        "prediction_market_extensions._native_ext",
+        str(path),
+    )
+    spec = importlib.util.spec_from_loader(
+        "prediction_market_extensions._native_ext",
+        loader,
+    )
+    if spec is None:
+        raise RuntimeError(f"Could not load native extension from {path}")
+    module = importlib.util.module_from_spec(spec)
+    loader.exec_module(module)
+    return module
+
+
+def _configure_native_extension(enabled: bool, extension_path: Path | None):
+    mod = _configure_native(enabled)
+    if not enabled or extension_path is None:
+        return mod
+
+    extension_module = _load_extension_from_path(extension_path)
+
+    def _import_module_override(name: str):
+        if name == "prediction_market_extensions._native_ext":
+            return extension_module
+        return importlib.import_module(name)
+
+    mod.import_module = _import_module_override
+    mod._EXTENSION = None
+    return mod
 
 
 def _time_call(fn: Callable[[], object], repeats: int) -> list[float]:
@@ -124,6 +159,19 @@ def _telonex_flat_frame(items: int) -> pd.DataFrame:
     )
 
 
+def _telonex_trade_frame(items: int) -> pd.DataFrame:
+    timestamp_start_us = APR_21_2026_NS // 1_000
+    return pd.DataFrame(
+        {
+            "timestamp_us": [timestamp_start_us + index * 1_000 for index in range(items)],
+            "price": [0.40 + (index % 10) * 0.01 for index in range(items)],
+            "size": [1.0 + (index % 17) for index in range(items)],
+            "side": ["buy" if index % 2 == 0 else "sell" for index in range(items)],
+            "transaction_hash": [f"0xsynthetic{index // 2:024x}" for index in range(items)],
+        }
+    )
+
+
 def _bench_native_mode(
     *,
     enabled: bool,
@@ -133,8 +181,10 @@ def _bench_native_mode(
     pmxt_rows: list[tuple[str, str]],
     telonex_rows: list[tuple[str, str, str, int, str | None]],
     telonex_frame: pd.DataFrame,
+    telonex_trade_frame: pd.DataFrame,
+    native_extension_path: Path | None,
 ) -> dict[str, float | bool]:
-    mod = _configure_native(enabled)
+    mod = _configure_native_extension(enabled, native_extension_path)
     mod.native_available()
     root = Path("/Volumes/LaCie/telonex_data")
     base_url = "https://api.telonex.io/"
@@ -239,6 +289,19 @@ def _bench_native_mode(
         )
         return sum(len(record.deltas) for record in events)
 
+    def telonex_onchain_fill_trade_ticks() -> int:
+        loader = _make_telonex_loader()
+        trades = loader._onchain_fill_trade_ticks_from_frame(
+            telonex_trade_frame,
+            start=pd.Timestamp(APR_21_2026_NS, unit="ns", tz="UTC"),
+            end=pd.Timestamp(
+                APR_21_2026_NS + (telonex_events + 1) * 1_000_000,
+                unit="ns",
+                tz="UTC",
+            ),
+        )
+        return len(trades)
+
     cases = {
         "pmxt_payload_sort_key_loop": pmxt_payload_sort_key_loop,
         "pmxt_payload_sort_keys_batch": pmxt_payload_sort_keys_batch,
@@ -247,6 +310,7 @@ def _bench_native_mode(
         "telonex_path_loop": telonex_path_loop,
         "window_planner_loop": window_planner_loop,
         "telonex_flat_book_events": telonex_flat_book_events,
+        "telonex_onchain_fill_trade_ticks": telonex_onchain_fill_trade_ticks,
     }
     results: dict[str, float | bool] = {"native_available": bool(mod.native_available())}
     for name, fn in cases.items():
@@ -261,11 +325,18 @@ def main() -> None:
     parser.add_argument("--items", type=int, default=20_000)
     parser.add_argument("--telonex-events", type=int, default=5_000)
     parser.add_argument("--repeats", type=int, default=5)
+    parser.add_argument(
+        "--native-extension-path",
+        type=Path,
+        default=None,
+        help="Optional extension artifact to use for native-mode timings.",
+    )
     args = parser.parse_args()
 
     pmxt_rows = _payloads(args.items)
     telonex_rows = _telonex_inputs(args.items)
     telonex_frame = _telonex_flat_frame(args.telonex_events)
+    telonex_trade_frame = _telonex_trade_frame(args.telonex_events)
 
     native_results = _bench_native_mode(
         enabled=True,
@@ -275,6 +346,8 @@ def main() -> None:
         pmxt_rows=pmxt_rows,
         telonex_rows=telonex_rows,
         telonex_frame=telonex_frame,
+        telonex_trade_frame=telonex_trade_frame,
+        native_extension_path=args.native_extension_path,
     )
     python_results = _bench_native_mode(
         enabled=False,
@@ -284,9 +357,13 @@ def main() -> None:
         pmxt_rows=pmxt_rows,
         telonex_rows=telonex_rows,
         telonex_frame=telonex_frame,
+        telonex_trade_frame=telonex_trade_frame,
+        native_extension_path=args.native_extension_path,
     )
 
     print(f"items={args.items} telonex_events={args.telonex_events} repeats={args.repeats}")
+    if args.native_extension_path is not None:
+        print(f"native_extension_path={args.native_extension_path}")
     print(f"native_available(native mode)={native_results['native_available']}")
     print(f"native_available(python fallback)={python_results['native_available']}")
     print("case,native_s,python_s,speedup")
