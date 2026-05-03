@@ -1451,8 +1451,7 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
             table = pq.read_table(cache_path)
             if not _TELONEX_DELTAS_CACHE_COLUMNS.issubset(set(table.schema.names)):
                 raise ValueError("missing required deltas cache columns")
-            data = table.to_pydict()
-            records = self._deltas_records_from_columns(data)
+            records = self._deltas_records_from_table(table)
         except Exception as exc:  # noqa: BLE001 - stale/corrupt cache should self-heal
             try:
                 cache_path.unlink()
@@ -1735,7 +1734,28 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
             }
         )
 
-    def _deltas_records_from_columns(self, data: dict[str, list[object]]) -> list[OrderBookDeltas]:
+    @staticmethod
+    def _numeric_table_column(table: pa.Table, name: str) -> np.ndarray:
+        return table.column(name).combine_chunks().to_numpy(zero_copy_only=False)
+
+    def _deltas_records_from_table(self, table: pa.Table) -> list[OrderBookDeltas]:
+        return self._deltas_records_from_columns(
+            {
+                "event_index": self._numeric_table_column(table, "event_index"),
+                "action": self._numeric_table_column(table, "action"),
+                "side": self._numeric_table_column(table, "side"),
+                "price": self._numeric_table_column(table, "price"),
+                "size": self._numeric_table_column(table, "size"),
+                "flags": self._numeric_table_column(table, "flags"),
+                "sequence": self._numeric_table_column(table, "sequence"),
+                "ts_event": self._numeric_table_column(table, "ts_event"),
+                "ts_init": self._numeric_table_column(table, "ts_init"),
+            }
+        )
+
+    def _deltas_records_from_columns(
+        self, data: dict[str, Sequence[object]]
+    ) -> list[OrderBookDeltas]:
         event_indexes = data["event_index"]
         actions = data["action"]
         sides = data["side"]

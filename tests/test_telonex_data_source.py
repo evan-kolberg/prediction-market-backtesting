@@ -13,6 +13,7 @@ from types import SimpleNamespace
 import numpy as np
 import pandas as pd
 import pytest
+import pyarrow as pa
 from nautilus_trader.adapters.polymarket.common.parsing import parse_polymarket_instrument
 from nautilus_trader.model.data import OrderBookDeltas
 from nautilus_trader.model.enums import AggressorSide
@@ -719,6 +720,32 @@ def test_telonex_delta_columns_preserve_instrument_rounding() -> None:
 
     assert delta.order.price.raw == loader.instrument.make_price(0.105).raw
     assert delta.order.size.raw == loader.instrument.make_qty(1009.1234564).raw
+
+
+def test_telonex_delta_cache_table_avoids_python_dict_materialization() -> None:
+    loader = _make_polymarket_loader()
+    table = pa.table(
+        {
+            "event_index": pa.chunked_array([pa.array([0], pa.int32()), pa.array([1], pa.int32())]),
+            "action": pa.array([1, 2], pa.uint8()),
+            "side": pa.array([1, 2], pa.uint8()),
+            "price": pa.array([0.105, 0.205], pa.float64()),
+            "size": pa.array([1009.1234564, 7.0], pa.float64()),
+            "flags": pa.array([128, 128], pa.uint8()),
+            "sequence": pa.array([0, 0], pa.int32()),
+            "ts_event": pa.array([100, 101], pa.int64()),
+            "ts_init": pa.array([100, 101], pa.int64()),
+        }
+    )
+
+    records = loader._deltas_records_from_table(table)
+
+    assert len(records) == 2
+    first_delta = records[0].deltas[0]
+    second_delta = records[1].deltas[0]
+    assert first_delta.order.price.raw == loader.instrument.make_price(0.105).raw
+    assert first_delta.order.size.raw == loader.instrument.make_qty(1009.1234564).raw
+    assert second_delta.order.price.raw == loader.instrument.make_price(0.205).raw
 
 
 def test_telonex_diff_deltas_preserve_instrument_rounding() -> None:
