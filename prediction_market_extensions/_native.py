@@ -20,7 +20,6 @@ _NANOS_PER_DAY = 86_400_000_000_000
 _NANOS_PER_HOUR = 3_600_000_000_000
 _SECONDS_PER_DAY = 86_400
 _TELONEX_EXCHANGE = "polymarket"
-_TELONEX_PUBLIC_TRADES_API_URL = "https://data-api.polymarket.com/trades"
 
 WindowSemantics = Literal["half_open", "inclusive"]
 
@@ -70,6 +69,16 @@ def native_available() -> bool:
     if module is None:
         return False
     return bool(module.native_available())
+
+
+def _required_native_function(module: ModuleType, name: str):
+    try:
+        return getattr(module, name)
+    except AttributeError as exc:
+        raise RuntimeError(
+            "prediction_market_extensions._native_ext is stale and is missing "
+            f"{name}(). Rebuild it with `make native-develop`."
+        ) from exc
 
 
 def _validate_semantics(semantics: str) -> WindowSemantics:
@@ -127,34 +136,6 @@ def _pmxt_payload_sort_key_python(update_type: str, payload_text: str) -> tuple[
 
     payload = json.loads(payload_text)
     return (_decimal_seconds_to_ns_python(payload["timestamp"]), priority)
-
-
-def _pmxt_extract_payload_fields_python(
-    payload_text: str,
-) -> tuple[str, str, int, str, str, tuple[str, str, str] | None]:
-    payload = json.loads(payload_text)
-    update_type = str(payload["update_type"])
-    if update_type == "book_snapshot":
-        update_class = "book_snapshot"
-        price_change = None
-    elif update_type == "price_change":
-        update_class = "price_change"
-        price_change = (
-            str(payload["change_side"]),
-            str(payload["change_price"]),
-            str(payload["change_size"]),
-        )
-    else:
-        update_class = "other"
-        price_change = None
-    return (
-        update_type,
-        update_class,
-        _decimal_seconds_to_ns_python(payload["timestamp"]),
-        str(payload["market_id"]),
-        str(payload["token_id"]),
-        price_change,
-    )
 
 
 def _polymarket_trade_sort_key_python(
@@ -387,6 +368,64 @@ def telonex_flat_book_snapshot_diff_rows(
     )
 
 
+def telonex_nested_book_snapshot_diff_rows(
+    *,
+    timestamp_ns: Sequence[int],
+    bids: Sequence[object],
+    asks: Sequence[object],
+    start_ns: int,
+    end_ns: int,
+) -> (
+    tuple[
+        int | None,
+        list[int],
+        list[int],
+        list[int],
+        list[float],
+        list[float],
+        list[int],
+        list[int],
+        list[int],
+        list[int],
+    ]
+    | None
+):
+    module = _extension_module()
+    if module is None:
+        return None
+    nested_diff_rows = _required_native_function(module, "telonex_nested_book_snapshot_diff_rows")
+    (
+        first_snapshot_index,
+        event_index,
+        action,
+        side,
+        price,
+        size,
+        flags,
+        sequence,
+        ts_event,
+        ts_init,
+    ) = nested_diff_rows(
+        [int(value) for value in timestamp_ns],
+        list(bids),
+        list(asks),
+        int(start_ns),
+        int(end_ns),
+    )
+    return (
+        None if first_snapshot_index is None else int(first_snapshot_index),
+        [int(value) for value in event_index],
+        [int(value) for value in action],
+        [int(value) for value in side],
+        [float(value) for value in price],
+        [float(value) for value in size],
+        [int(value) for value in flags],
+        [int(value) for value in sequence],
+        [int(value) for value in ts_event],
+        [int(value) for value in ts_init],
+    )
+
+
 def telonex_onchain_fill_trade_rows(
     *,
     timestamp_ns: Sequence[int],
@@ -446,10 +485,7 @@ def decimal_seconds_to_ns(value: object) -> int:
     text = str(value)
     module = _extension_module()
     if module is not None:
-        try:
-            return int(module.decimal_seconds_to_ns(text))
-        except ValueError:
-            return _decimal_seconds_to_ns_python(text)
+        return int(module.decimal_seconds_to_ns(text))
     return _decimal_seconds_to_ns_python(text)
 
 
@@ -468,53 +504,16 @@ def pmxt_payload_sort_key(update_type: str, payload_text: str) -> tuple[int, int
     return _pmxt_payload_sort_key_python(update_type, payload_text)
 
 
-def pmxt_payload_sort_keys(items: Sequence[tuple[str, str]]) -> list[tuple[int, int]]:
-    module = _extension_module()
-    if module is not None:
-        return [
-            (int(timestamp_ns), int(priority))
-            for timestamp_ns, priority in module.pmxt_payload_sort_keys(list(items))
-        ]
-    return [
-        _pmxt_payload_sort_key_python(update_type, payload_text)
-        for update_type, payload_text in items
-    ]
-
-
-def pmxt_sort_payloads(items: Sequence[tuple[str, str]]) -> list[tuple[int, int, str, str]]:
-    module = _extension_module()
-    if module is not None:
-        return [
-            (int(timestamp_ns), int(priority), str(update_type), str(payload_text))
-            for timestamp_ns, priority, update_type, payload_text in module.pmxt_sort_payloads(
-                list(items)
-            )
-        ]
-    return [
-        (timestamp_ns, priority, update_type, payload_text)
-        for (timestamp_ns, priority), (update_type, payload_text) in sorted(
-            zip(
-                [
-                    _pmxt_payload_sort_key_python(update_type, payload_text)
-                    for update_type, payload_text in items
-                ],
-                items,
-                strict=True,
-            ),
-            key=lambda item: item[0],
-        )
-    ]
-
-
 def pmxt_sort_payload_columns(
     update_type_columns: Sequence[Sequence[str]],
     payload_text_columns: Sequence[Sequence[str]],
 ) -> list[tuple[int, int, str, str]]:
     module = _extension_module()
-    if module is not None and hasattr(module, "pmxt_sort_payload_columns"):
+    if module is not None:
+        sort_payload_columns = _required_native_function(module, "pmxt_sort_payload_columns")
         return [
             (int(timestamp_ns), int(priority), str(update_type), str(payload_text))
-            for timestamp_ns, priority, update_type, payload_text in module.pmxt_sort_payload_columns(
+            for timestamp_ns, priority, update_type, payload_text in sort_payload_columns(
                 update_type_columns,
                 payload_text_columns,
             )
@@ -538,7 +537,17 @@ def pmxt_sort_payload_columns(
                 f"{len(payload_texts)} payload row(s)"
             )
         items.extend(zip(update_types, payload_texts, strict=True))
-    return pmxt_sort_payloads(items)
+    keyed_items = [
+        (_pmxt_payload_sort_key_python(update_type, payload_text), update_type, payload_text)
+        for update_type, payload_text in items
+    ]
+    return [
+        (timestamp_ns, priority, update_type, payload_text)
+        for (timestamp_ns, priority), update_type, payload_text in sorted(
+            keyed_items,
+            key=lambda item: item[0],
+        )
+    ]
 
 
 def pmxt_payload_delta_rows(
@@ -559,8 +568,9 @@ def pmxt_payload_delta_rows(
     | None
 ):
     module = _extension_module()
-    if module is None or not hasattr(module, "pmxt_payload_delta_rows"):
+    if module is None:
         return None
+    payload_delta_rows = _required_native_function(module, "pmxt_payload_delta_rows")
     (
         next_has_snapshot,
         last_timestamp_ns,
@@ -574,7 +584,7 @@ def pmxt_payload_delta_rows(
         sequence,
         ts_event,
         ts_init,
-    ) = module.pmxt_payload_delta_rows(
+    ) = payload_delta_rows(
         update_type_columns,
         payload_text_columns,
         str(token_id),
@@ -604,27 +614,6 @@ def pmxt_payload_delta_rows(
             "ts_init": [int(value) for value in ts_init],
         },
     )
-
-
-def pmxt_extract_payload_fields(
-    payload_text: str,
-) -> tuple[str, str, int, str, str, tuple[str, str, str] | None]:
-    module = _extension_module()
-    if module is not None:
-        update_type, update_class, timestamp_ns, market_id, token_id, price_change = (
-            module.pmxt_extract_payload_fields(payload_text)
-        )
-        return (
-            str(update_type),
-            str(update_class),
-            int(timestamp_ns),
-            str(market_id),
-            str(token_id),
-            None
-            if price_change is None
-            else (str(price_change[0]), str(price_change[1]), str(price_change[2])),
-        )
-    return _pmxt_extract_payload_fields_python(payload_text)
 
 
 def polymarket_trade_sort_key(trade: Mapping[str, object]) -> tuple[int, str, str, str, str, str]:
@@ -762,11 +751,12 @@ def replay_merge_plan(
     trade_ts_inits: Sequence[int],
 ) -> list[tuple[int, int]] | None:
     module = _extension_module()
-    if module is None or not hasattr(module, "replay_merge_plan"):
+    if module is None:
         return None
+    merge_plan = _required_native_function(module, "replay_merge_plan")
     return [
         (int(kind), int(index))
-        for kind, index in module.replay_merge_plan(
+        for kind, index in merge_plan(
             [int(value) for value in book_ts_events],
             [int(value) for value in book_ts_inits],
             [int(value) for value in trade_ts_events],
@@ -986,12 +976,9 @@ __all__ = [
     "float_seconds_to_ms_string",
     "native_available",
     "pmxt_archive_hours_for_window_ns",
-    "pmxt_extract_payload_fields",
     "pmxt_payload_delta_rows",
     "pmxt_payload_sort_key",
-    "pmxt_payload_sort_keys",
     "pmxt_sort_payload_columns",
-    "pmxt_sort_payloads",
     "polymarket_are_tradable_probability_prices",
     "polymarket_is_tradable_probability_price",
     "polymarket_normalize_trade_side",
@@ -1011,6 +998,7 @@ __all__ = [
     "telonex_flat_book_snapshot_diff_rows",
     "telonex_local_consolidated_candidate_paths",
     "telonex_local_daily_candidate_paths",
+    "telonex_nested_book_snapshot_diff_rows",
     "telonex_onchain_fill_trade_rows",
     "telonex_source_days_for_window_ns",
     "telonex_source_label_kind",

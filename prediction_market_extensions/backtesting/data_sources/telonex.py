@@ -43,6 +43,7 @@ from prediction_market_extensions._native import (
     telonex_flat_book_snapshot_diff_rows,
     telonex_local_consolidated_candidate_paths,
     telonex_local_daily_candidate_paths,
+    telonex_nested_book_snapshot_diff_rows,
     telonex_onchain_fill_trade_rows,
     telonex_source_days_for_window_ns,
     telonex_source_label_kind,
@@ -373,8 +374,23 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
         # range on the same month-sized frame.
         if not hasattr(self, "_telonex_blob_ts_ns"):
             self._telonex_blob_ts_ns: dict[
-                tuple[str, str, str, int, str | None, int, int], np.ndarray
+                tuple[str, str, str, int, str | None, int, int], dict[str, np.ndarray]
             ] = {}
+        if not hasattr(self, "_telonex_blob_frame_id_by_key"):
+            self._telonex_blob_frame_id_by_key: dict[
+                tuple[str, str, str, int, str | None, int, int], int
+            ] = {}
+        if not hasattr(self, "_telonex_blob_ts_ns_by_frame_id"):
+            self._telonex_blob_ts_ns_by_frame_id: dict[int, dict[str, np.ndarray]] = {}
+
+    def _forget_blob_ts_cache_key(
+        self,
+        cache_key: tuple[str, str, str, int, str | None, int, int],
+    ) -> None:
+        frame_id = self._telonex_blob_frame_id_by_key.pop(cache_key, None)
+        if frame_id is not None:
+            self._telonex_blob_ts_ns_by_frame_id.pop(frame_id, None)
+        self._telonex_blob_ts_ns.pop(cache_key, None)
 
     @classmethod
     async def from_market_slug(
@@ -760,6 +776,7 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
         channel_dir = store_root / _TELONEX_DATA_SUBDIR / f"channel={channel}"
         if not channel_dir.exists():
             with self._telonex_blob_scan_lock:
+                self._forget_blob_ts_cache_key(cache_key)
                 self._telonex_blob_range_frames[cache_key] = None
             return None
         manifest_parts = self._manifest_blob_part_paths(
@@ -786,6 +803,7 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
             return None
         if not part_paths:
             with self._telonex_blob_scan_lock:
+                self._forget_blob_ts_cache_key(cache_key)
                 self._telonex_blob_range_frames[cache_key] = None
             return None
 
@@ -879,6 +897,7 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
             table = scanner.to_table()
             if table.num_rows == 0:
                 with self._telonex_blob_scan_lock:
+                    self._forget_blob_ts_cache_key(cache_key)
                     self._telonex_blob_range_frames[cache_key] = None
                 return None
             frame = table.to_pandas()
@@ -889,13 +908,14 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
                 stacklevel=2,
             )
             with self._telonex_blob_scan_lock:
+                self._forget_blob_ts_cache_key(cache_key)
                 self._telonex_blob_range_frames[cache_key] = None
             return None
 
         if frame.empty:
             with self._telonex_blob_scan_lock:
+                self._forget_blob_ts_cache_key(cache_key)
                 self._telonex_blob_range_frames[cache_key] = None
-                self._telonex_blob_ts_ns.pop(cache_key, None)
             return None
         # Pre-compute the nanosecond timestamp array for every possible
         # timestamp column name so per-day callers of _column_to_ns() can
@@ -911,10 +931,15 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
                     break
         if ts_ns_map:
             with self._telonex_blob_scan_lock:
+                self._forget_blob_ts_cache_key(cache_key)
                 self._telonex_blob_range_frames[cache_key] = frame
                 self._telonex_blob_ts_ns[cache_key] = ts_ns_map
+                frame_id = id(frame)
+                self._telonex_blob_frame_id_by_key[cache_key] = frame_id
+                self._telonex_blob_ts_ns_by_frame_id[frame_id] = ts_ns_map
         else:
             with self._telonex_blob_scan_lock:
+                self._forget_blob_ts_cache_key(cache_key)
                 self._telonex_blob_range_frames[cache_key] = frame
         return frame
 
@@ -922,18 +947,10 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
         """Return a pre-computed ts_ns array if *frame* is a memoized blob
         frame (same object identity) and *column_name* was cached."""
         self._ensure_blob_scan_caches()
-        blob_frames = getattr(self, "_telonex_blob_range_frames", None)
-        if blob_frames is None:
-            return None
-        blob_ts = getattr(self, "_telonex_blob_ts_ns", None)
         with self._telonex_blob_scan_lock:
-            for key, cached_frame in blob_frames.items():
-                if cached_frame is frame:
-                    if blob_ts is not None:
-                        ts_map = blob_ts.get(key)
-                        if ts_map is not None:
-                            return ts_map.get(column_name)
-                    return None
+            ts_map = self._telonex_blob_ts_ns_by_frame_id.get(id(frame))
+            if ts_map is not None:
+                return ts_map.get(column_name)
         return None
 
     @classmethod
@@ -2090,16 +2107,25 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
         ns_arr = ts_ns[mask]
         order = np.argsort(ns_arr, kind="stable")
 
-        if has_flat and include_order_book:
-            native_rows = telonex_flat_book_snapshot_diff_rows(
-                timestamp_ns=ns_arr,
-                bid_prices=bid_prices_values,
-                bid_sizes=bid_sizes_values,
-                ask_prices=ask_prices_values,
-                ask_sizes=ask_sizes_values,
-                start_ns=start_ns,
-                end_ns=end_ns,
-            )
+        if include_order_book:
+            if has_flat:
+                native_rows = telonex_flat_book_snapshot_diff_rows(
+                    timestamp_ns=ns_arr,
+                    bid_prices=bid_prices_values,
+                    bid_sizes=bid_sizes_values,
+                    ask_prices=ask_prices_values,
+                    ask_sizes=ask_sizes_values,
+                    start_ns=start_ns,
+                    end_ns=end_ns,
+                )
+            else:
+                native_rows = telonex_nested_book_snapshot_diff_rows(
+                    timestamp_ns=ns_arr,
+                    bids=bids_values,
+                    asks=asks_values,
+                    start_ns=start_ns,
+                    end_ns=end_ns,
+                )
             if native_rows is not None:
                 (
                     first_snapshot_index,
@@ -2116,16 +2142,24 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
 
                 events: list[OrderBookDeltas] = []
                 if first_snapshot_index is not None:
-                    bids = self._book_levels_from_arrays(
-                        prices=bid_prices_values[first_snapshot_index],
-                        sizes=bid_sizes_values[first_snapshot_index],
-                        side="bid",
-                    )
-                    asks = self._book_levels_from_arrays(
-                        prices=ask_prices_values[first_snapshot_index],
-                        sizes=ask_sizes_values[first_snapshot_index],
-                        side="ask",
-                    )
+                    if has_flat:
+                        bids = self._book_levels_from_arrays(
+                            prices=bid_prices_values[first_snapshot_index],
+                            sizes=bid_sizes_values[first_snapshot_index],
+                            side="bid",
+                        )
+                        asks = self._book_levels_from_arrays(
+                            prices=ask_prices_values[first_snapshot_index],
+                            sizes=ask_sizes_values[first_snapshot_index],
+                            side="ask",
+                        )
+                    else:
+                        bids = self._book_levels_from_value(
+                            bids_values[first_snapshot_index], side="bid"
+                        )
+                        asks = self._book_levels_from_value(
+                            asks_values[first_snapshot_index], side="ask"
+                        )
                     ts_event = int(ns_arr[first_snapshot_index])
                     deltas = self._snapshot_to_deltas(bids=bids, asks=asks, ts_event=ts_event)
                     if deltas is not None:

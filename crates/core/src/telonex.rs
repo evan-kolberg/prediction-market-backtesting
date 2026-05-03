@@ -20,6 +20,9 @@ const ORDER_SIDE_SELL: u8 = 2;
 const BOOK_ACTION_UPDATE: u8 = 2;
 const BOOK_ACTION_DELETE: u8 = 3;
 const RECORD_FLAG_LAST: u8 = 128;
+const AGGRESSOR_NO_AGGRESSOR: u8 = 0;
+const AGGRESSOR_BUYER: u8 = 1;
+const AGGRESSOR_SELLER: u8 = 2;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TelonexSourceEntryKind {
@@ -53,6 +56,16 @@ pub struct TelonexFlatBookDiffRows {
     pub size: Vec<f64>,
     pub flags: Vec<u8>,
     pub sequence: Vec<i32>,
+    pub ts_event: Vec<i64>,
+    pub ts_init: Vec<i64>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct TelonexTradeRows {
+    pub price: Vec<f64>,
+    pub size: Vec<f64>,
+    pub aggressor_side: Vec<u8>,
+    pub trade_id: Vec<String>,
     pub ts_event: Vec<i64>,
     pub ts_init: Vec<i64>,
 }
@@ -486,6 +499,133 @@ fn parse_finite_f64(value: &str, field: &str) -> Result<f64, String> {
     Ok(parsed)
 }
 
+#[allow(clippy::too_many_arguments)]
+pub fn onchain_fill_trade_rows(
+    timestamp_ns: &[i64],
+    prices: &[Option<String>],
+    sizes: &[Option<String>],
+    sides: Option<&[Option<String>]>,
+    ids: Option<&[Option<String>]>,
+    start_ns: i64,
+    end_ns: i64,
+    token_suffix: &str,
+) -> Result<TelonexTradeRows, String> {
+    let row_count = timestamp_ns.len();
+    if prices.len() != row_count || sizes.len() != row_count {
+        return Err(format!(
+            "Telonex trade columns have inconsistent lengths: timestamp_ns={}, prices={}, sizes={}",
+            timestamp_ns.len(),
+            prices.len(),
+            sizes.len()
+        ));
+    }
+    if let Some(sides) = sides
+        && sides.len() != row_count
+    {
+        return Err(format!(
+            "Telonex trade side column length does not match timestamp_ns: timestamp_ns={}, sides={}",
+            timestamp_ns.len(),
+            sides.len()
+        ));
+    }
+    if let Some(ids) = ids
+        && ids.len() != row_count
+    {
+        return Err(format!(
+            "Telonex trade id column length does not match timestamp_ns: timestamp_ns={}, ids={}",
+            timestamp_ns.len(),
+            ids.len()
+        ));
+    }
+
+    let mut order: Vec<usize> = timestamp_ns
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, timestamp)| {
+            (*timestamp >= start_ns && *timestamp <= end_ns).then_some(idx)
+        })
+        .collect();
+    order.sort_by_key(|idx| timestamp_ns[*idx]);
+
+    let mut rows = TelonexTradeRows::default();
+    let mut timestamp_counts: HashMap<i64, usize> = HashMap::new();
+    let mut trade_id_counts: HashMap<String, usize> = HashMap::new();
+    let token_suffix = token_suffix.trim();
+
+    for (sorted_index, idx) in order.into_iter().enumerate() {
+        let Some(price) = parse_optional_finite_f64(prices[idx].as_deref()) else {
+            continue;
+        };
+        let Some(size) = parse_optional_finite_f64(sizes[idx].as_deref()) else {
+            continue;
+        };
+        if !(0.0 < price && price < 1.0) || size <= 0.0 {
+            continue;
+        }
+
+        let base_ts_event = timestamp_ns[idx];
+        let occurrence = *timestamp_counts.get(&base_ts_event).unwrap_or(&0);
+        timestamp_counts.insert(base_ts_event, occurrence + 1);
+        let ts_event =
+            base_ts_event.saturating_add(i64::try_from(occurrence.min(999)).unwrap_or(999));
+
+        let aggressor_side = sides
+            .and_then(|side_values| side_values.get(idx).and_then(Option::as_deref))
+            .map_or(AGGRESSOR_NO_AGGRESSOR, telonex_aggressor_side);
+
+        let raw_id = match ids {
+            Some(id_values) => id_values
+                .get(idx)
+                .and_then(Option::as_deref)
+                .map(str::to_string)
+                .filter(|value| !value.is_empty() && !value.eq_ignore_ascii_case("nan"))
+                .unwrap_or_else(|| format!("telonex-{base_ts_event}")),
+            None => format!("telonex-{base_ts_event}-{sorted_index}"),
+        };
+        let sequence = *trade_id_counts.get(&raw_id).unwrap_or(&0);
+        trade_id_counts.insert(raw_id.clone(), sequence + 1);
+        let id_suffix = suffix_chars(&raw_id, 24);
+        let trade_id = if token_suffix.is_empty() {
+            format!("{id_suffix}-{sequence:06}")
+        } else {
+            format!("{id_suffix}-{token_suffix}-{sequence:06}")
+        };
+
+        rows.price.push(price);
+        rows.size.push(size);
+        rows.aggressor_side.push(aggressor_side);
+        rows.trade_id.push(trade_id);
+        rows.ts_event.push(ts_event);
+        rows.ts_init.push(ts_event);
+    }
+
+    Ok(rows)
+}
+
+fn parse_optional_finite_f64(value: Option<&str>) -> Option<f64> {
+    let value = value?.trim();
+    if value.is_empty() || value.eq_ignore_ascii_case("nan") {
+        return None;
+    }
+    let parsed = value.parse::<f64>().ok()?;
+    parsed.is_finite().then_some(parsed)
+}
+
+fn telonex_aggressor_side(value: &str) -> u8 {
+    let normalized = value.trim().to_ascii_lowercase().replace('-', "_");
+    match normalized.as_str() {
+        "buy" | "buyer" | "bid" | "bidder" | "taker_buy" | "buying" => AGGRESSOR_BUYER,
+        "sell" | "seller" | "ask" | "offer" | "taker_sell" | "selling" => AGGRESSOR_SELLER,
+        _ => AGGRESSOR_NO_AGGRESSOR,
+    }
+}
+
+fn suffix_chars(value: &str, count: usize) -> String {
+    let mut chars = value.chars().rev().take(count).collect::<Vec<_>>();
+    chars.reverse();
+    chars.into_iter().collect()
+}
+
 pub fn outcome_segments(token_index: i64, outcome: Option<&str>) -> Vec<String> {
     let mut segments = vec![format!("outcome_id={token_index}"), token_index.to_string()];
     if let Some(outcome) = nonempty(outcome) {
@@ -886,10 +1026,10 @@ mod tests {
         TelonexSourceLabelKind, TelonexSourceStage, api_cache_file_name, api_cache_relative_path,
         api_url, classify_telonex_sources, deltas_cache_relative_path, fast_api_cache_file_name,
         flat_book_snapshot_diff_rows, local_consolidated_candidate_paths,
-        local_daily_candidate_paths, materialized_cache_file_name, outcome_cache_segment,
-        outcome_segments, source_summary_line, telonex_api_source_label, telonex_day_window_ns,
-        telonex_source_days_for_window, telonex_source_label_kind, telonex_source_summary,
-        telonex_stage_for_source, trade_ticks_cache_relative_path,
+        local_daily_candidate_paths, materialized_cache_file_name, onchain_fill_trade_rows,
+        outcome_cache_segment, outcome_segments, source_summary_line, telonex_api_source_label,
+        telonex_day_window_ns, telonex_source_days_for_window, telonex_source_label_kind,
+        telonex_source_summary, telonex_stage_for_source, trade_ticks_cache_relative_path,
     };
     use std::path::PathBuf;
 
@@ -1213,6 +1353,83 @@ mod tests {
         assert_eq!(rows.sequence, vec![1]);
         assert_eq!(rows.ts_event, vec![100]);
         assert_eq!(rows.ts_init, rows.ts_event);
+    }
+
+    #[test]
+    fn onchain_fill_trade_rows_filters_sorts_and_deduplicates_ids() {
+        let rows = onchain_fill_trade_rows(
+            &[120, 100, 100, 110, 111],
+            &[
+                Some("0.42".to_string()),
+                Some("0.50".to_string()),
+                Some("1.00".to_string()),
+                Some("nan".to_string()),
+                Some("0.49".to_string()),
+            ],
+            &[
+                Some("2".to_string()),
+                Some("3".to_string()),
+                Some("4".to_string()),
+                Some("5".to_string()),
+                Some("0".to_string()),
+            ],
+            Some(&[
+                Some("sell".to_string()),
+                Some("buyer".to_string()),
+                Some("buy".to_string()),
+                Some("ask".to_string()),
+                Some("unknown".to_string()),
+            ]),
+            Some(&[
+                Some("0xabc000000000000000000001".to_string()),
+                Some("0xabc000000000000000000002".to_string()),
+                Some("0xabc000000000000000000003".to_string()),
+                Some("0xabc000000000000000000004".to_string()),
+                Some("0xabc000000000000000000005".to_string()),
+            ]),
+            100,
+            120,
+            "YES",
+        )
+        .unwrap();
+
+        assert_eq!(rows.price, vec![0.50, 0.42]);
+        assert_eq!(rows.size, vec![3.0, 2.0]);
+        assert_eq!(rows.aggressor_side, vec![1, 2]);
+        assert_eq!(
+            rows.trade_id,
+            vec![
+                "abc000000000000000000002-YES-000000",
+                "abc000000000000000000001-YES-000000",
+            ]
+        );
+        assert_eq!(rows.ts_event, vec![100, 120]);
+        assert_eq!(rows.ts_init, rows.ts_event);
+    }
+
+    #[test]
+    fn onchain_fill_trade_rows_disambiguates_same_timestamp_and_id() {
+        let rows = onchain_fill_trade_rows(
+            &[100, 100],
+            &[Some("0.40".to_string()), Some("0.41".to_string())],
+            &[Some("1".to_string()), Some("2".to_string())],
+            None,
+            Some(&[
+                Some("same-trade-id".to_string()),
+                Some("same-trade-id".to_string()),
+            ]),
+            100,
+            100,
+            "",
+        )
+        .unwrap();
+
+        assert_eq!(
+            rows.trade_id,
+            vec!["same-trade-id-000000", "same-trade-id-000001"]
+        );
+        assert_eq!(rows.ts_event, vec![100, 101]);
+        assert_eq!(rows.aggressor_side, vec![0, 0]);
     }
 
     #[test]

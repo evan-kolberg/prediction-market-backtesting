@@ -806,6 +806,78 @@ def test_telonex_flat_book_snapshots_use_native_diff_rows(
     assert int(records[1].deltas[0].flags) == 128
 
 
+def test_telonex_nested_book_snapshots_use_native_diff_rows(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    loader = _make_polymarket_loader()
+    ts0 = 1_768_780_800_000_000_000
+    ts1 = 1_768_780_800_100_000_000
+    frame = pd.DataFrame(
+        {
+            "timestamp_us": [ts0 // 1_000, ts1 // 1_000],
+            "bids": [
+                [{"price": "0.34", "size": "10"}],
+                [{"price": "0.34", "size": "7"}],
+            ],
+            "asks": [
+                [{"price": "0.39", "size": "11"}],
+                [{"price": "0.39", "size": "11"}],
+            ],
+        }
+    )
+    calls: list[dict[str, object]] = []
+
+    def fake_native_diff_rows(
+        **kwargs: object,
+    ) -> tuple[
+        int,
+        list[int],
+        list[int],
+        list[int],
+        list[float],
+        list[float],
+        list[int],
+        list[int],
+        list[int],
+        list[int],
+    ]:
+        calls.append(kwargs)
+        return (
+            0,
+            [0],
+            [2],
+            [1],
+            [0.34],
+            [7.0],
+            [128],
+            [1],
+            [ts1],
+            [ts1],
+        )
+
+    monkeypatch.setattr(
+        telonex_module,
+        "telonex_nested_book_snapshot_diff_rows",
+        fake_native_diff_rows,
+    )
+
+    records = loader._book_events_from_frame(
+        frame,
+        start=pd.Timestamp("2026-01-19T00:00:00Z"),
+        end=pd.Timestamp("2026-01-20T00:00:00Z"),
+    )
+
+    assert calls
+    assert [int(value) for value in calls[0]["timestamp_ns"]] == [ts0, ts1]
+    assert list(calls[0]["bids"]) == list(frame["bids"])
+    assert len(records) == 2
+    assert len(records[0].deltas) == 3
+    assert int(records[1].deltas[0].action) == 2
+    assert int(records[1].deltas[0].order.side) == 1
+    assert float(records[1].deltas[0].order.price) == pytest.approx(0.34)
+    assert float(records[1].deltas[0].order.size) == pytest.approx(7.0)
+
+
 def test_telonex_onchain_fills_use_native_trade_rows(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1094,6 +1166,8 @@ def test_telonex_blob_timestamp_cache_reads_are_thread_safe() -> None:
             ] = None
         loader._telonex_blob_range_frames[target_key] = frame
         loader._telonex_blob_ts_ns[target_key] = {"timestamp_us": ts_ns}
+        loader._telonex_blob_frame_id_by_key[target_key] = id(frame)
+        loader._telonex_blob_ts_ns_by_frame_id[id(frame)] = {"timestamp_us": ts_ns}
 
     stop = threading.Event()
 

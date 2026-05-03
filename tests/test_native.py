@@ -186,6 +186,34 @@ def test_telonex_flat_book_snapshot_diff_rows_uses_native_diff_engine() -> None:
     assert ts_init == ts
 
 
+def test_telonex_nested_book_snapshot_diff_rows_normalizes_in_native() -> None:
+    rows = native.telonex_nested_book_snapshot_diff_rows(
+        timestamp_ns=[90, 100, 110],
+        bids=[
+            [{"price": "0.10", "size": "1"}],
+            [{"price": "0.10", "size": "1"}, {"price": "0.09", "size": "2"}],
+            [{"price": "0.10", "size": "3"}, {"price": "0.08", "size": "4"}],
+        ],
+        asks=[
+            [{"price": "0.80", "size": "1"}],
+            [{"price": "0.80", "size": "1"}, {"price": "0.90", "size": "2"}],
+            [{"price": "0.80", "size": "3"}, {"price": "0.95", "size": "4"}],
+        ],
+        start_ns=100,
+        end_ns=110,
+    )
+
+    assert rows is not None
+    first_snapshot_index, event_indexes, actions, sides, prices, sizes, flags, *_rest = rows
+    assert first_snapshot_index == 1
+    assert event_indexes == [0, 0, 0, 0, 0, 0]
+    assert actions == [2, 3, 2, 2, 3, 2]
+    assert sides == [1, 1, 1, 2, 2, 2]
+    assert prices == [0.08, 0.09, 0.10, 0.95, 0.90, 0.80]
+    assert sizes == [4.0, 0.0, 3.0, 4.0, 0.0, 3.0]
+    assert flags == [0, 0, 0, 0, 0, 128]
+
+
 def test_telonex_onchain_fill_trade_rows_normalizes_execution_ticks() -> None:
     rows = native.telonex_onchain_fill_trade_rows(
         timestamp_ns=[99, 100, 100, 101, 102],
@@ -280,37 +308,6 @@ def test_pmxt_payload_sort_key_uses_native_timestamp_extraction() -> None:
         0,
     )
     assert native.pmxt_payload_sort_key("unknown", "{}") == (0, 2)
-    assert native.pmxt_payload_sort_keys(
-        [
-            ("price_change", '{"update_type":"price_change","timestamp":1771767624.001296}'),
-            ("book_snapshot", payload_text),
-        ]
-    ) == [
-        (1_771_767_624_001_296_000, 1),
-        (1_771_767_624_001_295_000, 0),
-    ]
-    assert native.pmxt_sort_payloads(
-        [
-            ("price_change", '{"update_type":"price_change","timestamp":1771767624.001296}'),
-            ("book_snapshot", payload_text),
-        ]
-    ) == [
-        (1_771_767_624_001_295_000, 0, "book_snapshot", payload_text),
-        (
-            1_771_767_624_001_296_000,
-            1,
-            "price_change",
-            '{"update_type":"price_change","timestamp":1771767624.001296}',
-        ),
-    ]
-    assert native.pmxt_extract_payload_fields(payload_text) == (
-        "book_snapshot",
-        "book_snapshot",
-        1_771_767_624_001_295_000,
-        "condition-123",
-        "token-yes-123",
-        None,
-    )
 
 
 def test_pmxt_sort_payload_columns_sorts_without_row_tuple_input() -> None:

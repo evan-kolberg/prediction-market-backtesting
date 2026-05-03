@@ -192,6 +192,34 @@ def _telonex_flat_frame(items: int) -> pd.DataFrame:
     )
 
 
+def _telonex_nested_frame(items: int) -> pd.DataFrame:
+    timestamp_start_us = APR_21_2026_NS // 1_000
+    bids: list[list[dict[str, str]]] = []
+    asks: list[list[dict[str, str]]] = []
+    for index in range(items):
+        bids.append(
+            [
+                {"price": "0.40", "size": f"{10 + index % 17}"},
+                {"price": "0.39", "size": f"{7 + index % 11}"},
+                {"price": "0.38", "size": "5"},
+            ]
+        )
+        asks.append(
+            [
+                {"price": "0.61", "size": f"{9 + index % 13}"},
+                {"price": "0.62", "size": f"{8 + index % 7}"},
+                {"price": "0.63", "size": "4"},
+            ]
+        )
+    return pd.DataFrame(
+        {
+            "timestamp_us": [timestamp_start_us + index * 1_000_000 for index in range(items)],
+            "bids": bids,
+            "asks": asks,
+        }
+    )
+
+
 def _telonex_trade_frame(items: int) -> pd.DataFrame:
     timestamp_start_us = APR_21_2026_NS // 1_000
     return pd.DataFrame(
@@ -215,6 +243,7 @@ def _bench_native_mode(
     telonex_rows: list[tuple[str, str, str, int, str | None]],
     merge_inputs: tuple[list[int], list[int], list[int], list[int]],
     telonex_frame: pd.DataFrame,
+    telonex_nested_frame: pd.DataFrame,
     telonex_trade_frame: pd.DataFrame,
     native_extension_path: Path | None,
 ) -> dict[str, float | bool]:
@@ -232,16 +261,15 @@ def _bench_native_mode(
             total += timestamp_ns + priority
         return total
 
-    def pmxt_payload_sort_keys_batch() -> int:
+    def pmxt_sort_payload_columns_batch() -> int:
+        update_type_columns = [[update_type for update_type, _payload in pmxt_rows]]
+        payload_text_columns = [[payload for _update_type, payload in pmxt_rows]]
         return sum(
             timestamp_ns + priority
-            for timestamp_ns, priority in mod.pmxt_payload_sort_keys(pmxt_rows)
-        )
-
-    def pmxt_sort_payloads_batch() -> int:
-        return sum(
-            timestamp_ns + priority
-            for timestamp_ns, priority, _update_type, _payload in mod.pmxt_sort_payloads(pmxt_rows)
+            for timestamp_ns, priority, _update_type, _payload in mod.pmxt_sort_payload_columns(
+                update_type_columns,
+                payload_text_columns,
+            )
         )
 
     def pmxt_payload_delta_rows_batch() -> int:
@@ -295,13 +323,6 @@ def _bench_native_mode(
                     include_order_book=True,
                 )
         return sum(len(record.deltas) for record in events)
-
-    def pmxt_extract_payload_fields_loop() -> int:
-        total = 0
-        for _update_type, payload in pmxt_rows:
-            fields = mod.pmxt_extract_payload_fields(payload)
-            total += fields[2]
-        return total
 
     def telonex_path_loop() -> int:
         total = 0
@@ -398,6 +419,20 @@ def _bench_native_mode(
         )
         return sum(len(record.deltas) for record in events)
 
+    def telonex_nested_book_events() -> int:
+        loader = _make_telonex_loader()
+        events = loader._book_events_from_frame(
+            telonex_nested_frame,
+            start=pd.Timestamp(APR_21_2026_NS, unit="ns", tz="UTC"),
+            end=pd.Timestamp(
+                APR_21_2026_NS + (telonex_events + 1) * 1_000_000_000,
+                unit="ns",
+                tz="UTC",
+            ),
+            include_order_book=True,
+        )
+        return sum(len(record.deltas) for record in events)
+
     def telonex_onchain_fill_trade_ticks() -> int:
         loader = _make_telonex_loader()
         trades = loader._onchain_fill_trade_ticks_from_frame(
@@ -413,14 +448,13 @@ def _bench_native_mode(
 
     cases = {
         "pmxt_payload_sort_key_loop": pmxt_payload_sort_key_loop,
-        "pmxt_payload_sort_keys_batch": pmxt_payload_sort_keys_batch,
-        "pmxt_sort_payloads_batch": pmxt_sort_payloads_batch,
+        "pmxt_sort_payload_columns_batch": pmxt_sort_payload_columns_batch,
         "pmxt_payload_delta_rows_batch": pmxt_payload_delta_rows_batch,
-        "pmxt_extract_payload_fields_loop": pmxt_extract_payload_fields_loop,
         "telonex_path_loop": telonex_path_loop,
         "window_planner_loop": window_planner_loop,
         "replay_merge_plan_batch": replay_merge_plan_batch,
         "telonex_flat_book_events": telonex_flat_book_events,
+        "telonex_nested_book_events": telonex_nested_book_events,
         "telonex_onchain_fill_trade_ticks": telonex_onchain_fill_trade_ticks,
     }
     results: dict[str, float | bool] = {"native_available": bool(mod.native_available())}
@@ -448,6 +482,7 @@ def main() -> None:
     telonex_rows = _telonex_inputs(args.items)
     merge_inputs = _merge_inputs(args.items)
     telonex_frame = _telonex_flat_frame(args.telonex_events)
+    telonex_nested_frame = _telonex_nested_frame(args.telonex_events)
     telonex_trade_frame = _telonex_trade_frame(args.telonex_events)
 
     native_results = _bench_native_mode(
@@ -459,6 +494,7 @@ def main() -> None:
         telonex_rows=telonex_rows,
         merge_inputs=merge_inputs,
         telonex_frame=telonex_frame,
+        telonex_nested_frame=telonex_nested_frame,
         telonex_trade_frame=telonex_trade_frame,
         native_extension_path=args.native_extension_path,
     )
@@ -471,6 +507,7 @@ def main() -> None:
         telonex_rows=telonex_rows,
         merge_inputs=merge_inputs,
         telonex_frame=telonex_frame,
+        telonex_nested_frame=telonex_nested_frame,
         telonex_trade_frame=telonex_trade_frame,
         native_extension_path=args.native_extension_path,
     )
