@@ -11,7 +11,6 @@ from pathlib import Path
 from urllib.request import Request, urlopen
 
 import pyarrow as pa
-import pyarrow.dataset as ds
 
 from prediction_market_extensions._runtime_log import emit_loader_event
 from prediction_market_extensions.adapters.polymarket.pmxt import PolymarketPMXTDataLoader
@@ -258,20 +257,14 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
             if not raw_path.exists():
                 continue
 
-            try:
-                dataset = ds.dataset(str(raw_path), format="parquet")
-            except (OSError, ValueError, pa.ArrowException):
-                continue
-
-            try:
-                return self._scan_raw_market_batches(
-                    dataset,
-                    batch_size=batch_size,
-                    source=str(raw_path),
-                    total_bytes=self._progress_total_bytes(str(raw_path)),
-                )
-            except (OSError, ValueError, pa.ArrowException):
-                continue
+            batches = self._load_raw_market_batches_from_local_file(
+                raw_path,
+                batch_size=batch_size,
+                progress_source=str(raw_path),
+                total_bytes=self._progress_total_bytes(str(raw_path)),
+            )
+            if batches is not None:
+                return batches
 
         return None
 

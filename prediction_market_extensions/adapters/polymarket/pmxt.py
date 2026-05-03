@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import ClassVar
 from urllib.request import Request, urlopen
 
+import duckdb
 import msgspec
 import pandas as pd
 import pyarrow as pa
@@ -479,6 +480,54 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
             )
         return batches
 
+    def _load_raw_market_batches_duckdb(
+        self,
+        parquet_path: Path,
+        *,
+        batch_size: int,
+        progress_source: str,
+        total_bytes: int | None,
+    ) -> list[pa.RecordBatch] | None:
+        if self.condition_id is None:
+            return None
+        if progress_source is not None:
+            self._emit_scan_progress(
+                progress_source,
+                scanned_batches=0,
+                scanned_rows=0,
+                matched_rows=0,
+                total_bytes=total_bytes,
+                finished=False,
+            )
+
+        query = (
+            "SELECT update_type, data FROM read_parquet(?) "
+            "WHERE market_id = ? "
+            "AND update_type IN ('book_snapshot', 'price_change')"
+        )
+        params: list[object] = [str(parquet_path), self.condition_id]
+        if self.token_id is not None:
+            query += " AND regexp_matches(data, ?)"
+            params.append(rf'"token_id"\s*:\s*"{re.escape(self.token_id)}"')
+
+        connection = duckdb.connect(":memory:")
+        try:
+            table = connection.execute(query, params).to_arrow_table()
+        finally:
+            connection.close()
+
+        batches = list(table.to_batches(max_chunksize=batch_size))
+        if progress_source is not None:
+            self._emit_scan_progress(
+                progress_source,
+                scanned_batches=len(batches),
+                scanned_rows=int(table.num_rows),
+                matched_rows=int(table.num_rows),
+                total_bytes=total_bytes,
+                finished=True,
+            )
+        return batches
+
     def _load_remote_market_table(self, hour: pd.Timestamp, *, batch_size: int) -> pa.Table | None:
         batches = self._load_remote_market_batches(hour, batch_size=batch_size)
         if batches is None:
@@ -752,6 +801,18 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
     def _load_raw_market_batches_from_local_file(
         self, parquet_path: Path, *, batch_size: int, progress_source: str, total_bytes: int | None
     ) -> list[pa.RecordBatch] | None:
+        try:
+            duckdb_batches = self._load_raw_market_batches_duckdb(
+                parquet_path,
+                batch_size=batch_size,
+                progress_source=progress_source,
+                total_bytes=total_bytes,
+            )
+            if duckdb_batches is not None:
+                return duckdb_batches
+        except (duckdb.Error, OSError, ValueError, pa.ArrowException):
+            pass
+
         try:
             dataset = ds.dataset(str(parquet_path), format="parquet")
             return self._scan_raw_market_batches(

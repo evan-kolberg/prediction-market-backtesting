@@ -321,28 +321,22 @@ def test_runner_loader_emits_scan_progress_for_local_raw_mirror(monkeypatch, tmp
     raw_path.write_bytes(b"pmxt")
     captured: dict[str, object] = {}
 
-    def fake_dataset(path: str, *, format: str):
-        captured["dataset_path"] = path
-        captured["dataset_format"] = format
-        return object()
-
-    def fake_scan(dataset, *, batch_size: int, source: str, total_bytes: int | None):
-        captured["dataset"] = dataset
+    def fake_load_raw_file(
+        parquet_path: Path, *, batch_size: int, progress_source: str, total_bytes: int | None
+    ):
+        captured["parquet_path"] = parquet_path
         captured["batch_size"] = batch_size
-        captured["source"] = source
+        captured["source"] = progress_source
         captured["total_bytes"] = total_bytes
         return ["batch"]
 
-    monkeypatch.setattr(pmxt_module.ds, "dataset", fake_dataset)
-    monkeypatch.setattr(loader, "_scan_raw_market_batches", fake_scan)
+    monkeypatch.setattr(loader, "_load_raw_market_batches_from_local_file", fake_load_raw_file)
 
     batches = loader._load_local_archive_market_batches(hour, batch_size=1_000)
 
     assert batches == ["batch"]
     assert captured == {
-        "dataset_path": str(raw_path),
-        "dataset_format": "parquet",
-        "dataset": captured["dataset"],
+        "parquet_path": raw_path,
         "batch_size": 1_000,
         "source": str(raw_path),
         "total_bytes": 4,
