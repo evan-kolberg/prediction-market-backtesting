@@ -14,6 +14,7 @@ import pandas as pd
 from nautilus_trader.adapters.polymarket.common.parsing import parse_polymarket_instrument
 
 import prediction_market_extensions._native as native
+from prediction_market_extensions.adapters.polymarket.pmxt import PolymarketPMXTDataLoader
 from prediction_market_extensions.backtesting.data_sources.telonex import (
     RunnerPolymarketTelonexBookDataLoader,
 )
@@ -82,6 +83,7 @@ def _payloads(items: int) -> list[tuple[str, str]]:
                     (
                         '{"update_type":"book_snapshot","market_id":"condition-123",'
                         f'"token_id":"token-yes-123","timestamp":{ts},'
+                        '"side":"YES","best_bid":"0.48","best_ask":"0.52",'
                         '"bids":[["0.48","11.0"]],"asks":[["0.52","9.0"]]}'
                     ),
                 )
@@ -93,6 +95,7 @@ def _payloads(items: int) -> list[tuple[str, str]]:
                     (
                         '{"update_type":"price_change","market_id":"condition-123",'
                         f'"token_id":"token-yes-123","timestamp":{ts},'
+                        '"side":"YES","best_bid":"0.50","best_ask":"0.52",'
                         '"change_side":"BUY","change_price":"0.51","change_size":"13.5"}'
                     ),
                 )
@@ -134,6 +137,26 @@ def _make_telonex_loader() -> RunnerPolymarketTelonexBookDataLoader:
     loader._instrument = instrument
     loader._token_id = "2" * 64
     loader._condition_id = "0x" + "1" * 64
+    return loader
+
+
+def _make_pmxt_loader() -> PolymarketPMXTDataLoader:
+    instrument = parse_polymarket_instrument(
+        market_info={
+            "condition_id": "0x" + "3" * 64,
+            "question": "Synthetic PMXT benchmark market",
+            "minimum_tick_size": "0.01",
+            "minimum_order_size": "1",
+            "end_date_iso": "2026-12-31T00:00:00Z",
+            "maker_base_fee": "0",
+            "taker_base_fee": "0",
+        },
+        token_id="4" * 64,
+        outcome="Yes",
+        ts_init=0,
+    )
+    loader = PolymarketPMXTDataLoader.__new__(PolymarketPMXTDataLoader)
+    loader._instrument = instrument
     return loader
 
 
@@ -209,6 +232,58 @@ def _bench_native_mode(
             timestamp_ns + priority
             for timestamp_ns, priority, _update_type, _payload in mod.pmxt_sort_payloads(pmxt_rows)
         )
+
+    def pmxt_payload_delta_rows_batch() -> int:
+        loader = _make_pmxt_loader()
+        update_type_columns = [[update_type for update_type, _payload in pmxt_rows]]
+        payload_text_columns = [[payload for _update_type, payload in pmxt_rows]]
+        rows = mod.pmxt_payload_delta_rows(
+            update_type_columns=update_type_columns,
+            payload_text_columns=payload_text_columns,
+            token_id="token-yes-123",
+            start_ns=0,
+            end_ns=9_000_000_000_000_000_000,
+            has_snapshot=False,
+            last_payload_key=None,
+        )
+        if rows is not None:
+            _has_snapshot, _last_payload_key, delta_columns = rows
+            return sum(
+                len(record.deltas) for record in loader._deltas_records_from_columns(delta_columns)
+            )
+
+        local_book = None
+        has_snapshot = False
+        events = []
+        for _timestamp_ns, _priority, update_type, payload_text in mod.pmxt_sort_payload_columns(
+            update_type_columns,
+            payload_text_columns,
+        ):
+            if update_type == "book_snapshot":
+                local_book, has_snapshot = loader._process_book_snapshot(
+                    payload_text,
+                    token_id="token-yes-123",
+                    instrument=loader.instrument,
+                    local_book=local_book,
+                    has_snapshot=has_snapshot,
+                    events=events,
+                    start_ns=0,
+                    end_ns=9_000_000_000_000_000_000,
+                    include_order_book=True,
+                )
+            elif update_type == "price_change":
+                local_book = loader._process_price_change(
+                    payload_text,
+                    token_id="token-yes-123",
+                    instrument=loader.instrument,
+                    local_book=local_book,
+                    has_snapshot=has_snapshot,
+                    events=events,
+                    start_ns=0,
+                    end_ns=9_000_000_000_000_000_000,
+                    include_order_book=True,
+                )
+        return sum(len(record.deltas) for record in events)
 
     def pmxt_extract_payload_fields_loop() -> int:
         total = 0
@@ -306,6 +381,7 @@ def _bench_native_mode(
         "pmxt_payload_sort_key_loop": pmxt_payload_sort_key_loop,
         "pmxt_payload_sort_keys_batch": pmxt_payload_sort_keys_batch,
         "pmxt_sort_payloads_batch": pmxt_sort_payloads_batch,
+        "pmxt_payload_delta_rows_batch": pmxt_payload_delta_rows_batch,
         "pmxt_extract_payload_fields_loop": pmxt_extract_payload_fields_loop,
         "telonex_path_loop": telonex_path_loop,
         "window_planner_loop": window_planner_loop,

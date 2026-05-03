@@ -34,13 +34,18 @@ from nautilus_trader.adapters.polymarket.schemas.book import (
     PolymarketQuotes,
 )
 from nautilus_trader.model.book import OrderBook
+from nautilus_trader.model.data import BookOrder
+from nautilus_trader.model.data import OrderBookDelta
 from nautilus_trader.model.data import OrderBookDeltas
+from nautilus_trader.model.enums import BookAction
 from nautilus_trader.model.enums import BookType
+from nautilus_trader.model.enums import OrderSide
 
 from prediction_market_extensions._native import (
     decimal_seconds_to_ns,
     float_seconds_to_ms_string,
     pmxt_archive_hours_for_window_ns,
+    pmxt_payload_delta_rows,
     pmxt_payload_sort_key,
     pmxt_sort_payload_columns,
 )
@@ -849,6 +854,52 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
         ts_init = int(getattr(record, "ts_init", ts_event))
         return (ts_event, ts_init)
 
+    def _deltas_records_from_columns(self, data: dict[str, list[object]]) -> list[OrderBookDeltas]:
+        event_indexes = data["event_index"]
+        actions = data["action"]
+        sides = data["side"]
+        prices = data["price"]
+        sizes = data["size"]
+        flags = data["flags"]
+        sequences = data["sequence"]
+        ts_events = data["ts_event"]
+        ts_inits = data["ts_init"]
+
+        records: list[OrderBookDeltas] = []
+        current_event_index: int | None = None
+        deltas: list[OrderBookDelta] = []
+        instrument = self.instrument
+        instrument_id = instrument.id
+        for idx, raw_event_index in enumerate(event_indexes):
+            event_index = int(raw_event_index)
+            if current_event_index is None:
+                current_event_index = event_index
+            elif event_index != current_event_index:
+                records.append(OrderBookDeltas(instrument_id, deltas))
+                deltas = []
+                current_event_index = event_index
+
+            order = BookOrder(
+                side=OrderSide(int(sides[idx])),
+                price=instrument.make_price(float(prices[idx])),
+                size=instrument.make_qty(float(sizes[idx])),
+                order_id=0,
+            )
+            deltas.append(
+                OrderBookDelta(
+                    instrument_id=instrument_id,
+                    action=BookAction(int(actions[idx])),
+                    order=order,
+                    flags=int(flags[idx]),
+                    sequence=int(sequences[idx]),
+                    ts_event=int(ts_events[idx]),
+                    ts_init=int(ts_inits[idx]),
+                )
+            )
+        if deltas:
+            records.append(OrderBookDeltas(instrument_id, deltas))
+        return records
+
     def _payload_sort_key(self, update_type: str, payload_text: str) -> tuple[int, int]:
         return pmxt_payload_sort_key(update_type, payload_text)
 
@@ -976,6 +1027,21 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
 
             update_type_columns = [batch.column("update_type").to_pylist() for batch in batches]
             payload_text_columns = [batch.column("data").to_pylist() for batch in batches]
+
+            native_rows = pmxt_payload_delta_rows(
+                update_type_columns=update_type_columns,
+                payload_text_columns=payload_text_columns,
+                token_id=token_id,
+                start_ns=start_ns,
+                end_ns=end_ns,
+                has_snapshot=has_snapshot,
+                last_payload_key=last_payload_key,
+            )
+            if native_rows is not None:
+                has_snapshot, last_payload_key, delta_columns = native_rows
+                if include_order_book and delta_columns["event_index"]:
+                    events.extend(self._deltas_records_from_columns(delta_columns))
+                continue
 
             for timestamp_ns, priority, update_type, payload_text in pmxt_sort_payload_columns(
                 update_type_columns,

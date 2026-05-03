@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use native_core::pmxt::{
     PmxtUpdateClass, extract_payload_fields as core_pmxt_extract_payload_fields,
+    payload_delta_rows as core_pmxt_payload_delta_rows,
     payload_sort_key as core_pmxt_payload_sort_key,
     sort_payload_columns as core_pmxt_sort_payload_columns,
     sort_payloads as core_pmxt_sort_payloads,
@@ -43,6 +44,21 @@ type PyPmxtPayloadFields = (
     String,
     String,
     Option<(String, String, String)>,
+);
+
+type PyPmxtDeltaRows = (
+    bool,
+    Option<i64>,
+    Option<u8>,
+    Vec<i32>,
+    Vec<u8>,
+    Vec<u8>,
+    Vec<f64>,
+    Vec<f64>,
+    Vec<u8>,
+    Vec<i32>,
+    Vec<i64>,
+    Vec<i64>,
 );
 
 type PyTelonexFlatBookDiffRows = (
@@ -771,6 +787,77 @@ fn pmxt_sort_payload_columns(
 }
 
 #[pyfunction]
+#[allow(clippy::too_many_arguments)]
+fn pmxt_payload_delta_rows(
+    update_type_columns: Vec<Vec<String>>,
+    payload_text_columns: Vec<Vec<String>>,
+    token_id: &str,
+    start_ns: i64,
+    end_ns: i64,
+    has_snapshot: bool,
+    last_timestamp_ns: Option<i64>,
+    last_priority: Option<u8>,
+) -> PyResult<PyPmxtDeltaRows> {
+    let rows = core_pmxt_payload_delta_rows(
+        update_type_columns,
+        payload_text_columns,
+        token_id,
+        i128::from(start_ns),
+        i128::from(end_ns),
+        has_snapshot,
+        last_timestamp_ns.map(i128::from),
+        last_priority,
+    )
+    .map_err(PyValueError::new_err)?;
+    let last_timestamp_ns = rows
+        .last_timestamp_ns
+        .map(|timestamp_ns| {
+            i64::try_from(timestamp_ns).map_err(|_| {
+                PyValueError::new_err(format!(
+                    "PMXT payload timestamp nanoseconds are outside Python int64 timestamp bounds: {timestamp_ns}"
+                ))
+            })
+        })
+        .transpose()?;
+    let ts_event = rows
+        .ts_event
+        .into_iter()
+        .map(|timestamp_ns| {
+            i64::try_from(timestamp_ns).map_err(|_| {
+                PyValueError::new_err(format!(
+                    "PMXT payload timestamp nanoseconds are outside Python int64 timestamp bounds: {timestamp_ns}"
+                ))
+            })
+        })
+        .collect::<PyResult<Vec<_>>>()?;
+    let ts_init = rows
+        .ts_init
+        .into_iter()
+        .map(|timestamp_ns| {
+            i64::try_from(timestamp_ns).map_err(|_| {
+                PyValueError::new_err(format!(
+                    "PMXT payload timestamp nanoseconds are outside Python int64 timestamp bounds: {timestamp_ns}"
+                ))
+            })
+        })
+        .collect::<PyResult<Vec<_>>>()?;
+    Ok((
+        rows.has_snapshot,
+        last_timestamp_ns,
+        rows.last_priority,
+        rows.event_index,
+        rows.action,
+        rows.side,
+        rows.price,
+        rows.size,
+        rows.flags,
+        rows.sequence,
+        ts_event,
+        ts_init,
+    ))
+}
+
+#[pyfunction]
 fn pmxt_extract_payload_fields(payload_text: &str) -> PyResult<PyPmxtPayloadFields> {
     let fields = core_pmxt_extract_payload_fields(payload_text).map_err(PyValueError::new_err)?;
     let update_class = match fields.update_class {
@@ -917,6 +1004,7 @@ fn _native_ext(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(float_seconds_to_ms_string, module)?)?;
     module.add_function(wrap_pyfunction!(native_available, module)?)?;
     module.add_function(wrap_pyfunction!(pmxt_extract_payload_fields, module)?)?;
+    module.add_function(wrap_pyfunction!(pmxt_payload_delta_rows, module)?)?;
     module.add_function(wrap_pyfunction!(pmxt_payload_sort_key, module)?)?;
     module.add_function(wrap_pyfunction!(pmxt_payload_sort_keys, module)?)?;
     module.add_function(wrap_pyfunction!(pmxt_sort_payload_columns, module)?)?;

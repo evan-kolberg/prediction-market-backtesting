@@ -541,6 +541,71 @@ def pmxt_sort_payload_columns(
     return pmxt_sort_payloads(items)
 
 
+def pmxt_payload_delta_rows(
+    *,
+    update_type_columns: Sequence[Sequence[str]],
+    payload_text_columns: Sequence[Sequence[str]],
+    token_id: str,
+    start_ns: int,
+    end_ns: int,
+    has_snapshot: bool,
+    last_payload_key: tuple[int, int] | None,
+) -> (
+    tuple[
+        bool,
+        tuple[int, int] | None,
+        dict[str, list[object]],
+    ]
+    | None
+):
+    module = _extension_module()
+    if module is None or not hasattr(module, "pmxt_payload_delta_rows"):
+        return None
+    (
+        next_has_snapshot,
+        last_timestamp_ns,
+        last_priority,
+        event_index,
+        action,
+        side,
+        price,
+        size,
+        flags,
+        sequence,
+        ts_event,
+        ts_init,
+    ) = module.pmxt_payload_delta_rows(
+        update_type_columns,
+        payload_text_columns,
+        str(token_id),
+        int(start_ns),
+        int(end_ns),
+        bool(has_snapshot),
+        None if last_payload_key is None else int(last_payload_key[0]),
+        None if last_payload_key is None else int(last_payload_key[1]),
+    )
+    next_last_payload_key = (
+        None
+        if last_timestamp_ns is None or last_priority is None
+        else (int(last_timestamp_ns), int(last_priority))
+    )
+    return (
+        bool(next_has_snapshot),
+        next_last_payload_key,
+        {
+            "event_index": [int(value) for value in event_index],
+            "action": [int(value) for value in action],
+            "side": [int(value) for value in side],
+            "price": [float(value) for value in price],
+            "size": [float(value) for value in size],
+            "flags": [int(value) for value in flags],
+            "sequence": [int(value) for value in sequence],
+            "ts_event": [int(value) for value in ts_event],
+            "ts_init": [int(value) for value in ts_init],
+        },
+    )
+
+
 def pmxt_extract_payload_fields(
     payload_text: str,
 ) -> tuple[str, str, int, str, str, tuple[str, str, str] | None]:
@@ -901,6 +966,7 @@ __all__ = [
     "native_available",
     "pmxt_archive_hours_for_window_ns",
     "pmxt_extract_payload_fields",
+    "pmxt_payload_delta_rows",
     "pmxt_payload_sort_key",
     "pmxt_payload_sort_keys",
     "pmxt_sort_payload_columns",

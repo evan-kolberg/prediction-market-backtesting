@@ -402,6 +402,7 @@ def test_load_order_book_deltas_returns_snapshot_event(monkeypatch, tmp_path):
     loader = _make_loader(tmp_path)
     loader._instrument = SimpleNamespace(id="POLYMARKET.TEST")
     hour = pd.Timestamp("2026-03-16T12:00:00Z")
+    monkeypatch.setattr(pmxt_module, "pmxt_payload_delta_rows", lambda **_kwargs: None)
 
     class _FakeOrderBook:
         def __init__(self, instrument_id, book_type):  # type: ignore[no-untyped-def]
@@ -477,6 +478,7 @@ def test_load_order_book_deltas_sorts_payloads_before_book_mutation(monkeypatch,
     loader._instrument = SimpleNamespace(id="POLYMARKET.TEST")
     hour = pd.Timestamp("2026-03-16T12:00:00Z")
     processed: list[str] = []
+    monkeypatch.setattr(pmxt_module, "pmxt_payload_delta_rows", lambda **_kwargs: None)
 
     class _FakeOrderBook:
         def __init__(self, instrument_id, book_type):  # type: ignore[no-untyped-def]
@@ -577,6 +579,92 @@ def test_load_order_book_deltas_sorts_payloads_before_book_mutation(monkeypatch,
     assert seen_sort_columns[0][0] == [["price_change", "book_snapshot"]]
 
 
+def test_load_order_book_deltas_uses_native_payload_delta_rows(monkeypatch, tmp_path):
+    loader = _make_loader(tmp_path)
+    loader._instrument = SimpleNamespace(id="POLYMARKET.TEST")
+    hour = pd.Timestamp("2026-03-16T12:00:00Z")
+
+    class _FakeOrderBook:
+        def __init__(self, instrument_id, book_type):  # type: ignore[no-untyped-def]
+            self.instrument_id = instrument_id
+            self.book_type = book_type
+
+    class _FakeOrderBookDeltas:
+        def __init__(self, ts_event, ts_init):  # type: ignore[no-untyped-def]
+            self.ts_event = ts_event
+            self.ts_init = ts_init
+
+    monkeypatch.setattr(pmxt_module, "OrderBook", _FakeOrderBook)
+    loader._archive_hours = lambda _start, _end: [hour]  # type: ignore[method-assign]
+    loader._iter_market_batches = (  # type: ignore[method-assign]
+        lambda hours, *, batch_size: iter(
+            [
+                (
+                    hour,
+                    [
+                        pa.record_batch(
+                            [
+                                pa.array(["book_snapshot"]),
+                                pa.array(
+                                    [
+                                        (
+                                            '{"update_type":"book_snapshot",'
+                                            '"market_id":"condition-123",'
+                                            '"token_id":"token-yes-123",'
+                                            '"timestamp":1.0,'
+                                            '"bids":[["0.49","10"]],'
+                                            '"asks":[["0.51","10"]]}'
+                                        )
+                                    ]
+                                ),
+                            ],
+                            names=["update_type", "data"],
+                        )
+                    ],
+                )
+            ]
+        )
+    )
+    native_calls: list[dict[str, object]] = []
+
+    def _native_payload_delta_rows(**kwargs):  # type: ignore[no-untyped-def]
+        native_calls.append(kwargs)
+        return (
+            True,
+            (1_000_000_000, 0),
+            {
+                "event_index": [0],
+                "action": [4],
+                "side": [0],
+                "price": [0.0],
+                "size": [0.0],
+                "flags": [0],
+                "sequence": [0],
+                "ts_event": [1_000_000_000],
+                "ts_init": [1_000_000_000],
+            },
+        )
+
+    def _sort_payload_columns(*_args, **_kwargs):  # type: ignore[no-untyped-def]
+        raise AssertionError("native payload delta rows should bypass Python payload sorting")
+
+    monkeypatch.setattr(pmxt_module, "pmxt_payload_delta_rows", _native_payload_delta_rows)
+    monkeypatch.setattr(pmxt_module, "pmxt_sort_payload_columns", _sort_payload_columns)
+    monkeypatch.setattr(
+        loader,
+        "_deltas_records_from_columns",
+        lambda data: [
+            _FakeOrderBookDeltas(ts_event=data["ts_event"][0], ts_init=data["ts_init"][0])
+        ],
+    )
+
+    data = loader.load_order_book_deltas(hour, hour + pd.Timedelta(hours=1))
+
+    assert native_calls
+    assert native_calls[0]["token_id"] == "token-yes-123"
+    assert [type(record).__name__ for record in data] == ["_FakeOrderBookDeltas"]
+
+
 def test_load_order_book_deltas_skips_stale_cross_hour_payloads(monkeypatch, tmp_path):
     loader = _make_loader(tmp_path)
     loader._instrument = SimpleNamespace(id="POLYMARKET.TEST")
@@ -585,6 +673,7 @@ def test_load_order_book_deltas_skips_stale_cross_hour_payloads(monkeypatch, tmp
         pd.Timestamp("2026-03-16T13:00:00Z"),
     ]
     processed: list[str] = []
+    monkeypatch.setattr(pmxt_module, "pmxt_payload_delta_rows", lambda **_kwargs: None)
 
     class _FakeOrderBook:
         def __init__(self, instrument_id, book_type):  # type: ignore[no-untyped-def]
