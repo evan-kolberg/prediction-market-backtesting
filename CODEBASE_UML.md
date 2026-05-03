@@ -1,7 +1,7 @@
 # Codebase UML Inventory
 
 This file is generated from Python AST metadata and excludes `tests/`.
-Generated: 2026-05-03T05:04:02+00:00
+Generated: 2026-05-03T05:13:26+00:00
 Modules: 110 | Classes: 161 | Functions/methods: 1390
 
 ## Backtesting Data Flow
@@ -1130,56 +1130,56 @@ flowchart TD
 ### `prediction_market_extensions/backtesting/data_sources/pmxt.py`
 - Imports: `__future__, collections, contextlib, contextvars, dataclasses, os, pathlib, prediction_market_extensions, pyarrow, threading, time, urllib`
 - Function L80: `_current_loader_config() -> PMXTLoaderConfig | None`
-- Function L825: `_normalize_mode(value: str | None) -> str`
-- Function L839: `_env_value(name: str) -> str | None`
-- Function L847: `_env_enabled(name: str) -> bool`
-- Function L854: `_resolve_prefetch_workers_override(*, default_when_unset: int | None) -> int | None`
-- Function L864: `_resolve_source_priority_override() -> tuple[str, ...]`
-- Function L884: `_resolve_existing_remote_url() -> str | None`
-- Function L889: `_resolve_existing_remote_urls() -> tuple[str, ...]`
-- Function L905: `_resolve_required_directory(env_name: str, *, label: str) -> Path`
-- Function L918: `_strip_prefixed_local_source(source: str, *, prefixes: Sequence[str]) -> str | None`
-- Function L928: `_strip_prefixed_remote_source(source: str, *, prefixes: Sequence[str]) -> str | None`
-- Function L938: `_classify_explicit_pmxt_sources(sources: Sequence[str]) -> tuple[str | None, tuple[str, ...], tuple[str, ...], tuple[str, ...], tuple[tuple[str, str], ...]]`
-- Function L1014: `_explicit_source_summary(*, ordered_sources: Sequence[str], ordered_entries: Sequence[tuple[str, str]] = ()) -> str`
-- Function L1032: `resolve_pmxt_loader_config(*, sources: Sequence[str] | None = None) -> tuple[PMXTDataSourceSelection, PMXTLoaderConfig]`
-- Function L1170: `_loader_config_to_env_updates(config: PMXTLoaderConfig) -> dict[str, str | None]`
-- Function L1184: `resolve_pmxt_data_source_selection(*, sources: Sequence[str] | None = None) -> tuple[PMXTDataSourceSelection, dict[str, str | None]]`
-- Function L1194: `configured_pmxt_data_source(*, sources: Sequence[str] | None = None) -> Iterator[PMXTDataSourceSelection]`
+- Function L844: `_normalize_mode(value: str | None) -> str`
+- Function L858: `_env_value(name: str) -> str | None`
+- Function L866: `_env_enabled(name: str) -> bool`
+- Function L873: `_resolve_prefetch_workers_override(*, default_when_unset: int | None) -> int | None`
+- Function L883: `_resolve_source_priority_override() -> tuple[str, ...]`
+- Function L903: `_resolve_existing_remote_url() -> str | None`
+- Function L908: `_resolve_existing_remote_urls() -> tuple[str, ...]`
+- Function L924: `_resolve_required_directory(env_name: str, *, label: str) -> Path`
+- Function L937: `_strip_prefixed_local_source(source: str, *, prefixes: Sequence[str]) -> str | None`
+- Function L947: `_strip_prefixed_remote_source(source: str, *, prefixes: Sequence[str]) -> str | None`
+- Function L957: `_classify_explicit_pmxt_sources(sources: Sequence[str]) -> tuple[str | None, tuple[str, ...], tuple[str, ...], tuple[str, ...], tuple[tuple[str, str], ...]]`
+- Function L1033: `_explicit_source_summary(*, ordered_sources: Sequence[str], ordered_entries: Sequence[tuple[str, str]] = ()) -> str`
+- Function L1051: `resolve_pmxt_loader_config(*, sources: Sequence[str] | None = None) -> tuple[PMXTDataSourceSelection, PMXTLoaderConfig]`
+- Function L1189: `_loader_config_to_env_updates(config: PMXTLoaderConfig) -> dict[str, str | None]`
+- Function L1203: `resolve_pmxt_data_source_selection(*, sources: Sequence[str] | None = None) -> tuple[PMXTDataSourceSelection, dict[str, str | None]]`
+- Function L1213: `configured_pmxt_data_source(*, sources: Sequence[str] | None = None) -> Iterator[PMXTDataSourceSelection]`
 - Class L61: `PMXTLoaderConfig`
   - Method L71: `remote_base_url(self) -> str | None`
 - Class L84: `RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader)`
   - Method L91: `__init__(self, *args, **kwargs) -> None`
   - Method L111: `_row_count_from_batches(batches: Sequence[object]) -> int`
   - Method L115: `_hour_label(hour) -> str`
-  - Method L121: `_emit_pmxt_source_event(self, *, message: str, stage: str, status: str, hour, source_kind: str | None = None, source: str | None = None, cache_path: Path | None = None, rows: int | None = None, bytes_count: int | None = None, level: str = 'INFO', extra_attrs: dict[str, object] | None = None) -> None`
-  - Method L159: `_source_kind_for_stage(stage: str) -> str`
-  - Method L163: `_source_label_for_stage(stage: str, target: str | None) -> str | None`
-  - Method L173: `_resolve_raw_root(cls) -> Path | None`
-  - Method L189: `_resolve_remote_base_url(cls) -> str | None`
-  - Method L194: `_resolve_remote_base_urls(cls) -> tuple[str, ...]`
-  - Method L214: `_archive_url_for_hour(self, hour) -> Any`
-  - Method L225: `_archive_urls_for_hour(self, hour) -> Any`
-  - Method L233: `_raw_path_for_hour(self, hour) -> Path | None`
-  - Method L246: `_raw_paths_for_hour_at_root(self, raw_root: Path, hour) -> tuple[Path, ...]`
-  - Method L249: `_load_local_raw_market_batches_from_root(self, raw_root: Path, hour, *, batch_size: int) -> Any`
-  - Method L271: `_load_local_raw_market_batches(self, hour, *, batch_size: int) -> Any`
-  - Method L281: `_load_local_archive_market_batches(self, hour, *, batch_size: int) -> Any`
-  - Method L287: `_load_remote_market_batches(self, hour, *, batch_size: int) -> Any`
-  - Method L308: `_archive_url_for_base_url(self, base_url: str, hour) -> str`
-  - Method L311: `_load_remote_market_batches_from_base_url(self, base_url: str, hour, *, batch_size: int) -> Any`
-  - Method L324: `_resolve_source_priority(cls) -> tuple[str, ...]`
-  - Method L348: `_resolve_prefetch_workers(cls) -> int`
-  - Method L355: `_scoped_source_entry(self, kind: str, target: str) -> Any`
-  - Method L381: `_load_entry_batches(self, kind: str, hour, *, batch_size: int) -> Any`
-  - Method L402: `_load_ordered_entry_batches(self, kind: str, target: str, hour, *, batch_size: int) -> Any`
-  - Method L424: `_write_cache_if_enabled(self, hour, table) -> None`
-  - Method L457: `_load_market_table(self, hour, *, batch_size: int) -> Any`
-  - Method L515: `_load_market_batches(self, hour, *, batch_size: int) -> Any`
-  - Method L695: `_download_to_file_with_progress(self, url: str, destination: Path) -> int | None`
-  - Method L748: `_download_payload_with_progress(self, url: str) -> bytes | None`
-  - Method L788: `_progress_total_bytes(self, source: str) -> int | None`
-- Class L820: `PMXTDataSourceSelection`
+  - Method L121: `_emit_pmxt_source_event(self, *, message: str, stage: str, status: str, hour, source_kind: str | None = None, source: str | None = None, cache_path: Path | None = None, rows: int | None = None, bytes_count: int | None = None, level: str = 'INFO', extra_attrs: dict[str, object] | None = None, origin_function: str | None = None) -> None`
+  - Method L162: `_source_kind_for_stage(stage: str) -> str`
+  - Method L166: `_source_label_for_stage(stage: str, target: str | None) -> str | None`
+  - Method L176: `_resolve_raw_root(cls) -> Path | None`
+  - Method L192: `_resolve_remote_base_url(cls) -> str | None`
+  - Method L197: `_resolve_remote_base_urls(cls) -> tuple[str, ...]`
+  - Method L217: `_archive_url_for_hour(self, hour) -> Any`
+  - Method L228: `_archive_urls_for_hour(self, hour) -> Any`
+  - Method L236: `_raw_path_for_hour(self, hour) -> Path | None`
+  - Method L249: `_raw_paths_for_hour_at_root(self, raw_root: Path, hour) -> tuple[Path, ...]`
+  - Method L252: `_load_local_raw_market_batches_from_root(self, raw_root: Path, hour, *, batch_size: int) -> Any`
+  - Method L274: `_load_local_raw_market_batches(self, hour, *, batch_size: int) -> Any`
+  - Method L284: `_load_local_archive_market_batches(self, hour, *, batch_size: int) -> Any`
+  - Method L290: `_load_remote_market_batches(self, hour, *, batch_size: int) -> Any`
+  - Method L311: `_archive_url_for_base_url(self, base_url: str, hour) -> str`
+  - Method L314: `_load_remote_market_batches_from_base_url(self, base_url: str, hour, *, batch_size: int) -> Any`
+  - Method L327: `_resolve_source_priority(cls) -> tuple[str, ...]`
+  - Method L351: `_resolve_prefetch_workers(cls) -> int`
+  - Method L358: `_scoped_source_entry(self, kind: str, target: str) -> Any`
+  - Method L384: `_load_entry_batches(self, kind: str, hour, *, batch_size: int) -> Any`
+  - Method L405: `_load_ordered_entry_batches(self, kind: str, target: str, hour, *, batch_size: int) -> Any`
+  - Method L427: `_write_cache_if_enabled(self, hour, table) -> None`
+  - Method L460: `_load_market_table(self, hour, *, batch_size: int) -> Any`
+  - Method L518: `_load_market_batches(self, hour, *, batch_size: int) -> Any`
+  - Method L714: `_download_to_file_with_progress(self, url: str, destination: Path) -> int | None`
+  - Method L767: `_download_payload_with_progress(self, url: str) -> bytes | None`
+  - Method L807: `_progress_total_bytes(self, source: str) -> int | None`
+- Class L839: `PMXTDataSourceSelection`
 
 ### `prediction_market_extensions/backtesting/data_sources/polymarket_native.py`
 - Imports: `__future__, collections, contextlib, contextvars, dataclasses, msgspec, os, prediction_market_extensions, typing, urllib, warnings`

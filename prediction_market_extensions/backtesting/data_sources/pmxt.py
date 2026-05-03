@@ -132,15 +132,18 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
         bytes_count: int | None = None,
         level: str = "INFO",
         extra_attrs: dict[str, object] | None = None,
+        origin_function: str | None = None,
     ) -> None:  # type: ignore[no-untyped-def]
         attrs: dict[str, object] = {"hour": self._hour_label(hour)}
         if extra_attrs:
             attrs.update(extra_attrs)
+        origin = f"pmxt.{origin_function}" if origin_function else None
         emit_loader_event(
             message,
             level=level,
             stage=stage,
             status=status,
+            origin=origin,
             vendor="pmxt",
             platform="polymarket",
             data_type="book",
@@ -525,6 +528,7 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
                 source_kind="cache",
                 cache_path=cache_path,
                 rows=rows,
+                origin_function="_load_cached_market_batches",
             )
             return batches
         cache_path = self._cache_path_for_hour(hour)
@@ -536,12 +540,18 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
                 hour=hour,
                 source_kind="cache",
                 cache_path=cache_path,
+                origin_function="_load_cached_market_batches",
             )
 
         ordered_entries = getattr(self, "_pmxt_ordered_source_entries", ()) or ()
         if ordered_entries:
             for kind, target in ordered_entries:
                 source = self._source_label_for_stage(kind, target)
+                origin_function = (
+                    "_load_local_raw_market_batches_from_root"
+                    if kind == _PMXT_SOURCE_STAGE_RAW_LOCAL
+                    else "_load_remote_market_batches_from_base_url"
+                )
                 self._emit_pmxt_source_event(
                     message=(
                         f"Trying PMXT {self._source_kind_for_stage(kind)} source "
@@ -552,6 +562,7 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
                     hour=hour,
                     source_kind=self._source_kind_for_stage(kind),
                     source=source,
+                    origin_function=origin_function,
                 )
                 entry_batches = self._load_ordered_entry_batches(
                     kind,
@@ -572,6 +583,7 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
                         source_kind=self._source_kind_for_stage(kind),
                         source=source,
                         rows=rows,
+                        origin_function=origin_function,
                     )
                     if self._pmxt_cache_dir is not None:
                         table = (
@@ -591,6 +603,7 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
                     hour=hour,
                     source_kind=self._source_kind_for_stage(kind),
                     source=source,
+                    origin_function=origin_function,
                 )
             return None
 
@@ -612,6 +625,7 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
                     hour=hour,
                     source_kind="local",
                     source=source,
+                    origin_function="_load_local_archive_market_batches",
                 )
                 batches = self._load_local_archive_market_batches(hour, batch_size=batch_size)
                 if batches is not None:
@@ -624,6 +638,7 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
                         source_kind="local",
                         source=source,
                         rows=rows,
+                        origin_function="_load_local_archive_market_batches",
                     )
                     if self._pmxt_cache_dir is not None:
                         table = (
@@ -640,6 +655,7 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
                     hour=hour,
                     source_kind="local",
                     source=source,
+                    origin_function="_load_local_archive_market_batches",
                 )
                 continue
 
@@ -657,6 +673,7 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
                     hour=hour,
                     source_kind="remote",
                     source=source,
+                    origin_function="_load_remote_market_batches",
                 )
                 batches = self._load_remote_market_batches(hour, batch_size=batch_size)
                 if batches is not None:
@@ -671,6 +688,7 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
                         source_kind="remote",
                         source=source,
                         rows=rows,
+                        origin_function="_load_remote_market_batches",
                     )
                     if self._pmxt_cache_dir is not None:
                         table = (
@@ -687,6 +705,7 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
                     hour=hour,
                     source_kind="remote",
                     source=source,
+                    origin_function="_load_remote_market_batches",
                 )
                 continue
 

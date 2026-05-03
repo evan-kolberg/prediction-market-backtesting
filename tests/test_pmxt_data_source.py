@@ -264,7 +264,7 @@ def test_runner_loader_emits_cache_hit_event(tmp_path) -> None:
     event = next(event for event in capture.events if event.stage == "cache_read")
     assert event.status == "cache_hit"
     assert event.vendor == "pmxt"
-    assert event.origin == "pmxt._load_market_batches"
+    assert event.origin == "pmxt._load_cached_market_batches"
     assert event.source_kind == "cache"
     assert event.cache_path == str(cache_path)
     assert event.rows == 1
@@ -307,9 +307,58 @@ def test_runner_loader_emits_ordered_source_skip_event(tmp_path) -> None:
         batches = loader._load_market_batches(hour, batch_size=1_000)
 
     assert batches is None
-    statuses = [(event.status, event.source_kind, event.source) for event in capture.events]
-    assert ("start", "local", f"local:{missing_root}") in statuses
-    assert ("skip", "local", f"local:{missing_root}") in statuses
+    statuses = [
+        (event.status, event.source_kind, event.source, event.origin) for event in capture.events
+    ]
+    assert (
+        "start",
+        "local",
+        f"local:{missing_root}",
+        "pmxt._load_local_raw_market_batches_from_root",
+    ) in statuses
+    assert (
+        "skip",
+        "local",
+        f"local:{missing_root}",
+        "pmxt._load_local_raw_market_batches_from_root",
+    ) in statuses
+    assert all(not event.origin.endswith("._emit_pmxt_source_event") for event in capture.events)
+
+
+def test_runner_loader_emits_source_events_from_actual_loader_methods(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    hour = pd.Timestamp("2026-03-21T12:00:00Z")
+    loader = _make_loader(cache_dir=None)
+    loader._pmxt_source_priority = ("raw-local", "raw-remote")
+    loader._pmxt_raw_root = Path("/tmp/pmxt-raws")
+    loader._pmxt_remote_base_urls = ("https://archive.vendor.test",)
+    loader._pmxt_remote_base_url = "https://archive.vendor.test"
+
+    monkeypatch.setattr(loader, "_load_cached_market_batches", lambda _hour: None)
+    monkeypatch.setattr(
+        loader,
+        "_load_local_archive_market_batches",
+        lambda _hour, *, batch_size: None,
+    )
+    monkeypatch.setattr(
+        loader,
+        "_load_remote_market_batches",
+        lambda _hour, *, batch_size: [],
+    )
+
+    with capture_loader_events() as capture:
+        batches = loader._load_market_batches(hour, batch_size=1_000)
+
+    assert batches == []
+    fetch_events = [event for event in capture.events if event.stage == "fetch"]
+    assert [(event.status, event.source_kind, event.origin) for event in fetch_events] == [
+        ("start", "local", "pmxt._load_local_archive_market_batches"),
+        ("skip", "local", "pmxt._load_local_archive_market_batches"),
+        ("start", "remote", "pmxt._load_remote_market_batches"),
+        ("complete", "remote", "pmxt._load_remote_market_batches"),
+    ]
+    assert all(not event.origin.endswith("._emit_pmxt_source_event") for event in fetch_events)
 
 
 def test_runner_loader_emits_scan_progress_for_local_raw_mirror(monkeypatch, tmp_path) -> None:
