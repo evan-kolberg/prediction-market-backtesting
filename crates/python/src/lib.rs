@@ -13,6 +13,7 @@ use native_core::telonex::{
     local_consolidated_candidate_paths as core_telonex_local_consolidated_candidate_paths,
     local_daily_candidate_paths as core_telonex_local_daily_candidate_paths,
     onchain_fill_trade_rows as core_telonex_onchain_fill_trade_rows,
+    parquet_book_snapshot_diff_rows as core_telonex_parquet_book_snapshot_diff_rows,
     telonex_day_window_ns as core_telonex_day_window_ns,
     telonex_source_days_for_window as core_telonex_source_days_for_window,
     telonex_source_label_kind as core_telonex_source_label_kind,
@@ -227,6 +228,29 @@ fn telonex_nested_book_snapshot_diff_rows(
         end_ns,
     )
     .map_err(PyValueError::new_err)?;
+    Ok((
+        rows.first_snapshot_index,
+        rows.event_index,
+        rows.action,
+        rows.side,
+        rows.price,
+        rows.size,
+        rows.flags,
+        rows.sequence,
+        rows.ts_event,
+        rows.ts_init,
+    ))
+}
+
+#[pyfunction]
+fn telonex_parquet_book_snapshot_diff_rows(
+    path: &str,
+    row_groups: Vec<usize>,
+    start_ns: i64,
+    end_ns: i64,
+) -> PyResult<PyTelonexFlatBookDiffRows> {
+    let rows = core_telonex_parquet_book_snapshot_diff_rows(path, row_groups, start_ns, end_ns)
+        .map_err(PyValueError::new_err)?;
     Ok((
         rows.first_snapshot_index,
         rows.event_index,
@@ -921,6 +945,10 @@ fn _native_ext(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(telonex_onchain_fill_trade_rows, module)?)?;
     module.add_function(wrap_pyfunction!(
         telonex_nested_book_snapshot_diff_rows,
+        module
+    )?)?;
+    module.add_function(wrap_pyfunction!(
+        telonex_parquet_book_snapshot_diff_rows,
         module
     )?)?;
     module.add_function(wrap_pyfunction!(telonex_source_days_for_window, module)?)?;

@@ -225,6 +225,57 @@ def telonex_nested_book_snapshot_diff_rows(
     )
 
 
+def telonex_parquet_book_snapshot_diff_rows(
+    *,
+    path: str,
+    row_groups: Sequence[int],
+    start_ns: int,
+    end_ns: int,
+) -> tuple[
+    int | None,
+    list[int],
+    list[int],
+    list[int],
+    list[float],
+    list[float],
+    list[int],
+    list[int],
+    list[int],
+    list[int],
+]:
+    module = _required_extension_module()
+    parquet_diff_rows = _required_native_function(module, "telonex_parquet_book_snapshot_diff_rows")
+    (
+        first_snapshot_index,
+        event_index,
+        action,
+        side,
+        price,
+        size,
+        flags,
+        sequence,
+        ts_event,
+        ts_init,
+    ) = parquet_diff_rows(
+        path,
+        [int(value) for value in row_groups],
+        int(start_ns),
+        int(end_ns),
+    )
+    return (
+        None if first_snapshot_index is None else int(first_snapshot_index),
+        [int(value) for value in event_index],
+        [int(value) for value in action],
+        [int(value) for value in side],
+        [float(value) for value in price],
+        [float(value) for value in size],
+        [int(value) for value in flags],
+        [int(value) for value in sequence],
+        [int(value) for value in ts_event],
+        [int(value) for value in ts_init],
+    )
+
+
 def telonex_onchain_fill_trade_rows(
     *,
     timestamp_ns: Sequence[int],
@@ -787,6 +838,7 @@ __all__ = [
     "telonex_local_daily_candidate_paths",
     "telonex_nested_book_snapshot_diff_rows",
     "telonex_onchain_fill_trade_rows",
+    "telonex_parquet_book_snapshot_diff_rows",
     "telonex_source_days_for_window_ns",
     "telonex_source_label_kind",
     "telonex_stage_for_source",

@@ -14,6 +14,7 @@ import numpy as np
 import pandas as pd
 import pytest
 import pyarrow as pa
+import pyarrow.parquet as pq
 from nautilus_trader.adapters.polymarket.common.parsing import parse_polymarket_instrument
 from nautilus_trader.model.data import OrderBookDeltas
 from nautilus_trader.model.enums import AggressorSide
@@ -1441,6 +1442,58 @@ def test_telonex_full_book_loader_falls_back_to_api_when_blob_partition_is_incom
 
     assert len(records) == 1
     assert calls == ["api"]
+
+
+def test_telonex_blob_reader_prunes_with_row_group_index(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    module = importlib.reload(telonex_module)
+    loader_cls = module.RunnerPolymarketTelonexBookDataLoader
+    loader = loader_cls.__new__(loader_cls)
+    local_root = tmp_path / "telonex"
+    partition_dir = local_root / "data" / "channel=book_snapshot_full" / "year=2026" / "month=01"
+    partition_dir.mkdir(parents=True)
+    part_path = partition_dir / "part-000000.parquet"
+
+    def _table(market_slug: str, ts_us: int) -> pa.Table:
+        return pa.table(
+            {
+                "timestamp_us": pa.array([ts_us], type=pa.int64()),
+                "exchange": pa.array(["polymarket"]),
+                "bids": pa.array([[{"price": "0.34", "size": "10"}]]),
+                "asks": pa.array([[{"price": "0.39", "size": "11"}]]),
+                "market_slug": pa.array([market_slug]),
+                "outcome_segment": pa.array(["Yes"]),
+            }
+        )
+
+    first = _table("target-market", 1_768_780_800_000_000)
+    with pq.ParquetWriter(part_path, first.schema) as writer:
+        writer.write_table(first)
+        writer.write_table(_table("other-market", 1_768_780_800_000_000))
+        writer.write_table(_table("target-market", 1_768_867_200_000_000))
+
+    def fail_dataset(*args: object, **kwargs: object) -> None:
+        del args, kwargs
+        raise AssertionError("row-group indexed blobs should not use dataset fallback")
+
+    monkeypatch.setattr(module.ds, "dataset", fail_dataset)
+
+    frame = loader._load_blob_range(
+        store_root=local_root,
+        channel="book_snapshot_full",
+        market_slug="target-market",
+        token_index=0,
+        outcome="Yes",
+        start=pd.Timestamp("2026-01-19T00:00:00Z"),
+        end=pd.Timestamp("2026-01-19T23:59:59Z"),
+    )
+
+    assert frame is not None
+    assert frame["timestamp_us"].tolist() == [1_768_780_800_000_000]
+    assert "bids" not in frame.columns
+    assert frame["bid_prices"].tolist() == [["0.34"]]
+    assert frame["ask_sizes"].tolist() == [["11"]]
 
 
 def test_telonex_local_daily_file_is_used_before_blob_store(

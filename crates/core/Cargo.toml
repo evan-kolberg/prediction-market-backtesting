@@ -9,3 +9,7 @@ rust-version.workspace = true
 [lib]
 name = "native_core"
 path = "src/lib.rs"
+
+[dependencies]
+arrow-array = "58.2.0"
+parquet = "58.2.0"

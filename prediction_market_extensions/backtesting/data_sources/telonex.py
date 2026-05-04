@@ -36,6 +36,7 @@ from prediction_market_extensions._native import (
     telonex_local_daily_candidate_paths,
     telonex_nested_book_snapshot_diff_rows,
     telonex_onchain_fill_trade_rows,
+    telonex_parquet_book_snapshot_diff_rows,
     telonex_source_days_for_window_ns,
     telonex_source_label_kind,
     telonex_stage_for_source,
@@ -104,6 +105,10 @@ _TELONEX_API_SEMAPHORE_LOCK = threading.Lock()
 _TELONEX_API_SEMAPHORE: tuple[int, threading.BoundedSemaphore] | None = None
 _TELONEX_FILE_SEMAPHORE_LOCK = threading.Lock()
 _TELONEX_FILE_SEMAPHORE: tuple[int, threading.BoundedSemaphore] | None = None
+_TELONEX_BLOB_ROW_GROUP_INDEX_LOCK = threading.Lock()
+_TELONEX_BLOB_ROW_GROUP_INDEX_CACHE: dict[tuple[str, int, int], "_TelonexBlobRowGroupIndex"] = {}
+_TELONEX_BLOB_PARQUET_FILE_LOCAL = threading.local()
+_TELONEX_BLOB_ROW_GROUP_FALLBACK = object()
 _TELONEX_TRADE_TICKS_CACHE_COLUMNS = frozenset(
     {
         "price",
@@ -145,6 +150,12 @@ class _TelonexDayResult:
     date: str
     records: list[OrderBookDeltas]
     source: str
+
+
+@dataclass(frozen=True)
+class _TelonexBlobRowGroupIndex:
+    data_columns: tuple[str, ...]
+    row_groups_by_key: Mapping[tuple[str, str, object], tuple[int, ...]]
 
 
 _CURRENT_TELONEX_LOADER_CONFIG: ContextVar[TelonexLoaderConfig | None] = ContextVar(
@@ -249,6 +260,119 @@ def _telonex_file_slot() -> Iterator[None]:
         yield
     finally:
         semaphore.release()
+
+
+def _blob_file_cache_key(path: str) -> tuple[str, int, int]:
+    stat = Path(path).stat()
+    return (path, int(stat.st_size), int(stat.st_mtime_ns))
+
+
+def _cached_blob_parquet_file(path: str, cache_key: tuple[str, int, int]) -> pq.ParquetFile:
+    cache = getattr(_TELONEX_BLOB_PARQUET_FILE_LOCAL, "files", None)
+    if cache is None:
+        cache = {}
+        _TELONEX_BLOB_PARQUET_FILE_LOCAL.files = cache
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+    parquet_file = pq.ParquetFile(path, memory_map=True)
+    if len(cache) >= 8:
+        cache.clear()
+    cache[cache_key] = parquet_file
+    return parquet_file
+
+
+def _parquet_stat_string(value: object) -> str:
+    if isinstance(value, bytes):
+        return value.decode("utf-8")
+    return str(value)
+
+
+def _parquet_row_group_exact_string(
+    row_group: pq.RowGroupMetaData, column_index: int
+) -> str | None:
+    stats = row_group.column(column_index).statistics
+    if stats is None or not stats.has_min_max:
+        return None
+    if stats.min != stats.max:
+        return None
+    return _parquet_stat_string(stats.min)
+
+
+def _parquet_row_group_day_range(
+    row_group: pq.RowGroupMetaData,
+    *,
+    timestamp_us_index: int | None,
+    timestamp_ms_index: int | None,
+) -> tuple[object, object] | None:
+    if timestamp_us_index is not None:
+        stats = row_group.column(timestamp_us_index).statistics
+        multiplier = 1_000
+    elif timestamp_ms_index is not None:
+        stats = row_group.column(timestamp_ms_index).statistics
+        multiplier = 1_000_000
+    else:
+        return None
+    if stats is None or not stats.has_min_max:
+        return None
+    start_ns = int(stats.min) * multiplier
+    end_ns = int(stats.max) * multiplier
+    start_day = pd.Timestamp(start_ns, unit="ns", tz="UTC").date()
+    end_day = pd.Timestamp(end_ns, unit="ns", tz="UTC").date()
+    return start_day, end_day
+
+
+def _iter_days_inclusive(start_day: object, end_day: object) -> Iterator[object]:
+    cursor = pd.Timestamp(start_day)
+    final = pd.Timestamp(end_day)
+    while cursor <= final:
+        yield cursor.date()
+        cursor += pd.Timedelta(days=1)
+
+
+def _list_struct_field_column(
+    column: pa.ChunkedArray,
+    field_name: str,
+) -> pa.ChunkedArray | None:
+    chunks: list[pa.Array] = []
+    for chunk in column.chunks:
+        if not (pa.types.is_list(chunk.type) or pa.types.is_large_list(chunk.type)):
+            return None
+        values = chunk.values
+        if not pa.types.is_struct(values.type):
+            return None
+        try:
+            field_values = values.field(field_name)
+        except KeyError:
+            return None
+        if pa.types.is_large_list(chunk.type):
+            flattened = pa.LargeListArray.from_arrays(chunk.offsets, field_values)
+        else:
+            flattened = pa.ListArray.from_arrays(chunk.offsets, field_values)
+        chunks.append(flattened)
+    return pa.chunked_array(chunks)
+
+
+def _flatten_nested_book_side_columns(table: pa.Table) -> pa.Table:
+    if "bids" not in table.schema.names or "asks" not in table.schema.names:
+        return table
+    if "bid_prices" in table.schema.names:
+        return table
+
+    bid_prices = _list_struct_field_column(table.column("bids"), "price")
+    bid_sizes = _list_struct_field_column(table.column("bids"), "size")
+    ask_prices = _list_struct_field_column(table.column("asks"), "price")
+    ask_sizes = _list_struct_field_column(table.column("asks"), "size")
+    if bid_prices is None or bid_sizes is None or ask_prices is None or ask_sizes is None:
+        return table
+
+    return (
+        table.drop_columns(["bids", "asks"])
+        .append_column("bid_prices", bid_prices)
+        .append_column("bid_sizes", bid_sizes)
+        .append_column("ask_prices", ask_prices)
+        .append_column("ask_sizes", ask_sizes)
+    )
 
 
 def _resolve_channel(channel: str | None = None) -> str:
@@ -891,6 +1015,180 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
             return False
         return int(empty_count or 0) > 0
 
+    def _blob_row_group_index(self, path: str) -> _TelonexBlobRowGroupIndex | None:
+        try:
+            cache_key = _blob_file_cache_key(path)
+        except OSError:
+            return None
+        with _TELONEX_BLOB_ROW_GROUP_INDEX_LOCK:
+            cached = _TELONEX_BLOB_ROW_GROUP_INDEX_CACHE.get(cache_key)
+            if cached is not None:
+                return cached
+
+        try:
+            with _telonex_file_slot():
+                parquet_file = _cached_blob_parquet_file(path, cache_key)
+                index = self._build_blob_row_group_index(parquet_file)
+        except (OSError, ValueError, pa.ArrowInvalid, pa.ArrowIOError):
+            return None
+
+        with _TELONEX_BLOB_ROW_GROUP_INDEX_LOCK:
+            if len(_TELONEX_BLOB_ROW_GROUP_INDEX_CACHE) > 64:
+                _TELONEX_BLOB_ROW_GROUP_INDEX_CACHE.clear()
+            _TELONEX_BLOB_ROW_GROUP_INDEX_CACHE[cache_key] = index
+        return index
+
+    @staticmethod
+    def _build_blob_row_group_index(parquet_file: pq.ParquetFile) -> _TelonexBlobRowGroupIndex:
+        if parquet_file.num_row_groups <= 0:
+            return _TelonexBlobRowGroupIndex(data_columns=(), row_groups_by_key={})
+
+        first_group = parquet_file.metadata.row_group(0)
+        path_to_index = {
+            first_group.column(column_index).path_in_schema: column_index
+            for column_index in range(first_group.num_columns)
+        }
+        market_index = path_to_index.get("market_slug")
+        outcome_index = path_to_index.get("outcome_segment")
+        timestamp_us_index = next(
+            (
+                path_to_index[name]
+                for name in ("timestamp_us", "block_timestamp_us", "local_timestamp_us")
+                if name in path_to_index
+            ),
+            None,
+        )
+        timestamp_ms_index = next(
+            (
+                path_to_index[name]
+                for name in ("timestamp_ms", "block_timestamp_ms")
+                if name in path_to_index
+            ),
+            None,
+        )
+        if market_index is None or outcome_index is None:
+            return _TelonexBlobRowGroupIndex(data_columns=(), row_groups_by_key={})
+        if timestamp_us_index is None and timestamp_ms_index is None:
+            return _TelonexBlobRowGroupIndex(data_columns=(), row_groups_by_key={})
+
+        groups: dict[tuple[str, str, object], list[int]] = {}
+        for row_group_index in range(parquet_file.num_row_groups):
+            row_group = parquet_file.metadata.row_group(row_group_index)
+            market_slug = _parquet_row_group_exact_string(row_group, market_index)
+            outcome_segment = _parquet_row_group_exact_string(row_group, outcome_index)
+            day_range = _parquet_row_group_day_range(
+                row_group,
+                timestamp_us_index=timestamp_us_index,
+                timestamp_ms_index=timestamp_ms_index,
+            )
+            if market_slug is None or outcome_segment is None or day_range is None:
+                return _TelonexBlobRowGroupIndex(data_columns=(), row_groups_by_key={})
+            for day in _iter_days_inclusive(*day_range):
+                groups.setdefault((market_slug, outcome_segment, day), []).append(row_group_index)
+
+        frozen_groups = {key: tuple(value) for key, value in groups.items()}
+        data_columns = tuple(
+            name
+            for name in parquet_file.schema_arrow.names
+            if name not in ("market_slug", "outcome_segment", "year", "month")
+        )
+        return _TelonexBlobRowGroupIndex(
+            data_columns=data_columns,
+            row_groups_by_key=frozen_groups,
+        )
+
+    def _load_blob_range_row_groups(
+        self,
+        *,
+        part_paths: Sequence[str],
+        market_slug: str,
+        token_index: int,
+        outcome: str | None,
+        start: pd.Timestamp,
+        end: pd.Timestamp,
+    ) -> pd.DataFrame | None | object:
+        """Load downloader blob row groups directly when stats are exact.
+
+        The Telonex downloader writes one Parquet row group per market/day.
+        Reading those row groups directly avoids rebuilding a Dataset scanner
+        for every market/day in a large replay batch.
+        """
+        row_groups_by_part = self._blob_row_groups_by_part(
+            part_paths=part_paths,
+            market_slug=market_slug,
+            token_index=token_index,
+            outcome=outcome,
+            start=start,
+            end=end,
+        )
+        if row_groups_by_part is _TELONEX_BLOB_ROW_GROUP_FALLBACK:
+            return _TELONEX_BLOB_ROW_GROUP_FALLBACK
+        if not row_groups_by_part:
+            return None
+
+        frames: list[pd.DataFrame] = []
+        for path, row_groups in row_groups_by_part.items():
+            try:
+                cache_key = _blob_file_cache_key(path)
+                with _telonex_file_slot():
+                    parquet_file = _cached_blob_parquet_file(path, cache_key)
+                    index = self._blob_row_group_index(path)
+                    if index is None or not index.data_columns:
+                        return _TELONEX_BLOB_ROW_GROUP_FALLBACK
+                    table = parquet_file.read_row_groups(
+                        row_groups,
+                        columns=list(index.data_columns),
+                        use_threads=False,
+                    )
+            except (OSError, ValueError, pa.ArrowInvalid, pa.ArrowIOError):
+                return _TELONEX_BLOB_ROW_GROUP_FALLBACK
+
+            if table.num_rows <= 0:
+                continue
+            table = _flatten_nested_book_side_columns(table)
+            frame = table.to_pandas()
+            del table
+            if not frame.empty:
+                frames.append(frame)
+            _release_arrow_memory()
+
+        if not frames:
+            return None
+        if len(frames) == 1:
+            return frames[0]
+        frame = pd.concat(frames, ignore_index=True, copy=False)
+        del frames
+        _release_arrow_memory()
+        return frame
+
+    def _blob_row_groups_by_part(
+        self,
+        *,
+        part_paths: Sequence[str],
+        market_slug: str,
+        token_index: int,
+        outcome: str | None,
+        start: pd.Timestamp,
+        end: pd.Timestamp,
+    ) -> dict[str, list[int]] | object:
+        start_day = self._normalize_to_utc(start).floor("D").date()
+        end_day = self._normalize_to_utc(end).floor("D").date()
+        requested_days = tuple(_iter_days_inclusive(start_day, end_day))
+        segments = self._outcome_segment_candidates(token_index=token_index, outcome=outcome)
+
+        row_groups_by_part: dict[str, list[int]] = {}
+        for path in part_paths:
+            index = self._blob_row_group_index(path)
+            if index is None or not index.data_columns:
+                return _TELONEX_BLOB_ROW_GROUP_FALLBACK
+            row_groups: list[int] = []
+            for day in requested_days:
+                for segment in segments:
+                    row_groups.extend(index.row_groups_by_key.get((market_slug, segment, day), ()))
+            if row_groups:
+                row_groups_by_part[path] = sorted(set(row_groups))
+        return row_groups_by_part
+
     def _load_blob_range(
         self,
         *,
@@ -968,6 +1266,22 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
                 self._forget_blob_ts_cache_key(cache_key)
                 self._telonex_blob_range_frames[cache_key] = None
             return None
+
+        row_group_frame = self._load_blob_range_row_groups(
+            part_paths=part_paths,
+            market_slug=market_slug,
+            token_index=token_index,
+            outcome=outcome,
+            start=start_utc,
+            end=end_utc,
+        )
+        if row_group_frame is not _TELONEX_BLOB_ROW_GROUP_FALLBACK:
+            if row_group_frame is None:
+                with self._telonex_blob_scan_lock:
+                    self._forget_blob_ts_cache_key(cache_key)
+                    self._telonex_blob_range_frames[cache_key] = None
+                return None
+            return row_group_frame
 
         segments = self._outcome_segment_candidates(token_index=token_index, outcome=outcome)
 
@@ -1099,6 +1413,281 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
                 self._telonex_blob_range_frames[cache_key] = None
             return None
         return frame
+
+    def _try_load_deltas_day_from_local_blob_native(
+        self,
+        *,
+        entry: TelonexSourceEntry,
+        channel: str,
+        date: str,
+        market_slug: str,
+        token_index: int,
+        outcome: str | None,
+        start: pd.Timestamp,
+        end: pd.Timestamp,
+    ) -> tuple[list[OrderBookDeltas], Mapping[str, Sequence[object]], str] | None:
+        if channel != TELONEX_FULL_BOOK_CHANNEL:
+            return None
+        assert entry.target is not None
+        root = Path(entry.target).expanduser()
+        if (
+            self._local_path_for_day(
+                root=root,
+                channel=channel,
+                date=date,
+                market_slug=market_slug,
+                token_index=token_index,
+                outcome=outcome,
+            )
+            is not None
+        ):
+            return None
+        if (
+            self._local_consolidated_path(
+                root=root,
+                channel=channel,
+                market_slug=market_slug,
+                token_index=token_index,
+                outcome=outcome,
+            )
+            is not None
+        ):
+            return None
+
+        blob_root = self._local_blob_root(root)
+        if blob_root is None:
+            return None
+        start_utc = self._normalize_to_utc(start)
+        end_utc = self._normalize_to_utc(end)
+        channel_dir = blob_root / _TELONEX_DATA_SUBDIR / f"channel={channel}"
+        if not channel_dir.exists():
+            return None
+        manifest_parts = self._manifest_blob_part_paths(
+            store_root=blob_root,
+            channel=channel,
+            market_slug=market_slug,
+            token_index=token_index,
+            outcome=outcome,
+            start=start_utc,
+            end=end_utc,
+        )
+        if manifest_parts is None:
+            part_paths, incomplete_parts = self._readable_blob_part_paths(
+                channel_dir=channel_dir,
+                start=start_utc,
+                end=end_utc,
+            )
+        else:
+            part_paths, incomplete_parts = manifest_parts
+        if incomplete_parts or not part_paths:
+            return None
+        row_groups_by_part = self._blob_row_groups_by_part(
+            part_paths=part_paths,
+            market_slug=market_slug,
+            token_index=token_index,
+            outcome=outcome,
+            start=start_utc,
+            end=end_utc,
+        )
+        if row_groups_by_part is _TELONEX_BLOB_ROW_GROUP_FALLBACK or not row_groups_by_part:
+            return None
+
+        start_ns = int(start_utc.value)
+        end_ns = int(end_utc.value)
+        merged_columns: dict[str, list[object]] = {
+            "event_index": [],
+            "action": [],
+            "side": [],
+            "price": [],
+            "size": [],
+            "flags": [],
+            "sequence": [],
+            "ts_event": [],
+            "ts_init": [],
+        }
+        event_offset = 0
+        for path, row_groups in row_groups_by_part.items():
+            native_rows = telonex_parquet_book_snapshot_diff_rows(
+                path=path,
+                row_groups=row_groups,
+                start_ns=start_ns,
+                end_ns=end_ns,
+            )
+            (
+                _first_snapshot_index,
+                event_indexes,
+                actions,
+                sides,
+                prices,
+                sizes,
+                flags,
+                sequences,
+                ts_events,
+                ts_inits,
+            ) = native_rows
+            if not event_indexes:
+                continue
+            merged_columns["event_index"].extend(
+                int(event_index) + event_offset for event_index in event_indexes
+            )
+            merged_columns["action"].extend(actions)
+            merged_columns["side"].extend(sides)
+            merged_columns["price"].extend(prices)
+            merged_columns["size"].extend(sizes)
+            merged_columns["flags"].extend(flags)
+            merged_columns["sequence"].extend(sequences)
+            merged_columns["ts_event"].extend(ts_events)
+            merged_columns["ts_init"].extend(ts_inits)
+            event_offset += max(int(event_index) for event_index in event_indexes) + 1
+
+        if not merged_columns["event_index"]:
+            return [], merged_columns, f"telonex-local::{entry.target}"
+        records = self._deltas_records_from_columns(merged_columns)
+        records.sort(key=lambda record: int(record.ts_event))
+        return records, merged_columns, f"telonex-local::{entry.target}"
+
+    def _ensure_api_day_cache_path(
+        self,
+        *,
+        entry: TelonexSourceEntry,
+        channel: str,
+        date: str,
+        market_slug: str,
+        token_index: int,
+        outcome: str | None,
+    ) -> tuple[Path | None, str]:
+        assert entry.target is not None
+        cache_path = self._api_cache_path(
+            base_url=entry.target,
+            channel=channel,
+            date=date,
+            market_slug=market_slug,
+            token_index=token_index,
+            outcome=outcome,
+        )
+        if cache_path is not None and cache_path.exists():
+            return cache_path, f"telonex-cache::{cache_path}"
+        if cache_path is None:
+            return None, "none"
+
+        api_key = entry.api_key or _env_value(TELONEX_API_KEY_ENV)
+        if api_key is None:
+            raise ValueError(f"{TELONEX_API_KEY_ENV} is required when using Telonex api:.")
+
+        url = self._api_url(
+            base_url=entry.target,
+            channel=channel,
+            date=date,
+            market_slug=market_slug,
+            token_index=token_index,
+            outcome=outcome,
+        )
+        with _telonex_api_slot():
+            try:
+                presigned_url = self._resolve_presigned_url(url=url, api_key=api_key)
+            except HTTPError as exc:
+                if exc.code == 404:
+                    return None, "none"
+                raise
+
+            fetch_request = Request(presigned_url, headers={"User-Agent": _TELONEX_USER_AGENT})
+            progress_url = f"telonex-api::{url}"
+            try:
+                with urlopen(fetch_request, timeout=_TELONEX_HTTP_TIMEOUT_SECS) as response:
+                    total_bytes_header = response.headers.get("Content-Length")
+                    total_bytes = int(total_bytes_header) if total_bytes_header else None
+                    downloaded = 0
+                    chunks: list[bytes] = []
+                    self._download_progress(progress_url, 0, total_bytes, False)
+                    while True:
+                        chunk = response.read(_TELONEX_DOWNLOAD_CHUNK_SIZE)
+                        if not chunk:
+                            break
+                        chunks.append(chunk)
+                        downloaded += len(chunk)
+                        self._download_progress(progress_url, downloaded, total_bytes, False)
+                    self._download_progress(progress_url, downloaded, total_bytes, True)
+                    payload = b"".join(chunks)
+            except HTTPError as exc:
+                if exc.code == 404:
+                    return None, "none"
+                raise
+
+        self._write_api_cache_day(
+            payload=payload,
+            base_url=entry.target,
+            channel=channel,
+            date=date,
+            market_slug=market_slug,
+            token_index=token_index,
+            outcome=outcome,
+        )
+        return cache_path, f"telonex-api::{url}"
+
+    def _try_load_deltas_day_from_api_native(
+        self,
+        *,
+        entry: TelonexSourceEntry,
+        channel: str,
+        date: str,
+        market_slug: str,
+        token_index: int,
+        outcome: str | None,
+        start: pd.Timestamp,
+        end: pd.Timestamp,
+    ) -> tuple[list[OrderBookDeltas], Mapping[str, Sequence[object]], str] | None:
+        if channel != TELONEX_FULL_BOOK_CHANNEL:
+            return None
+        cache_path, source = self._ensure_api_day_cache_path(
+            entry=entry,
+            channel=channel,
+            date=date,
+            market_slug=market_slug,
+            token_index=token_index,
+            outcome=outcome,
+        )
+        if cache_path is None:
+            return None
+        try:
+            with _telonex_file_slot():
+                parquet_file = _cached_blob_parquet_file(
+                    str(cache_path), _blob_file_cache_key(str(cache_path))
+                )
+                row_groups = list(range(parquet_file.num_row_groups))
+        except (OSError, ValueError, pa.ArrowInvalid, pa.ArrowIOError):
+            return None
+        native_rows = telonex_parquet_book_snapshot_diff_rows(
+            path=str(cache_path),
+            row_groups=row_groups,
+            start_ns=int(self._normalize_to_utc(start).value),
+            end_ns=int(self._normalize_to_utc(end).value),
+        )
+        (
+            _first_snapshot_index,
+            event_indexes,
+            actions,
+            sides,
+            prices,
+            sizes,
+            flags,
+            sequences,
+            ts_events,
+            ts_inits,
+        ) = native_rows
+        delta_columns: dict[str, Sequence[object]] = {
+            "event_index": event_indexes,
+            "action": actions,
+            "side": sides,
+            "price": prices,
+            "size": sizes,
+            "flags": flags,
+            "sequence": sequences,
+            "ts_event": ts_events,
+            "ts_init": ts_inits,
+        }
+        records = self._deltas_records_from_columns(delta_columns) if event_indexes else []
+        records.sort(key=lambda record: int(record.ts_event))
+        return records, delta_columns, source
 
     def _cached_ts_ns_for_frame(self, frame: pd.DataFrame, column_name: str) -> np.ndarray | None:
         """Return a pre-computed ts_ns array if *frame* is a memoized blob
@@ -2972,6 +3561,44 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
             if frame is None:
                 for entry in config.ordered_source_entries:
                     if entry.kind == _TELONEX_SOURCE_LOCAL:
+                        native_blob_result = None
+                        if include_order_book:
+                            native_blob_result = self._try_load_deltas_day_from_local_blob_native(
+                                entry=entry,
+                                channel=config.channel,
+                                date=date,
+                                market_slug=market_slug,
+                                token_index=token_index,
+                                outcome=outcome,
+                                start=day_start,
+                                end=day_end,
+                            )
+                        if native_blob_result is not None:
+                            day_records, delta_columns, day_source = native_blob_result
+                            self._write_deltas_cache_day(
+                                records=day_records,
+                                delta_columns=delta_columns,
+                                channel=config.channel,
+                                date=date,
+                                market_slug=market_slug,
+                                token_index=token_index,
+                                outcome=outcome,
+                                start=day_start,
+                                end=day_end,
+                            )
+                            _release_arrow_memory()
+                            self._day_progress(
+                                date,
+                                "complete",
+                                day_source,
+                                len(day_records),
+                            )
+                            emitted_day_complete = True
+                            return _TelonexDayResult(
+                                date=date,
+                                records=day_records,
+                                source=day_source,
+                            )
                         frame = self._try_load_day_from_local(
                             entry=entry,
                             channel=config.channel,
@@ -2987,6 +3614,43 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
                             f"telonex-local::{entry.target}" if frame is not None else day_source
                         )
                     else:
+                        if include_order_book:
+                            native_api_result = self._try_load_deltas_day_from_api_native(
+                                entry=entry,
+                                channel=config.channel,
+                                date=date,
+                                market_slug=market_slug,
+                                token_index=token_index,
+                                outcome=outcome,
+                                start=day_start,
+                                end=day_end,
+                            )
+                            if native_api_result is not None:
+                                day_records, delta_columns, day_source = native_api_result
+                                self._write_deltas_cache_day(
+                                    records=day_records,
+                                    delta_columns=delta_columns,
+                                    channel=config.channel,
+                                    date=date,
+                                    market_slug=market_slug,
+                                    token_index=token_index,
+                                    outcome=outcome,
+                                    start=day_start,
+                                    end=day_end,
+                                )
+                                _release_arrow_memory()
+                                self._day_progress(
+                                    date,
+                                    "complete",
+                                    day_source,
+                                    len(day_records),
+                                )
+                                emitted_day_complete = True
+                                return _TelonexDayResult(
+                                    date=date,
+                                    records=day_records,
+                                    source=day_source,
+                                )
                         frame, source = self._try_load_day_from_api_entry(
                             entry=entry,
                             channel=config.channel,

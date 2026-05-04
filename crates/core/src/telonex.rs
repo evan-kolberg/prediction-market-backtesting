@@ -1,5 +1,12 @@
 use std::collections::HashMap;
+use std::fs::File;
 use std::path::{Path, PathBuf};
+
+use arrow_array::{
+    Array, Int64Array, LargeListArray, LargeStringArray, ListArray, StringArray, StructArray,
+};
+use parquet::arrow::ProjectionMask;
+use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 
 const NANOS_PER_DAY: i128 = 86_400_000_000_000;
 
@@ -416,6 +423,170 @@ pub fn flat_book_snapshot_diff_rows(
     }
 
     Ok(rows)
+}
+
+pub fn parquet_book_snapshot_diff_rows(
+    path: &str,
+    row_groups: Vec<usize>,
+    start_ns: i64,
+    end_ns: i64,
+) -> Result<TelonexFlatBookDiffRows, String> {
+    if row_groups.is_empty() {
+        return Ok(TelonexFlatBookDiffRows::default());
+    }
+
+    let file = File::open(path).map_err(|err| format!("open parquet {path}: {err}"))?;
+    let builder = ParquetRecordBatchReaderBuilder::try_new(file)
+        .map_err(|err| format!("read parquet metadata {path}: {err}"))?;
+    let schema = builder.schema();
+    let timestamp_index = schema
+        .fields()
+        .iter()
+        .position(|field| field.name() == "timestamp_us")
+        .ok_or_else(|| "Telonex parquet is missing timestamp_us".to_string())?;
+    let bids_index = schema
+        .fields()
+        .iter()
+        .position(|field| field.name() == "bids")
+        .ok_or_else(|| "Telonex parquet is missing bids".to_string())?;
+    let asks_index = schema
+        .fields()
+        .iter()
+        .position(|field| field.name() == "asks")
+        .ok_or_else(|| "Telonex parquet is missing asks".to_string())?;
+    let projection = ProjectionMask::roots(
+        builder.parquet_schema(),
+        [timestamp_index, bids_index, asks_index],
+    );
+    let reader = builder
+        .with_projection(projection)
+        .with_row_groups(row_groups)
+        .with_batch_size(8192)
+        .build()
+        .map_err(|err| format!("open parquet row groups {path}: {err}"))?;
+
+    let mut timestamp_ns = Vec::new();
+    let mut bid_prices = Vec::new();
+    let mut bid_sizes = Vec::new();
+    let mut ask_prices = Vec::new();
+    let mut ask_sizes = Vec::new();
+    for batch_result in reader {
+        let batch = batch_result.map_err(|err| format!("read parquet batch {path}: {err}"))?;
+        let timestamp_array = batch
+            .column_by_name("timestamp_us")
+            .ok_or_else(|| "Telonex parquet batch is missing timestamp_us".to_string())?
+            .as_any()
+            .downcast_ref::<Int64Array>()
+            .ok_or_else(|| "Telonex timestamp_us column is not int64".to_string())?;
+        let bids_array = batch
+            .column_by_name("bids")
+            .ok_or_else(|| "Telonex parquet batch is missing bids".to_string())?;
+        let asks_array = batch
+            .column_by_name("asks")
+            .ok_or_else(|| "Telonex parquet batch is missing asks".to_string())?;
+        for row in 0..batch.num_rows() {
+            if timestamp_array.is_null(row) {
+                continue;
+            }
+            let ts_ns = timestamp_array.value(row).saturating_mul(1_000);
+            if ts_ns > end_ns {
+                continue;
+            }
+            let (row_bid_prices, row_bid_sizes) = list_struct_book_side_values(bids_array, row)?;
+            let (row_ask_prices, row_ask_sizes) = list_struct_book_side_values(asks_array, row)?;
+            timestamp_ns.push(ts_ns);
+            bid_prices.push(row_bid_prices);
+            bid_sizes.push(row_bid_sizes);
+            ask_prices.push(row_ask_prices);
+            ask_sizes.push(row_ask_sizes);
+        }
+    }
+
+    flat_book_snapshot_diff_rows(
+        timestamp_ns,
+        bid_prices,
+        bid_sizes,
+        ask_prices,
+        ask_sizes,
+        start_ns,
+        end_ns,
+    )
+}
+
+fn list_struct_book_side_values(
+    array: &std::sync::Arc<dyn Array>,
+    row: usize,
+) -> Result<(Vec<String>, Vec<String>), String> {
+    if let Some(list) = array.as_any().downcast_ref::<ListArray>() {
+        return list_struct_book_side_values_i32(list, row);
+    }
+    if let Some(list) = array.as_any().downcast_ref::<LargeListArray>() {
+        return list_struct_book_side_values_i64(list, row);
+    }
+    Err("Telonex book side column is not list<struct<price,size>>".to_string())
+}
+
+fn list_struct_book_side_values_i32(
+    list: &ListArray,
+    row: usize,
+) -> Result<(Vec<String>, Vec<String>), String> {
+    if list.is_null(row) {
+        return Ok((Vec::new(), Vec::new()));
+    }
+    let offsets = list.value_offsets();
+    let start = usize::try_from(offsets[row]).unwrap_or(0);
+    let end = usize::try_from(offsets[row + 1]).unwrap_or(start);
+    list_struct_values(list.values().as_ref(), start, end)
+}
+
+fn list_struct_book_side_values_i64(
+    list: &LargeListArray,
+    row: usize,
+) -> Result<(Vec<String>, Vec<String>), String> {
+    if list.is_null(row) {
+        return Ok((Vec::new(), Vec::new()));
+    }
+    let offsets = list.value_offsets();
+    let start = usize::try_from(offsets[row]).unwrap_or(0);
+    let end = usize::try_from(offsets[row + 1]).unwrap_or(start);
+    list_struct_values(list.values().as_ref(), start, end)
+}
+
+fn list_struct_values(
+    values: &dyn Array,
+    start: usize,
+    end: usize,
+) -> Result<(Vec<String>, Vec<String>), String> {
+    let struct_values = values
+        .as_any()
+        .downcast_ref::<StructArray>()
+        .ok_or_else(|| "Telonex book side values are not structs".to_string())?;
+    let price_array = struct_values
+        .column_by_name("price")
+        .ok_or_else(|| "Telonex book side struct is missing price".to_string())?;
+    let size_array = struct_values
+        .column_by_name("size")
+        .ok_or_else(|| "Telonex book side struct is missing size".to_string())?;
+    let mut prices = Vec::with_capacity(end.saturating_sub(start));
+    let mut sizes = Vec::with_capacity(end.saturating_sub(start));
+    for idx in start..end {
+        if price_array.is_null(idx) || size_array.is_null(idx) {
+            continue;
+        }
+        prices.push(string_array_value(price_array.as_ref(), idx)?);
+        sizes.push(string_array_value(size_array.as_ref(), idx)?);
+    }
+    Ok((prices, sizes))
+}
+
+fn string_array_value(array: &dyn Array, row: usize) -> Result<String, String> {
+    if let Some(values) = array.as_any().downcast_ref::<StringArray>() {
+        return Ok(values.value(row).to_string());
+    }
+    if let Some(values) = array.as_any().downcast_ref::<LargeStringArray>() {
+        return Ok(values.value(row).to_string());
+    }
+    Err("Telonex book side field is not string".to_string())
 }
 
 fn append_snapshot_rows(
