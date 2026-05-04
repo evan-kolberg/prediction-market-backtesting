@@ -1116,6 +1116,53 @@ class PolymarketPMXTBookReplayAdapter(_BaseReplayAdapter):
             if not prepared:
                 return
 
+            async def _load_window_cached_book(
+                index: int,
+            ) -> tuple[int, _LoadedBookReplay | None]:
+                prepared_replay = prepared[index]
+                loader = prepared_replay.loader
+                load_window_cache_batches = getattr(loader, "_load_window_cache_batches", None)
+                if not callable(load_window_cache_batches):
+                    return index, None
+                batches = await asyncio.to_thread(
+                    load_window_cache_batches,
+                    prepared_replay.resolved.start,
+                    prepared_replay.resolved.end,
+                )
+                if batches is None:
+                    return index, None
+                records = tuple(
+                    await asyncio.to_thread(
+                        loader.load_order_book_deltas_from_hour_batches,
+                        prepared_replay.resolved.start,
+                        prepared_replay.resolved.end,
+                        ((prepared_replay.resolved.start, batches),),
+                    )
+                )
+                return (
+                    index,
+                    _LoadedBookReplay(
+                        prepared=prepared_replay,
+                        book_records=records,
+                        book_event_count=len(records),
+                    ),
+                )
+
+            window_cache_results = await _gather_bounded(
+                tuple(range(len(prepared))),
+                workers=materialize_workers,
+                func=_load_window_cached_book,
+            )
+            for index, loaded_book in window_cache_results:
+                if loaded_book is not None:
+                    preloaded_books_by_index[index] = loaded_book
+
+            indexes_needing_source = tuple(
+                index for index in range(len(prepared)) if index not in preloaded_books_by_index
+            )
+            if not indexes_needing_source:
+                return
+
             resolved_batch_size = int(
                 getattr(
                     prepared[0].loader,
@@ -1131,6 +1178,7 @@ class PolymarketPMXTBookReplayAdapter(_BaseReplayAdapter):
                     )
                 )
                 for index, prepared_replay in enumerate(prepared)
+                if index in indexes_needing_source
             }
             cache_checks = [
                 (index, hour) for index, hours in hours_by_index.items() for hour in hours
