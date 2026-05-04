@@ -19,6 +19,7 @@ from prediction_market_extensions.adapters.prediction_market import (
 from prediction_market_extensions.backtesting._prediction_market_backtest import (
     PredictionMarketBacktest,
     _loader_progress_env_for_workers,
+    _resolve_replay_load_workers,
 )
 from prediction_market_extensions.backtesting._prediction_market_runner import MarketDataConfig
 from prediction_market_extensions.backtesting._replay_specs import BookReplay
@@ -235,6 +236,13 @@ def test_load_sims_async_uses_adapter_batch_loader(monkeypatch) -> None:
     assert adapter.batch_workers == 2
     assert adapter.batch_replays == replays
     assert [sim.market_id for sim in loaded] == ["first", "second"]
+
+
+def test_replay_load_worker_cap_allows_100_market_source_fanout(monkeypatch) -> None:
+    monkeypatch.setenv("BACKTEST_REPLAY_LOAD_WORKERS", "128")
+
+    assert _resolve_replay_load_workers(100) == 100
+    assert _resolve_replay_load_workers(256) == 128
 
 
 def test_parallel_loading_temporarily_suppresses_loader_progress(monkeypatch) -> None:

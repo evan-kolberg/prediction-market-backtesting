@@ -117,7 +117,7 @@ Multi-replay Telonex loading uses staged source preparation with bounded
 materialization: all Polymarket Gamma/CLOB metadata is prepared first, source
 fetch/cache work fans out, then book materialization, trade loading, and replay
 building run through a smaller memory cap. `BACKTEST_REPLAY_LOAD_WORKERS`
-controls source-stage concurrency and defaults to `32`;
+controls source-stage concurrency, defaults to `32`, and can be raised to `128`;
 `BACKTEST_REPLAY_MATERIALIZE_WORKERS` controls the memory-heavy replay object
 stage and defaults to `4`. Telonex API requests are separately capped by
 `TELONEX_API_WORKERS` and default to `128`; local file, DuckDB, and parquet

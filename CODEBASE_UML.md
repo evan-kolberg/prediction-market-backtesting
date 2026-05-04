@@ -1,7 +1,7 @@
 # Codebase UML Inventory
 
 This file is generated from Python AST metadata and excludes `tests/`.
-Generated: 2026-05-04T15:26:19+00:00
+Generated: 2026-05-04T15:41:22+00:00
 Modules: 111 | Classes: 163 | Functions/methods: 1410
 
 ## Backtesting Data Flow
