@@ -21,6 +21,8 @@ from prediction_market_extensions.backtesting.data_sources.pmxt import (
     PMXT_PREFETCH_WORKERS_ENV,
     PMXT_RAW_ROOT_ENV,
     PMXT_REMOTE_BASE_URL_ENV,
+    PMXT_ROW_GROUP_CHUNK_SIZE_ENV,
+    PMXT_ROW_GROUP_SCAN_WORKERS_ENV,
     PMXT_SOURCE_PRIORITY_ENV,
     RunnerPolymarketPMXTDataLoader,
     configured_pmxt_data_source,
@@ -127,6 +129,23 @@ def test_configured_pmxt_data_source_preserves_existing_prefetch_override(
     with configured_pmxt_data_source(sources=[f"local:{mirror_root}"]) as selection:
         assert selection.mode == "auto"
         assert RunnerPolymarketPMXTDataLoader._resolve_prefetch_workers() == 7
+
+
+def test_runner_pmxt_row_group_scan_bounds_default_and_env(monkeypatch) -> None:
+    monkeypatch.delenv(PMXT_ROW_GROUP_CHUNK_SIZE_ENV, raising=False)
+    monkeypatch.delenv(PMXT_ROW_GROUP_SCAN_WORKERS_ENV, raising=False)
+    assert RunnerPolymarketPMXTDataLoader._resolve_row_group_chunk_size() == 4
+    assert RunnerPolymarketPMXTDataLoader._resolve_row_group_scan_workers() == 2
+
+    monkeypatch.setenv(PMXT_ROW_GROUP_CHUNK_SIZE_ENV, "4")
+    monkeypatch.setenv(PMXT_ROW_GROUP_SCAN_WORKERS_ENV, "3")
+    assert RunnerPolymarketPMXTDataLoader._resolve_row_group_chunk_size() == 4
+    assert RunnerPolymarketPMXTDataLoader._resolve_row_group_scan_workers() == 3
+
+    monkeypatch.setenv(PMXT_ROW_GROUP_CHUNK_SIZE_ENV, "invalid")
+    monkeypatch.setenv(PMXT_ROW_GROUP_SCAN_WORKERS_ENV, "invalid")
+    assert RunnerPolymarketPMXTDataLoader._resolve_row_group_chunk_size() == 4
+    assert RunnerPolymarketPMXTDataLoader._resolve_row_group_scan_workers() == 2
 
 
 def test_configured_pmxt_data_source_rejects_cache_explicit_source() -> None:
@@ -457,6 +476,69 @@ def test_runner_loader_grouped_raw_hour_load_splits_requests(tmp_path) -> None:
         ("complete", "pmxt.load_shared_market_batches_for_hour"),
     ]
     assert fetch_events[1].rows == 2
+
+
+def test_runner_loader_grouped_raw_hour_scopes_requests_by_row_group(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    loader = _make_loader(cache_dir=None)
+    hour = pd.Timestamp("2026-03-21T12:00:00Z")
+    raw_path = tmp_path / "2026" / "03" / "21" / "polymarket_orderbook_2026-03-21T12.parquet"
+    raw_path.parent.mkdir(parents=True, exist_ok=True)
+    condition_a = "0x" + ("a" * 64)
+    condition_b = "0x" + ("b" * 64)
+    condition_c = "0x" + ("c" * 64)
+    pq.write_table(
+        pa.table(
+            {
+                "timestamp": pa.array(
+                    [
+                        pd.Timestamp("2026-03-21T12:00:01Z"),
+                        pd.Timestamp("2026-03-21T12:00:02Z"),
+                        pd.Timestamp("2026-03-21T12:00:03Z"),
+                    ],
+                    type=pa.timestamp("ms", tz="UTC"),
+                ),
+                "market": pa.array(
+                    [condition_a.encode(), condition_b.encode(), condition_c.encode()],
+                    type=pa.binary(66),
+                ),
+                "event_type": ["book", "price_change", "book"],
+                "asset_id": ["token-a", "token-b", "token-c"],
+                "bids": ["[]", None, "[]"],
+                "asks": ["[]", None, "[]"],
+                "price": ["0.40", "0.60", "0.90"],
+                "size": ["1.0", "2.0", "3.0"],
+                "side": ["BUY", "SELL", "BUY"],
+            }
+        ),
+        raw_path,
+        row_group_size=1,
+    )
+    loader._pmxt_ordered_source_entries = (("raw-local", str(tmp_path)),)
+    monkeypatch.setenv(PMXT_ROW_GROUP_CHUNK_SIZE_ENV, "1")
+
+    original_split = loader._split_shared_fixed_table
+    split_request_ids: list[tuple[int, ...]] = []
+
+    def capture_split(table, *, requests, batch_size: int):  # type: ignore[no-untyped-def]
+        split_request_ids.append(tuple(request_id for request_id, _, _ in requests))
+        return original_split(table, requests=requests, batch_size=batch_size)
+
+    monkeypatch.setattr(loader, "_split_shared_fixed_table", capture_split)
+
+    batches_by_request = loader.load_shared_market_batches_for_hour(
+        hour,
+        requests=((0, condition_a, "token-a"), (1, condition_b, "token-b")),
+        batch_size=1_000,
+    )
+
+    assert {
+        key: loader._row_count_from_batches(value or [])
+        for key, value in batches_by_request.items()
+    } == {0: 1, 1: 1}
+    assert split_request_ids == [(0,), (1,)]
 
 
 def test_runner_loader_grouped_remote_uses_temp_when_raw_copy_fails(

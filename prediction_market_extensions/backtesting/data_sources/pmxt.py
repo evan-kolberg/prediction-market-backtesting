@@ -34,9 +34,13 @@ PMXT_CACHE_DIR_ENV = "PMXT_CACHE_DIR"
 PMXT_DISABLE_CACHE_ENV = "PMXT_DISABLE_CACHE"
 PMXT_SOURCE_PRIORITY_ENV = "PMXT_SOURCE_PRIORITY"
 PMXT_PREFETCH_WORKERS_ENV = "PMXT_PREFETCH_WORKERS"
+PMXT_ROW_GROUP_CHUNK_SIZE_ENV = "PMXT_ROW_GROUP_CHUNK_SIZE"
+PMXT_ROW_GROUP_SCAN_WORKERS_ENV = "PMXT_ROW_GROUP_SCAN_WORKERS"
 _PMXT_RUNNER_HTTP_USER_AGENT = "prediction-market-backtesting/1.0"
 _PMXT_RUNNER_HTTP_TIMEOUT_SECS = 30
 _PMXT_LOCAL_RAW_PREFETCH_WORKERS = "4"
+_PMXT_DEFAULT_ROW_GROUP_CHUNK_SIZE = 4
+_PMXT_DEFAULT_ROW_GROUP_SCAN_WORKERS = 2
 _PMXT_ARCHIVE_SOURCE_PREFIXES = ("archive:",)
 _PMXT_RAW_LOCAL_SOURCE_PREFIXES = ("local:",)
 
@@ -56,6 +60,9 @@ class _RawDownloadLockEntry:
 
 _PMXT_RAW_DOWNLOAD_LOCKS_LOCK = threading.Lock()
 _PMXT_RAW_DOWNLOAD_LOCKS: dict[str, _RawDownloadLockEntry] = {}
+_PMXT_ROW_GROUP_SCAN_LOCK = threading.Lock()
+_PMXT_ROW_GROUP_SCAN_SEMAPHORE: threading.BoundedSemaphore | None = None
+_PMXT_ROW_GROUP_SCAN_SEMAPHORE_WORKERS = 0
 
 _MODE_ALIASES = {
     "": "auto",
@@ -100,6 +107,41 @@ def _release_arrow_memory() -> None:
         pa.default_memory_pool().release_unused()
     except AttributeError:
         pass
+
+
+def _resolve_positive_int_env(name: str, *, default: int) -> int:
+    configured = env_value(os.getenv(name))
+    if configured is None:
+        return max(1, int(default))
+    try:
+        return max(1, int(configured))
+    except ValueError:
+        return max(1, int(default))
+
+
+def _pmxt_row_group_scan_semaphore(workers: int) -> threading.BoundedSemaphore:
+    global _PMXT_ROW_GROUP_SCAN_SEMAPHORE
+    global _PMXT_ROW_GROUP_SCAN_SEMAPHORE_WORKERS
+
+    resolved_workers = max(1, int(workers))
+    with _PMXT_ROW_GROUP_SCAN_LOCK:
+        if (
+            _PMXT_ROW_GROUP_SCAN_SEMAPHORE is None
+            or _PMXT_ROW_GROUP_SCAN_SEMAPHORE_WORKERS != resolved_workers
+        ):
+            _PMXT_ROW_GROUP_SCAN_SEMAPHORE = threading.BoundedSemaphore(resolved_workers)
+            _PMXT_ROW_GROUP_SCAN_SEMAPHORE_WORKERS = resolved_workers
+        return _PMXT_ROW_GROUP_SCAN_SEMAPHORE
+
+
+@contextmanager
+def _bounded_pmxt_row_group_scan(workers: int) -> Iterator[None]:
+    semaphore = _pmxt_row_group_scan_semaphore(workers)
+    semaphore.acquire()
+    try:
+        yield
+    finally:
+        semaphore.release()
 
 
 class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
@@ -502,6 +544,20 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
             return config.prefetch_workers
         return super()._resolve_prefetch_workers()
 
+    @classmethod
+    def _resolve_row_group_chunk_size(cls) -> int:
+        return _resolve_positive_int_env(
+            PMXT_ROW_GROUP_CHUNK_SIZE_ENV,
+            default=_PMXT_DEFAULT_ROW_GROUP_CHUNK_SIZE,
+        )
+
+    @classmethod
+    def _resolve_row_group_scan_workers(cls) -> int:
+        return _resolve_positive_int_env(
+            PMXT_ROW_GROUP_SCAN_WORKERS_ENV,
+            default=_PMXT_DEFAULT_ROW_GROUP_SCAN_WORKERS,
+        )
+
     @contextmanager
     def _scoped_source_entry(self, kind: str, target: str):  # type: ignore[no-untyped-def]
         """
@@ -679,32 +735,37 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
             result[request_id] = list(filtered.to_batches(max_chunksize=batch_size))
         return result
 
-    def _matching_shared_raw_fixed_market_row_groups(
+    def _matching_shared_raw_fixed_market_row_group_requests(
         self,
         parquet_file: pq.ParquetFile,
-        condition_ids: Sequence[str],
-    ) -> list[int] | None:
+        requests: Sequence[tuple[int, str, str]],
+    ) -> list[tuple[int, tuple[tuple[int, str, str], ...]]] | None:
         schema = parquet_file.schema_arrow
         try:
             market_index = schema.names.index("market")
         except ValueError:
             return None
 
-        market_values = [
-            self._market_stats_value(schema.field("market").type, condition_id)
-            for condition_id in condition_ids
-        ]
-        row_groups: list[int] = []
+        market_type = schema.field("market").type
+        request_market_values = tuple(
+            (request, self._market_stats_value(market_type, request[1])) for request in requests
+        )
+        row_groups: list[tuple[int, tuple[tuple[int, str, str], ...]]] = []
         for index in range(parquet_file.num_row_groups):
             column = parquet_file.metadata.row_group(index).column(market_index)
             stats = column.statistics
             if stats is None or stats.min is None or stats.max is None:
                 return None
             try:
-                if any(stats.min <= market_value <= stats.max for market_value in market_values):
-                    row_groups.append(index)
+                matching_requests = tuple(
+                    request
+                    for request, market_value in request_market_values
+                    if stats.min <= market_value <= stats.max
+                )
             except TypeError:
                 return None
+            if matching_requests:
+                row_groups.append((index, matching_requests))
         return row_groups
 
     def _load_shared_raw_fixed_market_batches_pyarrow(
@@ -714,20 +775,18 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
         requests: Sequence[tuple[int, str, str]],
         batch_size: int,
     ) -> dict[int, list[pa.RecordBatch]] | None:
-        condition_ids = sorted({condition_id for _, condition_id, _ in requests})
-        token_ids = sorted({token_id for _, _, token_id in requests})
         request_count = len(requests)
         parquet_file = pq.ParquetFile(raw_path)
         if not self._is_raw_fixed_schema(parquet_file.schema_arrow.names):
             return None
 
-        row_groups = self._matching_shared_raw_fixed_market_row_groups(
+        row_group_requests = self._matching_shared_raw_fixed_market_row_group_requests(
             parquet_file,
-            condition_ids,
+            requests,
         )
-        if row_groups is None:
+        if row_group_requests is None:
             return None
-        if not row_groups:
+        if not row_group_requests:
             return {request_id: [] for request_id, _, _ in requests}
 
         result: dict[int, list[pa.RecordBatch]] = {request_id: [] for request_id, _, _ in requests}
@@ -743,57 +802,84 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
             "side",
         ]
         market_type = parquet_file.schema_arrow.field("market").type
-        market_values = [
-            self._market_stats_value(market_type, condition_id) for condition_id in condition_ids
-        ]
-        market_value_set = pa.array(market_values, type=market_type)
-        token_value_set = pa.array(token_ids)
         event_type_value_set = pa.array(["book", "price_change"])
 
-        for row_group in row_groups:
-            raw_table = parquet_file.read_row_groups([row_group], columns=raw_columns)
-            market_mask = pc.is_in(raw_table.column("market"), value_set=market_value_set)
-            event_type_mask = pc.is_in(
-                raw_table.column("event_type"),
-                value_set=event_type_value_set,
-            )
-            token_mask = pc.is_in(raw_table.column("asset_id"), value_set=token_value_set)
-            mask = pc.and_(
-                pc.and_(pc.fill_null(market_mask, False), pc.fill_null(event_type_mask, False)),
-                pc.fill_null(token_mask, False),
-            )
-            filtered = raw_table.filter(mask)
-            if filtered.num_rows == 0:
-                del raw_table, filtered, market_mask, event_type_mask, token_mask, mask
-                continue
+        chunk_size = self._resolve_row_group_chunk_size()
+        scan_workers = self._resolve_row_group_scan_workers()
+        for chunk_start in range(0, len(row_group_requests), chunk_size):
+            chunk_items = row_group_requests[chunk_start : chunk_start + chunk_size]
+            chunk = [row_group for row_group, _ in chunk_items]
+            chunk_requests_by_id: dict[int, tuple[int, str, str]] = {}
+            for _, chunk_requests in chunk_items:
+                for request in chunk_requests:
+                    chunk_requests_by_id.setdefault(request[0], request)
+            chunk_requests = tuple(chunk_requests_by_id.values())
+            chunk_condition_ids = sorted({condition_id for _, condition_id, _ in chunk_requests})
+            chunk_token_ids = sorted({token_id for _, _, token_id in chunk_requests})
+            chunk_market_values = [
+                self._market_stats_value(market_type, condition_id)
+                for condition_id in chunk_condition_ids
+            ]
+            chunk_market_value_set = pa.array(chunk_market_values, type=market_type)
+            chunk_token_value_set = pa.array(chunk_token_ids)
+            with _bounded_pmxt_row_group_scan(scan_workers):
+                raw_table = filtered = table = split = timestamp_ns = None
+                market_mask = event_type_mask = token_mask = mask = None
+                try:
+                    raw_table = parquet_file.read_row_groups(chunk, columns=raw_columns)
+                    market_mask = pc.is_in(
+                        raw_table.column("market"),
+                        value_set=chunk_market_value_set,
+                    )
+                    event_type_mask = pc.is_in(
+                        raw_table.column("event_type"),
+                        value_set=event_type_value_set,
+                    )
+                    token_mask = pc.is_in(
+                        raw_table.column("asset_id"),
+                        value_set=chunk_token_value_set,
+                    )
+                    mask = pc.and_(
+                        pc.and_(
+                            pc.fill_null(market_mask, False),
+                            pc.fill_null(event_type_mask, False),
+                        ),
+                        pc.fill_null(token_mask, False),
+                    )
+                    filtered = raw_table.filter(mask)
+                    if filtered.num_rows == 0:
+                        continue
 
-            timestamp_ns = pc.cast(
-                pc.cast(filtered.column("timestamp"), pa.timestamp("ns", tz="UTC")),
-                pa.int64(),
-            )
-            table = pa.Table.from_arrays(
-                [
-                    filtered.column("market"),
-                    filtered.column("event_type"),
-                    timestamp_ns,
-                    filtered.column("asset_id"),
-                    filtered.column("bids"),
-                    filtered.column("asks"),
-                    pc.cast(filtered.column("price"), pa.string()),
-                    pc.cast(filtered.column("size"), pa.string()),
-                    filtered.column("side"),
-                ],
-                names=("market", *PolymarketPMXTDataLoader._PMXT_FIXED_COLUMNS),
-            )
-            split = self._split_shared_fixed_table(
-                table,
-                requests=requests,
-                batch_size=batch_size,
-            )
-            for request_id, batches in split.items():
-                if batches:
-                    result[request_id].extend(batches)
-            del raw_table, filtered, table, split, timestamp_ns
+                    timestamp_ns = pc.cast(
+                        pc.cast(filtered.column("timestamp"), pa.timestamp("ns", tz="UTC")),
+                        pa.int64(),
+                    )
+                    table = pa.Table.from_arrays(
+                        [
+                            filtered.column("market"),
+                            filtered.column("event_type"),
+                            timestamp_ns,
+                            filtered.column("asset_id"),
+                            filtered.column("bids"),
+                            filtered.column("asks"),
+                            pc.cast(filtered.column("price"), pa.string()),
+                            pc.cast(filtered.column("size"), pa.string()),
+                            filtered.column("side"),
+                        ],
+                        names=("market", *PolymarketPMXTDataLoader._PMXT_FIXED_COLUMNS),
+                    )
+                    split = self._split_shared_fixed_table(
+                        table,
+                        requests=chunk_requests,
+                        batch_size=batch_size,
+                    )
+                    for request_id, batches in split.items():
+                        if batches:
+                            result[request_id].extend(batches)
+                finally:
+                    del raw_table, filtered, table, split, timestamp_ns
+                    del market_mask, event_type_mask, token_mask, mask
+                    _release_arrow_memory()
             if request_count > 8:
                 _release_arrow_memory()
 
