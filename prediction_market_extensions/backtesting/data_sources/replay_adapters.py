@@ -1240,8 +1240,10 @@ class PolymarketPMXTBookReplayAdapter(_BaseReplayAdapter):
                     index: [] for index in range(len(prepared))
                 }
                 hour_items = sorted(missing_by_hour.items(), key=lambda item: int(item[0].value))
-                pending: dict[pd.Timestamp, asyncio.Task[Any]] = {}
+                pending_tasks: dict[asyncio.Task[Any], pd.Timestamp] = {}
+                completed_by_hour: dict[pd.Timestamp, dict[int, list[pa.RecordBatch] | None]] = {}
                 next_hour_index = 0
+                next_process_index = 0
                 window_cache_writers: dict[int, pq.ParquetWriter] = {}
                 window_cache_paths: dict[int, Path] = {}
                 window_cache_tmp_paths: dict[int, Path] = {}
@@ -1342,16 +1344,17 @@ class PolymarketPMXTBookReplayAdapter(_BaseReplayAdapter):
                         return
                     hour_item = hour_items[next_hour_index]
                     next_hour_index += 1
-                    pending[hour_item[0]] = asyncio.create_task(_load_shared_hour(hour_item))
+                    task = asyncio.create_task(_load_shared_hour(hour_item))
+                    pending_tasks[task] = hour_item[0]
 
-                for _ in range(min(book_workers, len(hour_items))):
-                    _submit_next_hour()
-
-                success = False
-                try:
-                    for expected_hour, indexes in hour_items:
-                        loaded_hour, batches_by_request = await pending.pop(expected_hour)
-                        _submit_next_hour()
+                async def _process_ready_hours() -> None:
+                    nonlocal next_process_index
+                    while next_process_index < len(hour_items):
+                        expected_hour, indexes = hour_items[next_process_index]
+                        batches_by_request = completed_by_hour.pop(expected_hour, None)
+                        if batches_by_request is None:
+                            return
+                        next_process_index += 1
                         try:
                             for index in indexes:
                                 batches = batches_by_request.get(index)
@@ -1360,7 +1363,7 @@ class PolymarketPMXTBookReplayAdapter(_BaseReplayAdapter):
                                     loader.load_order_book_deltas_from_hour_batches_incremental,
                                     prepared[index].resolved.start,
                                     prepared[index].resolved.end,
-                                    ((loaded_hour, batches),),
+                                    ((expected_hour, batches),),
                                     state=states[index],
                                 )
                                 if events:
@@ -1372,8 +1375,28 @@ class PolymarketPMXTBookReplayAdapter(_BaseReplayAdapter):
                             batches_by_request.clear()
                             gc.collect()
                             _release_arrow_memory()
+
+                for _ in range(min(book_workers, len(hour_items))):
+                    _submit_next_hour()
+
+                success = False
+                try:
+                    while pending_tasks:
+                        done, _ = await asyncio.wait(
+                            pending_tasks,
+                            return_when=asyncio.FIRST_COMPLETED,
+                        )
+                        for task in done:
+                            pending_tasks.pop(task)
+                            loaded_hour, batches_by_request = await task
+                            completed_by_hour[loaded_hour] = batches_by_request
+                            _submit_next_hour()
+                        await _process_ready_hours()
+                    await _process_ready_hours()
                     success = True
                 finally:
+                    for task in pending_tasks:
+                        task.cancel()
                     _close_window_cache_writers(success=success)
 
                 loaded_books: dict[int, _LoadedBookReplay] = {}
