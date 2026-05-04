@@ -22,8 +22,10 @@ import prediction_market_extensions.backtesting.data_sources.telonex as telonex_
 from scripts import _telonex_data_download as telonex_download
 from prediction_market_extensions._runtime_log import capture_loader_events
 from prediction_market_extensions.backtesting.data_sources.telonex import (
+    TELONEX_API_WORKERS_ENV,
     TELONEX_CACHE_ROOT_ENV,
     TELONEX_API_KEY_ENV,
+    TELONEX_FILE_WORKERS_ENV,
     TELONEX_FULL_BOOK_CHANNEL,
     TELONEX_LOCAL_DIR_ENV,
     TELONEX_ONCHAIN_FILLS_CHANNEL,
@@ -58,6 +60,62 @@ def _make_polymarket_loader() -> RunnerPolymarketTelonexBookDataLoader:
     loader._token_id = "2" * 64
     loader._condition_id = "0x" + "1" * 64
     return loader
+
+
+def test_telonex_api_slot_respects_global_worker_cap(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(TELONEX_API_WORKERS_ENV, "2")
+    monkeypatch.setattr(telonex_module, "_TELONEX_API_SEMAPHORE", None)
+    active = 0
+    max_active = 0
+    lock = threading.Lock()
+
+    def _worker() -> None:
+        nonlocal active, max_active
+        with telonex_module._telonex_api_slot():
+            with lock:
+                active += 1
+                max_active = max(max_active, active)
+            try:
+                time.sleep(0.02)
+            finally:
+                with lock:
+                    active -= 1
+
+    threads = [threading.Thread(target=_worker) for _ in range(8)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=1)
+
+    assert max_active == 2
+
+
+def test_telonex_file_slot_respects_global_worker_cap(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(TELONEX_FILE_WORKERS_ENV, "3")
+    monkeypatch.setattr(telonex_module, "_TELONEX_FILE_SEMAPHORE", None)
+    active = 0
+    max_active = 0
+    lock = threading.Lock()
+
+    def _worker() -> None:
+        nonlocal active, max_active
+        with telonex_module._telonex_file_slot():
+            with lock:
+                active += 1
+                max_active = max(max_active, active)
+            try:
+                time.sleep(0.02)
+            finally:
+                with lock:
+                    active -= 1
+
+    threads = [threading.Thread(target=_worker) for _ in range(10)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=1)
+
+    assert max_active == 3
 
 
 class _FakeHTTPResponse:

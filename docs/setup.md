@@ -91,7 +91,8 @@ explicitly request overwrite behavior, so rerunning the command fills missing
 hours without replacing completed hours.
 
 PMXT replay loads can read multiple raw hours ahead. For local mirrors, the
-repo wrapper defaults to `PMXT_PREFETCH_WORKERS=4`; increase it for faster disks:
+repo wrapper defaults to `PMXT_PREFETCH_WORKERS=8`; adjust it only after
+checking local disk throughput:
 
 ```bash
 PMXT_PREFETCH_WORKERS=8 uv run python backtests/polymarket_book_joint_portfolio_runner.py
@@ -128,6 +129,12 @@ first, then include `api:${TELONEX_API_KEY}` as a runtime-expanded API fallback.
 
 The Telonex downloader writes Hive-partitioned parquet files under
 `<destination>/data/` and a DuckDB manifest at `<destination>/telonex.duckdb`.
+
+Telonex replay loading has separate concurrency controls for different
+resources. `BACKTEST_REPLAY_LOAD_WORKERS` defaults to `32` for replay-level
+staging, `TELONEX_API_WORKERS` defaults to `128` for API fetches, and
+`TELONEX_FILE_WORKERS` defaults to `28` for local parquet/DuckDB/cache file
+work.
 It is crash-safe and resumable: completed days and empty days are recorded in
 the manifest, and reruns skip already-recorded work. The writer queue is bounded
 and periodically flushed so long `--all-markets` runs do not accumulate pending

@@ -398,6 +398,124 @@ def test_runner_loader_emits_ordered_source_skip_event(tmp_path) -> None:
     assert all(not event.origin.endswith("._emit_pmxt_source_event") for event in capture.events)
 
 
+def test_runner_loader_grouped_raw_hour_load_splits_requests(tmp_path) -> None:
+    loader = _make_loader(cache_dir=None)
+    hour = pd.Timestamp("2026-03-21T12:00:00Z")
+    raw_path = tmp_path / "2026" / "03" / "21" / "polymarket_orderbook_2026-03-21T12.parquet"
+    raw_path.parent.mkdir(parents=True, exist_ok=True)
+    condition_a = "0x" + ("a" * 64)
+    condition_b = "0x" + ("b" * 64)
+    pq.write_table(
+        pa.table(
+            {
+                "timestamp": pa.array(
+                    [
+                        pd.Timestamp("2026-03-21T12:00:01Z"),
+                        pd.Timestamp("2026-03-21T12:00:02Z"),
+                        pd.Timestamp("2026-03-21T12:00:03Z"),
+                    ],
+                    type=pa.timestamp("ms", tz="UTC"),
+                ),
+                "market": pa.array(
+                    [
+                        condition_a.encode(),
+                        condition_b.encode(),
+                        ("0x" + ("c" * 64)).encode(),
+                    ],
+                    type=pa.binary(66),
+                ),
+                "event_type": ["book", "price_change", "book"],
+                "asset_id": ["token-a", "token-b", "token-c"],
+                "bids": ["[]", None, "[]"],
+                "asks": ["[]", None, "[]"],
+                "price": ["0.40", "0.60", "0.90"],
+                "size": ["1.0", "2.0", "3.0"],
+                "side": ["BUY", "SELL", "BUY"],
+            }
+        ),
+        raw_path,
+    )
+    loader._pmxt_ordered_source_entries = (("raw-local", str(tmp_path)),)
+
+    with capture_loader_events() as capture:
+        batches_by_request = loader.load_shared_market_batches_for_hour(
+            hour,
+            requests=((0, condition_a, "token-a"), (1, condition_b, "token-b")),
+            batch_size=1_000,
+        )
+
+    assert {
+        key: loader._row_count_from_batches(value or [])
+        for key, value in batches_by_request.items()
+    } == {
+        0: 1,
+        1: 1,
+    }
+    assert batches_by_request[0][0].schema.names == loader._PMXT_FIXED_COLUMNS
+    fetch_events = [event for event in capture.events if event.stage == "fetch"]
+    assert [(event.status, event.origin) for event in fetch_events] == [
+        ("start", "pmxt.load_shared_market_batches_for_hour"),
+        ("complete", "pmxt.load_shared_market_batches_for_hour"),
+    ]
+    assert fetch_events[1].rows == 2
+
+
+def test_runner_loader_grouped_remote_uses_temp_when_raw_copy_fails(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    loader = _make_loader(cache_dir=tmp_path / "cache", raw_root=tmp_path / "missing-raw-root")
+    hour = pd.Timestamp("2026-03-21T12:00:00Z")
+    loader._pmxt_ordered_source_entries = (("raw-remote", "https://archive.vendor.test"),)
+    requests = ((0, "0x" + ("a" * 64), "token-a"),)
+    downloaded: list[tuple[str, Path]] = []
+    loaded: dict[str, object] = {}
+
+    def fake_raw_copy(_archive_url: str, _raw_path: Path, _hour) -> Path | None:
+        return None
+
+    def fake_download(url: str, destination: Path) -> int:
+        downloaded.append((url, destination))
+        destination.write_bytes(b"raw")
+        return 3
+
+    def fake_load_shared(
+        raw_path: Path,
+        *,
+        requests,
+        batch_size: int,
+    ):
+        loaded["raw_path"] = raw_path
+        loaded["exists_during_load"] = raw_path.exists()
+        loaded["batch_size"] = batch_size
+        return {request_id: [] for request_id, _, _ in requests}
+
+    monkeypatch.setattr(loader, "_download_remote_raw_to_local_root", fake_raw_copy)
+    monkeypatch.setattr(loader, "_download_to_file_with_progress", fake_download)
+    monkeypatch.setattr(loader, "_load_shared_market_batches_from_raw_file", fake_load_shared)
+
+    with capture_loader_events() as capture:
+        batches_by_request = loader.load_shared_market_batches_for_hour(
+            hour,
+            requests=requests,
+            batch_size=1_000,
+        )
+
+    assert batches_by_request == {0: []}
+    assert len(downloaded) == 1
+    assert downloaded[0][0] == (
+        "https://archive.vendor.test/polymarket_orderbook_2026-03-21T12.parquet"
+    )
+    assert downloaded[0][1].name == "polymarket_orderbook_2026-03-21T12.parquet"
+    assert loaded["exists_during_load"] is True
+    assert loaded["batch_size"] == 1_000
+    assert Path(loaded["raw_path"]).is_relative_to(tmp_path / "cache" / ".pmxt-temp-downloads")
+    fetch_events = [event for event in capture.events if event.stage == "fetch"]
+    assert [(event.status, event.source_kind, event.origin) for event in fetch_events] == [
+        ("start", "remote", "pmxt._load_remote_market_batches_from_base_url"),
+        ("complete", "remote", "pmxt._load_remote_market_batches_from_base_url"),
+    ]
+
+
 def test_runner_loader_emits_source_events_from_actual_loader_methods(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

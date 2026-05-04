@@ -55,6 +55,8 @@ TELONEX_LOCAL_DIR_ENV = "TELONEX_LOCAL_DIR"
 TELONEX_CHANNEL_ENV = "TELONEX_CHANNEL"
 TELONEX_CACHE_ROOT_ENV = "TELONEX_CACHE_ROOT"
 TELONEX_PREFETCH_WORKERS_ENV = "TELONEX_PREFETCH_WORKERS"
+TELONEX_API_WORKERS_ENV = "TELONEX_API_WORKERS"
+TELONEX_FILE_WORKERS_ENV = "TELONEX_FILE_WORKERS"
 
 _TELONEX_DEFAULT_API_BASE_URL = "https://api.telonex.io"
 TELONEX_FULL_BOOK_CHANNEL = "book_snapshot_full"
@@ -65,6 +67,8 @@ _TELONEX_DEFAULT_CHANNEL = TELONEX_FULL_BOOK_CHANNEL
 _TELONEX_EXCHANGE = "polymarket"
 _TELONEX_HTTP_TIMEOUT_SECS = 60
 _TELONEX_DEFAULT_PREFETCH_WORKERS = 128
+_TELONEX_DEFAULT_API_WORKERS = 128
+_TELONEX_DEFAULT_FILE_WORKERS = 28
 _TELONEX_DOWNLOAD_CHUNK_SIZE = 1024 * 1024
 _TELONEX_USER_AGENT = "prediction-market-backtesting/1.0"
 _TELONEX_LOCAL_PREFIX = "local:"
@@ -89,6 +93,11 @@ _TELONEX_DELTAS_CACHE_COLUMNS = frozenset(
         "ts_init",
     }
 )
+
+_TELONEX_API_SEMAPHORE_LOCK = threading.Lock()
+_TELONEX_API_SEMAPHORE: tuple[int, threading.BoundedSemaphore] | None = None
+_TELONEX_FILE_SEMAPHORE_LOCK = threading.Lock()
+_TELONEX_FILE_SEMAPHORE: tuple[int, threading.BoundedSemaphore] | None = None
 _TELONEX_TRADE_TICKS_CACHE_COLUMNS = frozenset(
     {
         "price",
@@ -149,6 +158,64 @@ def _env_value(name: str) -> str | None:
     if not stripped or stripped.casefold() in DISABLED_ENV_VALUES:
         return None
     return stripped
+
+
+def _resolve_api_workers() -> int:
+    configured = _env_value(TELONEX_API_WORKERS_ENV)
+    if configured is None:
+        return _TELONEX_DEFAULT_API_WORKERS
+    try:
+        return max(1, int(configured))
+    except ValueError:
+        return _TELONEX_DEFAULT_API_WORKERS
+
+
+def _resolve_file_workers() -> int:
+    configured = _env_value(TELONEX_FILE_WORKERS_ENV)
+    if configured is None:
+        return _TELONEX_DEFAULT_FILE_WORKERS
+    try:
+        return max(1, int(configured))
+    except ValueError:
+        return _TELONEX_DEFAULT_FILE_WORKERS
+
+
+def _telonex_api_semaphore() -> threading.BoundedSemaphore:
+    global _TELONEX_API_SEMAPHORE
+    workers = _resolve_api_workers()
+    with _TELONEX_API_SEMAPHORE_LOCK:
+        if _TELONEX_API_SEMAPHORE is None or _TELONEX_API_SEMAPHORE[0] != workers:
+            _TELONEX_API_SEMAPHORE = (workers, threading.BoundedSemaphore(workers))
+        return _TELONEX_API_SEMAPHORE[1]
+
+
+def _telonex_file_semaphore() -> threading.BoundedSemaphore:
+    global _TELONEX_FILE_SEMAPHORE
+    workers = _resolve_file_workers()
+    with _TELONEX_FILE_SEMAPHORE_LOCK:
+        if _TELONEX_FILE_SEMAPHORE is None or _TELONEX_FILE_SEMAPHORE[0] != workers:
+            _TELONEX_FILE_SEMAPHORE = (workers, threading.BoundedSemaphore(workers))
+        return _TELONEX_FILE_SEMAPHORE[1]
+
+
+@contextmanager
+def _telonex_api_slot() -> Iterator[None]:
+    semaphore = _telonex_api_semaphore()
+    semaphore.acquire()
+    try:
+        yield
+    finally:
+        semaphore.release()
+
+
+@contextmanager
+def _telonex_file_slot() -> Iterator[None]:
+    semaphore = _telonex_file_semaphore()
+    semaphore.acquire()
+    try:
+        yield
+    finally:
+        semaphore.release()
 
 
 def _resolve_channel(channel: str | None = None) -> str:
@@ -645,21 +712,22 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
         params: list[object] = [channel, market_slug, *segments, query_start, query_end]
 
         try:
-            con = duckdb.connect(str(manifest), read_only=True)
-            try:
-                rows = con.execute(
-                    "SELECT DISTINCT parquet_part FROM completed_days "
-                    "WHERE channel = ? "
-                    "AND market_slug = ? "
-                    f"AND outcome_segment IN ({placeholders}) "
-                    "AND day BETWEEN ? AND ? "
-                    "AND rows > 0 "
-                    "AND parquet_part IS NOT NULL "
-                    "ORDER BY parquet_part",
-                    params,
-                ).fetchall()
-            finally:
-                con.close()
+            with _telonex_file_slot():
+                con = duckdb.connect(str(manifest), read_only=True)
+                try:
+                    rows = con.execute(
+                        "SELECT DISTINCT parquet_part FROM completed_days "
+                        "WHERE channel = ? "
+                        "AND market_slug = ? "
+                        f"AND outcome_segment IN ({placeholders}) "
+                        "AND day BETWEEN ? AND ? "
+                        "AND rows > 0 "
+                        "AND parquet_part IS NOT NULL "
+                        "ORDER BY parquet_part",
+                        params,
+                    ).fetchall()
+                finally:
+                    con.close()
         except Exception:
             return None
 
@@ -711,19 +779,20 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
         params: list[object] = [channel, market_slug, *segments, pd.Timestamp(date).date()]
 
         try:
-            con = duckdb.connect(str(manifest), read_only=True)
-            try:
-                total_rows, completed_count = con.execute(
-                    "SELECT COALESCE(SUM(rows), 0), COUNT(*) "
-                    "FROM completed_days "
-                    "WHERE channel = ? "
-                    "AND market_slug = ? "
-                    f"AND outcome_segment IN ({placeholders}) "
-                    "AND day = ?",
-                    params,
-                ).fetchone()
-            finally:
-                con.close()
+            with _telonex_file_slot():
+                con = duckdb.connect(str(manifest), read_only=True)
+                try:
+                    total_rows, completed_count = con.execute(
+                        "SELECT COALESCE(SUM(rows), 0), COUNT(*) "
+                        "FROM completed_days "
+                        "WHERE channel = ? "
+                        "AND market_slug = ? "
+                        f"AND outcome_segment IN ({placeholders}) "
+                        "AND day = ?",
+                        params,
+                    ).fetchone()
+                finally:
+                    con.close()
         except Exception:
             return None
         if int(completed_count or 0) <= 0:
@@ -749,19 +818,20 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
         params: list[object] = [channel, market_slug, *segments, pd.Timestamp(date).date()]
 
         try:
-            con = duckdb.connect(str(manifest), read_only=True)
-            try:
-                (empty_count,) = con.execute(
-                    "SELECT COUNT(*) "
-                    "FROM empty_days "
-                    "WHERE channel = ? "
-                    "AND market_slug = ? "
-                    f"AND outcome_segment IN ({placeholders}) "
-                    "AND day = ?",
-                    params,
-                ).fetchone()
-            finally:
-                con.close()
+            with _telonex_file_slot():
+                con = duckdb.connect(str(manifest), read_only=True)
+                try:
+                    (empty_count,) = con.execute(
+                        "SELECT COUNT(*) "
+                        "FROM empty_days "
+                        "WHERE channel = ? "
+                        "AND market_slug = ? "
+                        f"AND outcome_segment IN ({placeholders}) "
+                        "AND day = ?",
+                        params,
+                    ).fetchone()
+                finally:
+                    con.close()
         except Exception:
             return False
         return int(empty_count or 0) > 0
@@ -847,91 +917,92 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
         segments = self._outcome_segment_candidates(token_index=token_index, outcome=outcome)
 
         try:
-            # Build pyarrow.dataset with Hive partitioning from the
-            # year=/month= directory structure.  Predicate pushdown prunes
-            # partition dirs and row groups at scan time — no SQL engine,
-            # no schema-inference tax, no fetch_df() bulk allocation.
-            part_dataset = ds.dataset(
-                part_paths,
-                format="parquet",
-                partitioning="hive",
-            )
-
-            # Build filter expression:
-            #   market_slug = ? AND outcome_segment IN (segments)
-            #   AND year/month/timestamp between start and end.
-            # Hive partition columns are inferred from directory names —
-            # pure-numeric dirs (year=2026) become int, others become string.
-            # Check the schema and compare with the matching type.
-            schema = part_dataset.schema
-            year_field = schema.field("year")
-            month_field = schema.field("month")
-            year_is_int = pa.types.is_integer(year_field.type)
-            month_is_int = pa.types.is_integer(month_field.type)
-
-            ym_pairs: list = []
-            cursor = start_utc.replace(day=1)
-            final_ym = end_utc.year * 100 + end_utc.month
-            while True:
-                cur_ym = cursor.year * 100 + cursor.month
-                if cur_ym > final_ym:
-                    break
-                if year_is_int and month_is_int:
-                    ym_pairs.append(
-                        (ds.field("year") == cursor.year) & (ds.field("month") == cursor.month)
-                    )
-                else:
-                    ym_pairs.append(
-                        (ds.field("year") == str(cursor.year))
-                        & (ds.field("month") == f"{cursor.month:02d}")
-                    )
-                if cursor.month == 12:
-                    cursor = cursor.replace(year=cursor.year + 1, month=1)
-                else:
-                    cursor = cursor.replace(month=cursor.month + 1)
-
-            if len(ym_pairs) == 1:
-                ym_expr = ym_pairs[0]
-            else:
-                ym_expr = ym_pairs[0]
-                for extra in ym_pairs[1:]:
-                    ym_expr = ym_expr | extra
-
-            filter_expr = (
-                (ds.field("market_slug") == market_slug)
-                & ds.field("outcome_segment").isin(segments)
-                & ym_expr
-            )
-            schema_names = set(schema.names)
-            if "timestamp_us" in schema_names:
-                start_us = int(start_utc.value // 1_000)
-                end_us = int(end_utc.value // 1_000)
-                filter_expr = (
-                    filter_expr
-                    & (ds.field("timestamp_us") >= start_us)
-                    & (ds.field("timestamp_us") <= end_us)
-                )
-            elif "timestamp_ms" in schema_names:
-                start_ms = int(start_utc.value // 1_000_000)
-                end_ms = int(end_utc.value // 1_000_000)
-                filter_expr = (
-                    filter_expr
-                    & (ds.field("timestamp_ms") >= start_ms)
-                    & (ds.field("timestamp_ms") <= end_ms)
+            with _telonex_file_slot():
+                # Build pyarrow.dataset with Hive partitioning from the
+                # year=/month= directory structure.  Predicate pushdown prunes
+                # partition dirs and row groups at scan time — no SQL engine,
+                # no schema-inference tax, no fetch_df() bulk allocation.
+                part_dataset = ds.dataset(
+                    part_paths,
+                    format="parquet",
+                    partitioning="hive",
                 )
 
-            # Project out Hive partition columns at scan time — no
-            # post-hoc frame.drop() copy needed.
-            data_columns = [
-                f.name
-                for f in part_dataset.schema
-                if f.name not in ("market_slug", "outcome_segment", "year", "month")
-            ]
-            scanner = part_dataset.scanner(
-                columns=data_columns,
-                filter=filter_expr,
-            )
-            table = scanner.to_table()
+                # Build filter expression:
+                #   market_slug = ? AND outcome_segment IN (segments)
+                #   AND year/month/timestamp between start and end.
+                # Hive partition columns are inferred from directory names —
+                # pure-numeric dirs (year=2026) become int, others become string.
+                # Check the schema and compare with the matching type.
+                schema = part_dataset.schema
+                year_field = schema.field("year")
+                month_field = schema.field("month")
+                year_is_int = pa.types.is_integer(year_field.type)
+                month_is_int = pa.types.is_integer(month_field.type)
+
+                ym_pairs: list = []
+                cursor = start_utc.replace(day=1)
+                final_ym = end_utc.year * 100 + end_utc.month
+                while True:
+                    cur_ym = cursor.year * 100 + cursor.month
+                    if cur_ym > final_ym:
+                        break
+                    if year_is_int and month_is_int:
+                        ym_pairs.append(
+                            (ds.field("year") == cursor.year) & (ds.field("month") == cursor.month)
+                        )
+                    else:
+                        ym_pairs.append(
+                            (ds.field("year") == str(cursor.year))
+                            & (ds.field("month") == f"{cursor.month:02d}")
+                        )
+                    if cursor.month == 12:
+                        cursor = cursor.replace(year=cursor.year + 1, month=1)
+                    else:
+                        cursor = cursor.replace(month=cursor.month + 1)
+
+                if len(ym_pairs) == 1:
+                    ym_expr = ym_pairs[0]
+                else:
+                    ym_expr = ym_pairs[0]
+                    for extra in ym_pairs[1:]:
+                        ym_expr = ym_expr | extra
+
+                filter_expr = (
+                    (ds.field("market_slug") == market_slug)
+                    & ds.field("outcome_segment").isin(segments)
+                    & ym_expr
+                )
+                schema_names = set(schema.names)
+                if "timestamp_us" in schema_names:
+                    start_us = int(start_utc.value // 1_000)
+                    end_us = int(end_utc.value // 1_000)
+                    filter_expr = (
+                        filter_expr
+                        & (ds.field("timestamp_us") >= start_us)
+                        & (ds.field("timestamp_us") <= end_us)
+                    )
+                elif "timestamp_ms" in schema_names:
+                    start_ms = int(start_utc.value // 1_000_000)
+                    end_ms = int(end_utc.value // 1_000_000)
+                    filter_expr = (
+                        filter_expr
+                        & (ds.field("timestamp_ms") >= start_ms)
+                        & (ds.field("timestamp_ms") <= end_ms)
+                    )
+
+                # Project out Hive partition columns at scan time — no
+                # post-hoc frame.drop() copy needed.
+                data_columns = [
+                    f.name
+                    for f in part_dataset.schema
+                    if f.name not in ("market_slug", "outcome_segment", "year", "month")
+                ]
+                scanner = part_dataset.scanner(
+                    columns=data_columns,
+                    filter=filter_expr,
+                )
+                table = scanner.to_table()
             if table.num_rows == 0:
                 with self._telonex_blob_scan_lock:
                     self._forget_blob_ts_cache_key(cache_key)
@@ -1073,7 +1144,8 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
     @staticmethod
     def _safe_read_parquet(path: Path) -> pd.DataFrame | None:
         try:
-            return pd.read_parquet(path)
+            with _telonex_file_slot():
+                return pd.read_parquet(path)
         except (OSError, ValueError, RuntimeError) as exc:
             warnings.warn(
                 f"Telonex: skipping unreadable parquet {path} ({exc})",
@@ -1219,9 +1291,10 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
             return
         tmp_path = cache_path.with_name(f"{cache_path.name}.tmp.{os.getpid()}")
         try:
-            cache_path.parent.mkdir(parents=True, exist_ok=True)
-            tmp_path.write_bytes(payload)
-            os.replace(tmp_path, cache_path)
+            with _telonex_file_slot():
+                cache_path.parent.mkdir(parents=True, exist_ok=True)
+                tmp_path.write_bytes(payload)
+                os.replace(tmp_path, cache_path)
             self._emit_cache_write_event(
                 cache_kind="api",
                 cache_path=cache_path,
@@ -1367,9 +1440,10 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
         fast_frame["ask_sizes"] = ask_sizes_list
         tmp_path = fast_path.with_name(f"{fast_path.name}.tmp.{os.getpid()}")
         try:
-            fast_path.parent.mkdir(parents=True, exist_ok=True)
-            fast_frame.to_parquet(tmp_path, compression="zstd", index=False)
-            os.replace(tmp_path, fast_path)
+            with _telonex_file_slot():
+                fast_path.parent.mkdir(parents=True, exist_ok=True)
+                fast_frame.to_parquet(tmp_path, compression="zstd", index=False)
+                os.replace(tmp_path, fast_path)
             self._emit_cache_write_event(
                 cache_kind="fast",
                 cache_path=fast_path,
@@ -1531,7 +1605,8 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
         if cache_path is None or not cache_path.exists():
             return None, "none"
         try:
-            table = pq.read_table(cache_path)
+            with _telonex_file_slot():
+                table = pq.read_table(cache_path)
             if not _TELONEX_DELTAS_CACHE_COLUMNS.issubset(set(table.schema.names)):
                 raise ValueError("missing required deltas cache columns")
             records = self._deltas_records_from_table(table)
@@ -1574,18 +1649,19 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
             return
         tmp_path = cache_path.with_name(f"{cache_path.name}.tmp.{os.getpid()}")
         try:
-            cache_path.parent.mkdir(parents=True, exist_ok=True)
             table = (
                 self._deltas_columns_to_table(delta_columns)
                 if delta_columns is not None
                 else self._deltas_records_to_table(records)
             )
-            pq.write_table(
-                table,
-                tmp_path,
-                compression="zstd",
-            )
-            os.replace(tmp_path, cache_path)
+            with _telonex_file_slot():
+                cache_path.parent.mkdir(parents=True, exist_ok=True)
+                pq.write_table(
+                    table,
+                    tmp_path,
+                    compression="zstd",
+                )
+                os.replace(tmp_path, cache_path)
             self._emit_cache_write_event(
                 cache_kind="deltas",
                 cache_path=cache_path,
@@ -1675,7 +1751,8 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
         if cache_path is None or not cache_path.exists():
             return None, "none"
         try:
-            table = pq.read_table(cache_path)
+            with _telonex_file_slot():
+                table = pq.read_table(cache_path)
             if not _TELONEX_TRADE_TICKS_CACHE_COLUMNS.issubset(set(table.schema.names)):
                 raise ValueError("missing required trade tick cache columns")
             if table.num_rows == 0:
@@ -1729,13 +1806,15 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
             return
         tmp_path = cache_path.with_name(f"{cache_path.name}.tmp.{os.getpid()}")
         try:
-            cache_path.parent.mkdir(parents=True, exist_ok=True)
-            pq.write_table(
-                self._trade_ticks_to_cache_table(records),
-                tmp_path,
-                compression="zstd",
-            )
-            os.replace(tmp_path, cache_path)
+            table = self._trade_ticks_to_cache_table(records)
+            with _telonex_file_slot():
+                cache_path.parent.mkdir(parents=True, exist_ok=True)
+                pq.write_table(
+                    table,
+                    tmp_path,
+                    compression="zstd",
+                )
+                os.replace(tmp_path, cache_path)
             self._emit_cache_write_event(
                 cache_kind="trade",
                 cache_path=cache_path,
@@ -2025,35 +2104,36 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
             outcome=outcome,
         )
         self._telonex_last_api_source = f"telonex-api::{url}"
-        try:
-            presigned_url = self._resolve_presigned_url(url=url, api_key=api_key)
-        except HTTPError as exc:
-            if exc.code == 404:
-                return None
-            raise
+        with _telonex_api_slot():
+            try:
+                presigned_url = self._resolve_presigned_url(url=url, api_key=api_key)
+            except HTTPError as exc:
+                if exc.code == 404:
+                    return None
+                raise
 
-        fetch_request = Request(presigned_url, headers={"User-Agent": _TELONEX_USER_AGENT})
-        progress_url = f"telonex-api::{url}"
-        try:
-            with urlopen(fetch_request, timeout=_TELONEX_HTTP_TIMEOUT_SECS) as response:
-                total_bytes_header = response.headers.get("Content-Length")
-                total_bytes = int(total_bytes_header) if total_bytes_header else None
-                downloaded = 0
-                chunks: list[bytes] = []
-                self._download_progress(progress_url, 0, total_bytes, False)
-                while True:
-                    chunk = response.read(_TELONEX_DOWNLOAD_CHUNK_SIZE)
-                    if not chunk:
-                        break
-                    chunks.append(chunk)
-                    downloaded += len(chunk)
-                    self._download_progress(progress_url, downloaded, total_bytes, False)
-                self._download_progress(progress_url, downloaded, total_bytes, True)
-                payload = b"".join(chunks)
-        except HTTPError as exc:
-            if exc.code == 404:
-                return None
-            raise
+            fetch_request = Request(presigned_url, headers={"User-Agent": _TELONEX_USER_AGENT})
+            progress_url = f"telonex-api::{url}"
+            try:
+                with urlopen(fetch_request, timeout=_TELONEX_HTTP_TIMEOUT_SECS) as response:
+                    total_bytes_header = response.headers.get("Content-Length")
+                    total_bytes = int(total_bytes_header) if total_bytes_header else None
+                    downloaded = 0
+                    chunks: list[bytes] = []
+                    self._download_progress(progress_url, 0, total_bytes, False)
+                    while True:
+                        chunk = response.read(_TELONEX_DOWNLOAD_CHUNK_SIZE)
+                        if not chunk:
+                            break
+                        chunks.append(chunk)
+                        downloaded += len(chunk)
+                        self._download_progress(progress_url, downloaded, total_bytes, False)
+                    self._download_progress(progress_url, downloaded, total_bytes, True)
+                    payload = b"".join(chunks)
+            except HTTPError as exc:
+                if exc.code == 404:
+                    return None
+                raise
         self._write_api_cache_day(
             payload=payload,
             base_url=base_url,
@@ -2974,15 +3054,16 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
             include_order_book=include_order_book,
         ):
             records.extend(result.records)
-        records.sort(key=lambda record: int(record.ts_event))
         return records
 
 
 __all__ = [
     "TELONEX_API_BASE_URL_ENV",
+    "TELONEX_API_WORKERS_ENV",
     "TELONEX_CACHE_ROOT_ENV",
     "TELONEX_API_KEY_ENV",
     "TELONEX_CHANNEL_ENV",
+    "TELONEX_FILE_WORKERS_ENV",
     "TELONEX_FULL_BOOK_CHANNEL",
     "TELONEX_LOCAL_DIR_ENV",
     "TELONEX_ONCHAIN_FILLS_CHANNEL",

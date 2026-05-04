@@ -28,6 +28,12 @@ the filtered cache under `~/.cache/nautilus_trader/pmxt`. Warm filtered-cache
 reads should be sub-millisecond to low-millisecond per hour because the cache
 stores a compact filtered parquet slice rather than the full raw archive hour.
 
+When multiple PMXT replays load together, the adapter stages all metadata
+first, then all book data, then all execution trade ticks. Filtered-cache
+misses are grouped by raw archive hour: one local or remote raw parquet hour can
+serve many market/token requests before the per-replay filtered caches are
+written.
+
 ## Example Output
 
 A representative PMXT run prints:
@@ -107,13 +113,21 @@ day, and clipped window report `telonex deltas cache ...` or
 local/API decoding. Local/API trade-tick labels also include the exact Telonex
 channel, such as `telonex local onchain_fills` or `telonex local trades`.
 
+Multi-replay Telonex loading uses the same staged architecture: all Polymarket
+Gamma/CLOB metadata is prepared first, all book days load next, and execution
+trade ticks load after book data is available. `BACKTEST_REPLAY_LOAD_WORKERS`
+controls replay-level concurrency and defaults to `32`. Telonex API requests
+are separately capped by `TELONEX_API_WORKERS` and default to `128`; local file,
+DuckDB, and parquet operations are capped by `TELONEX_FILE_WORKERS` and default
+to `28` to avoid file-descriptor pressure on large 100-market loads.
+
 ## Timing Expectations By Source
 
 | Source | Expected behavior | When it happens |
 |---|---|---|
 | PMXT filtered cache | Fastest PMXT path; compact filtered parquet per market/token/hour | Second run onward for the same market, token, and hour |
-| Local PMXT raw archive | Local disk bound; scans full raw hour then filters to market/token | Hour is missing from filtered cache but exists in `local:/...` |
-| Remote PMXT raw archive | Network and full-hour parquet bound | Hour is missing locally and archive fallback is configured |
+| Local PMXT raw archive | Local disk bound; grouped by raw hour during batch loads | Hour is missing from filtered cache but exists in `local:/...` |
+| Remote PMXT raw archive | Network and full-hour parquet bound; grouped by raw hour during batch loads | Hour is missing locally and archive fallback is configured |
 | Telonex deltas cache | Fastest Telonex path; materialized Nautilus `OrderBookDeltas` | Same market/token/day/window was already converted once |
 | Telonex materialized trade-tick cache | Fastest Telonex execution path; materialized Nautilus `TradeTick`s | Same market/token/day/window Telonex fills or trades were already converted once |
 | Telonex fast API cache | Local disk bound; avoids nested payload materialization | API day was previously downloaded and sidecar exists or was lazily migrated |

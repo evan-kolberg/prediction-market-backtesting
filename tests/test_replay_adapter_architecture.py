@@ -32,6 +32,7 @@ from prediction_market_extensions.backtesting._market_data_support import (
     unregister_market_data_support,
 )
 from prediction_market_extensions.backtesting._prediction_market_runner import MarketDataConfig
+from prediction_market_extensions.backtesting._replay_specs import BookReplay
 from prediction_market_extensions.backtesting.data_sources import replay_adapters
 
 
@@ -220,6 +221,111 @@ def test_preflight_skips_midpoints_when_price_range_filter_disabled(monkeypatch)
 
     assert count == 2
     assert midpoints == ()
+
+
+@pytest.mark.parametrize(
+    ("adapter", "loader_symbol"),
+    [
+        (replay_adapters.PolymarketPMXTBookReplayAdapter(), "PolymarketPMXTDataLoader"),
+        (
+            replay_adapters.PolymarketTelonexBookReplayAdapter(),
+            "PolymarketTelonexBookDataLoader",
+        ),
+    ],
+)
+def test_book_batch_loader_stages_metadata_then_books_then_trades(
+    monkeypatch: pytest.MonkeyPatch,
+    adapter,
+    loader_symbol: str,
+) -> None:
+    events: list[str] = []
+
+    class FakeLoader:
+        def __init__(self, slug: str) -> None:
+            self.slug = slug
+            self.instrument = SimpleNamespace(id=f"POLYMARKET.{slug}", outcome="Yes")
+
+        @classmethod
+        async def from_market_slug(cls, market_slug: str, *, token_index: int = 0):
+            events.append(f"metadata:{market_slug}:{token_index}")
+            return cls(market_slug)
+
+        def load_order_book_deltas(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+            del args, kwargs
+            events.append(f"book:{self.slug}")
+            return (SimpleNamespace(kind="book", slug=self.slug, ts_event=1, ts_init=1),)
+
+    original_resolver = replay_adapters._resolve_backtest_compat_symbol
+
+    def fake_resolver(name: str, default):  # type: ignore[no-untyped-def]
+        if name == loader_symbol:
+            return FakeLoader
+        return original_resolver(name, default)
+
+    async def fake_load_trade_ticks(loader, *, start, end, market_label):  # type: ignore[no-untyped-def]
+        del start, end, market_label
+        events.append(f"trades:{loader.slug}")
+        return (SimpleNamespace(kind="trade", slug=loader.slug, ts_event=2, ts_init=2),)
+
+    def fake_merge_records(*, book_records, trade_records):  # type: ignore[no-untyped-def]
+        events.append(f"merge:{book_records[0].slug}")
+        return (*book_records, *trade_records)
+
+    def fake_build_loaded_replay(
+        self,
+        *,
+        prepared,
+        records,
+        book_event_count=None,
+        request,
+        vendor,
+        source_label,
+    ):  # type: ignore[no-untyped-def]
+        del self, records, book_event_count, request, vendor, source_label
+        slug = prepared.resolved.replay.market_slug
+        events.append(f"build:{slug}")
+        return SimpleNamespace(market_id=slug)
+
+    monkeypatch.setattr(replay_adapters, "_resolve_backtest_compat_symbol", fake_resolver)
+    monkeypatch.setattr(replay_adapters, "_load_trade_ticks", fake_load_trade_ticks)
+    monkeypatch.setattr(replay_adapters, "_merge_records", fake_merge_records)
+    monkeypatch.setattr(
+        replay_adapters._BaseReplayAdapter,
+        "_build_loaded_book_replay_or_none",
+        fake_build_loaded_replay,
+    )
+
+    loaded = asyncio.run(
+        adapter.load_replays(
+            (
+                BookReplay(
+                    market_slug="first",
+                    token_index=0,
+                    start_time="2026-04-21T00:00:00Z",
+                    end_time="2026-04-21T01:00:00Z",
+                ),
+                BookReplay(
+                    market_slug="second",
+                    token_index=1,
+                    start_time="2026-04-21T00:00:00Z",
+                    end_time="2026-04-21T01:00:00Z",
+                ),
+            ),
+            request=ReplayLoadRequest(),
+            workers=2,
+        )
+    )
+
+    last_metadata = max(
+        index for index, event in enumerate(events) if event.startswith("metadata:")
+    )
+    first_book = min(index for index, event in enumerate(events) if event.startswith("book:"))
+    last_book = max(index for index, event in enumerate(events) if event.startswith("book:"))
+    first_trade = min(index for index, event in enumerate(events) if event.startswith("trades:"))
+
+    assert last_metadata < first_book
+    assert last_book < first_trade
+    assert [item.market_id for item in loaded] == ["first", "second"]
 
 
 def test_trade_tick_loader_reports_api_and_cache_progress(

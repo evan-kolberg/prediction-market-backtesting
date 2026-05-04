@@ -424,7 +424,7 @@ if TEXTUAL_AVAILABLE:
         #sidebar {
             width: 80;
             min-width: 60;
-            border: round $primary;
+            border: round white;
             padding: 0 1;
             margin: 1 1 1 0;
         }
@@ -442,6 +442,16 @@ if TEXTUAL_AVAILABLE:
             padding: 0 1;
         }
 
+        _BacktestListItem.-highlight {
+            background: white;
+            color: $surface;
+        }
+
+        #runner_list:focus > _BacktestListItem.-highlight {
+            background: white;
+            color: $surface;
+        }
+
         .runner-label {
             width: 1fr;
             text-wrap: nowrap;
@@ -449,7 +459,7 @@ if TEXTUAL_AVAILABLE:
 
         #details {
             width: 1fr;
-            border: round $secondary;
+            border: round white;
             padding: 0 1;
             margin: 1 0 1 0;
         }
@@ -457,7 +467,7 @@ if TEXTUAL_AVAILABLE:
         #details_title {
             margin-top: 1;
             text-style: bold;
-            color: $primary;
+            color: white;
         }
 
         #details_meta {
@@ -473,7 +483,7 @@ if TEXTUAL_AVAILABLE:
             height: 1fr;
             margin: 1 0 0 0;
             padding: 0 1 1 1;
-            border: tall $secondary;
+            border: tall white;
             overflow: auto auto;
             text-wrap: nowrap;
         }

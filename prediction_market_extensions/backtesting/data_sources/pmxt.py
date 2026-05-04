@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import threading
 import time
 from collections.abc import Iterator, Sequence
@@ -10,7 +11,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from urllib.request import Request, urlopen
 
+import duckdb
 import pyarrow as pa
+import pyarrow.compute as pc
+import pyarrow.parquet as pq
 
 from prediction_market_extensions._runtime_log import emit_loader_event
 from prediction_market_extensions.adapters.polymarket.pmxt import PolymarketPMXTDataLoader
@@ -581,6 +585,459 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
                 batch_size=batch_size,
             )
         return None
+
+    def _raw_path_for_ordered_entry(self, kind: str, target: str, hour) -> Path | None:  # type: ignore[no-untyped-def]
+        if kind == _PMXT_SOURCE_STAGE_RAW_LOCAL:
+            for raw_path in self._raw_paths_for_hour_at_root(Path(target).expanduser(), hour):
+                if raw_path.exists():
+                    return raw_path
+            return None
+
+        if kind != _PMXT_SOURCE_STAGE_RAW_REMOTE:
+            return None
+
+        raw_root = self._raw_persistence_root()
+        if raw_root is None:
+            return None
+
+        raw_path = self._raw_path_for_hour_at_root(raw_root, hour)
+        if raw_path.exists():
+            return raw_path
+
+        archive_url = self._archive_url_for_base_url(target, hour)
+        with self._raw_download_lock(raw_path):
+            if raw_path.exists():
+                return raw_path
+            return self._download_remote_raw_to_local_root(archive_url, raw_path, hour)
+
+    def _raw_path_for_source_stage(self, stage: str, hour) -> Path | None:  # type: ignore[no-untyped-def]
+        if stage == _PMXT_SOURCE_STAGE_RAW_LOCAL:
+            raw_root = getattr(self, "_pmxt_raw_root", None)
+            if raw_root is None:
+                raw_root = getattr(self, "_pmxt_local_archive_dir", None)
+            if raw_root is None:
+                return None
+            for raw_path in self._raw_paths_for_hour_at_root(Path(raw_root).expanduser(), hour):
+                if raw_path.exists():
+                    return raw_path
+            return None
+
+        if stage != _PMXT_SOURCE_STAGE_RAW_REMOTE:
+            return None
+
+        remote_url = getattr(self, "_pmxt_remote_base_url", None)
+        if remote_url is None:
+            remote_urls = getattr(self, "_pmxt_remote_base_urls", ()) or ()
+            remote_url = remote_urls[0] if remote_urls else None
+        if remote_url is None:
+            return None
+
+        raw_root = self._raw_persistence_root()
+        if raw_root is None:
+            return None
+
+        raw_path = self._raw_path_for_hour_at_root(raw_root, hour)
+        if raw_path.exists():
+            return raw_path
+
+        archive_url = self._archive_url_for_base_url(str(remote_url), hour)
+        with self._raw_download_lock(raw_path):
+            if raw_path.exists():
+                return raw_path
+            return self._download_remote_raw_to_local_root(archive_url, raw_path, hour)
+
+    def _split_shared_fixed_table(
+        self,
+        table: pa.Table,
+        *,
+        requests: Sequence[tuple[int, str, str]],
+        batch_size: int,
+    ) -> dict[int, list[pa.RecordBatch]]:
+        if table.num_rows == 0:
+            return {request_id: [] for request_id, _, _ in requests}
+
+        result: dict[int, list[pa.RecordBatch]] = {}
+        for request_id, condition_id, token_id in requests:
+            if "market" in table.schema.names:
+                market_value = self._market_stats_value(
+                    table.schema.field("market").type,
+                    condition_id,
+                )
+                market_mask = pc.equal(table.column("market"), pa.scalar(market_value))
+            else:
+                market_mask = pc.equal(table.column("market_id"), condition_id)
+            token_mask = pc.equal(table.column("asset_id"), token_id)
+            mask = pc.and_(pc.fill_null(market_mask, False), pc.fill_null(token_mask, False))
+            filtered = table.filter(mask).select(PolymarketPMXTDataLoader._PMXT_FIXED_COLUMNS)
+            result[request_id] = list(filtered.to_batches(max_chunksize=batch_size))
+        return result
+
+    def _split_shared_payload_table(
+        self,
+        table: pa.Table,
+        *,
+        requests: Sequence[tuple[int, str, str]],
+        batch_size: int,
+    ) -> dict[int, list[pa.RecordBatch]]:
+        if table.num_rows == 0:
+            return {request_id: [] for request_id, _, _ in requests}
+
+        result: dict[int, list[pa.RecordBatch]] = {}
+        for request_id, condition_id, token_id in requests:
+            market_mask = pc.equal(table.column("market_id"), condition_id)
+            token_mask = pc.match_substring_regex(
+                table.column("data"), rf'"token_id"\s*:\s*"{re.escape(token_id)}"'
+            )
+            mask = pc.and_(pc.fill_null(market_mask, False), pc.fill_null(token_mask, False))
+            filtered = table.filter(mask).select(PolymarketPMXTDataLoader._PMXT_COLUMNS)
+            result[request_id] = list(filtered.to_batches(max_chunksize=batch_size))
+        return result
+
+    def _matching_shared_raw_fixed_market_row_groups(
+        self,
+        parquet_file: pq.ParquetFile,
+        condition_ids: Sequence[str],
+    ) -> list[int] | None:
+        schema = parquet_file.schema_arrow
+        try:
+            market_index = schema.names.index("market")
+        except ValueError:
+            return None
+
+        market_values = [
+            self._market_stats_value(schema.field("market").type, condition_id)
+            for condition_id in condition_ids
+        ]
+        row_groups: list[int] = []
+        for index in range(parquet_file.num_row_groups):
+            column = parquet_file.metadata.row_group(index).column(market_index)
+            stats = column.statistics
+            if stats is None or stats.min is None or stats.max is None:
+                return None
+            try:
+                if any(stats.min <= market_value <= stats.max for market_value in market_values):
+                    row_groups.append(index)
+            except TypeError:
+                return None
+        return row_groups
+
+    def _load_shared_raw_fixed_market_batches_pyarrow(
+        self,
+        raw_path: Path,
+        *,
+        requests: Sequence[tuple[int, str, str]],
+        batch_size: int,
+    ) -> dict[int, list[pa.RecordBatch]] | None:
+        condition_ids = sorted({condition_id for _, condition_id, _ in requests})
+        token_ids = sorted({token_id for _, _, token_id in requests})
+        parquet_file = pq.ParquetFile(raw_path)
+        if not self._is_raw_fixed_schema(parquet_file.schema_arrow.names):
+            return None
+
+        row_groups = self._matching_shared_raw_fixed_market_row_groups(
+            parquet_file,
+            condition_ids,
+        )
+        if row_groups is None:
+            return None
+        if not row_groups:
+            return {request_id: [] for request_id, _, _ in requests}
+
+        raw_columns = [
+            "event_type",
+            "timestamp",
+            "market",
+            "asset_id",
+            "bids",
+            "asks",
+            "price",
+            "size",
+            "side",
+        ]
+        raw_table = parquet_file.read_row_groups(row_groups, columns=raw_columns)
+        market_type = raw_table.schema.field("market").type
+        market_values = [
+            self._market_stats_value(market_type, condition_id) for condition_id in condition_ids
+        ]
+        market_mask = pc.is_in(
+            raw_table.column("market"),
+            value_set=pa.array(market_values, type=market_type),
+        )
+        event_type_mask = pc.is_in(
+            raw_table.column("event_type"),
+            value_set=pa.array(["book", "price_change"]),
+        )
+        token_mask = pc.is_in(raw_table.column("asset_id"), value_set=pa.array(token_ids))
+        mask = pc.and_(
+            pc.and_(pc.fill_null(market_mask, False), pc.fill_null(event_type_mask, False)),
+            pc.fill_null(token_mask, False),
+        )
+        filtered = raw_table.filter(mask)
+        timestamp_ns = pc.cast(
+            pc.cast(filtered.column("timestamp"), pa.timestamp("ns", tz="UTC")),
+            pa.int64(),
+        )
+        table = pa.Table.from_arrays(
+            [
+                filtered.column("market"),
+                filtered.column("event_type"),
+                timestamp_ns,
+                filtered.column("asset_id"),
+                filtered.column("bids"),
+                filtered.column("asks"),
+                pc.cast(filtered.column("price"), pa.string()),
+                pc.cast(filtered.column("size"), pa.string()),
+                filtered.column("side"),
+            ],
+            names=("market", *PolymarketPMXTDataLoader._PMXT_FIXED_COLUMNS),
+        )
+        return self._split_shared_fixed_table(
+            table,
+            requests=requests,
+            batch_size=batch_size,
+        )
+
+    def _load_shared_market_batches_from_raw_file(
+        self,
+        raw_path: Path,
+        *,
+        requests: Sequence[tuple[int, str, str]],
+        batch_size: int,
+    ) -> dict[int, list[pa.RecordBatch]] | None:
+        if not requests:
+            return {}
+
+        condition_ids = sorted({condition_id for _, condition_id, _ in requests})
+        token_ids = sorted({token_id for _, _, token_id in requests})
+        try:
+            pyarrow_batches = self._load_shared_raw_fixed_market_batches_pyarrow(
+                raw_path,
+                requests=requests,
+                batch_size=batch_size,
+            )
+            if pyarrow_batches is not None:
+                return pyarrow_batches
+        except (OSError, TypeError, ValueError, pa.ArrowException):
+            pass
+
+        connection = duckdb.connect(":memory:")
+        try:
+            schema_rows = connection.execute(
+                "DESCRIBE SELECT * FROM read_parquet(?) LIMIT 0", [str(raw_path)]
+            ).fetchall()
+            schema_names = {str(row[0]) for row in schema_rows}
+            if self._is_raw_fixed_schema(schema_names):
+                market_placeholders = ", ".join("?" for _ in condition_ids)
+                token_placeholders = ", ".join("?" for _ in token_ids)
+                query = (
+                    "SELECT "
+                    "decode(market) AS market_id, "
+                    "event_type, "
+                    "CAST(epoch_ns(timestamp) AS BIGINT) AS timestamp_ns, "
+                    "asset_id, "
+                    "bids, "
+                    "asks, "
+                    "CAST(price AS VARCHAR) AS price, "
+                    "CAST(size AS VARCHAR) AS size, "
+                    "side "
+                    "FROM read_parquet(?) "
+                    f"WHERE decode(market) IN ({market_placeholders}) "
+                    "AND event_type IN ('book', 'price_change') "
+                    f"AND asset_id IN ({token_placeholders})"
+                )
+                params: list[object] = [str(raw_path), *condition_ids, *token_ids]
+                table = connection.execute(query, params).to_arrow_table()
+                return self._split_shared_fixed_table(
+                    table, requests=requests, batch_size=batch_size
+                )
+
+            if self._is_raw_payload_schema(schema_names):
+                market_placeholders = ", ".join("?" for _ in condition_ids)
+                query = (
+                    "SELECT market_id, update_type, data FROM read_parquet(?) "
+                    f"WHERE market_id IN ({market_placeholders}) "
+                    "AND update_type IN ('book_snapshot', 'price_change')"
+                )
+                params = [str(raw_path), *condition_ids]
+                table = connection.execute(query, params).to_arrow_table()
+                return self._split_shared_payload_table(
+                    table, requests=requests, batch_size=batch_size
+                )
+
+            return None
+        finally:
+            connection.close()
+
+    def _load_shared_market_batches_from_remote_base_url(
+        self,
+        base_url: str,
+        hour,
+        *,
+        requests: Sequence[tuple[int, str, str]],
+        batch_size: int,
+    ) -> dict[int, list[pa.RecordBatch]] | None:  # type: ignore[no-untyped-def]
+        archive_url = self._archive_url_for_base_url(base_url, hour)
+        raw_root = self._raw_persistence_root()
+        if raw_root is not None:
+            raw_path = self._raw_path_for_hour_at_root(raw_root, hour)
+            if raw_path.exists():
+                return self._load_shared_market_batches_from_raw_file(
+                    raw_path,
+                    requests=requests,
+                    batch_size=batch_size,
+                )
+
+            with self._raw_download_lock(raw_path):
+                if raw_path.exists():
+                    return self._load_shared_market_batches_from_raw_file(
+                        raw_path,
+                        requests=requests,
+                        batch_size=batch_size,
+                    )
+                downloaded = self._download_remote_raw_to_local_root(archive_url, raw_path, hour)
+            if downloaded is not None:
+                return self._load_shared_market_batches_from_raw_file(
+                    downloaded,
+                    requests=requests,
+                    batch_size=batch_size,
+                )
+
+        try:
+            with self._temporary_download_path(archive_url) as download_path:
+                total_bytes = self._download_to_file_with_progress(archive_url, download_path)
+                if total_bytes is None and not download_path.exists():
+                    return None
+                cache = getattr(self, "_pmxt_progress_size_cache", None)
+                if cache is None:
+                    cache = {}
+                    self._pmxt_progress_size_cache = cache
+                cache[archive_url] = total_bytes
+                return self._load_shared_market_batches_from_raw_file(
+                    download_path,
+                    requests=requests,
+                    batch_size=batch_size,
+                )
+        except FileNotFoundError:
+            return None
+        except OSError as exc:
+            if "404" in str(exc):
+                return None
+            return None
+        except Exception:
+            return None
+
+    def load_shared_market_batches_for_hour(
+        self,
+        hour,
+        *,
+        requests: Sequence[tuple[int, str, str]],
+        batch_size: int,
+    ) -> dict[int, list[pa.RecordBatch] | None]:  # type: ignore[no-untyped-def]
+        if not requests:
+            return {}
+
+        ordered_entries = getattr(self, "_pmxt_ordered_source_entries", ()) or ()
+        source_entries = (
+            ordered_entries
+            if ordered_entries
+            else tuple((stage, "") for stage in self._pmxt_source_priority)
+        )
+        missing = {request_id: None for request_id, _, _ in requests}
+
+        for kind, target in source_entries:
+            source_target = target or None
+            source = self._source_label_for_stage(kind, source_target)
+            origin_function = (
+                "load_shared_market_batches_for_hour"
+                if kind == _PMXT_SOURCE_STAGE_RAW_LOCAL
+                else "_load_remote_market_batches_from_base_url"
+            )
+            self._emit_pmxt_source_event(
+                message=(
+                    f"Trying PMXT grouped {self._source_kind_for_stage(kind)} source "
+                    f"for {self._hour_label(hour)} ({len(requests)} request(s))"
+                ),
+                stage="fetch",
+                status="start",
+                hour=hour,
+                source_kind=self._source_kind_for_stage(kind),
+                source=source,
+                origin_function=origin_function,
+            )
+            if kind == _PMXT_SOURCE_STAGE_RAW_REMOTE:
+                remote_url = target or getattr(self, "_pmxt_remote_base_url", None)
+                if remote_url is None:
+                    remote_urls = getattr(self, "_pmxt_remote_base_urls", ()) or ()
+                    remote_url = remote_urls[0] if remote_urls else None
+                batches_by_request = (
+                    self._load_shared_market_batches_from_remote_base_url(
+                        str(remote_url),
+                        hour,
+                        requests=requests,
+                        batch_size=batch_size,
+                    )
+                    if remote_url is not None
+                    else None
+                )
+            else:
+                raw_path = (
+                    self._raw_path_for_ordered_entry(kind, target, hour)
+                    if ordered_entries
+                    else self._raw_path_for_source_stage(kind, hour)
+                )
+                if raw_path is None:
+                    self._emit_pmxt_source_event(
+                        message=(
+                            f"PMXT grouped {self._source_kind_for_stage(kind)} source "
+                            f"had no usable data for {self._hour_label(hour)}"
+                        ),
+                        stage="fetch",
+                        status="skip",
+                        hour=hour,
+                        source_kind=self._source_kind_for_stage(kind),
+                        source=source,
+                        origin_function=origin_function,
+                    )
+                    continue
+                batches_by_request = self._load_shared_market_batches_from_raw_file(
+                    raw_path,
+                    requests=requests,
+                    batch_size=batch_size,
+                )
+            if batches_by_request is None:
+                self._emit_pmxt_source_event(
+                    message=(
+                        f"PMXT grouped {self._source_kind_for_stage(kind)} source "
+                        f"had no usable data for {self._hour_label(hour)}"
+                    ),
+                    stage="fetch",
+                    status="skip",
+                    hour=hour,
+                    source_kind=self._source_kind_for_stage(kind),
+                    source=source,
+                    origin_function=origin_function,
+                )
+                continue
+
+            rows = sum(
+                self._row_count_from_batches(batches) for batches in batches_by_request.values()
+            )
+            self._emit_pmxt_source_event(
+                message=(
+                    f"Loaded PMXT grouped {self._source_kind_for_stage(kind)} source "
+                    f"for {self._hour_label(hour)} ({rows} rows across {len(requests)} request(s))"
+                ),
+                stage="fetch",
+                status="complete",
+                hour=hour,
+                source_kind=self._source_kind_for_stage(kind),
+                source=source,
+                rows=rows,
+                origin_function=origin_function,
+            )
+            return {**missing, **batches_by_request}
+
+        return missing
 
     def _write_cache_if_enabled(self, hour, table) -> None:  # type: ignore[no-untyped-def]
         if self._pmxt_cache_dir is None:

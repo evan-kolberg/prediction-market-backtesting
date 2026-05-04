@@ -1201,46 +1201,27 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
     def _batches_use_fixed_schema(cls, batches: Sequence[pa.RecordBatch]) -> bool:
         return bool(batches) and cls._is_fixed_schema(batches[0].schema.names)
 
-    def load_order_book_deltas(
+    def _order_book_deltas_from_hour_batches(
         self,
-        start: pd.Timestamp,
-        end: pd.Timestamp,
         *,
-        batch_size: int | None = None,
-        include_order_book: bool = True,
+        start_ts: pd.Timestamp,
+        end_ts: pd.Timestamp,
+        hour_batches: Iterator[tuple[pd.Timestamp, list[pa.RecordBatch] | None]],
+        include_order_book: bool,
     ) -> list[OrderBookDeltas]:
-        """
-        Load one market's historical L2 updates from PMXT.
-
-        Only the target token's rows are materialized in memory; each parquet file
-        is filtered by market ID during scan and discarded once processed.
-        """
-        if self.condition_id is None:
-            raise ValueError("condition_id is required for PMXT loading")
-        if self.token_id is None:
-            raise ValueError("token_id is required for PMXT loading")
-
-        start_ts = self._normalize_timestamp(start)
-        end_ts = self._normalize_timestamp(end)
-        if start_ts is None or end_ts is None or end_ts <= start_ts:
-            return []
-
         start_ns = start_ts.value
         end_ns = end_ts.value
         token_id = self.token_id
+        if token_id is None:
+            raise ValueError("token_id is required for PMXT loading")
+
         has_snapshot = False
         events: list[OrderBookDeltas] = []
-        hours = self._archive_hours(start_ts, end_ts)
-        resolved_batch_size = (
-            max(1, int(batch_size))
-            if batch_size is not None
-            else int(getattr(self, "_pmxt_scan_batch_size", self._PMXT_DEFAULT_SCAN_BATCH_SIZE))
-        )
         last_payload_key: tuple[int, int] | None = None
         gap_hours: list[pd.Timestamp] = []
         self._pmxt_last_load_gap_hours = ()
 
-        for hour, batches in self._iter_market_batches(hours, batch_size=resolved_batch_size):
+        for hour, batches in hour_batches:
             if batches is None:
                 # Distinguish "no source could supply this hour" from "hour
                 # loaded fine but had no events for this market". A None
@@ -1305,6 +1286,68 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
             )
 
         return events
+
+    def load_order_book_deltas_from_hour_batches(
+        self,
+        start: pd.Timestamp,
+        end: pd.Timestamp,
+        hour_batches: Sequence[tuple[pd.Timestamp, list[pa.RecordBatch] | None]],
+        *,
+        include_order_book: bool = True,
+    ) -> list[OrderBookDeltas]:
+        if self.condition_id is None:
+            raise ValueError("condition_id is required for PMXT loading")
+        if self.token_id is None:
+            raise ValueError("token_id is required for PMXT loading")
+
+        start_ts = self._normalize_timestamp(start)
+        end_ts = self._normalize_timestamp(end)
+        if start_ts is None or end_ts is None or end_ts <= start_ts:
+            return []
+
+        return self._order_book_deltas_from_hour_batches(
+            start_ts=start_ts,
+            end_ts=end_ts,
+            hour_batches=iter(hour_batches),
+            include_order_book=include_order_book,
+        )
+
+    def load_order_book_deltas(
+        self,
+        start: pd.Timestamp,
+        end: pd.Timestamp,
+        *,
+        batch_size: int | None = None,
+        include_order_book: bool = True,
+    ) -> list[OrderBookDeltas]:
+        """
+        Load one market's historical L2 updates from PMXT.
+
+        Only the target token's rows are materialized in memory; each parquet file
+        is filtered by market ID during scan and discarded once processed.
+        """
+        if self.condition_id is None:
+            raise ValueError("condition_id is required for PMXT loading")
+        if self.token_id is None:
+            raise ValueError("token_id is required for PMXT loading")
+
+        start_ts = self._normalize_timestamp(start)
+        end_ts = self._normalize_timestamp(end)
+        if start_ts is None or end_ts is None or end_ts <= start_ts:
+            return []
+
+        hours = self._archive_hours(start_ts, end_ts)
+        resolved_batch_size = (
+            max(1, int(batch_size))
+            if batch_size is not None
+            else int(getattr(self, "_pmxt_scan_batch_size", self._PMXT_DEFAULT_SCAN_BATCH_SIZE))
+        )
+        return self._order_book_deltas_from_hour_batches(
+            start_ts=start_ts,
+            end_ts=end_ts,
+            hour_batches=self._iter_market_batches(hours, batch_size=resolved_batch_size),
+            include_order_book=include_order_book,
+        )
 
     @staticmethod
     def _timestamp_to_ns(value: object) -> int:

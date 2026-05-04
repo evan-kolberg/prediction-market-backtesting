@@ -4,7 +4,7 @@ import asyncio
 import os
 import time
 import warnings
-from collections.abc import Callable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -14,6 +14,7 @@ from typing import Any
 
 import pandas as pd
 import numpy as np
+import pyarrow as pa
 from nautilus_trader.adapters.polymarket import POLYMARKET_VENUE
 from nautilus_trader.model.book import OrderBook
 from nautilus_trader.model.currencies import USDC_POS
@@ -556,6 +557,7 @@ class _PreparedBookReplay:
 class _LoadedBookReplay:
     prepared: _PreparedBookReplay
     book_records: tuple[OrderBookDeltas, ...]
+    book_event_count: int
 
 
 async def _gather_bounded(
@@ -575,12 +577,6 @@ async def _gather_bounded(
             return await func(value)
 
     return list(await asyncio.gather(*(_run(value) for value in values)))
-
-
-def _chunks(values: Sequence[Any], size: int) -> Iterator[Sequence[Any]]:
-    chunk_size = max(1, int(size))
-    for start in range(0, len(values), chunk_size):
-        yield values[start : start + chunk_size]
 
 
 @dataclass(frozen=True)
@@ -688,6 +684,7 @@ class _BaseReplayAdapter(HistoricalReplayAdapter):
         *,
         prepared: _PreparedBookReplay,
         records: tuple[object, ...],
+        book_event_count: int | None = None,
         request: ReplayLoadRequest,
         vendor: str,
         source_label: str,
@@ -707,12 +704,15 @@ class _BaseReplayAdapter(HistoricalReplayAdapter):
             return None
 
         deltas_type = _resolve_backtest_compat_symbol("OrderBookDeltas", OrderBookDeltas)
-        book_event_count, prices_tuple = _book_event_count_and_prices_for_request(
-            instrument=prepared.loader.instrument,
-            records=records,
-            deltas_type=deltas_type,
-            request=request,
-        )
+        if request.min_price_range > 0.0 or book_event_count is None:
+            book_event_count, prices_tuple = _book_event_count_and_prices_for_request(
+                instrument=prepared.loader.instrument,
+                records=records,
+                deltas_type=deltas_type,
+                request=request,
+            )
+        else:
+            prices_tuple = ()
         if not _validate_replay_window(
             market_label=replay.market_slug,
             count_label="book events",
@@ -911,6 +911,299 @@ class PolymarketPMXTBookReplayAdapter(_BaseReplayAdapter):
             metadata=dict(replay.metadata or {}),
             requested_window=_requested_window(start, end),
         )
+
+    async def load_replays(
+        self,
+        replays: Sequence[BookReplay],
+        *,
+        request: ReplayLoadRequest,
+        workers: int,
+    ) -> list[LoadedReplay]:
+        resolved_replays = [
+            self._resolve_book_replay_window(replay, request=request, source_label="PMXT")
+            for replay in replays
+        ]
+        for resolved in resolved_replays:
+            self._emit_book_replay_start(resolved=resolved, vendor="pmxt")
+
+        loader_cls = _resolve_backtest_compat_symbol(
+            "PolymarketPMXTDataLoader", PolymarketPMXTDataLoader
+        )
+
+        async def _prepare(resolved: _ResolvedBookReplay) -> _PreparedBookReplay | None:
+            replay = resolved.replay
+            try:
+                loader = await loader_cls.from_market_slug(
+                    replay.market_slug, token_index=replay.token_index
+                )
+                return _PreparedBookReplay(
+                    resolved=resolved,
+                    loader=loader,
+                    outcome=str(loader.instrument.outcome or replay.outcome or ""),
+                )
+            except Exception as exc:
+                self._emit_book_replay_fetch_error(
+                    replay=replay,
+                    vendor="pmxt",
+                    source_label="PMXT",
+                    error=exc,
+                )
+                return None
+
+        prepared = [
+            item
+            for item in await _gather_bounded(resolved_replays, workers=workers, func=_prepare)
+            if item is not None
+        ]
+
+        async def _load_book(prepared_replay: _PreparedBookReplay) -> _LoadedBookReplay | None:
+            replay = prepared_replay.resolved.replay
+            try:
+                records = tuple(
+                    await asyncio.to_thread(
+                        prepared_replay.loader.load_order_book_deltas,
+                        prepared_replay.resolved.start,
+                        prepared_replay.resolved.end,
+                    )
+                )
+                return _LoadedBookReplay(
+                    prepared=prepared_replay,
+                    book_records=records,
+                    book_event_count=len(records),
+                )
+            except Exception as exc:
+                self._emit_book_replay_fetch_error(
+                    replay=replay,
+                    vendor="pmxt",
+                    source_label="PMXT",
+                    error=exc,
+                )
+                return None
+
+        async def _load_cached_hour(
+            item: tuple[int, pd.Timestamp],
+        ) -> tuple[int, pd.Timestamp, list[pa.RecordBatch] | None, bool]:
+            index, hour = item
+            prepared_replay = prepared[index]
+            loader = prepared_replay.loader
+
+            def _load() -> tuple[list[pa.RecordBatch] | None, bool]:
+                batches = loader._load_cached_market_batches(hour)
+                cache_path = loader._cache_path_for_hour(hour)
+                if batches is not None:
+                    rows = loader._row_count_from_batches(batches)
+                    loader._emit_pmxt_source_event(
+                        message=f"Loaded PMXT filtered cache for {loader._hour_label(hour)} ({rows} rows)",
+                        stage="cache_read",
+                        status="cache_hit",
+                        hour=hour,
+                        source_kind="cache",
+                        cache_path=cache_path,
+                        rows=rows,
+                        origin_function="_load_cached_market_batches",
+                    )
+                    return batches, True
+                if cache_path is not None:
+                    loader._emit_pmxt_source_event(
+                        message=f"PMXT filtered cache miss for {loader._hour_label(hour)}",
+                        stage="cache_read",
+                        status="cache_miss",
+                        hour=hour,
+                        source_kind="cache",
+                        cache_path=cache_path,
+                        origin_function="_load_cached_market_batches",
+                    )
+                return None, False
+
+            batches, hit = await asyncio.to_thread(_load)
+            return index, hour, batches, hit
+
+        async def _load_grouped_pmxt_books() -> list[_LoadedBookReplay]:
+            if not prepared:
+                return []
+
+            resolved_batch_size = int(
+                getattr(
+                    prepared[0].loader,
+                    "_pmxt_scan_batch_size",
+                    getattr(prepared[0].loader, "_PMXT_DEFAULT_SCAN_BATCH_SIZE", 100_000),
+                )
+            )
+            hours_by_index: dict[int, tuple[pd.Timestamp, ...]] = {
+                index: tuple(
+                    prepared_replay.loader._archive_hours(
+                        prepared_replay.resolved.start,
+                        prepared_replay.resolved.end,
+                    )
+                )
+                for index, prepared_replay in enumerate(prepared)
+            }
+            hour_batches_by_index: dict[int, dict[pd.Timestamp, list[pa.RecordBatch] | None]] = {
+                index: {} for index in range(len(prepared))
+            }
+            cache_checks = [
+                (index, hour) for index, hours in hours_by_index.items() for hour in hours
+            ]
+            cache_results = await _gather_bounded(
+                cache_checks,
+                workers=workers,
+                func=_load_cached_hour,
+            )
+            missing_by_hour: dict[pd.Timestamp, list[int]] = {}
+            for index, hour, batches, hit in cache_results:
+                if hit:
+                    hour_batches_by_index[index][hour] = batches
+                else:
+                    missing_by_hour.setdefault(hour, []).append(index)
+
+            async def _load_shared_hour(
+                item: tuple[pd.Timestamp, list[int]],
+            ) -> tuple[pd.Timestamp, dict[int, list[pa.RecordBatch] | None]]:
+                hour, indexes = item
+                representative = prepared[indexes[0]].loader
+                requests = tuple(
+                    (
+                        index,
+                        str(prepared[index].loader.condition_id),
+                        str(prepared[index].loader.token_id),
+                    )
+                    for index in indexes
+                    if getattr(prepared[index].loader, "condition_id", None) is not None
+                    and getattr(prepared[index].loader, "token_id", None) is not None
+                )
+                batches_by_request = await asyncio.to_thread(
+                    representative.load_shared_market_batches_for_hour,
+                    hour,
+                    requests=requests,
+                    batch_size=resolved_batch_size,
+                )
+                return hour, batches_by_request
+
+            shared_results = await _gather_bounded(
+                tuple(missing_by_hour.items()),
+                workers=workers,
+                func=_load_shared_hour,
+            )
+            cache_writes: list[tuple[int, pd.Timestamp, list[pa.RecordBatch]]] = []
+            for hour, batches_by_request in shared_results:
+                for index in missing_by_hour.get(hour, ()):
+                    batches = batches_by_request.get(index)
+                    hour_batches_by_index[index][hour] = batches
+                    if batches is not None:
+                        cache_writes.append((index, hour, batches))
+
+            async def _write_grouped_cache(
+                item: tuple[int, pd.Timestamp, list[pa.RecordBatch]],
+            ) -> None:
+                index, hour, batches = item
+                loader = prepared[index].loader
+                table = pa.Table.from_batches(batches) if batches else loader._empty_market_table()
+                await asyncio.to_thread(loader._write_cache_if_enabled, hour, table)
+
+            await _gather_bounded(cache_writes, workers=workers, func=_write_grouped_cache)
+
+            async def _build_book_from_grouped_hours(index: int) -> _LoadedBookReplay | None:
+                prepared_replay = prepared[index]
+                replay = prepared_replay.resolved.replay
+                hour_batches = tuple(
+                    (hour, hour_batches_by_index[index].get(hour)) for hour in hours_by_index[index]
+                )
+                try:
+                    records = tuple(
+                        await asyncio.to_thread(
+                            prepared_replay.loader.load_order_book_deltas_from_hour_batches,
+                            prepared_replay.resolved.start,
+                            prepared_replay.resolved.end,
+                            hour_batches,
+                        )
+                    )
+                    return _LoadedBookReplay(
+                        prepared=prepared_replay,
+                        book_records=records,
+                        book_event_count=len(records),
+                    )
+                except Exception as exc:
+                    self._emit_book_replay_fetch_error(
+                        replay=replay,
+                        vendor="pmxt",
+                        source_label="PMXT",
+                        error=exc,
+                    )
+                    return None
+
+            return [
+                item
+                for item in await _gather_bounded(
+                    tuple(range(len(prepared))),
+                    workers=workers,
+                    func=_build_book_from_grouped_hours,
+                )
+                if item is not None
+            ]
+
+        can_group_pmxt_books = all(
+            hasattr(item.loader, "load_shared_market_batches_for_hour")
+            and hasattr(item.loader, "load_order_book_deltas_from_hour_batches")
+            for item in prepared
+        )
+        if can_group_pmxt_books:
+            loaded_books = await _load_grouped_pmxt_books()
+        else:
+            loaded_books = [
+                item
+                for item in await _gather_bounded(prepared, workers=workers, func=_load_book)
+                if item is not None
+            ]
+        prepared_loaded = [loaded_book.prepared for loaded_book in loaded_books]
+        book_event_counts = [loaded_book.book_event_count for loaded_book in loaded_books]
+        book_slots: list[tuple[OrderBookDeltas, ...] | None] = [
+            loaded_book.book_records for loaded_book in loaded_books
+        ]
+        del loaded_books
+
+        async def _load_trades_and_build(index: int) -> LoadedReplay | None:
+            prepared_replay = prepared_loaded[index]
+            replay = prepared_replay.resolved.replay
+            book_records = book_slots[index]
+            if book_records is None:
+                return None
+            try:
+                trade_records = await _load_trade_ticks(
+                    prepared_replay.loader,
+                    start=prepared_replay.resolved.start,
+                    end=prepared_replay.resolved.end,
+                    market_label=replay.market_slug,
+                )
+                records = await asyncio.to_thread(
+                    _merge_records,
+                    book_records=book_records,
+                    trade_records=trade_records,
+                )
+                book_slots[index] = None
+                return await asyncio.to_thread(
+                    self._build_loaded_book_replay_or_none,
+                    prepared=prepared_replay,
+                    records=records,
+                    book_event_count=book_event_counts[index],
+                    request=request,
+                    vendor="pmxt",
+                    source_label="PMXT",
+                )
+            except Exception as exc:
+                self._emit_book_replay_fetch_error(
+                    replay=replay,
+                    vendor="pmxt",
+                    source_label="PMXT",
+                    error=exc,
+                )
+                return None
+
+        loaded = await _gather_bounded(
+            tuple(range(len(prepared_loaded))),
+            workers=workers,
+            func=_load_trades_and_build,
+        )
+        return [loaded_sim for loaded_sim in loaded if loaded_sim is not None]
 
 
 class PolymarketTelonexBookReplayAdapter(_BaseReplayAdapter):
@@ -1121,7 +1414,11 @@ class PolymarketTelonexBookReplayAdapter(_BaseReplayAdapter):
                         outcome=prepared_replay.outcome or None,
                     )
                 )
-                return _LoadedBookReplay(prepared=prepared_replay, book_records=records)
+                return _LoadedBookReplay(
+                    prepared=prepared_replay,
+                    book_records=records,
+                    book_event_count=len(records),
+                )
             except Exception as exc:
                 self._emit_book_replay_fetch_error(
                     replay=replay,
@@ -1131,9 +1428,24 @@ class PolymarketTelonexBookReplayAdapter(_BaseReplayAdapter):
                 )
                 return None
 
-        async def _load_trades_and_build(loaded_book: _LoadedBookReplay) -> LoadedReplay | None:
-            prepared_replay = loaded_book.prepared
+        loaded_books = [
+            item
+            for item in await _gather_bounded(prepared, workers=workers, func=_load_book)
+            if item is not None
+        ]
+        prepared_loaded = [loaded_book.prepared for loaded_book in loaded_books]
+        book_event_counts = [loaded_book.book_event_count for loaded_book in loaded_books]
+        book_slots: list[tuple[OrderBookDeltas, ...] | None] = [
+            loaded_book.book_records for loaded_book in loaded_books
+        ]
+        del loaded_books
+
+        async def _load_trades_and_build(index: int) -> LoadedReplay | None:
+            prepared_replay = prepared_loaded[index]
             replay = prepared_replay.resolved.replay
+            book_records = book_slots[index]
+            if book_records is None:
+                return None
             try:
                 trade_records = await _load_trade_ticks(
                     prepared_replay.loader,
@@ -1143,13 +1455,15 @@ class PolymarketTelonexBookReplayAdapter(_BaseReplayAdapter):
                 )
                 records = await asyncio.to_thread(
                     _merge_records,
-                    book_records=loaded_book.book_records,
+                    book_records=book_records,
                     trade_records=trade_records,
                 )
+                book_slots[index] = None
                 return await asyncio.to_thread(
                     self._build_loaded_book_replay_or_none,
                     prepared=prepared_replay,
                     records=records,
+                    book_event_count=book_event_counts[index],
                     request=request,
                     vendor="telonex",
                     source_label="Telonex",
@@ -1163,19 +1477,12 @@ class PolymarketTelonexBookReplayAdapter(_BaseReplayAdapter):
                 )
                 return None
 
-        loaded_sims: list[LoadedReplay] = []
-        chunk_size = max(1, int(workers) * 2)
-        for prepared_chunk in _chunks(prepared, chunk_size):
-            loaded_books = [
-                item
-                for item in await _gather_bounded(prepared_chunk, workers=workers, func=_load_book)
-                if item is not None
-            ]
-            loaded = await _gather_bounded(
-                loaded_books, workers=workers, func=_load_trades_and_build
-            )
-            loaded_sims.extend(loaded_sim for loaded_sim in loaded if loaded_sim is not None)
-        return loaded_sims
+        loaded = await _gather_bounded(
+            tuple(range(len(prepared_loaded))),
+            workers=workers,
+            func=_load_trades_and_build,
+        )
+        return [loaded_sim for loaded_sim in loaded if loaded_sim is not None]
 
 
 BUILTIN_REPLAY_ADAPTERS: tuple[HistoricalReplayAdapter, ...] = (

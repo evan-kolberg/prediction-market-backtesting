@@ -52,6 +52,7 @@ vars remain available for custom integrations:
 - `PMXT_REMOTE_BASE_URL`
 - `PMXT_CACHE_DIR`
 - `PMXT_DISABLE_CACHE`
+- `PMXT_PREFETCH_WORKERS`
 
 ### What Works Today
 
@@ -143,9 +144,11 @@ payload. For the fixed-column schema, it filters `decode(market)` and
 `asset_id`, then sends the selected columns directly to the Rust PMXT converter.
 
 `PMXT_PREFETCH_WORKERS` controls how many archive hours are read ahead while a
-market window is loading. Local raw mirrors default to `4` workers through the
-repo data-source wrapper; raise it, for example `PMXT_PREFETCH_WORKERS=8`, only
-after checking that the local disk has enough read bandwidth.
+single market window is loading. The repo data-source wrapper defaults local
+raw mirrors to `8` workers. Multi-replay PMXT loading also groups filtered-cache
+misses by raw hour, so a basket that needs the same hourly parquet for many
+market/token requests scans that raw hour once and splits the filtered Arrow
+batches per replay.
 
 ### Legacy JSON Payload Shape
 

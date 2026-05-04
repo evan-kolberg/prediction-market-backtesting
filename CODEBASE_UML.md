@@ -1,8 +1,8 @@
 # Codebase UML Inventory
 
 This file is generated from Python AST metadata and excludes `tests/`.
-Generated: 2026-05-03T21:23:46+00:00
-Modules: 110 | Classes: 161 | Functions/methods: 1402
+Generated: 2026-05-04T02:42:47+00:00
+Modules: 110 | Classes: 163 | Functions/methods: 1406
 
 ## Backtesting Data Flow
 
@@ -117,83 +117,62 @@ flowchart TD
 - Function L367: `_assign_shortcuts(backtests: list[dict[str, Any]]) -> dict[str, str | None]`
 - Function L385: `_runner_file_preview(path: Path) -> str`
 - Function L392: `_runner_preview(backtest: dict[str, Any]) -> str`
-- Function L640: `_load_runner(backtest: dict[str, Any]) -> Any`
-- Function L691: `_install_runtime_patches() -> None`
-- Function L697: `_supports_textual_menu() -> bool`
-- Function L718: `_show_basic_menu(backtests: list[dict[str, Any]]) -> int`
-- Function L746: `_show_textual_menu(backtests: list[dict[str, Any]]) -> int`
-- Function L756: `_build_menu_tree(backtests: list[dict[str, Any]]) -> dict[str, Any]`
-- Function L767: `_render_menu_tree(node: dict[str, Any], *, prefix: str = '') -> list[str]`
-- Function L794: `show_menu(backtests: list[dict]) -> int`
-- Function L804: `main() -> None`
+- Function L650: `_load_runner(backtest: dict[str, Any]) -> Any`
+- Function L701: `_install_runtime_patches() -> None`
+- Function L707: `_supports_textual_menu() -> bool`
+- Function L728: `_show_basic_menu(backtests: list[dict[str, Any]]) -> int`
+- Function L756: `_show_textual_menu(backtests: list[dict[str, Any]]) -> int`
+- Function L766: `_build_menu_tree(backtests: list[dict[str, Any]]) -> dict[str, Any]`
+- Function L777: `_render_menu_tree(node: dict[str, Any], *, prefix: str = '') -> list[str]`
+- Function L804: `show_menu(backtests: list[dict]) -> int`
+- Function L814: `main() -> None`
 
 ### `prediction_market_extensions/__init__.py`
 - Imports: `__future__`
 - Function L8: `install_commission_patch() -> None`
 
 ### `prediction_market_extensions/_native.py`
-- Imports: `__future__, collections, datetime, decimal, importlib, json, os, pathlib, types, typing, urllib`
-- Function L29: `_env_enabled(name: str) -> bool | None`
-- Function L41: `_extension_module() -> ModuleType | None`
-- Function L67: `native_available() -> bool`
-- Function L74: `_required_native_function(module: ModuleType, name: str) -> Any`
-- Function L84: `_validate_semantics(semantics: str) -> WindowSemantics`
-- Function L91: `_format_utc_day(day_index: int) -> str`
-- Function L95: `_source_days_for_window_python(start_ns: int, end_ns: int, semantics: WindowSemantics) -> list[str]`
-- Function L112: `_pmxt_archive_hours_for_window_python(start_ns: int, end_ns: int) -> list[int]`
-- Function L121: `_decimal_seconds_to_ns_python(value: object) -> int`
-- Function L125: `_float_seconds_to_ms_string_python(value: float) -> str`
-- Function L129: `_fixed_raw_values_python(values: Sequence[object], precision: int) -> list[int]`
-- Function L134: `_pmxt_payload_sort_key_python(update_type: str, payload_text: str) -> tuple[int, int]`
-- Function L146: `_polymarket_trade_sort_key_python(timestamp: int, transaction_hash: str, asset: str, side: str, price: str, size: str) -> tuple[int, str, str, str, str, str]`
-- Function L157: `_polymarket_trade_id_python(transaction_hash: str, asset: str, sequence: int) -> str`
-- Function L161: `_polymarket_normalize_trade_side_python(side: str) -> str`
-- Function L168: `_polymarket_is_tradable_probability_price_python(price: str) -> bool`
-- Function L176: `_polymarket_trade_event_timestamp_ns_python(base_timestamp_ns: int, occurrence_in_second: int) -> int`
-- Function L183: `_polymarket_public_trade_rows_python(trades: Sequence[Mapping[str, object]], *, token_id: str, sort: bool) -> tuple[list[float], list[float], list[int], list[str], list[int], list[int], list[tuple[int, str]], list[tuple[int, float]]]`
-- Function L268: `_telonex_source_label_kind_python(source: str) -> str | None`
-- Function L280: `_telonex_stage_for_source_python(source: str) -> str`
-- Function L284: `_telonex_api_url_python(base_url: str, channel: str, date: str, market_slug: str, token_index: int, outcome: str | None) -> str`
-- Function L303: `_telonex_outcome_segments(token_index: int, outcome: str | None) -> list[str]`
-- Function L310: `_telonex_local_consolidated_candidate_paths_python(root: str, channel: str, market_slug: str, token_index: int, outcome: str | None) -> list[str]`
-- Function L334: `_telonex_local_daily_candidate_paths_python(root: str, channel: str, date: str, market_slug: str, token_index: int, outcome: str | None) -> list[str]`
-- Function L367: `source_days_for_window_ns(start_ns: int, end_ns: int, *, semantics: str = 'inclusive') -> list[str]`
-- Function L377: `telonex_source_days_for_window_ns(start_ns: int, end_ns: int) -> list[str]`
-- Function L384: `telonex_day_window_ns(date: str, start_ns: int, end_ns: int) -> tuple[int, int] | None`
-- Function L400: `telonex_flat_book_snapshot_diff_rows(*, timestamp_ns: Sequence[int], bid_prices: Sequence[Sequence[str]], bid_sizes: Sequence[Sequence[str]], ask_prices: Sequence[Sequence[str]], ask_sizes: Sequence[Sequence[str]], start_ns: int, end_ns: int) -> tuple[int | None, list[int], list[int], list[int], list[float], list[float], list[int], list[int], list[int], list[int]] | None`
-- Function L461: `telonex_nested_book_snapshot_diff_rows(*, timestamp_ns: Sequence[int], bids: Sequence[object], asks: Sequence[object], start_ns: int, end_ns: int) -> tuple[int | None, list[int], list[int], list[int], list[float], list[float], list[int], list[int], list[int], list[int]] | None`
-- Function L519: `telonex_onchain_fill_trade_rows(*, timestamp_ns: Sequence[int], prices: Sequence[object], sizes: Sequence[object], sides: Sequence[object] | None, ids: Sequence[object] | None, start_ns: int, end_ns: int, token_suffix: str) -> tuple[list[float], list[float], list[int], list[str], list[int], list[int]] | None`
-- Function L570: `pd_day_start_ns(date: str) -> int`
-- Function L574: `decimal_seconds_to_ns(value: object) -> int`
-- Function L582: `float_seconds_to_ms_string(value: float) -> str`
-- Function L589: `fixed_raw_values(values: Sequence[object], precision: int) -> list[int]`
-- Function L602: `pmxt_payload_sort_key(update_type: str, payload_text: str) -> tuple[int, int]`
-- Function L610: `pmxt_sort_payload_columns(update_type_columns: Sequence[Sequence[str]], payload_text_columns: Sequence[Sequence[str]]) -> list[tuple[int, int, str, str]]`
-- Function L659: `pmxt_payload_delta_rows(*, update_type_columns: Sequence[Sequence[str]], payload_text_columns: Sequence[Sequence[str]], token_id: str, start_ns: int, end_ns: int, has_snapshot: bool, last_payload_key: tuple[int, int] | None) -> tuple[bool, tuple[int, int] | None, dict[str, list[object]]] | None`
-- Function L725: `pmxt_fixed_delta_rows(*, event_type_columns: Sequence[Sequence[str]], timestamp_ns_columns: Sequence[Sequence[int]], asset_id_columns: Sequence[Sequence[str]], bids_json_columns: Sequence[Sequence[object]], asks_json_columns: Sequence[Sequence[object]], price_columns: Sequence[Sequence[object]], size_columns: Sequence[Sequence[object]], side_columns: Sequence[Sequence[object]], token_id: str, start_ns: int, end_ns: int, has_snapshot: bool, last_payload_key: tuple[int, int] | None) -> tuple[bool, tuple[int, int] | None, dict[str, list[object]]] | None`
-- Function L803: `polymarket_trade_sort_key(trade: Mapping[str, object]) -> tuple[int, str, str, str, str, str]`
-- Function L825: `polymarket_trade_sort_keys(trades: Sequence[Mapping[str, object]]) -> list[tuple[int, str, str, str, str, str]]`
-- Function L857: `polymarket_trade_id(transaction_hash: str, asset: str, sequence: int) -> str`
-- Function L864: `polymarket_trade_ids(rows: Sequence[tuple[str, str, int]]) -> list[str]`
-- Function L874: `polymarket_normalize_trade_side(side: str) -> str`
-- Function L881: `polymarket_normalize_trade_sides(sides: Sequence[str]) -> list[str]`
-- Function L888: `polymarket_is_tradable_probability_price(price: str) -> bool`
-- Function L895: `polymarket_are_tradable_probability_prices(prices: Sequence[str]) -> list[bool]`
-- Function L904: `polymarket_trade_event_timestamp_ns(base_timestamp_ns: int, occurrence_in_second: int) -> int`
-- Function L916: `polymarket_trade_event_timestamp_ns_batch(rows: Sequence[tuple[int, int]]) -> list[int]`
-- Function L930: `polymarket_public_trade_rows(trades: Sequence[Mapping[str, object]], *, token_id: str, sort: bool = False) -> tuple[list[float], list[float], list[int], list[str], list[int], list[int], list[tuple[int, str]], list[tuple[int, float]]]`
-- Function L987: `replay_merge_plan(*, book_ts_events: Sequence[int], book_ts_inits: Sequence[int], trade_ts_events: Sequence[int], trade_ts_inits: Sequence[int]) -> list[tuple[int, int]] | None`
-- Function L1009: `pmxt_archive_hours_for_window_ns(start_ns: int, end_ns: int) -> list[int]`
-- Function L1016: `telonex_source_label_kind(source: str) -> str | None`
-- Function L1024: `telonex_stage_for_source(source: str) -> str`
-- Function L1031: `telonex_api_url(*, base_url: str, channel: str, date: str, market_slug: str, token_index: int, outcome: str | None) -> str`
-- Function L1048: `_telonex_outcome_cache_segment(token_index: int, outcome: str | None) -> str`
-- Function L1054: `quote_path_component(value: str) -> str`
-- Function L1058: `telonex_api_cache_relative_path(*, base_url_key: str, channel: str, date: str, market_slug: str, token_index: int, outcome: str | None) -> Path`
-- Function L1087: `telonex_deltas_cache_relative_path(*, channel: str, date: str, market_slug: str, token_index: int, outcome: str | None, instrument_key: str, start_ns: int, end_ns: int) -> Path`
-- Function L1125: `telonex_trade_ticks_cache_relative_path(*, channel: str, date: str, market_slug: str, token_index: int, outcome: str | None, instrument_key: str, start_ns: int, end_ns: int) -> Path`
-- Function L1163: `telonex_local_consolidated_candidate_paths(*, root: Path, channel: str, market_slug: str, token_index: int, outcome: str | None) -> tuple[Path, ...]`
-- Function L1187: `telonex_local_daily_candidate_paths(*, root: Path, channel: str, date: str, market_slug: str, token_index: int, outcome: str | None) -> tuple[Path, ...]`
+- Imports: `__future__, collections, importlib, os, pathlib, types, typing`
+- Function L20: `_env_enabled(name: str) -> bool | None`
+- Function L32: `_extension_module() -> ModuleType | None`
+- Function L63: `_required_extension_module() -> ModuleType`
+- Function L74: `native_available() -> bool`
+- Function L81: `_required_native_function(module: ModuleType, name: str) -> Any`
+- Function L91: `_validate_semantics(semantics: str) -> WindowSemantics`
+- Function L98: `source_days_for_window_ns(start_ns: int, end_ns: int, *, semantics: str = 'inclusive') -> list[str]`
+- Function L106: `telonex_source_days_for_window_ns(start_ns: int, end_ns: int) -> list[str]`
+- Function L111: `telonex_day_window_ns(date: str, start_ns: int, end_ns: int) -> tuple[int, int] | None`
+- Function L119: `telonex_flat_book_snapshot_diff_rows(*, timestamp_ns: Sequence[int], bid_prices: Sequence[Sequence[str]], bid_sizes: Sequence[Sequence[str]], ask_prices: Sequence[Sequence[str]], ask_sizes: Sequence[Sequence[str]], start_ns: int, end_ns: int) -> tuple[int | None, list[int], list[int], list[int], list[float], list[float], list[int], list[int], list[int], list[int]]`
+- Function L175: `telonex_nested_book_snapshot_diff_rows(*, timestamp_ns: Sequence[int], bids: Sequence[object], asks: Sequence[object], start_ns: int, end_ns: int) -> tuple[int | None, list[int], list[int], list[int], list[float], list[float], list[int], list[int], list[int], list[int]]`
+- Function L228: `telonex_onchain_fill_trade_rows(*, timestamp_ns: Sequence[int], prices: Sequence[object], sizes: Sequence[object], sides: Sequence[object] | None, ids: Sequence[object] | None, start_ns: int, end_ns: int, token_suffix: str) -> tuple[list[float], list[float], list[int], list[str], list[int], list[int]]`
+- Function L274: `decimal_seconds_to_ns(value: object) -> int`
+- Function L280: `float_seconds_to_ms_string(value: float) -> str`
+- Function L285: `fixed_raw_values(values: Sequence[object], precision: int) -> list[int]`
+- Function L296: `pmxt_payload_sort_key(update_type: str, payload_text: str) -> tuple[int, int]`
+- Function L302: `pmxt_sort_payload_columns(update_type_columns: Sequence[Sequence[str]], payload_text_columns: Sequence[Sequence[str]]) -> list[tuple[int, int, str, str]]`
+- Function L317: `pmxt_payload_delta_rows(*, update_type_columns: Sequence[Sequence[str]], payload_text_columns: Sequence[Sequence[str]], token_id: str, start_ns: int, end_ns: int, has_snapshot: bool, last_payload_key: tuple[int, int] | None) -> tuple[bool, tuple[int, int] | None, dict[str, list[object]]]`
+- Function L378: `pmxt_fixed_delta_rows(*, event_type_columns: Sequence[Sequence[str]], timestamp_ns_columns: Sequence[Sequence[int]], asset_id_columns: Sequence[Sequence[str]], bids_json_columns: Sequence[Sequence[object]], asks_json_columns: Sequence[Sequence[object]], price_columns: Sequence[Sequence[object]], size_columns: Sequence[Sequence[object]], side_columns: Sequence[Sequence[object]], token_id: str, start_ns: int, end_ns: int, has_snapshot: bool, last_payload_key: tuple[int, int] | None) -> tuple[bool, tuple[int, int] | None, dict[str, list[object]]]`
+- Function L451: `polymarket_trade_sort_key(trade: Mapping[str, object]) -> tuple[int, str, str, str, str, str]`
+- Function L464: `polymarket_trade_sort_keys(trades: Sequence[Mapping[str, object]]) -> list[tuple[int, str, str, str, str, str]]`
+- Function L494: `polymarket_trade_id(transaction_hash: str, asset: str, sequence: int) -> str`
+- Function L499: `polymarket_trade_ids(rows: Sequence[tuple[str, str, int]]) -> list[str]`
+- Function L504: `polymarket_normalize_trade_side(side: str) -> str`
+- Function L509: `polymarket_normalize_trade_sides(sides: Sequence[str]) -> list[str]`
+- Function L514: `polymarket_is_tradable_probability_price(price: str) -> bool`
+- Function L519: `polymarket_are_tradable_probability_prices(prices: Sequence[str]) -> list[bool]`
+- Function L526: `polymarket_trade_event_timestamp_ns(base_timestamp_ns: int, occurrence_in_second: int) -> int`
+- Function L534: `polymarket_trade_event_timestamp_ns_batch(rows: Sequence[tuple[int, int]]) -> list[int]`
+- Function L541: `polymarket_public_trade_rows(trades: Sequence[Mapping[str, object]], *, token_id: str, sort: bool = False) -> tuple[list[float], list[float], list[int], list[str], list[int], list[int], list[tuple[int, str]], list[tuple[int, float]]]`
+- Function L596: `replay_merge_plan(*, book_ts_events: Sequence[int], book_ts_inits: Sequence[int], trade_ts_events: Sequence[int], trade_ts_inits: Sequence[int]) -> list[tuple[int, int]]`
+- Function L616: `pmxt_archive_hours_for_window_ns(start_ns: int, end_ns: int) -> list[int]`
+- Function L621: `telonex_source_label_kind(source: str) -> str | None`
+- Function L627: `telonex_stage_for_source(source: str) -> str`
+- Function L632: `telonex_api_url(*, base_url: str, channel: str, date: str, market_slug: str, token_index: int, outcome: str | None) -> str`
+- Function L645: `telonex_api_cache_relative_path(*, base_url_key: str, channel: str, date: str, market_slug: str, token_index: int, outcome: str | None) -> Path`
+- Function L664: `telonex_deltas_cache_relative_path(*, channel: str, date: str, market_slug: str, token_index: int, outcome: str | None, instrument_key: str, start_ns: int, end_ns: int) -> Path`
+- Function L692: `telonex_trade_ticks_cache_relative_path(*, channel: str, date: str, market_slug: str, token_index: int, outcome: str | None, instrument_key: str, start_ns: int, end_ns: int) -> Path`
+- Function L720: `telonex_local_consolidated_candidate_paths(*, root: Path, channel: str, market_slug: str, token_index: int, outcome: str | None) -> tuple[Path, ...]`
+- Function L737: `telonex_local_daily_candidate_paths(*, root: Path, channel: str, date: str, market_slug: str, token_index: int, outcome: str | None) -> tuple[Path, ...]`
 
 ### `prediction_market_extensions/_runtime_log.py`
 - Imports: `__future__, collections, contextlib, dataclasses, datetime, inspect, json, os, pathlib, sys, threading, time, typing`
@@ -491,80 +470,74 @@ flowchart TD
 - Function L75: `calculate_commission(quantity: Decimal, price: Decimal, fee_rate_bps: Decimal, fee_exponent: int = 1, **_kwargs: object) -> float`
 
 ### `prediction_market_extensions/adapters/polymarket/pmxt.py`
-- Imports: `__future__, collections, concurrent, contextlib, datetime, duckdb, msgspec, nautilus_trader, os, pandas, pathlib, prediction_market_extensions, pyarrow, re, shutil, tempfile, time, typing, urllib, warnings`
-- Function L84: `_raw_fixed_values(values: Sequence[object], precision: int) -> list[int]`
-- Class L55: `_PMXTBookSnapshotPayload(msgspec.Struct)`
-- Class L67: `_PMXTPriceChangePayload(msgspec.Struct)`
-- Class L88: `PolymarketPMXTDataLoader(PolymarketDataLoader)`
-  - Method L133: `__init__(self, *args, **kwargs) -> None`
-  - Method L155: `last_load_gap_hours(self) -> tuple[pd.Timestamp, ...]`
-  - Method L160: `_normalize_timestamp(value: pd.Timestamp | str | None) -> pd.Timestamp | None`
-  - Method L169: `_archive_hours(start: pd.Timestamp, end: pd.Timestamp) -> list[pd.Timestamp]`
-  - Method L184: `_archive_filename_for_hour(cls, hour: pd.Timestamp) -> str`
-  - Method L189: `_archive_url_for_hour(cls, hour: pd.Timestamp) -> str`
-  - Method L193: `_archive_relative_path_for_hour(cls, hour: pd.Timestamp) -> str`
-  - Method L201: `_env_flag_enabled(value: str | None) -> bool`
-  - Method L207: `_default_cache_dir(cls) -> Path`
-  - Method L213: `_resolve_cache_dir(cls) -> Path | None`
-  - Method L229: `_resolve_local_archive_dir(cls) -> Path | None`
-  - Method L240: `_resolve_prefetch_workers(cls) -> int`
-  - Method L255: `_resolve_scan_batch_size(cls) -> int`
-  - Method L270: `_market_cache_path_for_hour(cls, cache_dir: Path, condition_id: str, token_id: str, hour: pd.Timestamp) -> Path`
-  - Method L275: `_cache_path_for_hour(self, hour: pd.Timestamp) -> Path | None`
-  - Method L284: `_hour_label(hour: pd.Timestamp) -> str`
-  - Method L290: `_emit_cache_write_event(self, *, hour: pd.Timestamp, cache_path: Path, table: pa.Table, level: str, status: str, message: str, error: str | None = None) -> None`
-  - Method L322: `_write_market_cache_if_enabled(self, hour: pd.Timestamp, table: pa.Table) -> None`
-  - Method L353: `_local_archive_candidate_paths_for_hour(cls, archive_dir: Path, hour: pd.Timestamp) -> tuple[Path, ...]`
-  - Method L360: `_local_archive_paths_for_hour(self, hour: pd.Timestamp) -> tuple[Path, ...]`
-  - Method L365: `_market_filter(self) -> Any`
-  - Method L372: `_empty_market_table(cls) -> pa.Table`
-  - Method L378: `_is_raw_payload_schema(cls, names: Sequence[str]) -> bool`
-  - Method L382: `_is_fixed_schema(cls, names: Sequence[str]) -> bool`
-  - Method L386: `_is_raw_fixed_schema(cls, names: Sequence[str]) -> bool`
-  - Method L390: `_to_market_batch(cls, batch: pa.RecordBatch) -> pa.RecordBatch`
-  - Method L404: `_filter_batch_to_token(self, batch: pa.RecordBatch) -> pa.RecordBatch`
-  - Method L419: `_filter_raw_batch(self, batch: pa.RecordBatch) -> pa.RecordBatch`
-  - Method L444: `_load_cached_market_table(self, hour: pd.Timestamp) -> pa.Table | None`
-  - Method L461: `_load_cached_market_batches(self, hour: pd.Timestamp) -> list[pa.RecordBatch] | None`
-  - Method L479: `_write_market_cache(self, hour: pd.Timestamp, table: pa.Table) -> None`
-  - Method L492: `_scan_raw_market_batches(self, dataset: ds.Dataset, *, batch_size: int, source: str | None = None, total_bytes: int | None = None) -> list[pa.RecordBatch]`
-  - Method L548: `_market_stats_value(market_type: pa.DataType, condition_id: str) -> bytes | str`
-  - Method L557: `_matching_raw_fixed_market_row_groups(self, parquet_file: pq.ParquetFile) -> list[int] | None`
-  - Method L583: `_load_raw_fixed_market_batches_pyarrow(self, parquet_path: Path, *, batch_size: int, progress_source: str, total_bytes: int | None) -> list[pa.RecordBatch] | None`
-  - Method L679: `_load_raw_market_batches_duckdb(self, parquet_path: Path, *, batch_size: int, progress_source: str, total_bytes: int | None) -> list[pa.RecordBatch] | None`
-  - Method L753: `_load_remote_market_table(self, hour: pd.Timestamp, *, batch_size: int) -> pa.Table | None`
-  - Method L761: `_load_remote_market_batches(self, hour: pd.Timestamp, *, batch_size: int) -> list[pa.RecordBatch] | None`
-  - Method L767: `_load_raw_market_batches_via_download(self, archive_url: str, *, batch_size: int) -> list[pa.RecordBatch] | None`
-  - Method L790: `_load_local_archive_market_batches(self, hour: pd.Timestamp, *, batch_size: int) -> list[pa.RecordBatch] | None`
-  - Method L808: `_filter_table_to_token(self, table: pa.Table) -> pa.Table`
-  - Method L823: `_load_market_table(self, hour: pd.Timestamp, *, batch_size: int) -> pa.Table | None`
-  - Method L848: `_load_market_batches(self, hour: pd.Timestamp, *, batch_size: int) -> list[pa.RecordBatch] | None`
-  - Method L871: `_emit_download_progress(self, url: str, *, downloaded_bytes: int, total_bytes: int | None, finished: bool) -> None`
-  - Method L879: `_emit_scan_progress(self, source: str, *, scanned_batches: int, scanned_rows: int, matched_rows: int, total_bytes: int | None, finished: bool) -> None`
-  - Method L895: `_content_length_from_response(response: object) -> int | None`
-  - Method L907: `_progress_total_bytes(self, source: str) -> int | None`
-  - Method L934: `_download_to_file_with_progress(self, url: str, destination: Path) -> int | None`
-  - Method L983: `_download_payload_with_progress(self, url: str) -> bytes | None`
-  - Method L1022: `_load_raw_market_batches_from_local_file(self, parquet_path: Path, *, batch_size: int, progress_source: str, total_bytes: int | None) -> list[pa.RecordBatch] | None`
-  - Method L1058: `_temporary_download_filename(url: str) -> str`
-  - Method L1063: `_pid_is_active(pid: int) -> bool`
-  - Method L1075: `_temporary_download_path(self, url: str) -> Iterator[Path]`
-  - Method L1087: `_cleanup_stale_temp_downloads(self) -> None`
-  - Method L1116: `_iter_market_tables(self, hours: list[pd.Timestamp], *, batch_size: int) -> Iterator[tuple[pd.Timestamp, pa.Table | None]]`
-  - Method L1147: `_iter_market_batches(self, hours: list[pd.Timestamp], *, batch_size: int) -> Iterator[tuple[pd.Timestamp, list[pa.RecordBatch] | None]]`
-  - Method L1179: `_timestamp_to_ms_string(timestamp_secs: float) -> str`
-  - Method L1183: `_decode_book_snapshot(payload_text: str) -> _PMXTBookSnapshotPayload`
-  - Method L1187: `_decode_price_change(payload_text: str) -> _PMXTPriceChangePayload`
-  - Method L1191: `_to_book_snapshot(payload: _PMXTBookSnapshotPayload) -> PolymarketBookSnapshot`
-  - Method L1210: `_to_price_change(payload: _PMXTPriceChangePayload) -> PolymarketQuotes`
-  - Method L1232: `_event_sort_key(record: OrderBookDeltas) -> tuple[int, int]`
-  - Method L1237: `_deltas_records_from_columns(self, data: dict[str, list[object]]) -> list[OrderBookDeltas]`
-  - Method L1286: `_payload_sort_key(self, update_type: str, payload_text: str) -> tuple[int, int]`
-  - Method L1290: `_batches_use_fixed_schema(cls, batches: Sequence[pa.RecordBatch]) -> bool`
-  - Method L1293: `_process_book_snapshot(self, payload_text: str, *, token_id: str, instrument, local_book: OrderBook, has_snapshot: bool, events: list[OrderBookDeltas], start_ns: int, end_ns: int, include_order_book: bool) -> tuple[OrderBook, bool]`
-  - Method L1329: `_process_price_change(self, payload_text: str, *, token_id: str, instrument, local_book: OrderBook, has_snapshot: bool, events: list[OrderBookDeltas], start_ns: int, end_ns: int, include_order_book: bool) -> OrderBook`
-  - Method L1364: `load_order_book_deltas(self, start: pd.Timestamp, end: pd.Timestamp, *, batch_size: int | None = None, include_order_book: bool = True) -> list[OrderBookDeltas]`
-  - Method L1517: `_timestamp_to_ns(value: object) -> int`
+- Imports: `__future__, collections, concurrent, contextlib, datetime, duckdb, nautilus_trader, os, pandas, pathlib, prediction_market_extensions, pyarrow, re, shutil, tempfile, time, typing, urllib, warnings`
+- Function L44: `_raw_fixed_values(values: Sequence[object], precision: int) -> list[int]`
+- Class L48: `PolymarketPMXTDataLoader(PolymarketDataLoader)`
+  - Method L93: `__init__(self, *args, **kwargs) -> None`
+  - Method L115: `last_load_gap_hours(self) -> tuple[pd.Timestamp, ...]`
+  - Method L120: `_normalize_timestamp(value: pd.Timestamp | str | None) -> pd.Timestamp | None`
+  - Method L129: `_archive_hours(start: pd.Timestamp, end: pd.Timestamp) -> list[pd.Timestamp]`
+  - Method L144: `_archive_filename_for_hour(cls, hour: pd.Timestamp) -> str`
+  - Method L149: `_archive_url_for_hour(cls, hour: pd.Timestamp) -> str`
+  - Method L153: `_archive_relative_path_for_hour(cls, hour: pd.Timestamp) -> str`
+  - Method L161: `_env_flag_enabled(value: str | None) -> bool`
+  - Method L167: `_default_cache_dir(cls) -> Path`
+  - Method L173: `_resolve_cache_dir(cls) -> Path | None`
+  - Method L189: `_resolve_local_archive_dir(cls) -> Path | None`
+  - Method L200: `_resolve_prefetch_workers(cls) -> int`
+  - Method L215: `_resolve_scan_batch_size(cls) -> int`
+  - Method L230: `_market_cache_path_for_hour(cls, cache_dir: Path, condition_id: str, token_id: str, hour: pd.Timestamp) -> Path`
+  - Method L235: `_cache_path_for_hour(self, hour: pd.Timestamp) -> Path | None`
+  - Method L244: `_hour_label(hour: pd.Timestamp) -> str`
+  - Method L250: `_emit_cache_write_event(self, *, hour: pd.Timestamp, cache_path: Path, table: pa.Table, level: str, status: str, message: str, error: str | None = None) -> None`
+  - Method L282: `_write_market_cache_if_enabled(self, hour: pd.Timestamp, table: pa.Table) -> None`
+  - Method L313: `_local_archive_candidate_paths_for_hour(cls, archive_dir: Path, hour: pd.Timestamp) -> tuple[Path, ...]`
+  - Method L320: `_local_archive_paths_for_hour(self, hour: pd.Timestamp) -> tuple[Path, ...]`
+  - Method L325: `_market_filter(self) -> Any`
+  - Method L332: `_empty_market_table(cls) -> pa.Table`
+  - Method L338: `_is_raw_payload_schema(cls, names: Sequence[str]) -> bool`
+  - Method L342: `_is_fixed_schema(cls, names: Sequence[str]) -> bool`
+  - Method L346: `_is_raw_fixed_schema(cls, names: Sequence[str]) -> bool`
+  - Method L350: `_to_market_batch(cls, batch: pa.RecordBatch) -> pa.RecordBatch`
+  - Method L364: `_filter_batch_to_token(self, batch: pa.RecordBatch) -> pa.RecordBatch`
+  - Method L379: `_filter_raw_batch(self, batch: pa.RecordBatch) -> pa.RecordBatch`
+  - Method L404: `_load_cached_market_table(self, hour: pd.Timestamp) -> pa.Table | None`
+  - Method L421: `_load_cached_market_batches(self, hour: pd.Timestamp) -> list[pa.RecordBatch] | None`
+  - Method L439: `_write_market_cache(self, hour: pd.Timestamp, table: pa.Table) -> None`
+  - Method L452: `_scan_raw_market_batches(self, dataset: ds.Dataset, *, batch_size: int, source: str | None = None, total_bytes: int | None = None) -> list[pa.RecordBatch]`
+  - Method L508: `_market_stats_value(market_type: pa.DataType, condition_id: str) -> bytes | str`
+  - Method L517: `_matching_raw_fixed_market_row_groups(self, parquet_file: pq.ParquetFile) -> list[int] | None`
+  - Method L543: `_load_raw_fixed_market_batches_pyarrow(self, parquet_path: Path, *, batch_size: int, progress_source: str, total_bytes: int | None) -> list[pa.RecordBatch] | None`
+  - Method L639: `_load_raw_market_batches_duckdb(self, parquet_path: Path, *, batch_size: int, progress_source: str, total_bytes: int | None) -> list[pa.RecordBatch] | None`
+  - Method L713: `_load_remote_market_table(self, hour: pd.Timestamp, *, batch_size: int) -> pa.Table | None`
+  - Method L721: `_load_remote_market_batches(self, hour: pd.Timestamp, *, batch_size: int) -> list[pa.RecordBatch] | None`
+  - Method L727: `_load_raw_market_batches_via_download(self, archive_url: str, *, batch_size: int) -> list[pa.RecordBatch] | None`
+  - Method L750: `_load_local_archive_market_batches(self, hour: pd.Timestamp, *, batch_size: int) -> list[pa.RecordBatch] | None`
+  - Method L768: `_filter_table_to_token(self, table: pa.Table) -> pa.Table`
+  - Method L783: `_load_market_table(self, hour: pd.Timestamp, *, batch_size: int) -> pa.Table | None`
+  - Method L808: `_load_market_batches(self, hour: pd.Timestamp, *, batch_size: int) -> list[pa.RecordBatch] | None`
+  - Method L831: `_emit_download_progress(self, url: str, *, downloaded_bytes: int, total_bytes: int | None, finished: bool) -> None`
+  - Method L839: `_emit_scan_progress(self, source: str, *, scanned_batches: int, scanned_rows: int, matched_rows: int, total_bytes: int | None, finished: bool) -> None`
+  - Method L855: `_content_length_from_response(response: object) -> int | None`
+  - Method L867: `_progress_total_bytes(self, source: str) -> int | None`
+  - Method L894: `_download_to_file_with_progress(self, url: str, destination: Path) -> int | None`
+  - Method L943: `_download_payload_with_progress(self, url: str) -> bytes | None`
+  - Method L982: `_load_raw_market_batches_from_local_file(self, parquet_path: Path, *, batch_size: int, progress_source: str, total_bytes: int | None) -> list[pa.RecordBatch] | None`
+  - Method L1018: `_temporary_download_filename(url: str) -> str`
+  - Method L1023: `_pid_is_active(pid: int) -> bool`
+  - Method L1035: `_temporary_download_path(self, url: str) -> Iterator[Path]`
+  - Method L1047: `_cleanup_stale_temp_downloads(self) -> None`
+  - Method L1076: `_iter_market_tables(self, hours: list[pd.Timestamp], *, batch_size: int) -> Iterator[tuple[pd.Timestamp, pa.Table | None]]`
+  - Method L1107: `_iter_market_batches(self, hours: list[pd.Timestamp], *, batch_size: int) -> Iterator[tuple[pd.Timestamp, list[pa.RecordBatch] | None]]`
+  - Method L1139: `_timestamp_to_ms_string(timestamp_secs: float) -> str`
+  - Method L1143: `_event_sort_key(record: OrderBookDeltas) -> tuple[int, int]`
+  - Method L1148: `_deltas_records_from_columns(self, data: dict[str, list[object]]) -> list[OrderBookDeltas]`
+  - Method L1197: `_payload_sort_key(self, update_type: str, payload_text: str) -> tuple[int, int]`
+  - Method L1201: `_batches_use_fixed_schema(cls, batches: Sequence[pa.RecordBatch]) -> bool`
+  - Method L1204: `_order_book_deltas_from_hour_batches(self, *, start_ts: pd.Timestamp, end_ts: pd.Timestamp, hour_batches: Iterator[tuple[pd.Timestamp, list[pa.RecordBatch] | None]], include_order_book: bool) -> list[OrderBookDeltas]`
+  - Method L1290: `load_order_book_deltas_from_hour_batches(self, start: pd.Timestamp, end: pd.Timestamp, hour_batches: Sequence[tuple[pd.Timestamp, list[pa.RecordBatch] | None]], *, include_order_book: bool = True) -> list[OrderBookDeltas]`
+  - Method L1315: `load_order_book_deltas(self, start: pd.Timestamp, end: pd.Timestamp, *, batch_size: int | None = None, include_order_book: bool = True) -> list[OrderBookDeltas]`
+  - Method L1353: `_timestamp_to_ns(value: object) -> int`
 
 ### `prediction_market_extensions/adapters/polymarket/research.py`
 - Imports: `__future__, collections, datetime, msgspec, nautilus_trader, pandas, prediction_market_extensions, typing`
@@ -1009,32 +982,35 @@ flowchart TD
 - Class L244: `_WindowEvaluation`
 
 ### `prediction_market_extensions/backtesting/_prediction_market_backtest.py`
-- Imports: `__future__, asyncio, collections, datetime, nautilus_trader, pandas, prediction_market_extensions, typing, warnings`
-- Function L74: `_record_ts_event(record) -> int | None`
-- Function L84: `_largest_record_gap_ns(records: Sequence[Any]) -> int | None`
-- Function L98: `_emit_engine_status(engine: BacktestEngine, message: str) -> None`
-- Function L110: `_serialize_engine_result_stats(engine_result) -> dict[str, Any]`
-- Function L514: `_LoadedMarketSim(*, spec: ReplaySpec, instrument, records: Sequence[Any], count: int, count_key: str, market_key: str, market_id: str, outcome: str, realized_outcome: float | None, prices: Sequence[float], metadata: Mapping[str, Any] | None, requested_start_ns: int | None, requested_end_ns: int | None) -> LoadedReplay`
-- Class L122: `PredictionMarketBacktest`
-  - Method L123: `__init__(self, *, name: str, data: MarketDataConfig, replays: Sequence[ReplaySpec], strategy_configs: Sequence[StrategyConfigSpec] = (), strategy_factory: StrategyFactory | None = None, initial_cash: float, probability_window: int, min_book_events: int = 0, min_price_range: float = 0.0, default_lookback_days: int | None = None, default_lookback_hours: float | None = None, default_start_time: pd.Timestamp | datetime | str | None = None, default_end_time: pd.Timestamp | datetime | str | None = None, nautilus_log_level: str = 'INFO', execution: ExecutionModelConfig | None = None, chart_resample_rule: str | None = None, return_summary_series: bool = False) -> None`
-  - Method L171: `_strategy_summary_label(self) -> str`
-  - Method L178: `run(self) -> list[dict[str, Any]]`
-  - Method L188: `run_backtest(self) -> list[dict[str, Any]]`
-  - Method L191: `async run_async(self) -> list[dict[str, Any]]`
-  - Method L264: `async run_backtest_async(self) -> list[dict[str, Any]]`
-  - Method L267: `_create_artifact_builder(self) -> PredictionMarketArtifactBuilder`
-  - Method L279: `_build_result(self, *, loaded_sim: LoadedReplay, fills_report: pd.DataFrame, positions_report: pd.DataFrame, market_artifacts: Mapping[str, Any] | None = None, joint_portfolio_artifacts: Mapping[str, Any] | None = None, run_state: dict[str, Any] | None = None) -> dict[str, Any]`
-  - Method L298: `_build_market_artifacts(self, *, engine: BacktestEngine, loaded_sims: Sequence[LoadedReplay], fills_report: pd.DataFrame) -> dict[str, dict[str, Any]]`
-  - Method L309: `_build_joint_portfolio_artifacts(self, *, engine: BacktestEngine, loaded_sims: Sequence[LoadedReplay]) -> dict[str, Any]`
-  - Method L316: `_normalize_replays(self, replays: Sequence[ReplaySpec]) -> tuple[ReplaySpec, ...]`
-  - Method L329: `_load_request(self) -> ReplayLoadRequest`
-  - Method L339: `async _load_sims_async(self) -> list[LoadedReplay]`
-  - Method L363: `_build_engine(self) -> BacktestEngine`
-  - Method L398: `_build_importable_strategy_configs(self, loaded_sims: Sequence[LoadedReplay]) -> list[Any]`
-  - Method L420: `_is_batch_strategy_config(self, strategy_spec: StrategyConfigSpec) -> bool`
-  - Method L429: `_contains_value(self, value, target: str) -> bool`
-  - Method L438: `_bind_strategy_spec(self, *, strategy_spec: StrategyConfigSpec, loaded_sim: LoadedReplay, all_instrument_ids: Sequence[InstrumentId]) -> StrategyConfigSpec`
-  - Method L466: `_bind_value(self, value, *, instrument_id: InstrumentId, all_instrument_ids: Sequence[InstrumentId], metadata: Mapping[str, Any]) -> Any`
+- Imports: `__future__, asyncio, collections, contextlib, datetime, nautilus_trader, os, pandas, prediction_market_extensions, typing, warnings`
+- Function L80: `_record_ts_event(record) -> int | None`
+- Function L90: `_largest_record_gap_ns(records: Sequence[Any]) -> int | None`
+- Function L104: `_resolve_replay_load_workers(replay_count: int) -> int`
+- Function L121: `_loader_progress_env_for_workers(workers: int) -> Iterator[None]`
+- Function L133: `_warn_on_large_loaded_gap(loaded_sim: LoadedReplay) -> None`
+- Function L147: `_emit_engine_status(engine: BacktestEngine, message: str) -> None`
+- Function L159: `_serialize_engine_result_stats(engine_result) -> dict[str, Any]`
+- Function L590: `_LoadedMarketSim(*, spec: ReplaySpec, instrument, records: Sequence[Any], count: int, count_key: str, market_key: str, market_id: str, outcome: str, realized_outcome: float | None, prices: Sequence[float], metadata: Mapping[str, Any] | None, requested_start_ns: int | None, requested_end_ns: int | None) -> LoadedReplay`
+- Class L171: `PredictionMarketBacktest`
+  - Method L172: `__init__(self, *, name: str, data: MarketDataConfig, replays: Sequence[ReplaySpec], strategy_configs: Sequence[StrategyConfigSpec] = (), strategy_factory: StrategyFactory | None = None, initial_cash: float, probability_window: int, min_book_events: int = 0, min_price_range: float = 0.0, default_lookback_days: int | None = None, default_lookback_hours: float | None = None, default_start_time: pd.Timestamp | datetime | str | None = None, default_end_time: pd.Timestamp | datetime | str | None = None, nautilus_log_level: str = 'INFO', execution: ExecutionModelConfig | None = None, chart_resample_rule: str | None = None, return_summary_series: bool = False) -> None`
+  - Method L220: `_strategy_summary_label(self) -> str`
+  - Method L227: `run(self) -> list[dict[str, Any]]`
+  - Method L237: `run_backtest(self) -> list[dict[str, Any]]`
+  - Method L240: `async run_async(self) -> list[dict[str, Any]]`
+  - Method L313: `async run_backtest_async(self) -> list[dict[str, Any]]`
+  - Method L316: `_create_artifact_builder(self) -> PredictionMarketArtifactBuilder`
+  - Method L328: `_build_result(self, *, loaded_sim: LoadedReplay, fills_report: pd.DataFrame, positions_report: pd.DataFrame, market_artifacts: Mapping[str, Any] | None = None, joint_portfolio_artifacts: Mapping[str, Any] | None = None, run_state: dict[str, Any] | None = None) -> dict[str, Any]`
+  - Method L347: `_build_market_artifacts(self, *, engine: BacktestEngine, loaded_sims: Sequence[LoadedReplay], fills_report: pd.DataFrame) -> dict[str, dict[str, Any]]`
+  - Method L358: `_build_joint_portfolio_artifacts(self, *, engine: BacktestEngine, loaded_sims: Sequence[LoadedReplay]) -> dict[str, Any]`
+  - Method L365: `_normalize_replays(self, replays: Sequence[ReplaySpec]) -> tuple[ReplaySpec, ...]`
+  - Method L378: `_load_request(self) -> ReplayLoadRequest`
+  - Method L388: `async _load_sims_async(self) -> list[LoadedReplay]`
+  - Method L439: `_build_engine(self) -> BacktestEngine`
+  - Method L474: `_build_importable_strategy_configs(self, loaded_sims: Sequence[LoadedReplay]) -> list[Any]`
+  - Method L496: `_is_batch_strategy_config(self, strategy_spec: StrategyConfigSpec) -> bool`
+  - Method L505: `_contains_value(self, value, target: str) -> bool`
+  - Method L514: `_bind_strategy_spec(self, *, strategy_spec: StrategyConfigSpec, loaded_sim: LoadedReplay, all_instrument_ids: Sequence[InstrumentId]) -> StrategyConfigSpec`
+  - Method L542: `_bind_value(self, value, *, instrument_id: InstrumentId, all_instrument_ids: Sequence[InstrumentId], metadata: Mapping[str, Any]) -> Any`
 
 ### `prediction_market_extensions/backtesting/_prediction_market_runner.py`
 - Imports: `__future__, collections, datetime, nautilus_trader, pandas, prediction_market_extensions, typing`
@@ -1082,21 +1058,23 @@ flowchart TD
 - Function L31: `timing_harness(func: Callable[P, T] | Callable[P, Awaitable[T]] | None = None) -> Callable[[Callable[P, T] | Callable[P, Awaitable[T]]], Callable[P, T] | Callable[P, Awaitable[T]]] | Callable[P, T] | Callable[P, Awaitable[T]]`
 
 ### `prediction_market_extensions/backtesting/_timing_test.py`
-- Imports: `__future__, asyncio, importlib, pathlib, sys, threading, time, urllib`
-- Function L36: `_hour_label(source: str) -> str`
-- Function L45: `_filename_label(source: str) -> str`
-- Function L51: `_format_bytes(size: int | None) -> str`
-- Function L64: `_transfer_label(source: str) -> str`
-- Function L92: `_progress_bar_description(*, total_hours: int, started_hours: int, completed_hours: int, active_hours: int | None = None, item_label: str = 'hours') -> str`
-- Function L121: `_hour_progress_key(hour) -> str`
-- Function L128: `_progress_bar_total(total_hours: int) -> int`
-- Function L132: `_progress_bar_position(*, total_hours: int, completed_hours: int, active_hours_progress: float = 0.0) -> float`
-- Function L142: `_hour_label_from_hour(hour) -> str`
-- Function L149: `_is_local_scan_source(source: str | None) -> bool`
-- Function L158: `_transfer_progress_fraction(*, mode: str | None, source: str | None = None, downloaded_bytes: int, total_bytes: int | None, scanned_batches: int) -> float`
-- Function L186: `_active_transfer_progress(downloads: dict[str, dict[str, object]]) -> tuple[int, float]`
-- Function L207: `install_timing() -> None`
-- Function L654: `_load_backtest_module(path_str: str) -> Any`
+- Imports: `__future__, asyncio, importlib, os, pathlib, sys, threading, time, urllib`
+- Function L38: `_env_flag_enabled(value: str | None) -> bool`
+- Function L44: `_loader_progress_enabled() -> bool`
+- Function L48: `_hour_label(source: str) -> str`
+- Function L57: `_filename_label(source: str) -> str`
+- Function L63: `_format_bytes(size: int | None) -> str`
+- Function L76: `_transfer_label(source: str) -> str`
+- Function L104: `_progress_bar_description(*, total_hours: int, started_hours: int, completed_hours: int, active_hours: int | None = None, item_label: str = 'hours') -> str`
+- Function L133: `_hour_progress_key(hour) -> str`
+- Function L140: `_progress_bar_total(total_hours: int) -> int`
+- Function L144: `_progress_bar_position(*, total_hours: int, completed_hours: int, active_hours_progress: float = 0.0) -> float`
+- Function L154: `_hour_label_from_hour(hour) -> str`
+- Function L161: `_is_local_scan_source(source: str | None) -> bool`
+- Function L170: `_transfer_progress_fraction(*, mode: str | None, source: str | None = None, downloaded_bytes: int, total_bytes: int | None, scanned_batches: int) -> float`
+- Function L198: `_active_transfer_progress(downloads: dict[str, dict[str, object]]) -> tuple[int, float]`
+- Function L219: `install_timing() -> None`
+- Function L681: `_load_backtest_module(path_str: str) -> Any`
 
 ### `prediction_market_extensions/backtesting/data_sources/__init__.py`
 - Imports: `prediction_market_extensions`
@@ -1140,58 +1118,73 @@ flowchart TD
   - Method L13: `__str__(self) -> str`
 
 ### `prediction_market_extensions/backtesting/data_sources/pmxt.py`
-- Imports: `__future__, collections, contextlib, contextvars, dataclasses, os, pathlib, prediction_market_extensions, pyarrow, threading, time, urllib`
-- Function L80: `_current_loader_config() -> PMXTLoaderConfig | None`
-- Function L844: `_normalize_mode(value: str | None) -> str`
-- Function L858: `_env_value(name: str) -> str | None`
-- Function L866: `_env_enabled(name: str) -> bool`
-- Function L873: `_resolve_prefetch_workers_override(*, default_when_unset: int | None) -> int | None`
-- Function L883: `_resolve_source_priority_override() -> tuple[str, ...]`
-- Function L903: `_resolve_existing_remote_url() -> str | None`
-- Function L908: `_resolve_existing_remote_urls() -> tuple[str, ...]`
-- Function L924: `_resolve_required_directory(env_name: str, *, label: str) -> Path`
-- Function L937: `_strip_prefixed_local_source(source: str, *, prefixes: Sequence[str]) -> str | None`
-- Function L947: `_strip_prefixed_remote_source(source: str, *, prefixes: Sequence[str]) -> str | None`
-- Function L957: `_classify_explicit_pmxt_sources(sources: Sequence[str]) -> tuple[str | None, tuple[str, ...], tuple[str, ...], tuple[str, ...], tuple[tuple[str, str], ...]]`
-- Function L1033: `_explicit_source_summary(*, ordered_sources: Sequence[str], ordered_entries: Sequence[tuple[str, str]] = ()) -> str`
-- Function L1051: `resolve_pmxt_loader_config(*, sources: Sequence[str] | None = None) -> tuple[PMXTDataSourceSelection, PMXTLoaderConfig]`
-- Function L1189: `_loader_config_to_env_updates(config: PMXTLoaderConfig) -> dict[str, str | None]`
-- Function L1203: `resolve_pmxt_data_source_selection(*, sources: Sequence[str] | None = None) -> tuple[PMXTDataSourceSelection, dict[str, str | None]]`
-- Function L1213: `configured_pmxt_data_source(*, sources: Sequence[str] | None = None) -> Iterator[PMXTDataSourceSelection]`
-- Class L61: `PMXTLoaderConfig`
-  - Method L71: `remote_base_url(self) -> str | None`
-- Class L84: `RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader)`
-  - Method L91: `__init__(self, *args, **kwargs) -> None`
-  - Method L111: `_row_count_from_batches(batches: Sequence[object]) -> int`
-  - Method L115: `_hour_label(hour) -> str`
-  - Method L121: `_emit_pmxt_source_event(self, *, message: str, stage: str, status: str, hour, source_kind: str | None = None, source: str | None = None, cache_path: Path | None = None, rows: int | None = None, bytes_count: int | None = None, level: str = 'INFO', extra_attrs: dict[str, object] | None = None, origin_function: str | None = None) -> None`
-  - Method L162: `_source_kind_for_stage(stage: str) -> str`
-  - Method L166: `_source_label_for_stage(stage: str, target: str | None) -> str | None`
-  - Method L176: `_resolve_raw_root(cls) -> Path | None`
-  - Method L192: `_resolve_remote_base_url(cls) -> str | None`
-  - Method L197: `_resolve_remote_base_urls(cls) -> tuple[str, ...]`
-  - Method L217: `_archive_url_for_hour(self, hour) -> Any`
-  - Method L228: `_archive_urls_for_hour(self, hour) -> Any`
-  - Method L236: `_raw_path_for_hour(self, hour) -> Path | None`
-  - Method L249: `_raw_paths_for_hour_at_root(self, raw_root: Path, hour) -> tuple[Path, ...]`
-  - Method L252: `_load_local_raw_market_batches_from_root(self, raw_root: Path, hour, *, batch_size: int) -> Any`
-  - Method L274: `_load_local_raw_market_batches(self, hour, *, batch_size: int) -> Any`
-  - Method L284: `_load_local_archive_market_batches(self, hour, *, batch_size: int) -> Any`
-  - Method L290: `_load_remote_market_batches(self, hour, *, batch_size: int) -> Any`
-  - Method L311: `_archive_url_for_base_url(self, base_url: str, hour) -> str`
-  - Method L314: `_load_remote_market_batches_from_base_url(self, base_url: str, hour, *, batch_size: int) -> Any`
-  - Method L327: `_resolve_source_priority(cls) -> tuple[str, ...]`
-  - Method L351: `_resolve_prefetch_workers(cls) -> int`
-  - Method L358: `_scoped_source_entry(self, kind: str, target: str) -> Any`
-  - Method L384: `_load_entry_batches(self, kind: str, hour, *, batch_size: int) -> Any`
-  - Method L405: `_load_ordered_entry_batches(self, kind: str, target: str, hour, *, batch_size: int) -> Any`
-  - Method L427: `_write_cache_if_enabled(self, hour, table) -> None`
-  - Method L460: `_load_market_table(self, hour, *, batch_size: int) -> Any`
-  - Method L518: `_load_market_batches(self, hour, *, batch_size: int) -> Any`
-  - Method L714: `_download_to_file_with_progress(self, url: str, destination: Path) -> int | None`
-  - Method L767: `_download_payload_with_progress(self, url: str) -> bytes | None`
-  - Method L807: `_progress_total_bytes(self, source: str) -> int | None`
-- Class L839: `PMXTDataSourceSelection`
+- Imports: `__future__, collections, contextlib, contextvars, dataclasses, duckdb, os, pathlib, prediction_market_extensions, pyarrow, re, threading, time, urllib`
+- Function L94: `_current_loader_config() -> PMXTLoaderConfig | None`
+- Function L1459: `_normalize_mode(value: str | None) -> str`
+- Function L1473: `_env_value(name: str) -> str | None`
+- Function L1481: `_env_enabled(name: str) -> bool`
+- Function L1488: `_resolve_prefetch_workers_override(*, default_when_unset: int | None) -> int | None`
+- Function L1498: `_resolve_source_priority_override() -> tuple[str, ...]`
+- Function L1518: `_resolve_existing_remote_url() -> str | None`
+- Function L1523: `_resolve_existing_remote_urls() -> tuple[str, ...]`
+- Function L1539: `_resolve_required_directory(env_name: str, *, label: str) -> Path`
+- Function L1552: `_strip_prefixed_local_source(source: str, *, prefixes: Sequence[str]) -> str | None`
+- Function L1562: `_strip_prefixed_remote_source(source: str, *, prefixes: Sequence[str]) -> str | None`
+- Function L1572: `_classify_explicit_pmxt_sources(sources: Sequence[str]) -> tuple[str | None, tuple[str, ...], tuple[str, ...], tuple[str, ...], tuple[tuple[str, str], ...]]`
+- Function L1648: `_explicit_source_summary(*, ordered_sources: Sequence[str], ordered_entries: Sequence[tuple[str, str]] = ()) -> str`
+- Function L1666: `resolve_pmxt_loader_config(*, sources: Sequence[str] | None = None) -> tuple[PMXTDataSourceSelection, PMXTLoaderConfig]`
+- Function L1804: `_loader_config_to_env_updates(config: PMXTLoaderConfig) -> dict[str, str | None]`
+- Function L1818: `resolve_pmxt_data_source_selection(*, sources: Sequence[str] | None = None) -> tuple[PMXTDataSourceSelection, dict[str, str | None]]`
+- Function L1828: `configured_pmxt_data_source(*, sources: Sequence[str] | None = None) -> Iterator[PMXTDataSourceSelection]`
+- Class L52: `_RawDownloadLockEntry`
+- Class L75: `PMXTLoaderConfig`
+  - Method L85: `remote_base_url(self) -> str | None`
+- Class L98: `RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader)`
+  - Method L105: `__init__(self, *args, **kwargs) -> None`
+  - Method L125: `_row_count_from_batches(batches: Sequence[object]) -> int`
+  - Method L129: `_hour_label(hour) -> str`
+  - Method L135: `_emit_pmxt_source_event(self, *, message: str, stage: str, status: str, hour, source_kind: str | None = None, source: str | None = None, cache_path: Path | None = None, rows: int | None = None, bytes_count: int | None = None, level: str = 'INFO', extra_attrs: dict[str, object] | None = None, origin_function: str | None = None) -> None`
+  - Method L176: `_source_kind_for_stage(stage: str) -> str`
+  - Method L180: `_source_label_for_stage(stage: str, target: str | None) -> str | None`
+  - Method L190: `_resolve_raw_root(cls) -> Path | None`
+  - Method L206: `_resolve_remote_base_url(cls) -> str | None`
+  - Method L211: `_resolve_remote_base_urls(cls) -> tuple[str, ...]`
+  - Method L231: `_archive_url_for_hour(self, hour) -> Any`
+  - Method L242: `_archive_urls_for_hour(self, hour) -> Any`
+  - Method L250: `_raw_path_for_hour(self, hour) -> Path | None`
+  - Method L256: `_raw_path_for_hour_at_root(self, raw_root: Path, hour) -> Path`
+  - Method L266: `_raw_paths_for_hour_at_root(self, raw_root: Path, hour) -> tuple[Path, ...]`
+  - Method L269: `_load_local_raw_market_batches_from_root(self, raw_root: Path, hour, *, batch_size: int) -> Any`
+  - Method L291: `_load_local_raw_market_batches(self, hour, *, batch_size: int) -> Any`
+  - Method L301: `_load_local_archive_market_batches(self, hour, *, batch_size: int) -> Any`
+  - Method L307: `_load_remote_market_batches(self, hour, *, batch_size: int) -> Any`
+  - Method L328: `_archive_url_for_base_url(self, base_url: str, hour) -> str`
+  - Method L331: `_load_remote_market_batches_from_base_url(self, base_url: str, hour, *, batch_size: int) -> Any`
+  - Method L348: `_raw_persistence_root(self) -> Path | None`
+  - Method L360: `_raw_download_lock(raw_path: Path) -> Iterator[None]`
+  - Method L377: `_load_remote_market_batches_via_raw_root(self, archive_url: str, hour, *, batch_size: int) -> Any`
+  - Method L421: `_download_remote_raw_to_local_root(self, archive_url: str, raw_path: Path, hour) -> Path | None`
+  - Method L489: `_resolve_source_priority(cls) -> tuple[str, ...]`
+  - Method L513: `_resolve_prefetch_workers(cls) -> int`
+  - Method L520: `_scoped_source_entry(self, kind: str, target: str) -> Any`
+  - Method L546: `_load_entry_batches(self, kind: str, hour, *, batch_size: int) -> Any`
+  - Method L567: `_load_ordered_entry_batches(self, kind: str, target: str, hour, *, batch_size: int) -> Any`
+  - Method L589: `_raw_path_for_ordered_entry(self, kind: str, target: str, hour) -> Path | None`
+  - Method L613: `_raw_path_for_source_stage(self, stage: str, hour) -> Path | None`
+  - Method L649: `_split_shared_fixed_table(self, table: pa.Table, *, requests: Sequence[tuple[int, str, str]], batch_size: int) -> dict[int, list[pa.RecordBatch]]`
+  - Method L675: `_split_shared_payload_table(self, table: pa.Table, *, requests: Sequence[tuple[int, str, str]], batch_size: int) -> dict[int, list[pa.RecordBatch]]`
+  - Method L696: `_matching_shared_raw_fixed_market_row_groups(self, parquet_file: pq.ParquetFile, condition_ids: Sequence[str]) -> list[int] | None`
+  - Method L724: `_load_shared_raw_fixed_market_batches_pyarrow(self, raw_path: Path, *, requests: Sequence[tuple[int, str, str]], batch_size: int) -> dict[int, list[pa.RecordBatch]] | None`
+  - Method L800: `_load_shared_market_batches_from_raw_file(self, raw_path: Path, *, requests: Sequence[tuple[int, str, str]], batch_size: int) -> dict[int, list[pa.RecordBatch]] | None`
+  - Method L871: `_load_shared_market_batches_from_remote_base_url(self, base_url: str, hour, *, requests: Sequence[tuple[int, str, str]], batch_size: int) -> dict[int, list[pa.RecordBatch]] | None`
+  - Method L929: `load_shared_market_batches_for_hour(self, hour, *, requests: Sequence[tuple[int, str, str]], batch_size: int) -> dict[int, list[pa.RecordBatch] | None]`
+  - Method L1042: `_write_cache_if_enabled(self, hour, table) -> None`
+  - Method L1075: `_load_market_table(self, hour, *, batch_size: int) -> Any`
+  - Method L1133: `_load_market_batches(self, hour, *, batch_size: int) -> Any`
+  - Method L1329: `_download_to_file_with_progress(self, url: str, destination: Path) -> int | None`
+  - Method L1382: `_download_payload_with_progress(self, url: str) -> bytes | None`
+  - Method L1422: `_progress_total_bytes(self, source: str) -> int | None`
+- Class L1454: `PMXTDataSourceSelection`
 
 ### `prediction_market_extensions/backtesting/data_sources/polymarket_native.py`
 - Imports: `__future__, collections, contextlib, contextvars, dataclasses, msgspec, os, prediction_market_extensions, typing, urllib, warnings`
@@ -1235,152 +1228,165 @@ flowchart TD
 - Class L16: `MarketDataSupport`
 
 ### `prediction_market_extensions/backtesting/data_sources/replay_adapters.py`
-- Imports: `__future__, collections, contextlib, dataclasses, datetime, importlib, nautilus_trader, numpy, os, pandas, pathlib, prediction_market_extensions, time, typing, warnings`
-- Function L54: `_resolve_backtest_compat_symbol(name: str, default) -> Any`
-- Function L64: `_loader_realized_outcome(loader) -> float | None`
-- Function L72: `_normalize_timestamp(value: object | None, *, default_now: bool = False) -> pd.Timestamp`
-- Function L88: `_loaded_window(records: tuple[object, ...]) -> ReplayWindow | None`
-- Function L104: `_requested_window(start: pd.Timestamp, end: pd.Timestamp) -> ReplayWindow`
-- Function L108: `_price_range(prices: tuple[float, ...]) -> float`
-- Function L114: `_best_book_midpoint(book: OrderBook) -> float | None`
-- Function L122: `_book_event_count_and_midpoints(*, instrument, records: tuple[object, ...], deltas_type: type[Any]) -> tuple[int, tuple[float, ...]]`
-- Function L139: `_validate_replay_window(*, market_label: str, count_label: str, count: int, min_record_count: int, prices: tuple[float, ...], min_price_range: float) -> bool`
-- Function L168: `_cache_home() -> Path`
-- Function L173: `_trade_cache_path(*, loader, date: pd.Timestamp) -> Path | None`
-- Function L188: `_trade_record_sort_key(record: TradeTick) -> tuple[int, int]`
-- Function L192: `_serialize_trade_ticks(trades: tuple[TradeTick, ...]) -> pd.DataFrame`
-- Function L207: `_trade_ticks_from_native_columns(*, loader, data: tuple[list[float], list[float], list[int], list[str], list[int], list[int]]) -> tuple[TradeTick, ...]`
-- Function L229: `_trade_ticks_from_cache_frame_native(*, loader, frame: pd.DataFrame) -> tuple[TradeTick, ...]`
-- Function L266: `_rounded_float64_array(values, precision: int) -> np.ndarray`
-- Function L270: `_deserialize_trade_ticks(*, loader, frame: pd.DataFrame) -> tuple[TradeTick, ...]`
-- Function L276: `_write_trade_cache(*, path: Path, trades: tuple[TradeTick, ...], market_label: str, day: pd.Timestamp) -> None`
-- Function L328: `_trade_day_label(day: pd.Timestamp) -> str`
-- Function L332: `_print_trade_progress_header(*, market_label: str, start: pd.Timestamp, end: pd.Timestamp) -> None`
-- Function L349: `_trade_source_label(source: str) -> str`
-- Function L372: `_print_trade_progress_line(*, day: pd.Timestamp, elapsed_secs: float, rows: int, source: str) -> None`
-- Function L395: `_polymarket_ceiling_warning(caught_warnings: list[warnings.WarningMessage]) -> str | None`
-- Function L403: `_trade_days_for_window(start: pd.Timestamp, end: pd.Timestamp) -> tuple[pd.Timestamp, ...]`
-- Function L416: `async _load_trade_ticks(loader, *, start: pd.Timestamp, end: pd.Timestamp, market_label: str) -> tuple[TradeTick, ...]`
-- Function L493: `_record_sort_key(record: object) -> tuple[int, int, int]`
-- Function L500: `_merge_records(*, book_records: tuple[OrderBookDeltas, ...], trade_records: tuple[TradeTick, ...]) -> tuple[object, ...]`
-- Class L532: `_BaseReplayAdapter(HistoricalReplayAdapter)`
-  - Method L542: `key(self) -> ReplayAdapterKey`
-  - Method L546: `replay_spec_type(self) -> type[Any]`
-  - Method L549: `configure_sources(self, *, sources: tuple[str, ...] | list[str]) -> AbstractContextManager[Any]`
-  - Method L555: `engine_profile(self) -> ReplayEngineProfile`
-  - Method L558: `build_single_market_replay(self, *, field_values: Mapping[str, Any]) -> Any`
-  - Method L570: `_build_loaded_replay(self, *, replay, instrument, records: tuple[Any, ...], count: int, count_key: str, market_key: str, market_id: str, prices: tuple[float, ...], outcome: str, realized_outcome: float | None, metadata: dict[str, Any], requested_window: ReplayWindow) -> LoadedReplay`
-- Class L606: `PolymarketPMXTBookReplayAdapter(_BaseReplayAdapter)`
-  - Method L607: `__init__(self) -> None`
-  - Method L634: `async load_replay(self, replay: BookReplay, *, request: ReplayLoadRequest) -> LoadedReplay | None`
-- Class L744: `PolymarketTelonexBookReplayAdapter(_BaseReplayAdapter)`
-  - Method L745: `__init__(self) -> None`
-  - Method L775: `async load_replay(self, replay: BookReplay, *, request: ReplayLoadRequest) -> LoadedReplay | None`
+- Imports: `__future__, asyncio, collections, contextlib, dataclasses, datetime, importlib, nautilus_trader, numpy, os, pandas, pathlib, prediction_market_extensions, pyarrow, time, typing, warnings`
+- Function L56: `_resolve_backtest_compat_symbol(name: str, default) -> Any`
+- Function L66: `_loader_realized_outcome(loader) -> float | None`
+- Function L74: `_normalize_timestamp(value: object | None, *, default_now: bool = False) -> pd.Timestamp`
+- Function L90: `_loaded_window(records: tuple[object, ...]) -> ReplayWindow | None`
+- Function L106: `_requested_window(start: pd.Timestamp, end: pd.Timestamp) -> ReplayWindow`
+- Function L110: `_price_range(prices: tuple[float, ...]) -> float`
+- Function L116: `_best_book_midpoint(book: OrderBook) -> float | None`
+- Function L124: `_book_event_count_and_midpoints(*, instrument, records: tuple[object, ...], deltas_type: type[Any]) -> tuple[int, tuple[float, ...]]`
+- Function L141: `_book_event_count(records: tuple[object, ...], *, deltas_type: type[Any]) -> int`
+- Function L145: `_book_event_count_and_prices_for_request(*, instrument, records: tuple[object, ...], deltas_type: type[Any], request: ReplayLoadRequest) -> tuple[int, tuple[float, ...]]`
+- Function L161: `_validate_replay_window(*, market_label: str, count_label: str, count: int, min_record_count: int, prices: tuple[float, ...], min_price_range: float) -> bool`
+- Function L190: `_cache_home() -> Path`
+- Function L195: `_trade_cache_path(*, loader, date: pd.Timestamp) -> Path | None`
+- Function L210: `_trade_record_sort_key(record: TradeTick) -> tuple[int, int]`
+- Function L214: `_serialize_trade_ticks(trades: tuple[TradeTick, ...]) -> pd.DataFrame`
+- Function L229: `_trade_ticks_from_native_columns(*, loader, data: tuple[list[float], list[float], list[int], list[str], list[int], list[int]]) -> tuple[TradeTick, ...]`
+- Function L251: `_trade_ticks_from_cache_frame_native(*, loader, frame: pd.DataFrame) -> tuple[TradeTick, ...]`
+- Function L288: `_rounded_float64_array(values, precision: int) -> np.ndarray`
+- Function L292: `_deserialize_trade_ticks(*, loader, frame: pd.DataFrame) -> tuple[TradeTick, ...]`
+- Function L298: `_write_trade_cache(*, path: Path, trades: tuple[TradeTick, ...], market_label: str, day: pd.Timestamp) -> None`
+- Function L350: `_trade_day_label(day: pd.Timestamp) -> str`
+- Function L354: `_print_trade_progress_header(*, market_label: str, start: pd.Timestamp, end: pd.Timestamp) -> None`
+- Function L371: `_trade_source_label(source: str) -> str`
+- Function L394: `_print_trade_progress_line(*, day: pd.Timestamp, elapsed_secs: float, rows: int, source: str) -> None`
+- Function L417: `_polymarket_ceiling_warning(caught_warnings: list[warnings.WarningMessage]) -> str | None`
+- Function L425: `_trade_days_for_window(start: pd.Timestamp, end: pd.Timestamp) -> tuple[pd.Timestamp, ...]`
+- Function L438: `async _load_trade_ticks(loader, *, start: pd.Timestamp, end: pd.Timestamp, market_label: str) -> tuple[TradeTick, ...]`
+- Function L518: `_merge_records(*, book_records: tuple[OrderBookDeltas, ...], trade_records: tuple[TradeTick, ...]) -> tuple[object, ...]`
+- Function L563: `async _gather_bounded(values: Sequence[Any], *, workers: int, func: Callable[[Any], Any]) -> list[Any]`
+- Class L543: `_ResolvedBookReplay`
+- Class L550: `_PreparedBookReplay`
+- Class L557: `_LoadedBookReplay`
+- Class L583: `_BaseReplayAdapter(HistoricalReplayAdapter)`
+  - Method L593: `key(self) -> ReplayAdapterKey`
+  - Method L597: `replay_spec_type(self) -> type[Any]`
+  - Method L600: `configure_sources(self, *, sources: tuple[str, ...] | list[str]) -> AbstractContextManager[Any]`
+  - Method L606: `engine_profile(self) -> ReplayEngineProfile`
+  - Method L609: `build_single_market_replay(self, *, field_values: Mapping[str, Any]) -> Any`
+  - Method L621: `_resolve_book_replay_window(self, replay: BookReplay, *, request: ReplayLoadRequest, source_label: str) -> _ResolvedBookReplay`
+  - Method L649: `_emit_book_replay_start(*, resolved: _ResolvedBookReplay, vendor: str) -> None`
+  - Method L668: `_emit_book_replay_fetch_error(*, replay: BookReplay, vendor: str, source_label: str, error: Exception) -> None`
+  - Method L682: `_build_loaded_book_replay_or_none(self, *, prepared: _PreparedBookReplay, records: tuple[object, ...], book_event_count: int | None = None, request: ReplayLoadRequest, vendor: str, source_label: str) -> LoadedReplay | None`
+  - Method L741: `_build_loaded_replay(self, *, replay, instrument, records: tuple[Any, ...], count: int, count_key: str, market_key: str, market_id: str, prices: tuple[float, ...], outcome: str, realized_outcome: float | None, metadata: dict[str, Any], requested_window: ReplayWindow) -> LoadedReplay`
+- Class L777: `PolymarketPMXTBookReplayAdapter(_BaseReplayAdapter)`
+  - Method L778: `__init__(self) -> None`
+  - Method L805: `async load_replay(self, replay: BookReplay, *, request: ReplayLoadRequest) -> LoadedReplay | None`
+  - Method L915: `async load_replays(self, replays: Sequence[BookReplay], *, request: ReplayLoadRequest, workers: int) -> list[LoadedReplay]`
+- Class L1209: `PolymarketTelonexBookReplayAdapter(_BaseReplayAdapter)`
+  - Method L1210: `__init__(self) -> None`
+  - Method L1240: `async load_replay(self, replay: BookReplay, *, request: ReplayLoadRequest) -> LoadedReplay | None`
+  - Method L1360: `async load_replays(self, replays: Sequence[BookReplay], *, request: ReplayLoadRequest, workers: int) -> list[LoadedReplay]`
 
 ### `prediction_market_extensions/backtesting/data_sources/telonex.py`
 - Imports: `__future__, collections, concurrent, contextlib, contextvars, dataclasses, datetime, duckdb, hashlib, io, nautilus_trader, numpy, os, pandas, pathlib, prediction_market_extensions, pyarrow, re, threading, urllib, warnings`
 - Function L114: `_raw_fixed_values(values: Sequence[object], precision: int) -> list[int]`
 - Function L149: `_current_loader_config() -> TelonexLoaderConfig | None`
 - Function L153: `_env_value(name: str) -> str | None`
-- Function L163: `_resolve_channel(channel: str | None = None) -> str`
-- Function L167: `_default_cache_root() -> Path`
-- Function L173: `_resolve_api_cache_root() -> Path | None`
-- Function L183: `_normalize_api_base_url(value: str | None) -> str`
-- Function L192: `_expand_source_vars(source: str) -> str`
-- Function L202: `_classify_telonex_sources(sources: Sequence[str]) -> tuple[TelonexSourceEntry, ...]`
-- Function L245: `_default_telonex_sources_from_env() -> tuple[TelonexSourceEntry, ...]`
-- Function L266: `_source_summary_parts(entries: Sequence[TelonexSourceEntry]) -> list[str]`
-- Function L277: `_source_summary_line(label: str, parts: Sequence[str]) -> str`
-- Function L281: `_trade_source_summary_parts(entries: Sequence[TelonexSourceEntry]) -> list[str]`
-- Function L296: `_source_summary(entries: Sequence[TelonexSourceEntry]) -> str`
-- Function L307: `resolve_telonex_loader_config(*, sources: Sequence[str] | None = None, channel: str | None = None) -> tuple[TelonexDataSourceSelection, TelonexLoaderConfig]`
-- Function L327: `resolve_telonex_data_source_selection(*, sources: Sequence[str] | None = None) -> tuple[TelonexDataSourceSelection, dict[str, str | None]]`
-- Function L335: `configured_telonex_data_source(*, sources: Sequence[str] | None = None, channel: str | None = None) -> Iterator[TelonexDataSourceSelection]`
+- Function L163: `_resolve_api_workers() -> int`
+- Function L173: `_resolve_file_workers() -> int`
+- Function L183: `_telonex_api_semaphore() -> threading.BoundedSemaphore`
+- Function L192: `_telonex_file_semaphore() -> threading.BoundedSemaphore`
+- Function L202: `_telonex_api_slot() -> Iterator[None]`
+- Function L212: `_telonex_file_slot() -> Iterator[None]`
+- Function L221: `_resolve_channel(channel: str | None = None) -> str`
+- Function L225: `_default_cache_root() -> Path`
+- Function L231: `_resolve_api_cache_root() -> Path | None`
+- Function L241: `_normalize_api_base_url(value: str | None) -> str`
+- Function L250: `_expand_source_vars(source: str) -> str`
+- Function L260: `_classify_telonex_sources(sources: Sequence[str]) -> tuple[TelonexSourceEntry, ...]`
+- Function L303: `_default_telonex_sources_from_env() -> tuple[TelonexSourceEntry, ...]`
+- Function L324: `_source_summary_parts(entries: Sequence[TelonexSourceEntry]) -> list[str]`
+- Function L335: `_source_summary_line(label: str, parts: Sequence[str]) -> str`
+- Function L339: `_trade_source_summary_parts(entries: Sequence[TelonexSourceEntry]) -> list[str]`
+- Function L354: `_source_summary(entries: Sequence[TelonexSourceEntry]) -> str`
+- Function L365: `resolve_telonex_loader_config(*, sources: Sequence[str] | None = None, channel: str | None = None) -> tuple[TelonexDataSourceSelection, TelonexLoaderConfig]`
+- Function L385: `resolve_telonex_data_source_selection(*, sources: Sequence[str] | None = None) -> tuple[TelonexDataSourceSelection, dict[str, str | None]]`
+- Function L393: `configured_telonex_data_source(*, sources: Sequence[str] | None = None, channel: str | None = None) -> Iterator[TelonexDataSourceSelection]`
 - Class L119: `TelonexSourceEntry`
 - Class L126: `TelonexLoaderConfig`
 - Class L132: `TelonexDataSourceSelection`
 - Class L138: `_TelonexDayResult`
-- Class L346: `RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader)`
-  - Method L347: `__init__(self, *args, **kwargs) -> None`
-  - Method L352: `_ensure_blob_scan_caches(self) -> None`
-  - Method L384: `_forget_blob_ts_cache_key(self, cache_key: tuple[str, str, str, int, str | None, int, int]) -> None`
-  - Method L394: `async from_market_slug(cls, slug: str, token_index: int = 0, http_client = None) -> 'RunnerPolymarketTelonexBookDataLoader'`
-  - Method L407: `_download_progress(self, url: str, downloaded_bytes: int, total_bytes: int | None, finished: bool) -> None`
-  - Method L415: `_telonex_source_kind(source: str) -> str | None`
-  - Method L419: `_telonex_stage_for_source(source: str) -> str`
-  - Method L422: `_day_progress(self, date: str, event: str, source: str, rows: int) -> None`
-  - Method L451: `_emit_cache_write_event(self, *, cache_kind: str, cache_path: Path, channel: str, date: str, market_slug: str, token_index: int, outcome: str | None, level: str, status: str, message: str, rows: int | None = None, bytes_count: int | None = None, book_events: int | None = None, trade_ticks: int | None = None, error: str | None = None) -> None`
-  - Method L500: `_resolve_api_cache_root(cls) -> Path | None`
-  - Method L504: `_resolve_prefetch_workers(cls) -> int`
-  - Method L513: `_config(self) -> TelonexLoaderConfig`
-  - Method L520: `_date_range(start: pd.Timestamp, end: pd.Timestamp) -> list[str]`
-  - Method L526: `_outcome_segments(*, token_index: int, outcome: str | None) -> tuple[str, ...]`
-  - Method L533: `_local_blob_root(root: Path) -> Path | None`
-  - Method L547: `_outcome_segment_candidates(*, token_index: int, outcome: str | None) -> tuple[str, ...]`
-  - Method L554: `_month_partition_dirs(*, channel_dir: Path, start: pd.Timestamp, end: pd.Timestamp) -> tuple[Path, ...]`
-  - Method L565: `_readable_blob_part_paths(self, *, channel_dir: Path, start: pd.Timestamp, end: pd.Timestamp) -> tuple[list[str], bool]`
-  - Method L602: `_scan_readable_blob_part_paths(self, partition_dir: Path) -> tuple[tuple[str, ...], bool]`
-  - Method L635: `_manifest_blob_part_paths(self, *, store_root: Path, channel: str, market_slug: str, token_index: int, outcome: str | None, start: pd.Timestamp, end: pd.Timestamp) -> tuple[list[str], bool] | None`
-  - Method L704: `_manifest_completed_row_count(self, *, store_root: Path, channel: str, market_slug: str, token_index: int, outcome: str | None, date: str) -> int | None`
-  - Method L742: `_manifest_empty_day_exists(self, *, store_root: Path, channel: str, market_slug: str, token_index: int, outcome: str | None, date: str) -> bool`
-  - Method L778: `_load_blob_range(self, *, store_root: Path, channel: str, market_slug: str, token_index: int, outcome: str | None, start: pd.Timestamp, end: pd.Timestamp) -> pd.DataFrame | None`
-  - Method L992: `_cached_ts_ns_for_frame(self, frame: pd.DataFrame, column_name: str) -> np.ndarray | None`
-  - Method L1003: `_local_consolidated_candidates(cls, *, root: Path, channel: str, market_slug: str, token_index: int, outcome: str | None) -> tuple[Path, ...]`
-  - Method L1021: `_local_daily_candidates(cls, *, root: Path, channel: str, date: str, market_slug: str, token_index: int, outcome: str | None) -> tuple[Path, ...]`
-  - Method L1040: `_local_consolidated_path(self, *, root: Path, channel: str, market_slug: str, token_index: int, outcome: str | None) -> Path | None`
-  - Method L1060: `_local_path_for_day(self, *, root: Path, channel: str, date: str, market_slug: str, token_index: int, outcome: str | None) -> Path | None`
-  - Method L1083: `_safe_read_parquet(path: Path) -> pd.DataFrame | None`
-  - Method L1093: `_load_local_range(self, *, root: Path, channel: str, market_slug: str, token_index: int, outcome: str | None) -> pd.DataFrame | None`
-  - Method L1113: `_load_local_day(self, *, root: Path, channel: str, date: str, market_slug: str, token_index: int, outcome: str | None) -> pd.DataFrame | None`
-  - Method L1136: `_api_url(*, base_url: str, channel: str, date: str, market_slug: str, token_index: int, outcome: str | None) -> str`
-  - Method L1155: `_api_cache_path(cls, *, base_url: str, channel: str, date: str, market_slug: str, token_index: int, outcome: str | None) -> Path | None`
-  - Method L1179: `_load_api_cache_day(self, *, base_url: str, channel: str, date: str, market_slug: str, token_index: int, outcome: str | None) -> pd.DataFrame | None`
-  - Method L1208: `_write_api_cache_day(self, *, payload: bytes, base_url: str, channel: str, date: str, market_slug: str, token_index: int, outcome: str | None) -> None`
-  - Method L1268: `_fast_api_cache_path(cls, *, base_url: str, channel: str, date: str, market_slug: str, token_index: int, outcome: str | None) -> Path | None`
-  - Method L1290: `_load_fast_cache_day(self, *, base_url: str, channel: str, date: str, market_slug: str, token_index: int, outcome: str | None) -> pd.DataFrame | None`
-  - Method L1319: `_write_fast_cache_day(self, *, frame: pd.DataFrame, base_url: str, channel: str, date: str, market_slug: str, token_index: int, outcome: str | None) -> None`
-  - Method L1415: `_load_api_day_cached(self, *, base_url: str, channel: str, date: str, market_slug: str, token_index: int, outcome: str | None) -> tuple[pd.DataFrame | None, str]`
-  - Method L1490: `_deltas_cache_path(cls, *, channel: str, date: str, market_slug: str, token_index: int, outcome: str | None, instrument_id: object, start: pd.Timestamp, end: pd.Timestamp) -> Path | None`
-  - Method L1519: `_load_deltas_cache_day(self, *, channel: str, date: str, market_slug: str, token_index: int, outcome: str | None, start: pd.Timestamp, end: pd.Timestamp) -> tuple[list[OrderBookDeltas] | None, str]`
-  - Method L1559: `_write_deltas_cache_day(self, *, records: Sequence[OrderBookDeltas], channel: str, date: str, market_slug: str, token_index: int, outcome: str | None, start: pd.Timestamp, end: pd.Timestamp) -> None`
-  - Method L1628: `_trade_ticks_cache_path(cls, *, channel: str, date: str, market_slug: str, token_index: int, outcome: str | None, instrument_id: object, start: pd.Timestamp, end: pd.Timestamp) -> Path | None`
-  - Method L1657: `_load_trade_ticks_cache_day(self, *, channel: str, date: str, market_slug: str, token_index: int, outcome: str | None, start: pd.Timestamp, end: pd.Timestamp) -> tuple[tuple[TradeTick, ...] | None, str]`
-  - Method L1707: `_write_trade_ticks_cache_day(self, *, records: Sequence[TradeTick], channel: str, date: str, market_slug: str, token_index: int, outcome: str | None, start: pd.Timestamp, end: pd.Timestamp) -> None`
-  - Method L1778: `_trade_ticks_to_cache_table(records: Sequence[TradeTick]) -> pa.Table`
-  - Method L1805: `_trade_ticks_from_cache_table(self, table: pa.Table) -> tuple[TradeTick, ...]`
-  - Method L1808: `_trade_ticks_from_cache_frame(self, frame: pd.DataFrame) -> tuple[TradeTick, ...]`
-  - Method L1844: `_deltas_records_to_table(records: Sequence[OrderBookDeltas]) -> pa.Table`
-  - Method L1880: `_numeric_table_column(table: pa.Table, name: str) -> np.ndarray`
-  - Method L1883: `_deltas_records_from_table(self, table: pa.Table) -> list[OrderBookDeltas]`
-  - Method L1898: `_deltas_records_from_columns(self, data: dict[str, Sequence[object]]) -> list[OrderBookDeltas]`
-  - Method L1950: `_resolve_presigned_url(*, url: str, api_key: str) -> str`
-  - Method L1977: `_load_api_day(self, *, base_url: str, channel: str, date: str, market_slug: str, token_index: int, outcome: str | None, api_key: str | None = None) -> pd.DataFrame | None`
-  - Method L2069: `_column_to_ns(column: pd.Series, column_name: str) -> np.ndarray`
-  - Method L2081: `_normalize_to_utc(value: pd.Timestamp) -> pd.Timestamp`
-  - Method L2086: `_day_window(self, date: str, *, start: pd.Timestamp, end: pd.Timestamp) -> tuple[pd.Timestamp, pd.Timestamp] | None`
-  - Method L2100: `_first_present_column(frame: pd.DataFrame, names: Sequence[str], *, label: str) -> str`
-  - Method L2107: `_book_levels_from_value(value: object, *, side: str) -> tuple[PolymarketBookLevel, ...]`
-  - Method L2142: `_book_levels_from_arrays(*, prices: object, sizes: object, side: str) -> tuple[PolymarketBookLevel, ...]`
-  - Method L2159: `_book_side_map(levels: Sequence[PolymarketBookLevel]) -> dict[str, str]`
-  - Method L2162: `_snapshot_to_deltas(self, *, bids: Sequence[PolymarketBookLevel], asks: Sequence[PolymarketBookLevel], ts_event: int) -> OrderBookDeltas | None`
-  - Method L2178: `_diff_to_deltas(self, *, previous_bids: dict[str, str], previous_asks: dict[str, str], current_bids: dict[str, str], current_asks: dict[str, str], ts_event: int) -> OrderBookDeltas | None`
-  - Method L2230: `_book_events_from_frame(self, frame: pd.DataFrame, *, start: pd.Timestamp, end: pd.Timestamp, include_order_book: bool = True) -> list[OrderBookDeltas]`
-  - Method L2398: `_optional_column(frame: pd.DataFrame, names: Sequence[str]) -> str | None`
-  - Method L2405: `_aggressor_side_from_value(value: object) -> AggressorSide`
-  - Method L2413: `_onchain_fill_trade_ticks_from_frame(self, frame: pd.DataFrame, *, start: pd.Timestamp, end: pd.Timestamp) -> list[TradeTick]`
-  - Method L2548: `_trade_ticks_from_native_columns(self, data: tuple[list[float], list[float], list[int], list[str], list[int], list[int]]) -> list[TradeTick]`
-  - Method L2577: `_rounded_float64_array(values: object, precision: int) -> np.ndarray`
-  - Method L2580: `_empty_local_blob_day_frame(self, *, entry: TelonexSourceEntry, channel: str, date: str, market_slug: str, token_index: int, outcome: str | None) -> pd.DataFrame | None`
-  - Method L2616: `_parse_telonex_trade_frame(self, frame: pd.DataFrame, *, channel: str, source: str, start: pd.Timestamp, end: pd.Timestamp, market_slug: str, token_index: int) -> tuple[TradeTick, ...] | None`
-  - Method L2641: `load_telonex_onchain_fill_ticks(self, start: pd.Timestamp, end: pd.Timestamp, *, market_slug: str | None = None, token_index: int | None = None, outcome: str | None = None) -> tuple[TradeTick, ...] | None`
-  - Method L2805: `_try_load_range_from_local(self, *, entry: TelonexSourceEntry, channel: str, market_slug: str, token_index: int, outcome: str | None, start: pd.Timestamp, end: pd.Timestamp) -> pd.DataFrame | None`
-  - Method L2853: `_try_load_day_from_local(self, *, entry: TelonexSourceEntry, channel: str, date: str, market_slug: str, token_index: int, outcome: str | None, start: pd.Timestamp, end: pd.Timestamp, range_cache: dict[Path, pd.DataFrame | None]) -> pd.DataFrame | None`
-  - Method L2920: `_try_load_day_from_entry(self, *, entry: TelonexSourceEntry, channel: str, date: str, market_slug: str, token_index: int, outcome: str | None) -> pd.DataFrame | None`
-  - Method L2960: `_try_load_day_from_api_entry(self, *, entry: TelonexSourceEntry, channel: str, date: str, market_slug: str, token_index: int, outcome: str | None) -> tuple[pd.DataFrame | None, str]`
-  - Method L3002: `_telonex_api_source_label(self, *, base_url: str, channel: str, date: str, market_slug: str, token_index: int, outcome: str | None) -> str`
-  - Method L3021: `_load_order_book_deltas_day(self, *, date: str, config: TelonexLoaderConfig, api_entries: Sequence[TelonexSourceEntry], start: pd.Timestamp, end: pd.Timestamp, market_slug: str, token_index: int, outcome: str | None, include_order_book: bool, range_cache: dict[Path, pd.DataFrame | None]) -> _TelonexDayResult`
-  - Method L3121: `_iter_loaded_telonex_days(self, *, dates: list[str], config: TelonexLoaderConfig, api_entries: Sequence[TelonexSourceEntry], start: pd.Timestamp, end: pd.Timestamp, market_slug: str, token_index: int, outcome: str | None, include_order_book: bool) -> Iterator[_TelonexDayResult]`
-  - Method L3187: `load_order_book_deltas(self, start: pd.Timestamp, end: pd.Timestamp, *, market_slug: str, token_index: int, outcome: str | None, include_order_book: bool = True) -> list[OrderBookDeltas]`
+- Class L404: `RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader)`
+  - Method L405: `__init__(self, *args, **kwargs) -> None`
+  - Method L410: `_ensure_blob_scan_caches(self) -> None`
+  - Method L442: `_forget_blob_ts_cache_key(self, cache_key: tuple[str, str, str, int, str | None, int, int]) -> None`
+  - Method L452: `async from_market_slug(cls, slug: str, token_index: int = 0, http_client = None) -> 'RunnerPolymarketTelonexBookDataLoader'`
+  - Method L465: `_download_progress(self, url: str, downloaded_bytes: int, total_bytes: int | None, finished: bool) -> None`
+  - Method L473: `_telonex_source_kind(source: str) -> str | None`
+  - Method L477: `_telonex_stage_for_source(source: str) -> str`
+  - Method L480: `_day_progress(self, date: str, event: str, source: str, rows: int) -> None`
+  - Method L509: `_emit_cache_write_event(self, *, cache_kind: str, cache_path: Path, channel: str, date: str, market_slug: str, token_index: int, outcome: str | None, level: str, status: str, message: str, rows: int | None = None, bytes_count: int | None = None, book_events: int | None = None, trade_ticks: int | None = None, error: str | None = None) -> None`
+  - Method L558: `_resolve_api_cache_root(cls) -> Path | None`
+  - Method L562: `_resolve_prefetch_workers(cls) -> int`
+  - Method L571: `_config(self) -> TelonexLoaderConfig`
+  - Method L578: `_date_range(start: pd.Timestamp, end: pd.Timestamp) -> list[str]`
+  - Method L584: `_outcome_segments(*, token_index: int, outcome: str | None) -> tuple[str, ...]`
+  - Method L591: `_local_blob_root(root: Path) -> Path | None`
+  - Method L605: `_outcome_segment_candidates(*, token_index: int, outcome: str | None) -> tuple[str, ...]`
+  - Method L612: `_month_partition_dirs(*, channel_dir: Path, start: pd.Timestamp, end: pd.Timestamp) -> tuple[Path, ...]`
+  - Method L623: `_readable_blob_part_paths(self, *, channel_dir: Path, start: pd.Timestamp, end: pd.Timestamp) -> tuple[list[str], bool]`
+  - Method L660: `_scan_readable_blob_part_paths(self, partition_dir: Path) -> tuple[tuple[str, ...], bool]`
+  - Method L693: `_manifest_blob_part_paths(self, *, store_root: Path, channel: str, market_slug: str, token_index: int, outcome: str | None, start: pd.Timestamp, end: pd.Timestamp) -> tuple[list[str], bool] | None`
+  - Method L763: `_manifest_completed_row_count(self, *, store_root: Path, channel: str, market_slug: str, token_index: int, outcome: str | None, date: str) -> int | None`
+  - Method L802: `_manifest_empty_day_exists(self, *, store_root: Path, channel: str, market_slug: str, token_index: int, outcome: str | None, date: str) -> bool`
+  - Method L839: `_load_blob_range(self, *, store_root: Path, channel: str, market_slug: str, token_index: int, outcome: str | None, start: pd.Timestamp, end: pd.Timestamp) -> pd.DataFrame | None`
+  - Method L1054: `_cached_ts_ns_for_frame(self, frame: pd.DataFrame, column_name: str) -> np.ndarray | None`
+  - Method L1065: `_local_consolidated_candidates(cls, *, root: Path, channel: str, market_slug: str, token_index: int, outcome: str | None) -> tuple[Path, ...]`
+  - Method L1083: `_local_daily_candidates(cls, *, root: Path, channel: str, date: str, market_slug: str, token_index: int, outcome: str | None) -> tuple[Path, ...]`
+  - Method L1102: `_local_consolidated_path(self, *, root: Path, channel: str, market_slug: str, token_index: int, outcome: str | None) -> Path | None`
+  - Method L1122: `_local_path_for_day(self, *, root: Path, channel: str, date: str, market_slug: str, token_index: int, outcome: str | None) -> Path | None`
+  - Method L1145: `_safe_read_parquet(path: Path) -> pd.DataFrame | None`
+  - Method L1156: `_load_local_range(self, *, root: Path, channel: str, market_slug: str, token_index: int, outcome: str | None) -> pd.DataFrame | None`
+  - Method L1176: `_load_local_day(self, *, root: Path, channel: str, date: str, market_slug: str, token_index: int, outcome: str | None) -> pd.DataFrame | None`
+  - Method L1199: `_api_url(*, base_url: str, channel: str, date: str, market_slug: str, token_index: int, outcome: str | None) -> str`
+  - Method L1218: `_api_cache_path(cls, *, base_url: str, channel: str, date: str, market_slug: str, token_index: int, outcome: str | None) -> Path | None`
+  - Method L1242: `_load_api_cache_day(self, *, base_url: str, channel: str, date: str, market_slug: str, token_index: int, outcome: str | None) -> pd.DataFrame | None`
+  - Method L1271: `_write_api_cache_day(self, *, payload: bytes, base_url: str, channel: str, date: str, market_slug: str, token_index: int, outcome: str | None) -> None`
+  - Method L1332: `_fast_api_cache_path(cls, *, base_url: str, channel: str, date: str, market_slug: str, token_index: int, outcome: str | None) -> Path | None`
+  - Method L1354: `_load_fast_cache_day(self, *, base_url: str, channel: str, date: str, market_slug: str, token_index: int, outcome: str | None) -> pd.DataFrame | None`
+  - Method L1383: `_write_fast_cache_day(self, *, frame: pd.DataFrame, base_url: str, channel: str, date: str, market_slug: str, token_index: int, outcome: str | None) -> None`
+  - Method L1480: `_load_api_day_cached(self, *, base_url: str, channel: str, date: str, market_slug: str, token_index: int, outcome: str | None) -> tuple[pd.DataFrame | None, str]`
+  - Method L1555: `_deltas_cache_path(cls, *, channel: str, date: str, market_slug: str, token_index: int, outcome: str | None, instrument_id: object, start: pd.Timestamp, end: pd.Timestamp) -> Path | None`
+  - Method L1584: `_load_deltas_cache_day(self, *, channel: str, date: str, market_slug: str, token_index: int, outcome: str | None, start: pd.Timestamp, end: pd.Timestamp) -> tuple[list[OrderBookDeltas] | None, str]`
+  - Method L1625: `_write_deltas_cache_day(self, *, records: Sequence[OrderBookDeltas], delta_columns: Mapping[str, Sequence[object]] | None = None, channel: str, date: str, market_slug: str, token_index: int, outcome: str | None, start: pd.Timestamp, end: pd.Timestamp) -> None`
+  - Method L1701: `_trade_ticks_cache_path(cls, *, channel: str, date: str, market_slug: str, token_index: int, outcome: str | None, instrument_id: object, start: pd.Timestamp, end: pd.Timestamp) -> Path | None`
+  - Method L1730: `_load_trade_ticks_cache_day(self, *, channel: str, date: str, market_slug: str, token_index: int, outcome: str | None, start: pd.Timestamp, end: pd.Timestamp) -> tuple[tuple[TradeTick, ...] | None, str]`
+  - Method L1781: `_write_trade_ticks_cache_day(self, *, records: Sequence[TradeTick], channel: str, date: str, market_slug: str, token_index: int, outcome: str | None, start: pd.Timestamp, end: pd.Timestamp) -> None`
+  - Method L1854: `_trade_ticks_to_cache_table(records: Sequence[TradeTick]) -> pa.Table`
+  - Method L1881: `_trade_ticks_from_cache_table(self, table: pa.Table) -> tuple[TradeTick, ...]`
+  - Method L1884: `_trade_ticks_from_cache_frame(self, frame: pd.DataFrame) -> tuple[TradeTick, ...]`
+  - Method L1920: `_deltas_columns_to_table(data: Mapping[str, Sequence[object]]) -> pa.Table`
+  - Method L1936: `_deltas_records_to_table(records: Sequence[OrderBookDeltas]) -> pa.Table`
+  - Method L1972: `_numeric_table_column(table: pa.Table, name: str) -> np.ndarray`
+  - Method L1975: `_deltas_records_from_table(self, table: pa.Table) -> list[OrderBookDeltas]`
+  - Method L1990: `_deltas_records_from_columns(self, data: dict[str, Sequence[object]]) -> list[OrderBookDeltas]`
+  - Method L2042: `_resolve_presigned_url(*, url: str, api_key: str) -> str`
+  - Method L2069: `_load_api_day(self, *, base_url: str, channel: str, date: str, market_slug: str, token_index: int, outcome: str | None, api_key: str | None = None) -> pd.DataFrame | None`
+  - Method L2162: `_column_to_ns(column: pd.Series, column_name: str) -> np.ndarray`
+  - Method L2174: `_normalize_to_utc(value: pd.Timestamp) -> pd.Timestamp`
+  - Method L2179: `_day_window(self, date: str, *, start: pd.Timestamp, end: pd.Timestamp) -> tuple[pd.Timestamp, pd.Timestamp] | None`
+  - Method L2193: `_first_present_column(frame: pd.DataFrame, names: Sequence[str], *, label: str) -> str`
+  - Method L2199: `_book_events_from_frame(self, frame: pd.DataFrame, *, start: pd.Timestamp, end: pd.Timestamp, include_order_book: bool = True) -> list[OrderBookDeltas]`
+  - Method L2215: `_book_events_and_delta_columns_from_frame(self, frame: pd.DataFrame, *, start: pd.Timestamp, end: pd.Timestamp, include_order_book: bool = True) -> tuple[list[OrderBookDeltas], Mapping[str, Sequence[object]] | None]`
+  - Method L2308: `_optional_column(frame: pd.DataFrame, names: Sequence[str]) -> str | None`
+  - Method L2314: `_onchain_fill_trade_ticks_from_frame(self, frame: pd.DataFrame, *, start: pd.Timestamp, end: pd.Timestamp) -> list[TradeTick]`
+  - Method L2389: `_trade_ticks_from_native_columns(self, data: tuple[list[float], list[float], list[int], list[str], list[int], list[int]]) -> list[TradeTick]`
+  - Method L2418: `_rounded_float64_array(values: object, precision: int) -> np.ndarray`
+  - Method L2421: `_empty_local_blob_day_frame(self, *, entry: TelonexSourceEntry, channel: str, date: str, market_slug: str, token_index: int, outcome: str | None) -> pd.DataFrame | None`
+  - Method L2457: `_parse_telonex_trade_frame(self, frame: pd.DataFrame, *, channel: str, source: str, start: pd.Timestamp, end: pd.Timestamp, market_slug: str, token_index: int) -> tuple[TradeTick, ...] | None`
+  - Method L2482: `load_telonex_onchain_fill_ticks(self, start: pd.Timestamp, end: pd.Timestamp, *, market_slug: str | None = None, token_index: int | None = None, outcome: str | None = None) -> tuple[TradeTick, ...] | None`
+  - Method L2646: `_try_load_range_from_local(self, *, entry: TelonexSourceEntry, channel: str, market_slug: str, token_index: int, outcome: str | None, start: pd.Timestamp, end: pd.Timestamp) -> pd.DataFrame | None`
+  - Method L2694: `_try_load_day_from_local(self, *, entry: TelonexSourceEntry, channel: str, date: str, market_slug: str, token_index: int, outcome: str | None, start: pd.Timestamp, end: pd.Timestamp, range_cache: dict[Path, pd.DataFrame | None]) -> pd.DataFrame | None`
+  - Method L2761: `_try_load_day_from_entry(self, *, entry: TelonexSourceEntry, channel: str, date: str, market_slug: str, token_index: int, outcome: str | None) -> pd.DataFrame | None`
+  - Method L2801: `_try_load_day_from_api_entry(self, *, entry: TelonexSourceEntry, channel: str, date: str, market_slug: str, token_index: int, outcome: str | None) -> tuple[pd.DataFrame | None, str]`
+  - Method L2843: `_telonex_api_source_label(self, *, base_url: str, channel: str, date: str, market_slug: str, token_index: int, outcome: str | None) -> str`
+  - Method L2862: `_load_order_book_deltas_day(self, *, date: str, config: TelonexLoaderConfig, api_entries: Sequence[TelonexSourceEntry], start: pd.Timestamp, end: pd.Timestamp, market_slug: str, token_index: int, outcome: str | None, include_order_book: bool, range_cache: dict[Path, pd.DataFrame | None]) -> _TelonexDayResult`
+  - Method L2963: `_iter_loaded_telonex_days(self, *, dates: list[str], config: TelonexLoaderConfig, api_entries: Sequence[TelonexSourceEntry], start: pd.Timestamp, end: pd.Timestamp, market_slug: str, token_index: int, outcome: str | None, include_order_book: bool) -> Iterator[_TelonexDayResult]`
+  - Method L3029: `load_order_book_deltas(self, start: pd.Timestamp, end: pd.Timestamp, *, market_slug: str, token_index: int, outcome: str | None, include_order_book: bool = True) -> list[OrderBookDeltas]`
 
 ### `prediction_market_extensions/backtesting/data_sources/vendors.py`
 - Imports: `__future__, dataclasses`

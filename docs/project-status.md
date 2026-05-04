@@ -20,6 +20,11 @@ No repo-level open issues are tracked here right now.
 
 ## Recently Fixed
 
+- [x] v4 staged replay loading now prepares Polymarket metadata first, loads all
+  book data second, and loads execution trade ticks last. PMXT filtered-cache
+  misses are grouped by raw archive hour, Telonex API/file work has separate
+  worker caps, and warm 100-market Telonex loads avoid redundant full-week book
+  sorting/count scans.
 - [x] PR#119 upgrades public Polymarket runners to L2-native `BookReplay`
   semantics with `OrderBookDeltas` plus real `TradeTick` execution evidence,
   keeps Nautilus on `BookType.L2_MBP` with `trade_execution=True`, removes
