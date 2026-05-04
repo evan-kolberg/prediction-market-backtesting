@@ -698,6 +698,16 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
         if table.num_rows == 0:
             return {request_id: [] for request_id, _, _ in requests}
 
+        if len(requests) > 4:
+            try:
+                return self._split_shared_fixed_table_one_pass(
+                    table,
+                    requests=requests,
+                    batch_size=batch_size,
+                )
+            except (KeyError, TypeError, ValueError, pa.ArrowException):
+                pass
+
         result: dict[int, list[pa.RecordBatch]] = {}
         for request_id, condition_id, token_id in requests:
             if "market" in table.schema.names:
@@ -711,6 +721,48 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
             token_mask = pc.equal(table.column("asset_id"), token_id)
             mask = pc.and_(pc.fill_null(market_mask, False), pc.fill_null(token_mask, False))
             filtered = table.filter(mask).select(PolymarketPMXTDataLoader._PMXT_FIXED_COLUMNS)
+            result[request_id] = list(filtered.to_batches(max_chunksize=batch_size))
+        return result
+
+    def _split_shared_fixed_table_one_pass(
+        self,
+        table: pa.Table,
+        *,
+        requests: Sequence[tuple[int, str, str]],
+        batch_size: int,
+    ) -> dict[int, list[pa.RecordBatch]]:
+        if "market" in table.schema.names:
+            market_field = "market"
+            market_type = table.schema.field("market").type
+            request_by_key = {
+                (self._market_stats_value(market_type, condition_id), token_id): request_id
+                for request_id, condition_id, token_id in requests
+            }
+        else:
+            market_field = "market_id"
+            request_by_key = {
+                (condition_id, token_id): request_id
+                for request_id, condition_id, token_id in requests
+            }
+
+        row_indexes_by_request: dict[int, list[int]] = {
+            request_id: [] for request_id, _, _ in requests
+        }
+        market_values = table.column(market_field).to_pylist()
+        token_values = table.column("asset_id").to_pylist()
+        for row_index, key in enumerate(zip(market_values, token_values, strict=True)):
+            request_id = request_by_key.get(key)
+            if request_id is not None:
+                row_indexes_by_request[request_id].append(row_index)
+
+        fixed_table = table.select(PolymarketPMXTDataLoader._PMXT_FIXED_COLUMNS)
+        result: dict[int, list[pa.RecordBatch]] = {}
+        for request_id, _, _ in requests:
+            row_indexes = row_indexes_by_request[request_id]
+            if not row_indexes:
+                result[request_id] = []
+                continue
+            filtered = fixed_table.take(pa.array(row_indexes, type=pa.int64()))
             result[request_id] = list(filtered.to_batches(max_chunksize=batch_size))
         return result
 
