@@ -14,6 +14,7 @@ import warnings
 from collections.abc import Callable, Iterator, Sequence
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import contextmanager, suppress
+from dataclasses import dataclass
 from datetime import UTC
 from pathlib import Path
 from typing import ClassVar
@@ -43,6 +44,12 @@ from prediction_market_extensions._runtime_log import emit_loader_event
 
 def _raw_fixed_values(values: Sequence[object], precision: int) -> list[int]:
     return fixed_raw_values(values, precision)
+
+
+@dataclass
+class _PMXTOrderBookConversionState:
+    has_snapshot: bool = False
+    last_payload_key: tuple[int, int] | None = None
 
 
 class PolymarketPMXTDataLoader(PolymarketDataLoader):
@@ -1201,25 +1208,25 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
     def _batches_use_fixed_schema(cls, batches: Sequence[pa.RecordBatch]) -> bool:
         return bool(batches) and cls._is_fixed_schema(batches[0].schema.names)
 
-    def _order_book_deltas_from_hour_batches(
+    @staticmethod
+    def new_order_book_delta_state() -> _PMXTOrderBookConversionState:
+        return _PMXTOrderBookConversionState()
+
+    def _order_book_deltas_from_hour_batches_with_state(
         self,
         *,
-        start_ts: pd.Timestamp,
-        end_ts: pd.Timestamp,
+        start_ns: int,
+        end_ns: int,
         hour_batches: Iterator[tuple[pd.Timestamp, list[pa.RecordBatch] | None]],
         include_order_book: bool,
-    ) -> list[OrderBookDeltas]:
-        start_ns = start_ts.value
-        end_ns = end_ts.value
+        state: _PMXTOrderBookConversionState,
+    ) -> tuple[list[OrderBookDeltas], list[pd.Timestamp]]:
         token_id = self.token_id
         if token_id is None:
             raise ValueError("token_id is required for PMXT loading")
 
-        has_snapshot = False
         events: list[OrderBookDeltas] = []
-        last_payload_key: tuple[int, int] | None = None
         gap_hours: list[pd.Timestamp] = []
-        self._pmxt_last_load_gap_hours = ()
 
         for hour, batches in hour_batches:
             if batches is None:
@@ -1230,7 +1237,7 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
                 # a fresh book_snapshot rather than applying against a
                 # potentially stale state.
                 gap_hours.append(hour)
-                has_snapshot = False
+                state.has_snapshot = False
                 continue
             if not batches:
                 continue
@@ -1248,10 +1255,10 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
                     token_id=token_id,
                     start_ns=start_ns,
                     end_ns=end_ns,
-                    has_snapshot=has_snapshot,
-                    last_payload_key=last_payload_key,
+                    has_snapshot=state.has_snapshot,
+                    last_payload_key=state.last_payload_key,
                 )
-                has_snapshot, last_payload_key, delta_columns = native_rows
+                state.has_snapshot, state.last_payload_key, delta_columns = native_rows
                 if include_order_book and delta_columns["event_index"]:
                     events.extend(self._deltas_records_from_columns(delta_columns))
                 continue
@@ -1265,12 +1272,57 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
                 token_id=token_id,
                 start_ns=start_ns,
                 end_ns=end_ns,
-                has_snapshot=has_snapshot,
-                last_payload_key=last_payload_key,
+                has_snapshot=state.has_snapshot,
+                last_payload_key=state.last_payload_key,
             )
-            has_snapshot, last_payload_key, delta_columns = native_rows
+            state.has_snapshot, state.last_payload_key, delta_columns = native_rows
             if include_order_book and delta_columns["event_index"]:
                 events.extend(self._deltas_records_from_columns(delta_columns))
+
+        return events, gap_hours
+
+    def load_order_book_deltas_from_hour_batches_incremental(
+        self,
+        start: pd.Timestamp,
+        end: pd.Timestamp,
+        hour_batches: Sequence[tuple[pd.Timestamp, list[pa.RecordBatch] | None]],
+        *,
+        state: _PMXTOrderBookConversionState,
+        include_order_book: bool = True,
+    ) -> tuple[list[OrderBookDeltas], tuple[pd.Timestamp, ...]]:
+        start_ts = self._normalize_timestamp(start)
+        end_ts = self._normalize_timestamp(end)
+        if start_ts is None or end_ts is None or end_ts <= start_ts:
+            return [], ()
+
+        events, gap_hours = self._order_book_deltas_from_hour_batches_with_state(
+            start_ns=int(start_ts.value),
+            end_ns=int(end_ts.value),
+            hour_batches=iter(hour_batches),
+            include_order_book=include_order_book,
+            state=state,
+        )
+        events.sort(key=self._event_sort_key)
+        return events, tuple(gap_hours)
+
+    def _order_book_deltas_from_hour_batches(
+        self,
+        *,
+        start_ts: pd.Timestamp,
+        end_ts: pd.Timestamp,
+        hour_batches: Iterator[tuple[pd.Timestamp, list[pa.RecordBatch] | None]],
+        include_order_book: bool,
+    ) -> list[OrderBookDeltas]:
+        state = self.new_order_book_delta_state()
+        self._pmxt_last_load_gap_hours = ()
+
+        events, gap_hours = self._order_book_deltas_from_hour_batches_with_state(
+            start_ns=int(start_ts.value),
+            end_ns=int(end_ts.value),
+            hour_batches=hour_batches,
+            include_order_book=include_order_book,
+            state=state,
+        )
 
         events.sort(key=self._event_sort_key)
 

@@ -1003,6 +1003,8 @@ class PolymarketPMXTBookReplayAdapter(_BaseReplayAdapter):
             for item in await _gather_bounded(resolved_replays, workers=workers, func=_prepare)
             if item is not None
         ]
+        prepared_index_by_id = {id(item): index for index, item in enumerate(prepared)}
+        preloaded_books_by_index: dict[int, _LoadedBookReplay] = {}
         book_workers = workers
         if prepared:
             resolve_prefetch_workers = getattr(
@@ -1034,6 +1036,11 @@ class PolymarketPMXTBookReplayAdapter(_BaseReplayAdapter):
 
         async def _load_book(prepared_replay: _PreparedBookReplay) -> _LoadedBookReplay | None:
             replay = prepared_replay.resolved.replay
+            preloaded_index = prepared_index_by_id.get(id(prepared_replay))
+            if preloaded_index is not None:
+                preloaded = preloaded_books_by_index.get(preloaded_index)
+                if preloaded is not None:
+                    return preloaded
             try:
                 records = tuple(
                     await asyncio.to_thread(
@@ -1172,6 +1179,89 @@ class PolymarketPMXTBookReplayAdapter(_BaseReplayAdapter):
                     del table
                     _release_arrow_memory()
 
+            async def _load_direct_grouped_books() -> dict[int, _LoadedBookReplay]:
+                states = {
+                    index: prepared_replay.loader.new_order_book_delta_state()
+                    for index, prepared_replay in enumerate(prepared)
+                }
+                records_by_index: dict[int, list[OrderBookDeltas]] = {
+                    index: [] for index in range(len(prepared))
+                }
+                gap_hours_by_index: dict[int, list[pd.Timestamp]] = {
+                    index: [] for index in range(len(prepared))
+                }
+                hour_items = sorted(missing_by_hour.items(), key=lambda item: int(item[0].value))
+                pending: dict[pd.Timestamp, asyncio.Task[Any]] = {}
+                next_hour_index = 0
+
+                def _submit_next_hour() -> None:
+                    nonlocal next_hour_index
+                    if next_hour_index >= len(hour_items):
+                        return
+                    hour_item = hour_items[next_hour_index]
+                    next_hour_index += 1
+                    pending[hour_item[0]] = asyncio.create_task(_load_shared_hour(hour_item))
+
+                for _ in range(min(book_workers, len(hour_items))):
+                    _submit_next_hour()
+
+                for expected_hour, indexes in hour_items:
+                    loaded_hour, batches_by_request = await pending.pop(expected_hour)
+                    _submit_next_hour()
+                    write_items: list[tuple[int, pd.Timestamp, list[pa.RecordBatch]]] = []
+                    try:
+                        for index in indexes:
+                            batches = batches_by_request.get(index)
+                            loader = prepared[index].loader
+                            events, gap_hours = await asyncio.to_thread(
+                                loader.load_order_book_deltas_from_hour_batches_incremental,
+                                prepared[index].resolved.start,
+                                prepared[index].resolved.end,
+                                ((loaded_hour, batches),),
+                                state=states[index],
+                            )
+                            if events:
+                                records_by_index[index].extend(events)
+                            if gap_hours:
+                                gap_hours_by_index[index].extend(gap_hours)
+                            if batches is not None:
+                                write_items.append((index, loaded_hour, batches))
+
+                        await _gather_bounded(
+                            write_items,
+                            workers=materialize_workers,
+                            func=_write_grouped_cache,
+                        )
+                    finally:
+                        batches_by_request.clear()
+                        gc.collect()
+                        _release_arrow_memory()
+
+                loaded_books: dict[int, _LoadedBookReplay] = {}
+                for index, prepared_replay in enumerate(prepared):
+                    loader = prepared_replay.loader
+                    records = records_by_index[index]
+                    records.sort(key=loader._event_sort_key)
+                    gap_hours = tuple(gap_hours_by_index[index])
+                    if gap_hours:
+                        loader._pmxt_last_load_gap_hours = gap_hours
+                        warnings.warn(
+                            f"PMXT: {len(gap_hours)} archive hour(s) missing for market "
+                            f"{getattr(loader, 'condition_id', None)}/"
+                            f"{getattr(loader, 'token_id', None)} between "
+                            f"{prepared_replay.resolved.start.isoformat()} and "
+                            f"{prepared_replay.resolved.end.isoformat()}; book state was "
+                            "reset on each gap. First gap hour: "
+                            f"{gap_hours[0].isoformat()}.",
+                            stacklevel=2,
+                        )
+                    loaded_books[index] = _LoadedBookReplay(
+                        prepared=prepared_replay,
+                        book_records=tuple(records),
+                        book_event_count=len(records),
+                    )
+                return loaded_books
+
             async def _fill_shared_hour_cache(
                 item: tuple[pd.Timestamp, list[int]],
             ) -> None:
@@ -1189,6 +1279,10 @@ class PolymarketPMXTBookReplayAdapter(_BaseReplayAdapter):
                     gc.collect()
                     _release_arrow_memory()
 
+            if missing_by_hour and not any(hit for _, _, hit in cache_results):
+                preloaded_books_by_index.update(await _load_direct_grouped_books())
+                return
+
             await _gather_bounded(
                 tuple(missing_by_hour.items()),
                 workers=book_workers,
@@ -1198,6 +1292,7 @@ class PolymarketPMXTBookReplayAdapter(_BaseReplayAdapter):
         can_group_pmxt_books = all(
             hasattr(item.loader, "load_shared_market_batches_for_hour")
             and hasattr(item.loader, "load_order_book_deltas_from_hour_batches")
+            and hasattr(item.loader, "load_order_book_deltas_from_hour_batches_incremental")
             for item in prepared
         )
         if can_group_pmxt_books:
