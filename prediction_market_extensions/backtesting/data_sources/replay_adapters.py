@@ -16,6 +16,7 @@ from typing import Any
 import pandas as pd
 import numpy as np
 import pyarrow as pa
+import pyarrow.parquet as pq
 from nautilus_trader.adapters.polymarket import POLYMARKET_VENUE
 from nautilus_trader.model.book import OrderBook
 from nautilus_trader.model.currencies import USDC_POS
@@ -1193,6 +1194,99 @@ class PolymarketPMXTBookReplayAdapter(_BaseReplayAdapter):
                 hour_items = sorted(missing_by_hour.items(), key=lambda item: int(item[0].value))
                 pending: dict[pd.Timestamp, asyncio.Task[Any]] = {}
                 next_hour_index = 0
+                window_cache_writers: dict[int, pq.ParquetWriter] = {}
+                window_cache_paths: dict[int, Path] = {}
+                window_cache_tmp_paths: dict[int, Path] = {}
+                window_cache_rows: dict[int, int] = {}
+
+                def _write_window_cache_batches(
+                    index: int,
+                    batches: list[pa.RecordBatch] | None,
+                ) -> None:
+                    if not batches:
+                        return
+                    loader = prepared[index].loader
+                    cache_path = loader._window_cache_path_for_range(
+                        prepared[index].resolved.start,
+                        prepared[index].resolved.end,
+                    )
+                    if cache_path is None:
+                        return
+
+                    table = pa.Table.from_batches(batches)
+                    try:
+                        if table.num_rows == 0:
+                            return
+                        writer = window_cache_writers.get(index)
+                        if writer is None:
+                            cache_path.parent.mkdir(parents=True, exist_ok=True)
+                            tmp_path = cache_path.with_name(f"{cache_path.name}.tmp.{os.getpid()}")
+                            tmp_path.unlink(missing_ok=True)
+                            writer = pq.ParquetWriter(tmp_path, table.schema)
+                            window_cache_writers[index] = writer
+                            window_cache_paths[index] = cache_path
+                            window_cache_tmp_paths[index] = tmp_path
+                            window_cache_rows[index] = 0
+                        writer.write_table(table)
+                        window_cache_rows[index] = window_cache_rows.get(index, 0) + int(
+                            table.num_rows
+                        )
+                    finally:
+                        del table
+                        _release_arrow_memory()
+
+                def _close_window_cache_writers(*, success: bool) -> None:
+                    for index, writer in tuple(window_cache_writers.items()):
+                        cache_path = window_cache_paths[index]
+                        tmp_path = window_cache_tmp_paths[index]
+                        rows = window_cache_rows.get(index, 0)
+                        try:
+                            writer.close()
+                            if success:
+                                os.replace(tmp_path, cache_path)
+                                loader = prepared[index].loader
+                                emit_loader_event(
+                                    f"Wrote PMXT window cache ({rows} rows)",
+                                    stage="cache_write",
+                                    status="complete",
+                                    vendor="pmxt",
+                                    platform="polymarket",
+                                    data_type="book",
+                                    source_kind="cache",
+                                    cache_path=str(cache_path),
+                                    rows=rows,
+                                    condition_id=getattr(loader, "condition_id", None),
+                                    token_id=getattr(loader, "token_id", None),
+                                    attrs={
+                                        "window_start_ns": int(
+                                            prepared[index].resolved.start.value
+                                        ),
+                                        "window_end_ns": int(prepared[index].resolved.end.value),
+                                    },
+                                )
+                        except (OSError, pa.ArrowException) as exc:
+                            loader = prepared[index].loader
+                            emit_loader_event(
+                                "Failed to write PMXT window cache",
+                                level="ERROR",
+                                stage="cache_write",
+                                status="error",
+                                vendor="pmxt",
+                                platform="polymarket",
+                                data_type="book",
+                                source_kind="cache",
+                                cache_path=str(cache_path),
+                                rows=rows,
+                                condition_id=getattr(loader, "condition_id", None),
+                                token_id=getattr(loader, "token_id", None),
+                                attrs={
+                                    "window_start_ns": int(prepared[index].resolved.start.value),
+                                    "window_end_ns": int(prepared[index].resolved.end.value),
+                                    "error": str(exc),
+                                },
+                            )
+                        finally:
+                            tmp_path.unlink(missing_ok=True)
 
                 def _submit_next_hour() -> None:
                     nonlocal next_hour_index
@@ -1205,37 +1299,34 @@ class PolymarketPMXTBookReplayAdapter(_BaseReplayAdapter):
                 for _ in range(min(book_workers, len(hour_items))):
                     _submit_next_hour()
 
-                for expected_hour, indexes in hour_items:
-                    loaded_hour, batches_by_request = await pending.pop(expected_hour)
-                    _submit_next_hour()
-                    write_items: list[tuple[int, pd.Timestamp, list[pa.RecordBatch]]] = []
-                    try:
-                        for index in indexes:
-                            batches = batches_by_request.get(index)
-                            loader = prepared[index].loader
-                            events, gap_hours = await asyncio.to_thread(
-                                loader.load_order_book_deltas_from_hour_batches_incremental,
-                                prepared[index].resolved.start,
-                                prepared[index].resolved.end,
-                                ((loaded_hour, batches),),
-                                state=states[index],
-                            )
-                            if events:
-                                records_by_index[index].extend(events)
-                            if gap_hours:
-                                gap_hours_by_index[index].extend(gap_hours)
-                            if batches is not None:
-                                write_items.append((index, loaded_hour, batches))
-
-                        await _gather_bounded(
-                            write_items,
-                            workers=materialize_workers,
-                            func=_write_grouped_cache,
-                        )
-                    finally:
-                        batches_by_request.clear()
-                        gc.collect()
-                        _release_arrow_memory()
+                success = False
+                try:
+                    for expected_hour, indexes in hour_items:
+                        loaded_hour, batches_by_request = await pending.pop(expected_hour)
+                        _submit_next_hour()
+                        try:
+                            for index in indexes:
+                                batches = batches_by_request.get(index)
+                                loader = prepared[index].loader
+                                events, gap_hours = await asyncio.to_thread(
+                                    loader.load_order_book_deltas_from_hour_batches_incremental,
+                                    prepared[index].resolved.start,
+                                    prepared[index].resolved.end,
+                                    ((loaded_hour, batches),),
+                                    state=states[index],
+                                )
+                                if events:
+                                    records_by_index[index].extend(events)
+                                if gap_hours:
+                                    gap_hours_by_index[index].extend(gap_hours)
+                                _write_window_cache_batches(index, batches)
+                        finally:
+                            batches_by_request.clear()
+                            gc.collect()
+                            _release_arrow_memory()
+                    success = True
+                finally:
+                    _close_window_cache_writers(success=success)
 
                 loaded_books: dict[int, _LoadedBookReplay] = {}
                 for index, prepared_replay in enumerate(prepared):

@@ -91,6 +91,7 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
     _PMXT_LOCAL_ARCHIVE_DIR_ENV = "PMXT_LOCAL_ARCHIVE_DIR"
     _PMXT_PREFETCH_WORKERS_ENV = "PMXT_PREFETCH_WORKERS"
     _PMXT_SCAN_BATCH_SIZE_ENV = "PMXT_SCAN_BATCH_SIZE"
+    _PMXT_WINDOW_CACHE_SUBDIR = "window-v1"
     _PMXT_DEFAULT_PREFETCH_WORKERS = 16
     _PMXT_DEFAULT_SCAN_BATCH_SIZE = 100_000
     _PMXT_DOWNLOAD_CHUNK_SIZE = 4 * 1024 * 1024
@@ -245,6 +246,21 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
 
         return self._market_cache_path_for_hour(
             self._pmxt_cache_dir, self.condition_id, self.token_id, hour
+        )
+
+    def _window_cache_path_for_range(self, start: pd.Timestamp, end: pd.Timestamp) -> Path | None:
+        if self._pmxt_cache_dir is None or self.condition_id is None or self.token_id is None:
+            return None
+        start_ts = self._normalize_timestamp(start)
+        end_ts = self._normalize_timestamp(end)
+        if start_ts is None or end_ts is None or end_ts <= start_ts:
+            return None
+        return (
+            self._pmxt_cache_dir
+            / self._PMXT_WINDOW_CACHE_SUBDIR
+            / self.condition_id
+            / self.token_id
+            / f"{int(start_ts.value)}-{int(end_ts.value)}.parquet"
         )
 
     @staticmethod
@@ -439,6 +455,44 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
             )
             scanner = dataset.scanner(columns=columns)
             return list(scanner.to_batches())
+        except (OSError, ValueError, pa.ArrowException):
+            cache_path.unlink(missing_ok=True)
+            return None
+
+    def _load_window_cache_batches(
+        self, start: pd.Timestamp, end: pd.Timestamp
+    ) -> list[pa.RecordBatch] | None:
+        cache_path = self._window_cache_path_for_range(start, end)
+        if cache_path is None or not cache_path.exists():
+            return None
+
+        try:
+            dataset = ds.dataset(str(cache_path), format="parquet")
+            columns = (
+                self._PMXT_FIXED_COLUMNS
+                if self._is_fixed_schema(dataset.schema.names)
+                else self._PMXT_COLUMNS
+            )
+            batches = list(dataset.scanner(columns=columns).to_batches())
+            rows = sum(batch.num_rows for batch in batches)
+            emit_loader_event(
+                f"Loaded PMXT window cache ({rows} rows)",
+                stage="cache_read",
+                status="cache_hit",
+                vendor="pmxt",
+                platform="polymarket",
+                data_type="book",
+                source_kind="cache",
+                cache_path=str(cache_path),
+                rows=int(rows),
+                condition_id=getattr(self, "condition_id", None),
+                token_id=getattr(self, "token_id", None),
+                attrs={
+                    "window_start_ns": int(self._normalize_timestamp(start).value),
+                    "window_end_ns": int(self._normalize_timestamp(end).value),
+                },
+            )
+            return batches
         except (OSError, ValueError, pa.ArrowException):
             cache_path.unlink(missing_ok=True)
             return None
@@ -1387,6 +1441,15 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
         end_ts = self._normalize_timestamp(end)
         if start_ts is None or end_ts is None or end_ts <= start_ts:
             return []
+
+        window_cache_batches = self._load_window_cache_batches(start_ts, end_ts)
+        if window_cache_batches is not None:
+            return self._order_book_deltas_from_hour_batches(
+                start_ts=start_ts,
+                end_ts=end_ts,
+                hour_batches=iter(((start_ts, window_cache_batches),)),
+                include_order_book=include_order_book,
+            )
 
         hours = self._archive_hours(start_ts, end_ts)
         resolved_batch_size = (
