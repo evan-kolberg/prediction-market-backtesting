@@ -95,6 +95,13 @@ def _current_loader_config() -> PMXTLoaderConfig | None:
     return _CURRENT_PMXT_LOADER_CONFIG.get()
 
 
+def _release_arrow_memory() -> None:
+    try:
+        pa.default_memory_pool().release_unused()
+    except AttributeError:
+        pass
+
+
 class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
     """
     Repo-layer PMXT loader extensions used by the backtest runners.
@@ -709,6 +716,7 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
     ) -> dict[int, list[pa.RecordBatch]] | None:
         condition_ids = sorted({condition_id for _, condition_id, _ in requests})
         token_ids = sorted({token_id for _, _, token_id in requests})
+        request_count = len(requests)
         parquet_file = pq.ParquetFile(raw_path)
         if not self._is_raw_fixed_schema(parquet_file.schema_arrow.names):
             return None
@@ -722,6 +730,7 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
         if not row_groups:
             return {request_id: [] for request_id, _, _ in requests}
 
+        result: dict[int, list[pa.RecordBatch]] = {request_id: [] for request_id, _, _ in requests}
         raw_columns = [
             "event_type",
             "timestamp",
@@ -733,48 +742,62 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
             "size",
             "side",
         ]
-        raw_table = parquet_file.read_row_groups(row_groups, columns=raw_columns)
-        market_type = raw_table.schema.field("market").type
+        market_type = parquet_file.schema_arrow.field("market").type
         market_values = [
             self._market_stats_value(market_type, condition_id) for condition_id in condition_ids
         ]
-        market_mask = pc.is_in(
-            raw_table.column("market"),
-            value_set=pa.array(market_values, type=market_type),
-        )
-        event_type_mask = pc.is_in(
-            raw_table.column("event_type"),
-            value_set=pa.array(["book", "price_change"]),
-        )
-        token_mask = pc.is_in(raw_table.column("asset_id"), value_set=pa.array(token_ids))
-        mask = pc.and_(
-            pc.and_(pc.fill_null(market_mask, False), pc.fill_null(event_type_mask, False)),
-            pc.fill_null(token_mask, False),
-        )
-        filtered = raw_table.filter(mask)
-        timestamp_ns = pc.cast(
-            pc.cast(filtered.column("timestamp"), pa.timestamp("ns", tz="UTC")),
-            pa.int64(),
-        )
-        table = pa.Table.from_arrays(
-            [
-                filtered.column("market"),
-                filtered.column("event_type"),
-                timestamp_ns,
-                filtered.column("asset_id"),
-                filtered.column("bids"),
-                filtered.column("asks"),
-                pc.cast(filtered.column("price"), pa.string()),
-                pc.cast(filtered.column("size"), pa.string()),
-                filtered.column("side"),
-            ],
-            names=("market", *PolymarketPMXTDataLoader._PMXT_FIXED_COLUMNS),
-        )
-        return self._split_shared_fixed_table(
-            table,
-            requests=requests,
-            batch_size=batch_size,
-        )
+        market_value_set = pa.array(market_values, type=market_type)
+        token_value_set = pa.array(token_ids)
+        event_type_value_set = pa.array(["book", "price_change"])
+
+        for row_group in row_groups:
+            raw_table = parquet_file.read_row_groups([row_group], columns=raw_columns)
+            market_mask = pc.is_in(raw_table.column("market"), value_set=market_value_set)
+            event_type_mask = pc.is_in(
+                raw_table.column("event_type"),
+                value_set=event_type_value_set,
+            )
+            token_mask = pc.is_in(raw_table.column("asset_id"), value_set=token_value_set)
+            mask = pc.and_(
+                pc.and_(pc.fill_null(market_mask, False), pc.fill_null(event_type_mask, False)),
+                pc.fill_null(token_mask, False),
+            )
+            filtered = raw_table.filter(mask)
+            if filtered.num_rows == 0:
+                del raw_table, filtered, market_mask, event_type_mask, token_mask, mask
+                continue
+
+            timestamp_ns = pc.cast(
+                pc.cast(filtered.column("timestamp"), pa.timestamp("ns", tz="UTC")),
+                pa.int64(),
+            )
+            table = pa.Table.from_arrays(
+                [
+                    filtered.column("market"),
+                    filtered.column("event_type"),
+                    timestamp_ns,
+                    filtered.column("asset_id"),
+                    filtered.column("bids"),
+                    filtered.column("asks"),
+                    pc.cast(filtered.column("price"), pa.string()),
+                    pc.cast(filtered.column("size"), pa.string()),
+                    filtered.column("side"),
+                ],
+                names=("market", *PolymarketPMXTDataLoader._PMXT_FIXED_COLUMNS),
+            )
+            split = self._split_shared_fixed_table(
+                table,
+                requests=requests,
+                batch_size=batch_size,
+            )
+            for request_id, batches in split.items():
+                if batches:
+                    result[request_id].extend(batches)
+            del raw_table, filtered, table, split, timestamp_ns
+            if request_count > 8:
+                _release_arrow_memory()
+
+        return result
 
     def _load_shared_market_batches_from_raw_file(
         self,

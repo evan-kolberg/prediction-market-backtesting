@@ -55,8 +55,11 @@ TELONEX_LOCAL_DIR_ENV = "TELONEX_LOCAL_DIR"
 TELONEX_CHANNEL_ENV = "TELONEX_CHANNEL"
 TELONEX_CACHE_ROOT_ENV = "TELONEX_CACHE_ROOT"
 TELONEX_PREFETCH_WORKERS_ENV = "TELONEX_PREFETCH_WORKERS"
+TELONEX_LOCAL_PREFETCH_WORKERS_ENV = "TELONEX_LOCAL_PREFETCH_WORKERS"
 TELONEX_API_WORKERS_ENV = "TELONEX_API_WORKERS"
 TELONEX_FILE_WORKERS_ENV = "TELONEX_FILE_WORKERS"
+TELONEX_MAX_BLOB_PART_BYTES_ENV = "TELONEX_MAX_BLOB_PART_BYTES"
+TELONEX_BLOB_SCAN_BATCH_SIZE_ENV = "TELONEX_BLOB_SCAN_BATCH_SIZE"
 
 _TELONEX_DEFAULT_API_BASE_URL = "https://api.telonex.io"
 TELONEX_FULL_BOOK_CHANNEL = "book_snapshot_full"
@@ -67,8 +70,11 @@ _TELONEX_DEFAULT_CHANNEL = TELONEX_FULL_BOOK_CHANNEL
 _TELONEX_EXCHANGE = "polymarket"
 _TELONEX_HTTP_TIMEOUT_SECS = 60
 _TELONEX_DEFAULT_PREFETCH_WORKERS = 128
+_TELONEX_DEFAULT_LOCAL_PREFETCH_WORKERS = 1
 _TELONEX_DEFAULT_API_WORKERS = 128
 _TELONEX_DEFAULT_FILE_WORKERS = 28
+_TELONEX_DEFAULT_MAX_BLOB_PART_BYTES = 0
+_TELONEX_DEFAULT_BLOB_SCAN_BATCH_SIZE = 4_096
 _TELONEX_DOWNLOAD_CHUNK_SIZE = 1024 * 1024
 _TELONEX_USER_AGENT = "prediction-market-backtesting/1.0"
 _TELONEX_LOCAL_PREFIX = "local:"
@@ -178,6 +184,33 @@ def _resolve_file_workers() -> int:
         return max(1, int(configured))
     except ValueError:
         return _TELONEX_DEFAULT_FILE_WORKERS
+
+
+def _release_arrow_memory() -> None:
+    try:
+        pa.default_memory_pool().release_unused()
+    except AttributeError:
+        pass
+
+
+def _max_blob_part_bytes() -> int:
+    configured = _env_value(TELONEX_MAX_BLOB_PART_BYTES_ENV)
+    if configured is None:
+        return _TELONEX_DEFAULT_MAX_BLOB_PART_BYTES
+    try:
+        return max(0, int(configured))
+    except ValueError:
+        return _TELONEX_DEFAULT_MAX_BLOB_PART_BYTES
+
+
+def _blob_scan_batch_size() -> int:
+    configured = _env_value(TELONEX_BLOB_SCAN_BATCH_SIZE_ENV)
+    if configured is None:
+        return _TELONEX_DEFAULT_BLOB_SCAN_BATCH_SIZE
+    try:
+        return max(1, int(configured))
+    except ValueError:
+        return _TELONEX_DEFAULT_BLOB_SCAN_BATCH_SIZE
 
 
 def _telonex_api_semaphore() -> threading.BoundedSemaphore:
@@ -416,18 +449,16 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
             self._telonex_unreadable_blob_parts_warned: set[Path] = set()
         if not hasattr(self, "_telonex_incomplete_blob_partitions_warned"):
             self._telonex_incomplete_blob_partitions_warned: set[Path] = set()
-        # Memoize blob-range frames keyed by (store_root, channel, market, token,
-        # outcome, start_ym, end_ym). The pyarrow query already prunes by
-        # year/month, so two callers with start/end inside the same month
-        # window hit the same data. None is cached too so we don't retry
-        # empty stores.
+        # Cache empty blob-range lookups keyed by (store_root, channel, market,
+        # token, outcome, start_day, end_day). Successful scans can be very large,
+        # so they are returned to the caller without being retained here.
         if not hasattr(self, "_telonex_blob_range_frames"):
             self._telonex_blob_range_frames: dict[
                 tuple[str, str, str, int, str | None, int, int], pd.DataFrame | None
             ] = {}
-        # Cache the nanosecond timestamp array derived from each memoized
-        # blob frame so _column_to_ns() is not called N times for an N-day
-        # range on the same month-sized frame.
+        # Timestamp array caches are intentionally not populated for successful
+        # local blob scans; retaining those arrays held too much memory during
+        # high-concurrency cold local-cache fills.
         if not hasattr(self, "_telonex_blob_ts_ns"):
             self._telonex_blob_ts_ns: dict[
                 tuple[str, str, str, int, str | None, int, int], dict[str, np.ndarray]
@@ -568,6 +599,16 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
         except ValueError:
             return _TELONEX_DEFAULT_PREFETCH_WORKERS
 
+    @classmethod
+    def _resolve_local_prefetch_workers(cls) -> int:
+        configured = _env_value(TELONEX_LOCAL_PREFETCH_WORKERS_ENV)
+        if configured is None:
+            return _TELONEX_DEFAULT_LOCAL_PREFETCH_WORKERS
+        try:
+            return max(1, int(configured))
+        except ValueError:
+            return _TELONEX_DEFAULT_LOCAL_PREFETCH_WORKERS
+
     def _config(self) -> TelonexLoaderConfig:
         config = _current_loader_config()
         if config is None:
@@ -663,6 +704,7 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
 
         paths: list[str] = []
         incomplete = False
+        max_part_bytes = _max_blob_part_bytes()
         for path in sorted(partition_dir.glob("*.parquet")):
             # File-size check replaces pq.read_metadata() — reading every
             # parquet footer on a slow external disk was the dominant cost
@@ -670,8 +712,14 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
             # disk is almost certainly readable; corrupted files will fail
             # at actual read time and are caught there.
             try:
-                if path.stat().st_size <= 0:
+                file_size = path.stat().st_size
+                if file_size <= 0:
                     raise OSError("empty file")
+                if max_part_bytes and file_size > max_part_bytes:
+                    raise OSError(
+                        "parquet part exceeds safe scan size "
+                        f"({file_size} > {max_part_bytes} bytes)"
+                    )
             except (OSError, ValueError):
                 incomplete = True
                 with self._telonex_blob_scan_lock:
@@ -733,6 +781,7 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
 
         paths: list[str] = []
         incomplete = False
+        max_part_bytes = _max_blob_part_bytes()
         for (raw_part,) in rows:
             if raw_part is None:
                 continue
@@ -740,8 +789,14 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
             if not part_path.is_absolute():
                 part_path = store_root / part_path
             try:
-                if part_path.stat().st_size <= 0:
+                file_size = part_path.stat().st_size
+                if file_size <= 0:
                     raise OSError("empty file")
+                if max_part_bytes and file_size > max_part_bytes:
+                    raise OSError(
+                        "parquet part exceeds safe scan size "
+                        f"({file_size} > {max_part_bytes} bytes)"
+                    )
             except OSError:
                 incomplete = True
                 with self._telonex_blob_scan_lock:
@@ -850,8 +905,10 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
         """Query the Hive-partitioned Parquet layout for a single (market,
         outcome) slice. Returns None when the channel has no data on disk.
 
-        Memoized by (store_root, channel, market, token, outcome, start_day,
-        end_day).
+        Empty results are memoized by (store_root, channel, market, token,
+        outcome, start_day, end_day). Successful frames are intentionally not
+        retained because high-concurrency local-cache fills can otherwise keep
+        many large Arrow/Pandas buffers alive at once.
 
         Uses pyarrow.dataset with predicate pushdown instead of DuckDB, which
         eliminates SQL engine overhead, fetch_df() bulk materialization, and
@@ -876,8 +933,6 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
         self._ensure_blob_scan_caches()
         with self._telonex_blob_scan_lock:
             if cache_key in self._telonex_blob_range_frames:
-                # Downstream consumers only `.to_numpy()` slices off the frame,
-                # never mutate it, so returning the cached reference is safe.
                 return self._telonex_blob_range_frames[cache_key]
 
         channel_dir = store_root / _TELONEX_DATA_SUBDIR / f"channel={channel}"
@@ -1001,14 +1056,32 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
                 scanner = part_dataset.scanner(
                     columns=data_columns,
                     filter=filter_expr,
+                    batch_size=_blob_scan_batch_size(),
+                    use_threads=False,
                 )
-                table = scanner.to_table()
-            if table.num_rows == 0:
+                frames: list[pd.DataFrame] = []
+                for batch in scanner.to_batches():
+                    if batch.num_rows == 0:
+                        continue
+                    batch_frame = batch.to_pandas()
+                    if not batch_frame.empty:
+                        frames.append(batch_frame)
+                    del batch_frame
+                    del batch
+                    _release_arrow_memory()
+            if not frames:
                 with self._telonex_blob_scan_lock:
                     self._forget_blob_ts_cache_key(cache_key)
                     self._telonex_blob_range_frames[cache_key] = None
                 return None
-            frame = table.to_pandas()
+            if len(frames) == 1:
+                frame = frames[0]
+            else:
+                frame = pd.concat(frames, ignore_index=True, copy=False)
+            del frames
+            del scanner
+            del part_dataset
+            _release_arrow_memory()
         except (pa.ArrowInvalid, pa.ArrowIOError, OSError, ValueError) as exc:
             warnings.warn(
                 f"Telonex: skipping blob store {store_root} for {market_slug}/"
@@ -1025,30 +1098,6 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
                 self._forget_blob_ts_cache_key(cache_key)
                 self._telonex_blob_range_frames[cache_key] = None
             return None
-        # Pre-compute the nanosecond timestamp array for every possible
-        # timestamp column name so per-day callers of _column_to_ns() can
-        # reuse it instead of converting the same month-sized column N times.
-        ts_ns_map: dict[str, np.ndarray] = {}
-        for col_candidates in (("timestamp_us", "timestamp_ms", "timestamp", "time"),):
-            for col_name in col_candidates:
-                if col_name in frame.columns:
-                    ts_ns_map[col_name] = self._column_to_ns(
-                        frame[col_name],
-                        col_name,
-                    )
-                    break
-        if ts_ns_map:
-            with self._telonex_blob_scan_lock:
-                self._forget_blob_ts_cache_key(cache_key)
-                self._telonex_blob_range_frames[cache_key] = frame
-                self._telonex_blob_ts_ns[cache_key] = ts_ns_map
-                frame_id = id(frame)
-                self._telonex_blob_frame_id_by_key[cache_key] = frame_id
-                self._telonex_blob_ts_ns_by_frame_id[frame_id] = ts_ns_map
-        else:
-            with self._telonex_blob_scan_lock:
-                self._forget_blob_ts_cache_key(cache_key)
-                self._telonex_blob_range_frames[cache_key] = frame
         return frame
 
     def _cached_ts_ns_for_frame(self, frame: pd.DataFrame, column_name: str) -> np.ndarray | None:
@@ -1610,6 +1659,8 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
             if not _TELONEX_DELTAS_CACHE_COLUMNS.issubset(set(table.schema.names)):
                 raise ValueError("missing required deltas cache columns")
             records = self._deltas_records_from_table(table)
+            del table
+            _release_arrow_memory()
         except Exception as exc:  # noqa: BLE001 - stale/corrupt cache should self-heal
             try:
                 cache_path.unlink()
@@ -1662,6 +1713,8 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
                     compression="zstd",
                 )
                 os.replace(tmp_path, cache_path)
+            del table
+            _release_arrow_memory()
             self._emit_cache_write_event(
                 cache_kind="deltas",
                 cache_path=cache_path,
@@ -1766,6 +1819,8 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
                     pass
                 return None, "none"
             records = self._trade_ticks_from_cache_table(table)
+            del table
+            _release_arrow_memory()
         except Exception as exc:  # noqa: BLE001 - stale/corrupt cache should self-heal
             try:
                 cache_path.unlink()
@@ -1815,6 +1870,8 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
                     compression="zstd",
                 )
                 os.replace(tmp_path, cache_path)
+            del table
+            _release_arrow_memory()
             self._emit_cache_write_event(
                 cache_kind="trade",
                 cache_path=cache_path,
@@ -2577,7 +2634,11 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
                         start=day_start,
                         end=day_end,
                     )
+                    frame = None
+                    _release_arrow_memory()
                     return parsed
+                frame = None
+                _release_arrow_memory()
 
         range_cache: dict[Path, pd.DataFrame | None] = {}
         for entry in config.ordered_source_entries:
@@ -2639,8 +2700,15 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
                         start=day_start,
                         end=day_end,
                     )
+                    frame = None
+                    range_cache.clear()
+                    _release_arrow_memory()
                     return parsed
+                frame = None
+                _release_arrow_memory()
 
+        range_cache.clear()
+        _release_arrow_memory()
         return None
 
     def _try_load_range_from_local(
@@ -2706,6 +2774,25 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
     ) -> pd.DataFrame | None:
         assert entry.target is not None
         root = Path(entry.target).expanduser()
+
+        try:
+            daily_frame = self._load_local_day(
+                root=root,
+                channel=channel,
+                date=date,
+                market_slug=market_slug,
+                token_index=token_index,
+                outcome=outcome,
+            )
+        except Exception as exc:  # noqa: BLE001 — fall through to blob/consolidated/API
+            warnings.warn(
+                f"Telonex: local daily read failed at {root} ({exc}); trying next source.",
+                stacklevel=2,
+            )
+            daily_frame = None
+        if daily_frame is not None:
+            return daily_frame
+
         blob_root = self._local_blob_root(root)
         if blob_root is not None:
             try:
@@ -2726,24 +2813,6 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
                 blob_frame = None
             if blob_frame is not None:
                 return blob_frame
-
-        try:
-            daily_frame = self._load_local_day(
-                root=root,
-                channel=channel,
-                date=date,
-                market_slug=market_slug,
-                token_index=token_index,
-                outcome=outcome,
-            )
-        except Exception as exc:  # noqa: BLE001 — fall through to consolidated/API
-            warnings.warn(
-                f"Telonex: local daily read failed at {root} ({exc}); trying next source.",
-                stacklevel=2,
-            )
-            daily_frame = None
-        if daily_frame is not None:
-            return daily_frame
 
         path = self._local_consolidated_path(
             root=root,
@@ -2953,6 +3022,9 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
                     start=day_start,
                     end=day_end,
                 )
+            frame = None
+            delta_columns = None
+            _release_arrow_memory()
             self._day_progress(date, "complete", day_source, len(day_records))
             emitted_day_complete = True
             return _TelonexDayResult(date=date, records=day_records, source=day_source)
@@ -2976,7 +3048,16 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
         prefetch_workers = getattr(
             self, "_telonex_prefetch_workers", self._resolve_prefetch_workers()
         )
-        max_workers = min(prefetch_workers, len(dates)) if api_entries else 1
+        has_local_source = any(
+            entry.kind == _TELONEX_SOURCE_LOCAL for entry in config.ordered_source_entries
+        )
+        if has_local_source:
+            worker_limit = self._resolve_local_prefetch_workers()
+        elif api_entries:
+            worker_limit = prefetch_workers
+        else:
+            worker_limit = 1
+        max_workers = min(worker_limit, len(dates))
         if max_workers <= 1:
             range_cache: dict[Path, pd.DataFrame | None] = {}
             for date in dates:
@@ -3060,12 +3141,15 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
 __all__ = [
     "TELONEX_API_BASE_URL_ENV",
     "TELONEX_API_WORKERS_ENV",
+    "TELONEX_BLOB_SCAN_BATCH_SIZE_ENV",
     "TELONEX_CACHE_ROOT_ENV",
     "TELONEX_API_KEY_ENV",
     "TELONEX_CHANNEL_ENV",
     "TELONEX_FILE_WORKERS_ENV",
     "TELONEX_FULL_BOOK_CHANNEL",
     "TELONEX_LOCAL_DIR_ENV",
+    "TELONEX_LOCAL_PREFETCH_WORKERS_ENV",
+    "TELONEX_MAX_BLOB_PART_BYTES_ENV",
     "TELONEX_ONCHAIN_FILLS_CHANNEL",
     "TELONEX_PREFETCH_WORKERS_ENV",
     "TELONEX_TRADES_CHANNEL",

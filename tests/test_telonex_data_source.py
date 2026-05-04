@@ -28,6 +28,7 @@ from prediction_market_extensions.backtesting.data_sources.telonex import (
     TELONEX_FILE_WORKERS_ENV,
     TELONEX_FULL_BOOK_CHANNEL,
     TELONEX_LOCAL_DIR_ENV,
+    TELONEX_LOCAL_PREFETCH_WORKERS_ENV,
     TELONEX_ONCHAIN_FILLS_CHANNEL,
     TELONEX_PREFETCH_WORKERS_ENV,
     TELONEX_TRADES_CHANNEL,
@@ -304,6 +305,19 @@ def test_telonex_prefetch_workers_default_and_env(monkeypatch: pytest.MonkeyPatc
 
     monkeypatch.setenv(TELONEX_PREFETCH_WORKERS_ENV, "invalid")
     assert RunnerPolymarketTelonexBookDataLoader._resolve_prefetch_workers() == 128
+
+
+def test_telonex_local_prefetch_workers_default_and_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv(TELONEX_LOCAL_PREFETCH_WORKERS_ENV, raising=False)
+    assert RunnerPolymarketTelonexBookDataLoader._resolve_local_prefetch_workers() == 1
+
+    monkeypatch.setenv(TELONEX_LOCAL_PREFETCH_WORKERS_ENV, "3")
+    assert RunnerPolymarketTelonexBookDataLoader._resolve_local_prefetch_workers() == 3
+
+    monkeypatch.setenv(TELONEX_LOCAL_PREFETCH_WORKERS_ENV, "invalid")
+    assert RunnerPolymarketTelonexBookDataLoader._resolve_local_prefetch_workers() == 1
 
 
 def test_telonex_api_url_uses_slug_and_outcome_id_without_key() -> None:
@@ -1253,6 +1267,81 @@ def test_telonex_full_book_loader_prefetches_api_days(monkeypatch: pytest.Monkey
     )
 
 
+def test_telonex_local_source_caps_day_prefetch_even_with_api_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    module = importlib.reload(telonex_module)
+    loader_cls = module.RunnerPolymarketTelonexBookDataLoader
+    loader = loader_cls.__new__(loader_cls)
+    loader._telonex_prefetch_workers = 128
+    monkeypatch.delenv(module.TELONEX_LOCAL_PREFETCH_WORKERS_ENV, raising=False)
+    config = module.TelonexLoaderConfig(
+        channel="book_snapshot_full",
+        ordered_source_entries=(
+            module.TelonexSourceEntry(kind="local", target=str(tmp_path / "telonex")),
+            module.TelonexSourceEntry(
+                kind="api", target="https://api.example.test", api_key="test-key"
+            ),
+        ),
+    )
+    active = 0
+    max_active = 0
+    active_lock = threading.Lock()
+
+    monkeypatch.setattr(loader, "_config", lambda: config)
+    monkeypatch.setattr(loader, "_load_deltas_cache_day", lambda **kwargs: (None, "none"))
+    monkeypatch.setattr(loader, "_try_load_day_from_local", lambda **kwargs: None)
+    monkeypatch.setattr(loader, "_write_deltas_cache_day", lambda **kwargs: None)
+    monkeypatch.setattr(loader, "_day_progress", lambda *args, **kwargs: None)
+
+    def fake_api_day(*, date: str, **kwargs: object) -> pd.DataFrame:
+        del kwargs
+        nonlocal active, max_active
+        with active_lock:
+            active += 1
+            max_active = max(max_active, active)
+        try:
+            time.sleep(0.02)
+            day = int(date.rsplit("-", 1)[1])
+            return pd.DataFrame(
+                {
+                    "timestamp_us": [1_768_780_800_000_000 + day],
+                    "bids": [[{"price": "0.34", "size": "10"}]],
+                    "asks": [[{"price": "0.39", "size": "11"}]],
+                }
+            )
+        finally:
+            with active_lock:
+                active -= 1
+
+    monkeypatch.setattr(loader, "_load_api_day", fake_api_day)
+    monkeypatch.setattr(
+        loader,
+        "_book_events_and_delta_columns_from_frame",
+        lambda frame, *, start, end, include_order_book: (
+            [
+                SimpleNamespace(
+                    ts_event=int(frame["timestamp_us"].iloc[0]),
+                    ts_init=int(frame["timestamp_us"].iloc[0]),
+                )
+            ],
+            None,
+        ),
+    )
+
+    records = loader.load_order_book_deltas(
+        pd.Timestamp("2026-01-19", tz="UTC"),
+        pd.Timestamp("2026-01-21 23:59:59", tz="UTC"),
+        market_slug="prefetch-test",
+        token_index=0,
+        outcome=None,
+    )
+
+    assert max_active == 1
+    assert len(records) == 3
+
+
 def test_telonex_blob_timestamp_cache_reads_are_thread_safe() -> None:
     loader_cls = telonex_module.RunnerPolymarketTelonexBookDataLoader
     loader = loader_cls.__new__(loader_cls)
@@ -1352,6 +1441,54 @@ def test_telonex_full_book_loader_falls_back_to_api_when_blob_partition_is_incom
 
     assert len(records) == 1
     assert calls == ["api"]
+
+
+def test_telonex_local_daily_file_is_used_before_blob_store(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    loader = RunnerPolymarketTelonexBookDataLoader.__new__(RunnerPolymarketTelonexBookDataLoader)
+    local_root = tmp_path / "telonex"
+    daily_path = (
+        local_root
+        / "polymarket"
+        / "book_snapshot_full"
+        / "daily-test-market"
+        / "Yes"
+        / "2026-01-19.parquet"
+    )
+    daily_path.parent.mkdir(parents=True)
+    pd.DataFrame(
+        {
+            "timestamp_us": [1_768_780_800_000_000],
+            "bids": [[{"price": "0.34", "size": "10"}]],
+            "asks": [[{"price": "0.39", "size": "11"}]],
+        }
+    ).to_parquet(daily_path, index=False)
+    (local_root / "data" / "channel=book_snapshot_full" / "year=2026" / "month=01").mkdir(
+        parents=True
+    )
+    (local_root / "telonex.duckdb").write_bytes(b"not-used")
+
+    def fail_blob(**kwargs: object) -> None:
+        del kwargs
+        raise AssertionError("daily replay file should be checked before blob store")
+
+    monkeypatch.setattr(loader, "_load_blob_range", fail_blob)
+
+    frame = loader._try_load_day_from_local(
+        entry=telonex_module.TelonexSourceEntry(kind="local", target=str(local_root)),
+        channel="book_snapshot_full",
+        date="2026-01-19",
+        market_slug="daily-test-market",
+        token_index=0,
+        outcome="Yes",
+        start=pd.Timestamp("2026-01-19T00:00:00Z"),
+        end=pd.Timestamp("2026-01-19T23:59:59Z"),
+        range_cache={},
+    )
+
+    assert frame is not None
+    assert frame["timestamp_us"].tolist() == [1_768_780_800_000_000]
 
 
 def test_telonex_local_range_matches_consolidated_download_script_layout(tmp_path) -> None:

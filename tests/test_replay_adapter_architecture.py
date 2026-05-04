@@ -615,6 +615,7 @@ def test_trade_progress_labels_telonex_materialized_trade_cache(tmp_path, capsys
     )
     output = capsys.readouterr().err
 
+    assert "trades 2026-01-19 (0.123s) (4 rows) telonex onchain_fills cache" in output
     assert "telonex onchain_fills cache 2026-01-19.1-2.parquet" in output
 
 

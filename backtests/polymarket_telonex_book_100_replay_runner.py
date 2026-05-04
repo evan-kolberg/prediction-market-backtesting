@@ -173,7 +173,10 @@ def run() -> None:
                     platform=Polymarket,
                     data_type=Book,
                     vendor=Telonex,
-                    sources=("api:${TELONEX_API_KEY}",),
+                    sources=(
+                        "local:/Volumes/storage/telonex_data",
+                        "api:${TELONEX_API_KEY}",
+                    ),
                 ),
                 replays=replays,
                 strategy_configs=[

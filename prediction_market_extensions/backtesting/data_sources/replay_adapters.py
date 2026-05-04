@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import gc
 import os
 import time
 import warnings
@@ -55,6 +56,13 @@ from prediction_market_extensions.backtesting.data_sources.telonex import (
 REPLAY_MATERIALIZE_WORKERS_ENV = "BACKTEST_REPLAY_MATERIALIZE_WORKERS"
 DEFAULT_REPLAY_MATERIALIZE_WORKERS = 4
 MAX_REPLAY_MATERIALIZE_WORKERS = 16
+
+
+def _release_arrow_memory() -> None:
+    try:
+        pa.default_memory_pool().release_unused()
+    except AttributeError:
+        pass
 
 
 def _resolve_backtest_compat_symbol(name: str, default: Any) -> Any:
@@ -402,9 +410,9 @@ def _print_trade_progress_line(
     rows: int,
     source: str,
 ) -> None:
+    source_label = _trade_source_label(source)
     emit_loader_event(
-        f"trades {_trade_day_label(day):>10s}  {elapsed_secs:7.3f}s  "
-        f"{rows:8d} rows  {_trade_source_label(source)}",
+        f"trades {_trade_day_label(day)} ({elapsed_secs:.3f}s) ({rows} rows) {source_label}",
         stage="fetch",
         vendor="polymarket",
         status="complete",
@@ -414,7 +422,7 @@ def _print_trade_progress_line(
         rows=rows,
         trade_ticks=rows,
         elapsed_ms=elapsed_secs * 1000.0,
-        attrs={"day": _trade_day_label(day), "source_label": _trade_source_label(source)},
+        attrs={"day": _trade_day_label(day), "source_label": source_label},
     )
 
 
@@ -1158,23 +1166,28 @@ class PolymarketPMXTBookReplayAdapter(_BaseReplayAdapter):
                 index, hour, batches = item
                 loader = prepared[index].loader
                 table = pa.Table.from_batches(batches) if batches else loader._empty_market_table()
-                await asyncio.to_thread(loader._write_cache_if_enabled, hour, table)
+                try:
+                    await asyncio.to_thread(loader._write_cache_if_enabled, hour, table)
+                finally:
+                    del table
+                    _release_arrow_memory()
 
             async def _fill_shared_hour_cache(
                 item: tuple[pd.Timestamp, list[int]],
             ) -> None:
                 hour, indexes = item
                 loaded_hour, batches_by_request = await _load_shared_hour((hour, indexes))
-                cache_writes = [
-                    (index, loaded_hour, batches)
-                    for index in missing_by_hour.get(loaded_hour, ())
-                    if (batches := batches_by_request.get(index)) is not None
-                ]
-                await _gather_bounded(
-                    cache_writes,
-                    workers=book_workers,
-                    func=_write_grouped_cache,
-                )
+                try:
+                    for index in missing_by_hour.get(loaded_hour, ()):
+                        batches = batches_by_request.pop(index, None)
+                        if batches is None:
+                            continue
+                        await _write_grouped_cache((index, loaded_hour, batches))
+                        del batches
+                finally:
+                    batches_by_request.clear()
+                    gc.collect()
+                    _release_arrow_memory()
 
             await _gather_bounded(
                 tuple(missing_by_hour.items()),

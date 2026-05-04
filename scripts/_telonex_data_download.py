@@ -703,15 +703,25 @@ class _TelonexParquetStore:
     def _append_to_partition(
         self, key: tuple[str, int, int], entries: list[_DownloadResult]
     ) -> int:
-        """Concat every entry's Arrow table for the partition and write it as a
-        single row group. Arrow schema promotion unifies divergent column sets,
-        so the partition keeps a single open writer and only rolls when the
-        unified schema genuinely changes (new column appears) or the part
-        crosses the byte target.
+        """Append market/day tables to a monthly blob partition.
+
+        Each downloaded market/day stays in its own Parquet row group. This
+        keeps the durable 512 MiB-ish monthly blob layout while preserving useful
+        row-group statistics for `market_slug`, `outcome_segment`, and
+        timestamp predicates. Combining unrelated market-days into one row group
+        made local reads scan most of the monthly blob for every replay.
+
         Caller holds the lock.
         """
-        enriched_entries: list[tuple[_DownloadResult, int, pa.Table]] = []
-        for entry in entries:
+        total_rows = 0
+        for entry in sorted(
+            entries,
+            key=lambda result: (
+                result.job.market_slug,
+                result.job.outcome_segment,
+                result.job.day,
+            ),
+        ):
             assert entry.table is not None
             table = entry.table
             row_count = table.num_rows
@@ -721,26 +731,11 @@ class _TelonexParquetStore:
                 "outcome_segment",
                 pa.repeat(pa.scalar(entry.job.outcome_segment), row_count),
             )
-            enriched_entries.append((entry, row_count, enriched))
-            # Drop the dataclass reference so the table can be GC'd when
-            # the local `enriched_entries` list is cleared below.
             entry.table = None
-
-        try:
-            table = pa.concat_tables(
-                [table for _entry, _row_count, table in enriched_entries],
-                promote_options="default",
-            )
-        except (pa.ArrowInvalid, pa.ArrowTypeError):
-            total_rows = 0
-            for entry, row_count, table in enriched_entries:
-                total_rows += self._write_partition_table_locked(key, table, [(entry, row_count)])
-            enriched_entries.clear()
-            return total_rows
-
-        pending = [(entry, row_count) for entry, row_count, _table in enriched_entries]
-        enriched_entries.clear()
-        return self._write_partition_table_locked(key, table, pending)
+            total_rows += self._write_partition_table_locked(key, enriched, [(entry, row_count)])
+            del enriched
+            _release_arrow_memory()
+        return total_rows
 
     def _write_partition_table_locked(
         self,
