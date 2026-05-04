@@ -36,7 +36,7 @@ PMXT_SOURCE_PRIORITY_ENV = "PMXT_SOURCE_PRIORITY"
 PMXT_PREFETCH_WORKERS_ENV = "PMXT_PREFETCH_WORKERS"
 _PMXT_RUNNER_HTTP_USER_AGENT = "prediction-market-backtesting/1.0"
 _PMXT_RUNNER_HTTP_TIMEOUT_SECS = 30
-_PMXT_LOCAL_RAW_PREFETCH_WORKERS = "8"
+_PMXT_LOCAL_RAW_PREFETCH_WORKERS = "4"
 _PMXT_ARCHIVE_SOURCE_PREFIXES = ("archive:",)
 _PMXT_RAW_LOCAL_SOURCE_PREFIXES = ("local:",)
 
@@ -132,45 +132,13 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
         except Exception:
             return str(hour)
 
-    def _emit_pmxt_source_event(
-        self,
-        *,
-        message: str,
-        stage: str,
-        status: str,
-        hour,
-        source_kind: str | None = None,
-        source: str | None = None,
-        cache_path: Path | None = None,
-        rows: int | None = None,
-        bytes_count: int | None = None,
-        level: str = "INFO",
-        extra_attrs: dict[str, object] | None = None,
-        origin_function: str | None = None,
-    ) -> None:  # type: ignore[no-untyped-def]
+    def _pmxt_source_attrs(
+        self, hour, extra_attrs: dict[str, object] | None = None
+    ) -> dict[str, object]:  # type: ignore[no-untyped-def]
         attrs: dict[str, object] = {"hour": self._hour_label(hour)}
         if extra_attrs:
             attrs.update(extra_attrs)
-        origin = f"pmxt.{origin_function}" if origin_function else None
-        emit_loader_event(
-            message,
-            level=level,
-            stage=stage,
-            status=status,
-            origin=origin,
-            vendor="pmxt",
-            platform="polymarket",
-            data_type="book",
-            source_kind=source_kind,
-            source=source,
-            cache_path=str(cache_path) if cache_path is not None else None,
-            condition_id=getattr(self, "condition_id", None),
-            token_id=getattr(self, "token_id", None),
-            rows=rows,
-            bytes=bytes_count,
-            attrs=attrs,
-            stacklevel=3,
-        )
+        return attrs
 
     @staticmethod
     def _source_kind_for_stage(stage: str) -> str:
@@ -428,15 +396,19 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
         temp_path = raw_path.with_name(
             f".{raw_path.name}.{os.getpid()}.{threading.get_ident()}.tmp"
         )
-        self._emit_pmxt_source_event(
-            message=f"Writing PMXT raw archive copy for {self._hour_label(hour)}",
+        emit_loader_event(
+            f"Writing PMXT raw archive copy for {self._hour_label(hour)}",
             stage="raw_write",
             status="start",
-            hour=hour,
+            vendor="pmxt",
+            platform="polymarket",
+            data_type="book",
             source_kind="local",
             source=f"archive:{archive_url}",
-            cache_path=raw_path,
-            origin_function="_download_remote_raw_to_local_root",
+            cache_path=str(raw_path),
+            condition_id=getattr(self, "condition_id", None),
+            token_id=getattr(self, "token_id", None),
+            attrs=self._pmxt_source_attrs(hour),
         )
         try:
             raw_path.parent.mkdir(parents=True, exist_ok=True)
@@ -456,32 +428,39 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
                 cache = {}
                 self._pmxt_progress_size_cache = cache
             cache[str(raw_path)] = bytes_count
-            self._emit_pmxt_source_event(
-                message=f"Wrote PMXT raw archive copy for {self._hour_label(hour)}",
+            emit_loader_event(
+                f"Wrote PMXT raw archive copy for {self._hour_label(hour)}",
                 stage="raw_write",
                 status="complete",
-                hour=hour,
+                vendor="pmxt",
+                platform="polymarket",
+                data_type="book",
                 source_kind="local",
                 source=f"archive:{archive_url}",
-                cache_path=raw_path,
-                bytes_count=bytes_count,
-                origin_function="_download_remote_raw_to_local_root",
+                cache_path=str(raw_path),
+                condition_id=getattr(self, "condition_id", None),
+                token_id=getattr(self, "token_id", None),
+                bytes=bytes_count,
+                attrs=self._pmxt_source_attrs(hour),
             )
             return raw_path
         except OSError as exc:
             temp_path.unlink(missing_ok=True)
             if "404" not in str(exc):
-                self._emit_pmxt_source_event(
-                    message=f"Failed to write PMXT raw archive copy for {self._hour_label(hour)}",
+                emit_loader_event(
+                    f"Failed to write PMXT raw archive copy for {self._hour_label(hour)}",
                     level="ERROR",
                     stage="raw_write",
                     status="error",
-                    hour=hour,
+                    vendor="pmxt",
+                    platform="polymarket",
+                    data_type="book",
                     source_kind="local",
                     source=f"archive:{archive_url}",
-                    cache_path=raw_path,
-                    extra_attrs={"error": str(exc)},
-                    origin_function="_download_remote_raw_to_local_root",
+                    cache_path=str(raw_path),
+                    condition_id=getattr(self, "condition_id", None),
+                    token_id=getattr(self, "token_id", None),
+                    attrs=self._pmxt_source_attrs(hour, {"error": str(exc)}),
                 )
             return None
 
@@ -947,22 +926,21 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
         for kind, target in source_entries:
             source_target = target or None
             source = self._source_label_for_stage(kind, source_target)
-            origin_function = (
-                "load_shared_market_batches_for_hour"
-                if kind == _PMXT_SOURCE_STAGE_RAW_LOCAL
-                else "_load_remote_market_batches_from_base_url"
-            )
-            self._emit_pmxt_source_event(
-                message=(
+            emit_loader_event(
+                (
                     f"Trying PMXT grouped {self._source_kind_for_stage(kind)} source "
                     f"for {self._hour_label(hour)} ({len(requests)} request(s))"
                 ),
                 stage="fetch",
                 status="start",
-                hour=hour,
+                vendor="pmxt",
+                platform="polymarket",
+                data_type="book",
                 source_kind=self._source_kind_for_stage(kind),
                 source=source,
-                origin_function=origin_function,
+                condition_id=getattr(self, "condition_id", None),
+                token_id=getattr(self, "token_id", None),
+                attrs=self._pmxt_source_attrs(hour),
             )
             if kind == _PMXT_SOURCE_STAGE_RAW_REMOTE:
                 remote_url = target or getattr(self, "_pmxt_remote_base_url", None)
@@ -986,17 +964,21 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
                     else self._raw_path_for_source_stage(kind, hour)
                 )
                 if raw_path is None:
-                    self._emit_pmxt_source_event(
-                        message=(
+                    emit_loader_event(
+                        (
                             f"PMXT grouped {self._source_kind_for_stage(kind)} source "
                             f"had no usable data for {self._hour_label(hour)}"
                         ),
                         stage="fetch",
                         status="skip",
-                        hour=hour,
+                        vendor="pmxt",
+                        platform="polymarket",
+                        data_type="book",
                         source_kind=self._source_kind_for_stage(kind),
                         source=source,
-                        origin_function=origin_function,
+                        condition_id=getattr(self, "condition_id", None),
+                        token_id=getattr(self, "token_id", None),
+                        attrs=self._pmxt_source_attrs(hour),
                     )
                     continue
                 batches_by_request = self._load_shared_market_batches_from_raw_file(
@@ -1005,35 +987,43 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
                     batch_size=batch_size,
                 )
             if batches_by_request is None:
-                self._emit_pmxt_source_event(
-                    message=(
+                emit_loader_event(
+                    (
                         f"PMXT grouped {self._source_kind_for_stage(kind)} source "
                         f"had no usable data for {self._hour_label(hour)}"
                     ),
                     stage="fetch",
                     status="skip",
-                    hour=hour,
+                    vendor="pmxt",
+                    platform="polymarket",
+                    data_type="book",
                     source_kind=self._source_kind_for_stage(kind),
                     source=source,
-                    origin_function=origin_function,
+                    condition_id=getattr(self, "condition_id", None),
+                    token_id=getattr(self, "token_id", None),
+                    attrs=self._pmxt_source_attrs(hour),
                 )
                 continue
 
             rows = sum(
                 self._row_count_from_batches(batches) for batches in batches_by_request.values()
             )
-            self._emit_pmxt_source_event(
-                message=(
+            emit_loader_event(
+                (
                     f"Loaded PMXT grouped {self._source_kind_for_stage(kind)} source "
                     f"for {self._hour_label(hour)} ({rows} rows across {len(requests)} request(s))"
                 ),
                 stage="fetch",
                 status="complete",
-                hour=hour,
+                vendor="pmxt",
+                platform="polymarket",
+                data_type="book",
                 source_kind=self._source_kind_for_stage(kind),
                 source=source,
                 rows=rows,
-                origin_function=origin_function,
+                condition_id=getattr(self, "condition_id", None),
+                token_id=getattr(self, "token_id", None),
+                attrs=self._pmxt_source_attrs(hour),
             )
             return {**missing, **batches_by_request}
 
@@ -1047,29 +1037,38 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
             return
         try:
             self._write_market_cache(hour, table)
-            self._emit_pmxt_source_event(
-                message=(
+            emit_loader_event(
+                (
                     "Wrote PMXT filtered market cache "
                     f"for {self._hour_label(hour)} ({table.num_rows} rows)"
                 ),
                 stage="cache_write",
                 status="complete",
-                hour=hour,
+                vendor="pmxt",
+                platform="polymarket",
+                data_type="book",
                 source_kind="cache",
-                cache_path=cache_path,
+                cache_path=str(cache_path),
                 rows=int(table.num_rows),
+                condition_id=getattr(self, "condition_id", None),
+                token_id=getattr(self, "token_id", None),
+                attrs=self._pmxt_source_attrs(hour),
             )
         except (OSError, pa.ArrowException) as exc:
-            self._emit_pmxt_source_event(
-                message=f"Failed to write PMXT filtered market cache for {self._hour_label(hour)}",
+            emit_loader_event(
+                f"Failed to write PMXT filtered market cache for {self._hour_label(hour)}",
                 level="ERROR",
                 stage="cache_write",
                 status="error",
-                hour=hour,
+                vendor="pmxt",
+                platform="polymarket",
+                data_type="book",
                 source_kind="cache",
-                cache_path=cache_path,
+                cache_path=str(cache_path),
                 rows=int(table.num_rows),
-                extra_attrs={"error": str(exc)},
+                condition_id=getattr(self, "condition_id", None),
+                token_id=getattr(self, "token_id", None),
+                attrs=self._pmxt_source_attrs(hour, {"error": str(exc)}),
             )
 
     def _load_market_table(self, hour, *, batch_size: int):  # type: ignore[no-untyped-def]
@@ -1135,49 +1134,56 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
         if batches is not None:
             cache_path = self._cache_path_for_hour(hour)
             rows = self._row_count_from_batches(batches)
-            self._emit_pmxt_source_event(
-                message=f"Loaded PMXT filtered cache for {self._hour_label(hour)} ({rows} rows)",
+            emit_loader_event(
+                f"Loaded PMXT filtered cache for {self._hour_label(hour)} ({rows} rows)",
                 stage="cache_read",
                 status="cache_hit",
-                hour=hour,
+                vendor="pmxt",
+                platform="polymarket",
+                data_type="book",
                 source_kind="cache",
-                cache_path=cache_path,
+                cache_path=str(cache_path) if cache_path is not None else None,
                 rows=rows,
-                origin_function="_load_cached_market_batches",
+                condition_id=getattr(self, "condition_id", None),
+                token_id=getattr(self, "token_id", None),
+                attrs=self._pmxt_source_attrs(hour),
             )
             return batches
         cache_path = self._cache_path_for_hour(hour)
         if cache_path is not None:
-            self._emit_pmxt_source_event(
-                message=f"PMXT filtered cache miss for {self._hour_label(hour)}",
+            emit_loader_event(
+                f"PMXT filtered cache miss for {self._hour_label(hour)}",
                 stage="cache_read",
                 status="cache_miss",
-                hour=hour,
+                vendor="pmxt",
+                platform="polymarket",
+                data_type="book",
                 source_kind="cache",
-                cache_path=cache_path,
-                origin_function="_load_cached_market_batches",
+                cache_path=str(cache_path),
+                condition_id=getattr(self, "condition_id", None),
+                token_id=getattr(self, "token_id", None),
+                attrs=self._pmxt_source_attrs(hour),
             )
 
         ordered_entries = getattr(self, "_pmxt_ordered_source_entries", ()) or ()
         if ordered_entries:
             for kind, target in ordered_entries:
                 source = self._source_label_for_stage(kind, target)
-                origin_function = (
-                    "_load_local_raw_market_batches_from_root"
-                    if kind == _PMXT_SOURCE_STAGE_RAW_LOCAL
-                    else "_load_remote_market_batches_from_base_url"
-                )
-                self._emit_pmxt_source_event(
-                    message=(
+                emit_loader_event(
+                    (
                         f"Trying PMXT {self._source_kind_for_stage(kind)} source "
                         f"for {self._hour_label(hour)}"
                     ),
                     stage="fetch",
                     status="start",
-                    hour=hour,
+                    vendor="pmxt",
+                    platform="polymarket",
+                    data_type="book",
                     source_kind=self._source_kind_for_stage(kind),
                     source=source,
-                    origin_function=origin_function,
+                    condition_id=getattr(self, "condition_id", None),
+                    token_id=getattr(self, "token_id", None),
+                    attrs=self._pmxt_source_attrs(hour),
                 )
                 entry_batches = self._load_ordered_entry_batches(
                     kind,
@@ -1187,18 +1193,22 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
                 )
                 if entry_batches is not None:
                     rows = self._row_count_from_batches(entry_batches)
-                    self._emit_pmxt_source_event(
-                        message=(
+                    emit_loader_event(
+                        (
                             f"Loaded PMXT {self._source_kind_for_stage(kind)} source "
                             f"for {self._hour_label(hour)} ({rows} rows)"
                         ),
                         stage="fetch",
                         status="complete",
-                        hour=hour,
+                        vendor="pmxt",
+                        platform="polymarket",
+                        data_type="book",
                         source_kind=self._source_kind_for_stage(kind),
                         source=source,
                         rows=rows,
-                        origin_function=origin_function,
+                        condition_id=getattr(self, "condition_id", None),
+                        token_id=getattr(self, "token_id", None),
+                        attrs=self._pmxt_source_attrs(hour),
                     )
                     if self._pmxt_cache_dir is not None:
                         table = (
@@ -1208,17 +1218,21 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
                         )
                         self._write_cache_if_enabled(hour, table)
                     return entry_batches
-                self._emit_pmxt_source_event(
-                    message=(
+                emit_loader_event(
+                    (
                         f"PMXT {self._source_kind_for_stage(kind)} source had no usable data "
                         f"for {self._hour_label(hour)}"
                     ),
                     stage="fetch",
                     status="skip",
-                    hour=hour,
+                    vendor="pmxt",
+                    platform="polymarket",
+                    data_type="book",
                     source_kind=self._source_kind_for_stage(kind),
                     source=source,
-                    origin_function=origin_function,
+                    condition_id=getattr(self, "condition_id", None),
+                    token_id=getattr(self, "token_id", None),
+                    attrs=self._pmxt_source_attrs(hour),
                 )
             return None
 
@@ -1233,27 +1247,35 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
                         else None
                     )
                 )
-                self._emit_pmxt_source_event(
-                    message=f"Trying PMXT local source for {self._hour_label(hour)}",
+                emit_loader_event(
+                    f"Trying PMXT local source for {self._hour_label(hour)}",
                     stage="fetch",
                     status="start",
-                    hour=hour,
+                    vendor="pmxt",
+                    platform="polymarket",
+                    data_type="book",
                     source_kind="local",
                     source=source,
-                    origin_function="_load_local_archive_market_batches",
+                    condition_id=getattr(self, "condition_id", None),
+                    token_id=getattr(self, "token_id", None),
+                    attrs=self._pmxt_source_attrs(hour),
                 )
                 batches = self._load_local_archive_market_batches(hour, batch_size=batch_size)
                 if batches is not None:
                     rows = self._row_count_from_batches(batches)
-                    self._emit_pmxt_source_event(
-                        message=f"Loaded PMXT local source for {self._hour_label(hour)} ({rows} rows)",
+                    emit_loader_event(
+                        f"Loaded PMXT local source for {self._hour_label(hour)} ({rows} rows)",
                         stage="fetch",
                         status="complete",
-                        hour=hour,
+                        vendor="pmxt",
+                        platform="polymarket",
+                        data_type="book",
                         source_kind="local",
                         source=source,
                         rows=rows,
-                        origin_function="_load_local_archive_market_batches",
+                        condition_id=getattr(self, "condition_id", None),
+                        token_id=getattr(self, "token_id", None),
+                        attrs=self._pmxt_source_attrs(hour),
                     )
                     if self._pmxt_cache_dir is not None:
                         table = (
@@ -1263,14 +1285,18 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
                         )
                         self._write_cache_if_enabled(hour, table)
                     return batches
-                self._emit_pmxt_source_event(
-                    message=f"PMXT local source had no usable data for {self._hour_label(hour)}",
+                emit_loader_event(
+                    f"PMXT local source had no usable data for {self._hour_label(hour)}",
                     stage="fetch",
                     status="skip",
-                    hour=hour,
+                    vendor="pmxt",
+                    platform="polymarket",
+                    data_type="book",
                     source_kind="local",
                     source=source,
-                    origin_function="_load_local_archive_market_batches",
+                    condition_id=getattr(self, "condition_id", None),
+                    token_id=getattr(self, "token_id", None),
+                    attrs=self._pmxt_source_attrs(hour),
                 )
                 continue
 
@@ -1281,29 +1307,35 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
                     if self._pmxt_remote_base_url is not None
                     else None
                 )
-                self._emit_pmxt_source_event(
-                    message=f"Trying PMXT archive source for {self._hour_label(hour)}",
+                emit_loader_event(
+                    f"Trying PMXT archive source for {self._hour_label(hour)}",
                     stage="fetch",
                     status="start",
-                    hour=hour,
+                    vendor="pmxt",
+                    platform="polymarket",
+                    data_type="book",
                     source_kind="remote",
                     source=source,
-                    origin_function="_load_remote_market_batches",
+                    condition_id=getattr(self, "condition_id", None),
+                    token_id=getattr(self, "token_id", None),
+                    attrs=self._pmxt_source_attrs(hour),
                 )
                 batches = self._load_remote_market_batches(hour, batch_size=batch_size)
                 if batches is not None:
                     rows = self._row_count_from_batches(batches)
-                    self._emit_pmxt_source_event(
-                        message=(
-                            f"Loaded PMXT archive source for {self._hour_label(hour)} ({rows} rows)"
-                        ),
+                    emit_loader_event(
+                        (f"Loaded PMXT archive source for {self._hour_label(hour)} ({rows} rows)"),
                         stage="fetch",
                         status="complete",
-                        hour=hour,
+                        vendor="pmxt",
+                        platform="polymarket",
+                        data_type="book",
                         source_kind="remote",
                         source=source,
                         rows=rows,
-                        origin_function="_load_remote_market_batches",
+                        condition_id=getattr(self, "condition_id", None),
+                        token_id=getattr(self, "token_id", None),
+                        attrs=self._pmxt_source_attrs(hour),
                     )
                     if self._pmxt_cache_dir is not None:
                         table = (
@@ -1313,14 +1345,18 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
                         )
                         self._write_cache_if_enabled(hour, table)
                     return batches
-                self._emit_pmxt_source_event(
-                    message=f"PMXT archive source had no usable data for {self._hour_label(hour)}",
+                emit_loader_event(
+                    f"PMXT archive source had no usable data for {self._hour_label(hour)}",
                     stage="fetch",
                     status="skip",
-                    hour=hour,
+                    vendor="pmxt",
+                    platform="polymarket",
+                    data_type="book",
                     source_kind="remote",
                     source=source,
-                    origin_function="_load_remote_market_batches",
+                    condition_id=getattr(self, "condition_id", None),
+                    token_id=getattr(self, "token_id", None),
+                    attrs=self._pmxt_source_attrs(hour),
                 )
                 continue
 

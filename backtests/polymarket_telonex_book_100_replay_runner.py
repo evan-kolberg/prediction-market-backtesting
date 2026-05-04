@@ -19,8 +19,6 @@ WINDOW_END = "2026-04-27T23:59:59.999999999Z"
 WINDOW_START_NS = 1776729600000000000
 WINDOW_END_NS = 1777334399999999999
 
-# Selected from active binary Gamma markets by volume, requiring each market to
-# exist throughout the 2026-04-21 to 2026-04-28 replay window.
 POPULAR_MARKET_SLUGS = (
     "will-jesus-christ-return-before-2027",
     "will-oprah-winfrey-win-the-2028-democratic-presidential-nomination",

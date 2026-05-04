@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import gc
+import weakref
 import warnings
 from contextlib import nullcontext
 from dataclasses import dataclass
@@ -326,6 +328,131 @@ def test_book_batch_loader_stages_metadata_then_books_then_trades(
     assert last_metadata < first_book
     assert last_book < first_trade
     assert [item.market_id for item in loaded] == ["first", "second"]
+
+
+def test_pmxt_grouped_cache_probe_does_not_retain_cached_batches(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    events: list[str] = []
+    cache_refs: list[weakref.ReferenceType[CacheBatches]] = []
+
+    class CacheBatches:
+        __slots__ = ("rows", "__weakref__")
+
+        def __init__(self, rows: int) -> None:
+            self.rows = rows
+
+    class FakeLoader:
+        condition_id = "0xcondition"
+        token_id = "token"
+
+        def __init__(self, slug: str) -> None:
+            self.slug = slug
+            self.instrument = SimpleNamespace(id=f"POLYMARKET.{slug}", outcome="Yes")
+
+        @classmethod
+        async def from_market_slug(cls, market_slug: str, *, token_index: int = 0):
+            del token_index
+            return cls(market_slug)
+
+        def _resolve_prefetch_workers(self) -> int:
+            return 2
+
+        def _archive_hours(self, start, end):  # type: ignore[no-untyped-def]
+            del end
+            return (pd.Timestamp(start),)
+
+        def _load_cached_market_batches(self, hour):  # type: ignore[no-untyped-def]
+            del hour
+            batches = CacheBatches(rows=1)
+            cache_refs.append(weakref.ref(batches))
+            return batches
+
+        def _cache_path_for_hour(self, hour):  # type: ignore[no-untyped-def]
+            del hour
+            return None
+
+        def _row_count_from_batches(self, batches):  # type: ignore[no-untyped-def]
+            return batches.rows
+
+        def _hour_label(self, hour):  # type: ignore[no-untyped-def]
+            return pd.Timestamp(hour).isoformat()
+
+        def load_shared_market_batches_for_hour(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+            del args, kwargs
+            raise AssertionError("all hours should have been cache hits")
+
+        def load_order_book_deltas_from_hour_batches(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+            del args, kwargs
+            return ()
+
+        def load_order_book_deltas(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+            del args, kwargs
+            gc.collect()
+            if any(ref() is not None for ref in cache_refs):
+                events.append("cache-batches-retained")
+            events.append(f"book:{self.slug}")
+            return (SimpleNamespace(kind="book", slug=self.slug, ts_event=1, ts_init=1),)
+
+    original_resolver = replay_adapters._resolve_backtest_compat_symbol
+
+    def fake_resolver(name: str, default):  # type: ignore[no-untyped-def]
+        if name == "PolymarketPMXTDataLoader":
+            return FakeLoader
+        return original_resolver(name, default)
+
+    async def fake_load_trade_ticks(loader, *, start, end, market_label):  # type: ignore[no-untyped-def]
+        del start, end, market_label
+        return (SimpleNamespace(kind="trade", slug=loader.slug, ts_event=2, ts_init=2),)
+
+    def fake_merge_records(*, book_records, trade_records):  # type: ignore[no-untyped-def]
+        return (*book_records, *trade_records)
+
+    def fake_build_loaded_replay(
+        self,
+        *,
+        prepared,
+        records,
+        book_event_count=None,
+        request,
+        vendor,
+        source_label,
+    ):  # type: ignore[no-untyped-def]
+        del self, records, book_event_count, request, vendor, source_label
+        return SimpleNamespace(market_id=prepared.resolved.replay.market_slug)
+
+    monkeypatch.setattr(replay_adapters, "_resolve_backtest_compat_symbol", fake_resolver)
+    monkeypatch.setattr(replay_adapters, "_load_trade_ticks", fake_load_trade_ticks)
+    monkeypatch.setattr(replay_adapters, "_merge_records", fake_merge_records)
+    monkeypatch.setattr(
+        replay_adapters._BaseReplayAdapter,
+        "_build_loaded_book_replay_or_none",
+        fake_build_loaded_replay,
+    )
+
+    loaded = asyncio.run(
+        replay_adapters.PolymarketPMXTBookReplayAdapter().load_replays(
+            (
+                BookReplay(
+                    market_slug="first",
+                    token_index=0,
+                    start_time="2026-04-21T00:00:00Z",
+                    end_time="2026-04-21T01:00:00Z",
+                ),
+                BookReplay(
+                    market_slug="second",
+                    token_index=1,
+                    start_time="2026-04-21T00:00:00Z",
+                    end_time="2026-04-21T01:00:00Z",
+                ),
+            ),
+            request=ReplayLoadRequest(),
+            workers=2,
+        )
+    )
+
+    assert [item.market_id for item in loaded] == ["first", "second"]
+    assert "cache-batches-retained" not in events
 
 
 def test_trade_tick_loader_reports_api_and_cache_progress(

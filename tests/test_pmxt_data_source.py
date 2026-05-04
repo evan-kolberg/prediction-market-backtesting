@@ -64,7 +64,7 @@ def test_configured_pmxt_data_source_sets_raw_local_overrides(monkeypatch, tmp_p
         assert str(mirror_root) in selection.summary
         assert RunnerPolymarketPMXTDataLoader._resolve_remote_base_url() is None
         assert RunnerPolymarketPMXTDataLoader._resolve_raw_root() == mirror_root
-        assert RunnerPolymarketPMXTDataLoader._resolve_prefetch_workers() == 8
+        assert RunnerPolymarketPMXTDataLoader._resolve_prefetch_workers() == 4
 
     assert os.getenv(PMXT_RAW_ROOT_ENV) is None
 
@@ -110,7 +110,7 @@ def test_configured_pmxt_data_source_preserves_explicit_source_order(monkeypatch
             "raw-remote",
             "raw-local",
         )
-        assert RunnerPolymarketPMXTDataLoader._resolve_prefetch_workers() == 8
+        assert RunnerPolymarketPMXTDataLoader._resolve_prefetch_workers() == 4
 
     assert os.getenv(PMXT_RAW_ROOT_ENV) is None
     assert os.getenv(PMXT_REMOTE_BASE_URL_ENV) is None
@@ -337,7 +337,7 @@ def test_runner_loader_emits_cache_hit_event(tmp_path) -> None:
     event = next(event for event in capture.events if event.stage == "cache_read")
     assert event.status == "cache_hit"
     assert event.vendor == "pmxt"
-    assert event.origin == "pmxt._load_cached_market_batches"
+    assert event.origin == "pmxt._load_market_batches"
     assert event.source_kind == "cache"
     assert event.cache_path == str(cache_path)
     assert event.rows == 1
@@ -387,15 +387,14 @@ def test_runner_loader_emits_ordered_source_skip_event(tmp_path) -> None:
         "start",
         "local",
         f"local:{missing_root}",
-        "pmxt._load_local_raw_market_batches_from_root",
+        "pmxt._load_market_batches",
     ) in statuses
     assert (
         "skip",
         "local",
         f"local:{missing_root}",
-        "pmxt._load_local_raw_market_batches_from_root",
+        "pmxt._load_market_batches",
     ) in statuses
-    assert all(not event.origin.endswith("._emit_pmxt_source_event") for event in capture.events)
 
 
 def test_runner_loader_grouped_raw_hour_load_splits_requests(tmp_path) -> None:
@@ -511,12 +510,12 @@ def test_runner_loader_grouped_remote_uses_temp_when_raw_copy_fails(
     assert Path(loaded["raw_path"]).is_relative_to(tmp_path / "cache" / ".pmxt-temp-downloads")
     fetch_events = [event for event in capture.events if event.stage == "fetch"]
     assert [(event.status, event.source_kind, event.origin) for event in fetch_events] == [
-        ("start", "remote", "pmxt._load_remote_market_batches_from_base_url"),
-        ("complete", "remote", "pmxt._load_remote_market_batches_from_base_url"),
+        ("start", "remote", "pmxt.load_shared_market_batches_for_hour"),
+        ("complete", "remote", "pmxt.load_shared_market_batches_for_hour"),
     ]
 
 
-def test_runner_loader_emits_source_events_from_actual_loader_methods(
+def test_runner_loader_emits_source_events_from_direct_call_sites(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     hour = pd.Timestamp("2026-03-21T12:00:00Z")
@@ -544,12 +543,11 @@ def test_runner_loader_emits_source_events_from_actual_loader_methods(
     assert batches == []
     fetch_events = [event for event in capture.events if event.stage == "fetch"]
     assert [(event.status, event.source_kind, event.origin) for event in fetch_events] == [
-        ("start", "local", "pmxt._load_local_archive_market_batches"),
-        ("skip", "local", "pmxt._load_local_archive_market_batches"),
-        ("start", "remote", "pmxt._load_remote_market_batches"),
-        ("complete", "remote", "pmxt._load_remote_market_batches"),
+        ("start", "local", "pmxt._load_market_batches"),
+        ("skip", "local", "pmxt._load_market_batches"),
+        ("start", "remote", "pmxt._load_market_batches"),
+        ("complete", "remote", "pmxt._load_market_batches"),
     ]
-    assert all(not event.origin.endswith("._emit_pmxt_source_event") for event in fetch_events)
 
 
 def test_runner_loader_emits_scan_progress_for_local_raw_mirror(monkeypatch, tmp_path) -> None:

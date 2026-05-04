@@ -1,8 +1,8 @@
 # Codebase UML Inventory
 
 This file is generated from Python AST metadata and excludes `tests/`.
-Generated: 2026-05-04T02:42:47+00:00
-Modules: 110 | Classes: 163 | Functions/methods: 1406
+Generated: 2026-05-04T15:18:48+00:00
+Modules: 111 | Classes: 163 | Functions/methods: 1408
 
 ## Backtesting Data Flow
 
@@ -78,9 +78,13 @@ flowchart TD
 - Function L40: `_btc_5m_replays() -> Any`
 - Function L56: `run() -> None`
 
-### `backtests/polymarket_telonex_book_100_replay_joint_portfolio_runner.py`
+### `backtests/polymarket_pmxt_book_100_replay_runner.py`
 - Imports: `__future__, decimal`
-- Function L128: `run() -> None`
+- Function L126: `run() -> None`
+
+### `backtests/polymarket_telonex_book_100_replay_runner.py`
+- Imports: `__future__, decimal`
+- Function L126: `run() -> None`
 
 ### `backtests/polymarket_telonex_book_joint_portfolio_runner.py`
 - Imports: `__future__, decimal`
@@ -631,43 +635,44 @@ flowchart TD
 - Function L107: `_dense_account_series_from_engine_for_markets(*, engine: BacktestEngine, market_prices: Mapping[str, Sequence[tuple[datetime, float]]], initial_cash: float) -> tuple[pd.Series, pd.Series]`
 - Function L146: `_dense_market_account_series_from_fill_events(*, market_id: str, market_prices: Sequence[tuple[datetime, float]], fill_events: Sequence[dict[str, Any]], initial_cash: float) -> tuple[pd.Series, pd.Series]`
 - Function L223: `_pairs_to_series(pairs: Sequence[tuple[str, float]] | Sequence[tuple[Any, float]]) -> pd.Series`
-- Function L238: `_to_legacy_datetime(timestamp: pd.Timestamp) -> datetime`
-- Function L242: `_series_to_iso_pairs(series: pd.Series) -> list[tuple[str, float]]`
-- Function L249: `_align_series_to_timeline(series: pd.Series, timeline: pd.DatetimeIndex, *, before: float, after: float) -> pd.Series`
-- Function L261: `_extend_active_range(active_ranges: dict[str, tuple[pd.Timestamp, pd.Timestamp]], label: str, start: pd.Timestamp, end: pd.Timestamp) -> None`
-- Function L274: `_parse_float_like(value, default: float = 0.0) -> float`
-- Function L294: `_serialize_fill_events(*, market_id: str, fills_report: pd.DataFrame) -> list[dict[str, Any]]`
-- Function L371: `_deserialize_fill_events(*, market_id: str, fill_events: Sequence[dict[str, Any]], models_module) -> list[Any]`
-- Function L414: `_aggregate_brier_frames(results: Sequence[dict[str, Any]]) -> dict[str, pd.DataFrame]`
-- Function L442: `_aggregate_brier_unavailable_reason(results: Sequence[dict[str, Any]]) -> str | None`
-- Function L464: `_summary_panels_need_market_prices(plot_panels: Sequence[str]) -> bool`
-- Function L468: `_summary_panels_need_fill_events(plot_panels: Sequence[str]) -> bool`
-- Function L474: `_summary_panels_need_overlay_series(plot_panels: Sequence[str]) -> bool`
-- Function L481: `_yes_price_fill_marker_budget(max_points: int) -> int`
-- Function L487: `_summary_yes_price_fill_marker_limit(fill_count: int, max_points: int) -> int | None`
-- Function L498: `_configure_summary_report_downsampling(plotting_module, *, adaptive: bool = True, max_points: int = 5000) -> None`
-- Function L545: `_build_summary_brier_panel(brier_frames: dict[str, pd.DataFrame], *, axis_label: str, max_points_per_market: int) -> Any | None`
-- Function L559: `_build_total_summary_brier_frame(brier_frames: Mapping[str, pd.DataFrame]) -> pd.DataFrame`
-- Function L580: `_build_summary_brier_extra_panels(*, results: Sequence[dict[str, Any]], resolved_plot_panels: Sequence[str], max_points_per_market: int) -> dict[str, Any]`
-- Function L625: `_apply_summary_layout_overrides(layout, *, initial_cash: float, max_yes_price_fill_markers: int | None) -> Any`
-- Function L640: `run_market_backtest(*, market_id: str, instrument, data: Sequence[object], strategy: Strategy, strategy_name: str, output_prefix: str, platform: str, venue: Venue, base_currency: Currency, fee_model, fill_model: Any | None = None, apply_default_fill_model: bool = True, initial_cash: float, probability_window: int, price_attr: str, count_key: str, data_count: int | None = None, chart_resample_rule: str | None = None, market_key: str = 'market', open_browser: bool = False, return_summary_series: bool = False, book_type: BookType = BookType.L1_MBP, liquidity_consumption: bool = False, queue_position: bool = False, latency_model: Any | None = None) -> dict[str, Any]`
-- Function L793: `save_combined_backtest_report(*, results: Sequence[dict[str, Any]], output_path: str | Path, title: str, market_key: str, pnl_label: str) -> str | None`
-- Function L847: `save_aggregate_backtest_report(*, results: Sequence[dict[str, Any]], output_path: str | Path, title: str, market_key: str, pnl_label: str, max_points_per_market: int = 400, plot_panels: Sequence[str] | None = None) -> str | None`
-- Function L1093: `save_joint_portfolio_backtest_report(*, results: Sequence[dict[str, Any]], output_path: str | Path, title: str, market_key: str, pnl_label: str, max_points_per_market: int = 400, plot_panels: Sequence[str] | None = None) -> str | None`
-- Function L1335: `print_backtest_summary(*, results: list[dict[str, Any]], market_key: str, count_key: str, count_label: str, pnl_label: str, empty_message: str = 'No markets had sufficient data.') -> None`
-- Function L1398: `_summary_stats_for_result(result: Mapping[str, Any]) -> dict[str, float | None]`
-- Function L1416: `_summary_stats_total(*, rows: Sequence[Mapping[str, float | None]], results: Sequence[Mapping[str, Any]]) -> dict[str, float | None]`
-- Function L1442: `_summary_fill_stats(fill_events: object) -> tuple[float, float, float | None]`
-- Function L1460: `_summary_returns_from_pairs(pairs: object) -> dict[int, float]`
-- Function L1481: `_summary_return_stats(returns: dict[int, float]) -> dict[str, float | None]`
-- Function L1498: `_summary_total_return_pct(pairs: object) -> float | None`
-- Function L1514: `_safe_stat(func, returns: dict[int, float]) -> float | None`
-- Function L1522: `_safe_stat_percent(func, returns: dict[int, float]) -> float | None`
-- Function L1527: `_coerce_float(value: object) -> float | None`
-- Function L1535: `_format_summary_float(value: object, decimals: int) -> str`
-- Function L1542: `_format_summary_pct(value: object) -> str`
-- Function L1549: `_print_portfolio_stats(results: Sequence[Mapping[str, Any]]) -> None`
-- Function L1612: `_selected_named_stats(stats: Mapping[str, Any], names: Sequence[str]) -> list[str]`
+- Function L238: `_fill_event_timestamp(event: Mapping[str, Any]) -> pd.Timestamp`
+- Function L249: `_to_legacy_datetime(timestamp: pd.Timestamp) -> datetime`
+- Function L253: `_series_to_iso_pairs(series: pd.Series) -> list[tuple[str, float]]`
+- Function L260: `_align_series_to_timeline(series: pd.Series, timeline: pd.DatetimeIndex, *, before: float, after: float) -> pd.Series`
+- Function L272: `_extend_active_range(active_ranges: dict[str, tuple[pd.Timestamp, pd.Timestamp]], label: str, start: pd.Timestamp, end: pd.Timestamp) -> None`
+- Function L285: `_parse_float_like(value, default: float = 0.0) -> float`
+- Function L305: `_serialize_fill_events(*, market_id: str, fills_report: pd.DataFrame) -> list[dict[str, Any]]`
+- Function L383: `_deserialize_fill_events(*, market_id: str, fill_events: Sequence[dict[str, Any]], models_module) -> list[Any]`
+- Function L426: `_aggregate_brier_frames(results: Sequence[dict[str, Any]]) -> dict[str, pd.DataFrame]`
+- Function L454: `_aggregate_brier_unavailable_reason(results: Sequence[dict[str, Any]]) -> str | None`
+- Function L476: `_summary_panels_need_market_prices(plot_panels: Sequence[str]) -> bool`
+- Function L480: `_summary_panels_need_fill_events(plot_panels: Sequence[str]) -> bool`
+- Function L486: `_summary_panels_need_overlay_series(plot_panels: Sequence[str]) -> bool`
+- Function L493: `_yes_price_fill_marker_budget(max_points: int) -> int`
+- Function L499: `_summary_yes_price_fill_marker_limit(fill_count: int, max_points: int) -> int | None`
+- Function L510: `_configure_summary_report_downsampling(plotting_module, *, adaptive: bool = True, max_points: int = 5000) -> None`
+- Function L557: `_build_summary_brier_panel(brier_frames: dict[str, pd.DataFrame], *, axis_label: str, max_points_per_market: int) -> Any | None`
+- Function L571: `_build_total_summary_brier_frame(brier_frames: Mapping[str, pd.DataFrame]) -> pd.DataFrame`
+- Function L592: `_build_summary_brier_extra_panels(*, results: Sequence[dict[str, Any]], resolved_plot_panels: Sequence[str], max_points_per_market: int) -> dict[str, Any]`
+- Function L637: `_apply_summary_layout_overrides(layout, *, initial_cash: float, max_yes_price_fill_markers: int | None) -> Any`
+- Function L652: `run_market_backtest(*, market_id: str, instrument, data: Sequence[object], strategy: Strategy, strategy_name: str, output_prefix: str, platform: str, venue: Venue, base_currency: Currency, fee_model, fill_model: Any | None = None, apply_default_fill_model: bool = True, initial_cash: float, probability_window: int, price_attr: str, count_key: str, data_count: int | None = None, chart_resample_rule: str | None = None, market_key: str = 'market', open_browser: bool = False, return_summary_series: bool = False, book_type: BookType = BookType.L1_MBP, liquidity_consumption: bool = False, queue_position: bool = False, latency_model: Any | None = None) -> dict[str, Any]`
+- Function L805: `save_combined_backtest_report(*, results: Sequence[dict[str, Any]], output_path: str | Path, title: str, market_key: str, pnl_label: str) -> str | None`
+- Function L859: `save_aggregate_backtest_report(*, results: Sequence[dict[str, Any]], output_path: str | Path, title: str, market_key: str, pnl_label: str, max_points_per_market: int = 400, plot_panels: Sequence[str] | None = None) -> str | None`
+- Function L1105: `save_joint_portfolio_backtest_report(*, results: Sequence[dict[str, Any]], output_path: str | Path, title: str, market_key: str, pnl_label: str, max_points_per_market: int = 400, plot_panels: Sequence[str] | None = None) -> str | None`
+- Function L1347: `print_backtest_summary(*, results: list[dict[str, Any]], market_key: str, count_key: str, count_label: str, pnl_label: str, empty_message: str = 'No markets had sufficient data.') -> None`
+- Function L1410: `_summary_stats_for_result(result: Mapping[str, Any]) -> dict[str, float | None]`
+- Function L1428: `_summary_stats_total(*, rows: Sequence[Mapping[str, float | None]], results: Sequence[Mapping[str, Any]]) -> dict[str, float | None]`
+- Function L1454: `_summary_fill_stats(fill_events: object) -> tuple[float, float, float | None]`
+- Function L1472: `_summary_returns_from_pairs(pairs: object) -> dict[int, float]`
+- Function L1493: `_summary_return_stats(returns: dict[int, float]) -> dict[str, float | None]`
+- Function L1510: `_summary_total_return_pct(pairs: object) -> float | None`
+- Function L1526: `_safe_stat(func, returns: dict[int, float]) -> float | None`
+- Function L1534: `_safe_stat_percent(func, returns: dict[int, float]) -> float | None`
+- Function L1539: `_coerce_float(value: object) -> float | None`
+- Function L1547: `_format_summary_float(value: object, decimals: int) -> str`
+- Function L1554: `_format_summary_pct(value: object) -> str`
+- Function L1561: `_print_portfolio_stats(results: Sequence[Mapping[str, Any]]) -> None`
+- Function L1624: `_selected_named_stats(stats: Mapping[str, Any], names: Sequence[str]) -> list[str]`
 
 ### `prediction_market_extensions/analysis/__init__.py`
 - Imports: none
@@ -1120,22 +1125,22 @@ flowchart TD
 ### `prediction_market_extensions/backtesting/data_sources/pmxt.py`
 - Imports: `__future__, collections, contextlib, contextvars, dataclasses, duckdb, os, pathlib, prediction_market_extensions, pyarrow, re, threading, time, urllib`
 - Function L94: `_current_loader_config() -> PMXTLoaderConfig | None`
-- Function L1459: `_normalize_mode(value: str | None) -> str`
-- Function L1473: `_env_value(name: str) -> str | None`
-- Function L1481: `_env_enabled(name: str) -> bool`
-- Function L1488: `_resolve_prefetch_workers_override(*, default_when_unset: int | None) -> int | None`
-- Function L1498: `_resolve_source_priority_override() -> tuple[str, ...]`
-- Function L1518: `_resolve_existing_remote_url() -> str | None`
-- Function L1523: `_resolve_existing_remote_urls() -> tuple[str, ...]`
-- Function L1539: `_resolve_required_directory(env_name: str, *, label: str) -> Path`
-- Function L1552: `_strip_prefixed_local_source(source: str, *, prefixes: Sequence[str]) -> str | None`
-- Function L1562: `_strip_prefixed_remote_source(source: str, *, prefixes: Sequence[str]) -> str | None`
-- Function L1572: `_classify_explicit_pmxt_sources(sources: Sequence[str]) -> tuple[str | None, tuple[str, ...], tuple[str, ...], tuple[str, ...], tuple[tuple[str, str], ...]]`
-- Function L1648: `_explicit_source_summary(*, ordered_sources: Sequence[str], ordered_entries: Sequence[tuple[str, str]] = ()) -> str`
-- Function L1666: `resolve_pmxt_loader_config(*, sources: Sequence[str] | None = None) -> tuple[PMXTDataSourceSelection, PMXTLoaderConfig]`
-- Function L1804: `_loader_config_to_env_updates(config: PMXTLoaderConfig) -> dict[str, str | None]`
-- Function L1818: `resolve_pmxt_data_source_selection(*, sources: Sequence[str] | None = None) -> tuple[PMXTDataSourceSelection, dict[str, str | None]]`
-- Function L1828: `configured_pmxt_data_source(*, sources: Sequence[str] | None = None) -> Iterator[PMXTDataSourceSelection]`
+- Function L1495: `_normalize_mode(value: str | None) -> str`
+- Function L1509: `_env_value(name: str) -> str | None`
+- Function L1517: `_env_enabled(name: str) -> bool`
+- Function L1524: `_resolve_prefetch_workers_override(*, default_when_unset: int | None) -> int | None`
+- Function L1534: `_resolve_source_priority_override() -> tuple[str, ...]`
+- Function L1554: `_resolve_existing_remote_url() -> str | None`
+- Function L1559: `_resolve_existing_remote_urls() -> tuple[str, ...]`
+- Function L1575: `_resolve_required_directory(env_name: str, *, label: str) -> Path`
+- Function L1588: `_strip_prefixed_local_source(source: str, *, prefixes: Sequence[str]) -> str | None`
+- Function L1598: `_strip_prefixed_remote_source(source: str, *, prefixes: Sequence[str]) -> str | None`
+- Function L1608: `_classify_explicit_pmxt_sources(sources: Sequence[str]) -> tuple[str | None, tuple[str, ...], tuple[str, ...], tuple[str, ...], tuple[tuple[str, str], ...]]`
+- Function L1684: `_explicit_source_summary(*, ordered_sources: Sequence[str], ordered_entries: Sequence[tuple[str, str]] = ()) -> str`
+- Function L1702: `resolve_pmxt_loader_config(*, sources: Sequence[str] | None = None) -> tuple[PMXTDataSourceSelection, PMXTLoaderConfig]`
+- Function L1840: `_loader_config_to_env_updates(config: PMXTLoaderConfig) -> dict[str, str | None]`
+- Function L1854: `resolve_pmxt_data_source_selection(*, sources: Sequence[str] | None = None) -> tuple[PMXTDataSourceSelection, dict[str, str | None]]`
+- Function L1864: `configured_pmxt_data_source(*, sources: Sequence[str] | None = None) -> Iterator[PMXTDataSourceSelection]`
 - Class L52: `_RawDownloadLockEntry`
 - Class L75: `PMXTLoaderConfig`
   - Method L85: `remote_base_url(self) -> str | None`
@@ -1143,48 +1148,48 @@ flowchart TD
   - Method L105: `__init__(self, *args, **kwargs) -> None`
   - Method L125: `_row_count_from_batches(batches: Sequence[object]) -> int`
   - Method L129: `_hour_label(hour) -> str`
-  - Method L135: `_emit_pmxt_source_event(self, *, message: str, stage: str, status: str, hour, source_kind: str | None = None, source: str | None = None, cache_path: Path | None = None, rows: int | None = None, bytes_count: int | None = None, level: str = 'INFO', extra_attrs: dict[str, object] | None = None, origin_function: str | None = None) -> None`
-  - Method L176: `_source_kind_for_stage(stage: str) -> str`
-  - Method L180: `_source_label_for_stage(stage: str, target: str | None) -> str | None`
-  - Method L190: `_resolve_raw_root(cls) -> Path | None`
-  - Method L206: `_resolve_remote_base_url(cls) -> str | None`
-  - Method L211: `_resolve_remote_base_urls(cls) -> tuple[str, ...]`
-  - Method L231: `_archive_url_for_hour(self, hour) -> Any`
-  - Method L242: `_archive_urls_for_hour(self, hour) -> Any`
-  - Method L250: `_raw_path_for_hour(self, hour) -> Path | None`
-  - Method L256: `_raw_path_for_hour_at_root(self, raw_root: Path, hour) -> Path`
-  - Method L266: `_raw_paths_for_hour_at_root(self, raw_root: Path, hour) -> tuple[Path, ...]`
-  - Method L269: `_load_local_raw_market_batches_from_root(self, raw_root: Path, hour, *, batch_size: int) -> Any`
-  - Method L291: `_load_local_raw_market_batches(self, hour, *, batch_size: int) -> Any`
-  - Method L301: `_load_local_archive_market_batches(self, hour, *, batch_size: int) -> Any`
-  - Method L307: `_load_remote_market_batches(self, hour, *, batch_size: int) -> Any`
-  - Method L328: `_archive_url_for_base_url(self, base_url: str, hour) -> str`
-  - Method L331: `_load_remote_market_batches_from_base_url(self, base_url: str, hour, *, batch_size: int) -> Any`
-  - Method L348: `_raw_persistence_root(self) -> Path | None`
-  - Method L360: `_raw_download_lock(raw_path: Path) -> Iterator[None]`
-  - Method L377: `_load_remote_market_batches_via_raw_root(self, archive_url: str, hour, *, batch_size: int) -> Any`
-  - Method L421: `_download_remote_raw_to_local_root(self, archive_url: str, raw_path: Path, hour) -> Path | None`
-  - Method L489: `_resolve_source_priority(cls) -> tuple[str, ...]`
-  - Method L513: `_resolve_prefetch_workers(cls) -> int`
-  - Method L520: `_scoped_source_entry(self, kind: str, target: str) -> Any`
-  - Method L546: `_load_entry_batches(self, kind: str, hour, *, batch_size: int) -> Any`
-  - Method L567: `_load_ordered_entry_batches(self, kind: str, target: str, hour, *, batch_size: int) -> Any`
-  - Method L589: `_raw_path_for_ordered_entry(self, kind: str, target: str, hour) -> Path | None`
-  - Method L613: `_raw_path_for_source_stage(self, stage: str, hour) -> Path | None`
-  - Method L649: `_split_shared_fixed_table(self, table: pa.Table, *, requests: Sequence[tuple[int, str, str]], batch_size: int) -> dict[int, list[pa.RecordBatch]]`
-  - Method L675: `_split_shared_payload_table(self, table: pa.Table, *, requests: Sequence[tuple[int, str, str]], batch_size: int) -> dict[int, list[pa.RecordBatch]]`
-  - Method L696: `_matching_shared_raw_fixed_market_row_groups(self, parquet_file: pq.ParquetFile, condition_ids: Sequence[str]) -> list[int] | None`
-  - Method L724: `_load_shared_raw_fixed_market_batches_pyarrow(self, raw_path: Path, *, requests: Sequence[tuple[int, str, str]], batch_size: int) -> dict[int, list[pa.RecordBatch]] | None`
-  - Method L800: `_load_shared_market_batches_from_raw_file(self, raw_path: Path, *, requests: Sequence[tuple[int, str, str]], batch_size: int) -> dict[int, list[pa.RecordBatch]] | None`
-  - Method L871: `_load_shared_market_batches_from_remote_base_url(self, base_url: str, hour, *, requests: Sequence[tuple[int, str, str]], batch_size: int) -> dict[int, list[pa.RecordBatch]] | None`
-  - Method L929: `load_shared_market_batches_for_hour(self, hour, *, requests: Sequence[tuple[int, str, str]], batch_size: int) -> dict[int, list[pa.RecordBatch] | None]`
-  - Method L1042: `_write_cache_if_enabled(self, hour, table) -> None`
-  - Method L1075: `_load_market_table(self, hour, *, batch_size: int) -> Any`
-  - Method L1133: `_load_market_batches(self, hour, *, batch_size: int) -> Any`
-  - Method L1329: `_download_to_file_with_progress(self, url: str, destination: Path) -> int | None`
-  - Method L1382: `_download_payload_with_progress(self, url: str) -> bytes | None`
-  - Method L1422: `_progress_total_bytes(self, source: str) -> int | None`
-- Class L1454: `PMXTDataSourceSelection`
+  - Method L135: `_pmxt_source_attrs(self, hour, extra_attrs: dict[str, object] | None = None) -> dict[str, object]`
+  - Method L144: `_source_kind_for_stage(stage: str) -> str`
+  - Method L148: `_source_label_for_stage(stage: str, target: str | None) -> str | None`
+  - Method L158: `_resolve_raw_root(cls) -> Path | None`
+  - Method L174: `_resolve_remote_base_url(cls) -> str | None`
+  - Method L179: `_resolve_remote_base_urls(cls) -> tuple[str, ...]`
+  - Method L199: `_archive_url_for_hour(self, hour) -> Any`
+  - Method L210: `_archive_urls_for_hour(self, hour) -> Any`
+  - Method L218: `_raw_path_for_hour(self, hour) -> Path | None`
+  - Method L224: `_raw_path_for_hour_at_root(self, raw_root: Path, hour) -> Path`
+  - Method L234: `_raw_paths_for_hour_at_root(self, raw_root: Path, hour) -> tuple[Path, ...]`
+  - Method L237: `_load_local_raw_market_batches_from_root(self, raw_root: Path, hour, *, batch_size: int) -> Any`
+  - Method L259: `_load_local_raw_market_batches(self, hour, *, batch_size: int) -> Any`
+  - Method L269: `_load_local_archive_market_batches(self, hour, *, batch_size: int) -> Any`
+  - Method L275: `_load_remote_market_batches(self, hour, *, batch_size: int) -> Any`
+  - Method L296: `_archive_url_for_base_url(self, base_url: str, hour) -> str`
+  - Method L299: `_load_remote_market_batches_from_base_url(self, base_url: str, hour, *, batch_size: int) -> Any`
+  - Method L316: `_raw_persistence_root(self) -> Path | None`
+  - Method L328: `_raw_download_lock(raw_path: Path) -> Iterator[None]`
+  - Method L345: `_load_remote_market_batches_via_raw_root(self, archive_url: str, hour, *, batch_size: int) -> Any`
+  - Method L389: `_download_remote_raw_to_local_root(self, archive_url: str, raw_path: Path, hour) -> Path | None`
+  - Method L468: `_resolve_source_priority(cls) -> tuple[str, ...]`
+  - Method L492: `_resolve_prefetch_workers(cls) -> int`
+  - Method L499: `_scoped_source_entry(self, kind: str, target: str) -> Any`
+  - Method L525: `_load_entry_batches(self, kind: str, hour, *, batch_size: int) -> Any`
+  - Method L546: `_load_ordered_entry_batches(self, kind: str, target: str, hour, *, batch_size: int) -> Any`
+  - Method L568: `_raw_path_for_ordered_entry(self, kind: str, target: str, hour) -> Path | None`
+  - Method L592: `_raw_path_for_source_stage(self, stage: str, hour) -> Path | None`
+  - Method L628: `_split_shared_fixed_table(self, table: pa.Table, *, requests: Sequence[tuple[int, str, str]], batch_size: int) -> dict[int, list[pa.RecordBatch]]`
+  - Method L654: `_split_shared_payload_table(self, table: pa.Table, *, requests: Sequence[tuple[int, str, str]], batch_size: int) -> dict[int, list[pa.RecordBatch]]`
+  - Method L675: `_matching_shared_raw_fixed_market_row_groups(self, parquet_file: pq.ParquetFile, condition_ids: Sequence[str]) -> list[int] | None`
+  - Method L703: `_load_shared_raw_fixed_market_batches_pyarrow(self, raw_path: Path, *, requests: Sequence[tuple[int, str, str]], batch_size: int) -> dict[int, list[pa.RecordBatch]] | None`
+  - Method L779: `_load_shared_market_batches_from_raw_file(self, raw_path: Path, *, requests: Sequence[tuple[int, str, str]], batch_size: int) -> dict[int, list[pa.RecordBatch]] | None`
+  - Method L850: `_load_shared_market_batches_from_remote_base_url(self, base_url: str, hour, *, requests: Sequence[tuple[int, str, str]], batch_size: int) -> dict[int, list[pa.RecordBatch]] | None`
+  - Method L908: `load_shared_market_batches_for_hour(self, hour, *, requests: Sequence[tuple[int, str, str]], batch_size: int) -> dict[int, list[pa.RecordBatch] | None]`
+  - Method L1032: `_write_cache_if_enabled(self, hour, table) -> None`
+  - Method L1074: `_load_market_table(self, hour, *, batch_size: int) -> Any`
+  - Method L1132: `_load_market_batches(self, hour, *, batch_size: int) -> Any`
+  - Method L1365: `_download_to_file_with_progress(self, url: str, destination: Path) -> int | None`
+  - Method L1418: `_download_payload_with_progress(self, url: str) -> bytes | None`
+  - Method L1458: `_progress_total_bytes(self, source: str) -> int | None`
+- Class L1490: `PMXTDataSourceSelection`
 
 ### `prediction_market_extensions/backtesting/data_sources/polymarket_native.py`
 - Imports: `__future__, collections, contextlib, contextvars, dataclasses, msgspec, os, prediction_market_extensions, typing, urllib, warnings`
@@ -1276,10 +1281,10 @@ flowchart TD
   - Method L778: `__init__(self) -> None`
   - Method L805: `async load_replay(self, replay: BookReplay, *, request: ReplayLoadRequest) -> LoadedReplay | None`
   - Method L915: `async load_replays(self, replays: Sequence[BookReplay], *, request: ReplayLoadRequest, workers: int) -> list[LoadedReplay]`
-- Class L1209: `PolymarketTelonexBookReplayAdapter(_BaseReplayAdapter)`
-  - Method L1210: `__init__(self) -> None`
-  - Method L1240: `async load_replay(self, replay: BookReplay, *, request: ReplayLoadRequest) -> LoadedReplay | None`
-  - Method L1360: `async load_replays(self, replays: Sequence[BookReplay], *, request: ReplayLoadRequest, workers: int) -> list[LoadedReplay]`
+- Class L1218: `PolymarketTelonexBookReplayAdapter(_BaseReplayAdapter)`
+  - Method L1219: `__init__(self) -> None`
+  - Method L1249: `async load_replay(self, replay: BookReplay, *, request: ReplayLoadRequest) -> LoadedReplay | None`
+  - Method L1369: `async load_replays(self, replays: Sequence[BookReplay], *, request: ReplayLoadRequest, workers: int) -> list[LoadedReplay]`
 
 ### `prediction_market_extensions/backtesting/data_sources/telonex.py`
 - Imports: `__future__, collections, concurrent, contextlib, contextvars, dataclasses, datetime, duckdb, hashlib, io, nautilus_trader, numpy, os, pandas, pathlib, prediction_market_extensions, pyarrow, re, threading, urllib, warnings`
