@@ -148,7 +148,10 @@ single market window is loading. The repo data-source wrapper defaults local
 raw mirrors to `8` workers. Multi-replay PMXT loading also groups filtered-cache
 misses by raw hour, so a basket that needs the same hourly parquet for many
 market/token requests scans that raw hour once and splits the filtered Arrow
-batches per replay.
+batches per replay. `BACKTEST_REPLAY_MATERIALIZE_WORKERS` separately caps the
+memory-heavy conversion from filtered/cache data into Nautilus replay objects,
+so source-stage workers can be raised without materializing too many full
+replays at once.
 
 ### Legacy JSON Payload Shape
 

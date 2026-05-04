@@ -52,6 +52,10 @@ from prediction_market_extensions.backtesting.data_sources.telonex import (
     configured_telonex_data_source,
 )
 
+REPLAY_MATERIALIZE_WORKERS_ENV = "BACKTEST_REPLAY_MATERIALIZE_WORKERS"
+DEFAULT_REPLAY_MATERIALIZE_WORKERS = 4
+MAX_REPLAY_MATERIALIZE_WORKERS = 16
+
 
 def _resolve_backtest_compat_symbol(name: str, default: Any) -> Any:
     try:
@@ -579,6 +583,42 @@ async def _gather_bounded(
     return list(await asyncio.gather(*(_run(value) for value in values)))
 
 
+def _resolve_materialize_workers(source_workers: int) -> int:
+    configured = os.getenv(REPLAY_MATERIALIZE_WORKERS_ENV)
+    if configured is None or not configured.strip():
+        workers = DEFAULT_REPLAY_MATERIALIZE_WORKERS
+    else:
+        try:
+            workers = int(configured.strip())
+        except ValueError:
+            workers = DEFAULT_REPLAY_MATERIALIZE_WORKERS
+    return min(max(1, workers), MAX_REPLAY_MATERIALIZE_WORKERS, max(1, source_workers))
+
+
+def _emit_materialize_worker_event(
+    *,
+    vendor: str,
+    materialize_workers: int,
+    source_workers: int,
+) -> None:
+    if materialize_workers == source_workers:
+        return
+    emit_loader_event(
+        f"Replay materialization using {materialize_workers} worker(s) "
+        f"({REPLAY_MATERIALIZE_WORKERS_ENV}; source stage workers={source_workers})",
+        stage="runtime",
+        vendor=vendor,
+        status="complete",
+        platform="polymarket",
+        data_type="book",
+        attrs={
+            "materialize_workers": materialize_workers,
+            "source_workers": source_workers,
+        },
+        stacklevel=3,
+    )
+
+
 @dataclass(frozen=True)
 class _BaseReplayAdapter(HistoricalReplayAdapter):
     _key: ReplayAdapterKey
@@ -977,6 +1017,12 @@ class PolymarketPMXTBookReplayAdapter(_BaseReplayAdapter):
                 platform="polymarket",
                 data_type="book",
             )
+        materialize_workers = _resolve_materialize_workers(book_workers)
+        _emit_materialize_worker_event(
+            vendor="pmxt",
+            materialize_workers=materialize_workers,
+            source_workers=book_workers,
+        )
 
         async def _load_book(prepared_replay: _PreparedBookReplay) -> _LoadedBookReplay | None:
             replay = prepared_replay.resolved.replay
@@ -1050,9 +1096,9 @@ class PolymarketPMXTBookReplayAdapter(_BaseReplayAdapter):
             hit = await asyncio.to_thread(_load)
             return index, hour, hit
 
-        async def _load_grouped_pmxt_books() -> list[_LoadedBookReplay]:
+        async def _fill_grouped_pmxt_book_cache() -> None:
             if not prepared:
-                return []
+                return
 
             resolved_batch_size = int(
                 getattr(
@@ -1136,45 +1182,20 @@ class PolymarketPMXTBookReplayAdapter(_BaseReplayAdapter):
                 func=_fill_shared_hour_cache,
             )
 
-            return [
-                item
-                for item in await _gather_bounded(
-                    prepared,
-                    workers=book_workers,
-                    func=_load_book,
-                )
-                if item is not None
-            ]
-
         can_group_pmxt_books = all(
             hasattr(item.loader, "load_shared_market_batches_for_hour")
             and hasattr(item.loader, "load_order_book_deltas_from_hour_batches")
             for item in prepared
         )
         if can_group_pmxt_books:
-            loaded_books = await _load_grouped_pmxt_books()
-        else:
-            loaded_books = [
-                item
-                for item in await _gather_bounded(
-                    prepared,
-                    workers=book_workers,
-                    func=_load_book,
-                )
-                if item is not None
-            ]
-        prepared_loaded = [loaded_book.prepared for loaded_book in loaded_books]
-        book_event_counts = [loaded_book.book_event_count for loaded_book in loaded_books]
-        book_slots: list[tuple[OrderBookDeltas, ...] | None] = [
-            loaded_book.book_records for loaded_book in loaded_books
-        ]
-        del loaded_books
+            await _fill_grouped_pmxt_book_cache()
 
-        async def _load_trades_and_build(index: int) -> LoadedReplay | None:
-            prepared_replay = prepared_loaded[index]
+        async def _load_book_trades_and_build(
+            prepared_replay: _PreparedBookReplay,
+        ) -> LoadedReplay | None:
             replay = prepared_replay.resolved.replay
-            book_records = book_slots[index]
-            if book_records is None:
+            loaded_book = await _load_book(prepared_replay)
+            if loaded_book is None:
                 return None
             try:
                 trade_records = await _load_trade_ticks(
@@ -1185,15 +1206,14 @@ class PolymarketPMXTBookReplayAdapter(_BaseReplayAdapter):
                 )
                 records = await asyncio.to_thread(
                     _merge_records,
-                    book_records=book_records,
+                    book_records=loaded_book.book_records,
                     trade_records=trade_records,
                 )
-                book_slots[index] = None
                 return await asyncio.to_thread(
                     self._build_loaded_book_replay_or_none,
                     prepared=prepared_replay,
                     records=records,
-                    book_event_count=book_event_counts[index],
+                    book_event_count=loaded_book.book_event_count,
                     request=request,
                     vendor="pmxt",
                     source_label="PMXT",
@@ -1208,9 +1228,9 @@ class PolymarketPMXTBookReplayAdapter(_BaseReplayAdapter):
                 return None
 
         loaded = await _gather_bounded(
-            tuple(range(len(prepared_loaded))),
-            workers=workers,
-            func=_load_trades_and_build,
+            prepared,
+            workers=materialize_workers,
+            func=_load_book_trades_and_build,
         )
         return [loaded_sim for loaded_sim in loaded if loaded_sim is not None]
 
@@ -1409,6 +1429,12 @@ class PolymarketTelonexBookReplayAdapter(_BaseReplayAdapter):
             for item in await _gather_bounded(resolved_replays, workers=workers, func=_prepare)
             if item is not None
         ]
+        materialize_workers = _resolve_materialize_workers(workers)
+        _emit_materialize_worker_event(
+            vendor="telonex",
+            materialize_workers=materialize_workers,
+            source_workers=workers,
+        )
 
         async def _load_book(prepared_replay: _PreparedBookReplay) -> _LoadedBookReplay | None:
             replay = prepared_replay.resolved.replay
@@ -1437,23 +1463,12 @@ class PolymarketTelonexBookReplayAdapter(_BaseReplayAdapter):
                 )
                 return None
 
-        loaded_books = [
-            item
-            for item in await _gather_bounded(prepared, workers=workers, func=_load_book)
-            if item is not None
-        ]
-        prepared_loaded = [loaded_book.prepared for loaded_book in loaded_books]
-        book_event_counts = [loaded_book.book_event_count for loaded_book in loaded_books]
-        book_slots: list[tuple[OrderBookDeltas, ...] | None] = [
-            loaded_book.book_records for loaded_book in loaded_books
-        ]
-        del loaded_books
-
-        async def _load_trades_and_build(index: int) -> LoadedReplay | None:
-            prepared_replay = prepared_loaded[index]
+        async def _load_book_trades_and_build(
+            prepared_replay: _PreparedBookReplay,
+        ) -> LoadedReplay | None:
             replay = prepared_replay.resolved.replay
-            book_records = book_slots[index]
-            if book_records is None:
+            loaded_book = await _load_book(prepared_replay)
+            if loaded_book is None:
                 return None
             try:
                 trade_records = await _load_trade_ticks(
@@ -1464,15 +1479,14 @@ class PolymarketTelonexBookReplayAdapter(_BaseReplayAdapter):
                 )
                 records = await asyncio.to_thread(
                     _merge_records,
-                    book_records=book_records,
+                    book_records=loaded_book.book_records,
                     trade_records=trade_records,
                 )
-                book_slots[index] = None
                 return await asyncio.to_thread(
                     self._build_loaded_book_replay_or_none,
                     prepared=prepared_replay,
                     records=records,
-                    book_event_count=book_event_counts[index],
+                    book_event_count=loaded_book.book_event_count,
                     request=request,
                     vendor="telonex",
                     source_label="Telonex",
@@ -1487,9 +1501,9 @@ class PolymarketTelonexBookReplayAdapter(_BaseReplayAdapter):
                 return None
 
         loaded = await _gather_bounded(
-            tuple(range(len(prepared_loaded))),
-            workers=workers,
-            func=_load_trades_and_build,
+            prepared,
+            workers=materialize_workers,
+            func=_load_book_trades_and_build,
         )
         return [loaded_sim for loaded_sim in loaded if loaded_sim is not None]
 

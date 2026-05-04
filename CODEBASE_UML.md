@@ -1,8 +1,8 @@
 # Codebase UML Inventory
 
 This file is generated from Python AST metadata and excludes `tests/`.
-Generated: 2026-05-04T15:18:48+00:00
-Modules: 111 | Classes: 163 | Functions/methods: 1408
+Generated: 2026-05-04T15:26:19+00:00
+Modules: 111 | Classes: 163 | Functions/methods: 1410
 
 ## Backtesting Data Flow
 
@@ -1234,57 +1234,59 @@ flowchart TD
 
 ### `prediction_market_extensions/backtesting/data_sources/replay_adapters.py`
 - Imports: `__future__, asyncio, collections, contextlib, dataclasses, datetime, importlib, nautilus_trader, numpy, os, pandas, pathlib, prediction_market_extensions, pyarrow, time, typing, warnings`
-- Function L56: `_resolve_backtest_compat_symbol(name: str, default) -> Any`
-- Function L66: `_loader_realized_outcome(loader) -> float | None`
-- Function L74: `_normalize_timestamp(value: object | None, *, default_now: bool = False) -> pd.Timestamp`
-- Function L90: `_loaded_window(records: tuple[object, ...]) -> ReplayWindow | None`
-- Function L106: `_requested_window(start: pd.Timestamp, end: pd.Timestamp) -> ReplayWindow`
-- Function L110: `_price_range(prices: tuple[float, ...]) -> float`
-- Function L116: `_best_book_midpoint(book: OrderBook) -> float | None`
-- Function L124: `_book_event_count_and_midpoints(*, instrument, records: tuple[object, ...], deltas_type: type[Any]) -> tuple[int, tuple[float, ...]]`
-- Function L141: `_book_event_count(records: tuple[object, ...], *, deltas_type: type[Any]) -> int`
-- Function L145: `_book_event_count_and_prices_for_request(*, instrument, records: tuple[object, ...], deltas_type: type[Any], request: ReplayLoadRequest) -> tuple[int, tuple[float, ...]]`
-- Function L161: `_validate_replay_window(*, market_label: str, count_label: str, count: int, min_record_count: int, prices: tuple[float, ...], min_price_range: float) -> bool`
-- Function L190: `_cache_home() -> Path`
-- Function L195: `_trade_cache_path(*, loader, date: pd.Timestamp) -> Path | None`
-- Function L210: `_trade_record_sort_key(record: TradeTick) -> tuple[int, int]`
-- Function L214: `_serialize_trade_ticks(trades: tuple[TradeTick, ...]) -> pd.DataFrame`
-- Function L229: `_trade_ticks_from_native_columns(*, loader, data: tuple[list[float], list[float], list[int], list[str], list[int], list[int]]) -> tuple[TradeTick, ...]`
-- Function L251: `_trade_ticks_from_cache_frame_native(*, loader, frame: pd.DataFrame) -> tuple[TradeTick, ...]`
-- Function L288: `_rounded_float64_array(values, precision: int) -> np.ndarray`
-- Function L292: `_deserialize_trade_ticks(*, loader, frame: pd.DataFrame) -> tuple[TradeTick, ...]`
-- Function L298: `_write_trade_cache(*, path: Path, trades: tuple[TradeTick, ...], market_label: str, day: pd.Timestamp) -> None`
-- Function L350: `_trade_day_label(day: pd.Timestamp) -> str`
-- Function L354: `_print_trade_progress_header(*, market_label: str, start: pd.Timestamp, end: pd.Timestamp) -> None`
-- Function L371: `_trade_source_label(source: str) -> str`
-- Function L394: `_print_trade_progress_line(*, day: pd.Timestamp, elapsed_secs: float, rows: int, source: str) -> None`
-- Function L417: `_polymarket_ceiling_warning(caught_warnings: list[warnings.WarningMessage]) -> str | None`
-- Function L425: `_trade_days_for_window(start: pd.Timestamp, end: pd.Timestamp) -> tuple[pd.Timestamp, ...]`
-- Function L438: `async _load_trade_ticks(loader, *, start: pd.Timestamp, end: pd.Timestamp, market_label: str) -> tuple[TradeTick, ...]`
-- Function L518: `_merge_records(*, book_records: tuple[OrderBookDeltas, ...], trade_records: tuple[TradeTick, ...]) -> tuple[object, ...]`
-- Function L563: `async _gather_bounded(values: Sequence[Any], *, workers: int, func: Callable[[Any], Any]) -> list[Any]`
-- Class L543: `_ResolvedBookReplay`
-- Class L550: `_PreparedBookReplay`
-- Class L557: `_LoadedBookReplay`
-- Class L583: `_BaseReplayAdapter(HistoricalReplayAdapter)`
-  - Method L593: `key(self) -> ReplayAdapterKey`
-  - Method L597: `replay_spec_type(self) -> type[Any]`
-  - Method L600: `configure_sources(self, *, sources: tuple[str, ...] | list[str]) -> AbstractContextManager[Any]`
-  - Method L606: `engine_profile(self) -> ReplayEngineProfile`
-  - Method L609: `build_single_market_replay(self, *, field_values: Mapping[str, Any]) -> Any`
-  - Method L621: `_resolve_book_replay_window(self, replay: BookReplay, *, request: ReplayLoadRequest, source_label: str) -> _ResolvedBookReplay`
-  - Method L649: `_emit_book_replay_start(*, resolved: _ResolvedBookReplay, vendor: str) -> None`
-  - Method L668: `_emit_book_replay_fetch_error(*, replay: BookReplay, vendor: str, source_label: str, error: Exception) -> None`
-  - Method L682: `_build_loaded_book_replay_or_none(self, *, prepared: _PreparedBookReplay, records: tuple[object, ...], book_event_count: int | None = None, request: ReplayLoadRequest, vendor: str, source_label: str) -> LoadedReplay | None`
-  - Method L741: `_build_loaded_replay(self, *, replay, instrument, records: tuple[Any, ...], count: int, count_key: str, market_key: str, market_id: str, prices: tuple[float, ...], outcome: str, realized_outcome: float | None, metadata: dict[str, Any], requested_window: ReplayWindow) -> LoadedReplay`
-- Class L777: `PolymarketPMXTBookReplayAdapter(_BaseReplayAdapter)`
-  - Method L778: `__init__(self) -> None`
-  - Method L805: `async load_replay(self, replay: BookReplay, *, request: ReplayLoadRequest) -> LoadedReplay | None`
-  - Method L915: `async load_replays(self, replays: Sequence[BookReplay], *, request: ReplayLoadRequest, workers: int) -> list[LoadedReplay]`
-- Class L1218: `PolymarketTelonexBookReplayAdapter(_BaseReplayAdapter)`
-  - Method L1219: `__init__(self) -> None`
-  - Method L1249: `async load_replay(self, replay: BookReplay, *, request: ReplayLoadRequest) -> LoadedReplay | None`
-  - Method L1369: `async load_replays(self, replays: Sequence[BookReplay], *, request: ReplayLoadRequest, workers: int) -> list[LoadedReplay]`
+- Function L60: `_resolve_backtest_compat_symbol(name: str, default) -> Any`
+- Function L70: `_loader_realized_outcome(loader) -> float | None`
+- Function L78: `_normalize_timestamp(value: object | None, *, default_now: bool = False) -> pd.Timestamp`
+- Function L94: `_loaded_window(records: tuple[object, ...]) -> ReplayWindow | None`
+- Function L110: `_requested_window(start: pd.Timestamp, end: pd.Timestamp) -> ReplayWindow`
+- Function L114: `_price_range(prices: tuple[float, ...]) -> float`
+- Function L120: `_best_book_midpoint(book: OrderBook) -> float | None`
+- Function L128: `_book_event_count_and_midpoints(*, instrument, records: tuple[object, ...], deltas_type: type[Any]) -> tuple[int, tuple[float, ...]]`
+- Function L145: `_book_event_count(records: tuple[object, ...], *, deltas_type: type[Any]) -> int`
+- Function L149: `_book_event_count_and_prices_for_request(*, instrument, records: tuple[object, ...], deltas_type: type[Any], request: ReplayLoadRequest) -> tuple[int, tuple[float, ...]]`
+- Function L165: `_validate_replay_window(*, market_label: str, count_label: str, count: int, min_record_count: int, prices: tuple[float, ...], min_price_range: float) -> bool`
+- Function L194: `_cache_home() -> Path`
+- Function L199: `_trade_cache_path(*, loader, date: pd.Timestamp) -> Path | None`
+- Function L214: `_trade_record_sort_key(record: TradeTick) -> tuple[int, int]`
+- Function L218: `_serialize_trade_ticks(trades: tuple[TradeTick, ...]) -> pd.DataFrame`
+- Function L233: `_trade_ticks_from_native_columns(*, loader, data: tuple[list[float], list[float], list[int], list[str], list[int], list[int]]) -> tuple[TradeTick, ...]`
+- Function L255: `_trade_ticks_from_cache_frame_native(*, loader, frame: pd.DataFrame) -> tuple[TradeTick, ...]`
+- Function L292: `_rounded_float64_array(values, precision: int) -> np.ndarray`
+- Function L296: `_deserialize_trade_ticks(*, loader, frame: pd.DataFrame) -> tuple[TradeTick, ...]`
+- Function L302: `_write_trade_cache(*, path: Path, trades: tuple[TradeTick, ...], market_label: str, day: pd.Timestamp) -> None`
+- Function L354: `_trade_day_label(day: pd.Timestamp) -> str`
+- Function L358: `_print_trade_progress_header(*, market_label: str, start: pd.Timestamp, end: pd.Timestamp) -> None`
+- Function L375: `_trade_source_label(source: str) -> str`
+- Function L398: `_print_trade_progress_line(*, day: pd.Timestamp, elapsed_secs: float, rows: int, source: str) -> None`
+- Function L421: `_polymarket_ceiling_warning(caught_warnings: list[warnings.WarningMessage]) -> str | None`
+- Function L429: `_trade_days_for_window(start: pd.Timestamp, end: pd.Timestamp) -> tuple[pd.Timestamp, ...]`
+- Function L442: `async _load_trade_ticks(loader, *, start: pd.Timestamp, end: pd.Timestamp, market_label: str) -> tuple[TradeTick, ...]`
+- Function L522: `_merge_records(*, book_records: tuple[OrderBookDeltas, ...], trade_records: tuple[TradeTick, ...]) -> tuple[object, ...]`
+- Function L567: `async _gather_bounded(values: Sequence[Any], *, workers: int, func: Callable[[Any], Any]) -> list[Any]`
+- Function L586: `_resolve_materialize_workers(source_workers: int) -> int`
+- Function L598: `_emit_materialize_worker_event(*, vendor: str, materialize_workers: int, source_workers: int) -> None`
+- Class L547: `_ResolvedBookReplay`
+- Class L554: `_PreparedBookReplay`
+- Class L561: `_LoadedBookReplay`
+- Class L623: `_BaseReplayAdapter(HistoricalReplayAdapter)`
+  - Method L633: `key(self) -> ReplayAdapterKey`
+  - Method L637: `replay_spec_type(self) -> type[Any]`
+  - Method L640: `configure_sources(self, *, sources: tuple[str, ...] | list[str]) -> AbstractContextManager[Any]`
+  - Method L646: `engine_profile(self) -> ReplayEngineProfile`
+  - Method L649: `build_single_market_replay(self, *, field_values: Mapping[str, Any]) -> Any`
+  - Method L661: `_resolve_book_replay_window(self, replay: BookReplay, *, request: ReplayLoadRequest, source_label: str) -> _ResolvedBookReplay`
+  - Method L689: `_emit_book_replay_start(*, resolved: _ResolvedBookReplay, vendor: str) -> None`
+  - Method L708: `_emit_book_replay_fetch_error(*, replay: BookReplay, vendor: str, source_label: str, error: Exception) -> None`
+  - Method L722: `_build_loaded_book_replay_or_none(self, *, prepared: _PreparedBookReplay, records: tuple[object, ...], book_event_count: int | None = None, request: ReplayLoadRequest, vendor: str, source_label: str) -> LoadedReplay | None`
+  - Method L781: `_build_loaded_replay(self, *, replay, instrument, records: tuple[Any, ...], count: int, count_key: str, market_key: str, market_id: str, prices: tuple[float, ...], outcome: str, realized_outcome: float | None, metadata: dict[str, Any], requested_window: ReplayWindow) -> LoadedReplay`
+- Class L817: `PolymarketPMXTBookReplayAdapter(_BaseReplayAdapter)`
+  - Method L818: `__init__(self) -> None`
+  - Method L845: `async load_replay(self, replay: BookReplay, *, request: ReplayLoadRequest) -> LoadedReplay | None`
+  - Method L955: `async load_replays(self, replays: Sequence[BookReplay], *, request: ReplayLoadRequest, workers: int) -> list[LoadedReplay]`
+- Class L1238: `PolymarketTelonexBookReplayAdapter(_BaseReplayAdapter)`
+  - Method L1239: `__init__(self) -> None`
+  - Method L1269: `async load_replay(self, replay: BookReplay, *, request: ReplayLoadRequest) -> LoadedReplay | None`
+  - Method L1389: `async load_replays(self, replays: Sequence[BookReplay], *, request: ReplayLoadRequest, workers: int) -> list[LoadedReplay]`
 
 ### `prediction_market_extensions/backtesting/data_sources/telonex.py`
 - Imports: `__future__, collections, concurrent, contextlib, contextvars, dataclasses, datetime, duckdb, hashlib, io, nautilus_trader, numpy, os, pandas, pathlib, prediction_market_extensions, pyarrow, re, threading, urllib, warnings`

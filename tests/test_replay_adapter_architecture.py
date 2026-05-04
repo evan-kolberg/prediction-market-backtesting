@@ -235,12 +235,13 @@ def test_preflight_skips_midpoints_when_price_range_filter_disabled(monkeypatch)
         ),
     ],
 )
-def test_book_batch_loader_stages_metadata_then_books_then_trades(
+def test_book_batch_loader_stages_metadata_then_bounded_materialization(
     monkeypatch: pytest.MonkeyPatch,
     adapter,
     loader_symbol: str,
 ) -> None:
     events: list[str] = []
+    monkeypatch.setenv("BACKTEST_REPLAY_MATERIALIZE_WORKERS", "1")
 
     class FakeLoader:
         def __init__(self, slug: str) -> None:
@@ -322,11 +323,12 @@ def test_book_batch_loader_stages_metadata_then_books_then_trades(
         index for index, event in enumerate(events) if event.startswith("metadata:")
     )
     first_book = min(index for index, event in enumerate(events) if event.startswith("book:"))
-    last_book = max(index for index, event in enumerate(events) if event.startswith("book:"))
-    first_trade = min(index for index, event in enumerate(events) if event.startswith("trades:"))
 
     assert last_metadata < first_book
-    assert last_book < first_trade
+    for slug in ("first", "second"):
+        assert events.index(f"book:{slug}") < events.index(f"trades:{slug}")
+        assert events.index(f"trades:{slug}") < events.index(f"merge:{slug}")
+        assert events.index(f"merge:{slug}") < events.index(f"build:{slug}")
     assert [item.market_id for item in loaded] == ["first", "second"]
 
 

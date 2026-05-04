@@ -39,7 +39,8 @@ EXPECTED_PUBLIC_RUNNER_PATHS = [
     Path("backtests/polymarket_book_joint_portfolio_runner.py"),
     Path("backtests/polymarket_btc_5m_late_favorite_taker_hold.py"),
     Path("backtests/polymarket_btc_5m_pair_arbitrage.py"),
-    Path("backtests/polymarket_telonex_book_100_replay_joint_portfolio_runner.py"),
+    Path("backtests/polymarket_pmxt_book_100_replay_runner.py"),
+    Path("backtests/polymarket_telonex_book_100_replay_runner.py"),
     Path("backtests/polymarket_telonex_book_joint_portfolio_runner.py"),
     Path("backtests/telonex_book_joint_portfolio_runner.ipynb"),
 ]
@@ -49,9 +50,7 @@ PMXT_JOINT_BOOK_RUNNERS = [Path("backtests/polymarket_book_joint_portfolio_runne
 TELONEX_SMALL_JOINT_BOOK_RUNNER = Path(
     "backtests/polymarket_telonex_book_joint_portfolio_runner.py"
 )
-TELONEX_100_JOINT_BOOK_RUNNER = Path(
-    "backtests/polymarket_telonex_book_100_replay_joint_portfolio_runner.py"
-)
+TELONEX_100_JOINT_BOOK_RUNNER = Path("backtests/polymarket_telonex_book_100_replay_runner.py")
 TELONEX_JOINT_BOOK_RUNNERS = [TELONEX_100_JOINT_BOOK_RUNNER, TELONEX_SMALL_JOINT_BOOK_RUNNER]
 TELONEX_ACCOUNT_REPLAY_RUNNERS = [Path("backtests/polymarket_beffer45_trade_replay_telonex.py")]
 PMXT_BOOK_OPTIMIZER_RUNNERS = [Path("backtests/polymarket_book_ema_optimizer.py")]
@@ -434,7 +433,7 @@ def test_telonex_book_joint_runners_build_inline_summary_contract(
             for replay in experiment.replays
         )
         assert experiment.report.summary_report_path == (
-            "output/polymarket_telonex_book_100_replay_joint_portfolio_runner_joint_portfolio.html"
+            "output/polymarket_telonex_book_100_replay_runner_joint_portfolio.html"
         )
     else:
         raise AssertionError(f"Unhandled Telonex joint book runner: {relative_path}")

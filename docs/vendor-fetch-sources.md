@@ -113,13 +113,16 @@ day, and clipped window report `telonex deltas cache ...` or
 local/API decoding. Local/API trade-tick labels also include the exact Telonex
 channel, such as `telonex local onchain_fills` or `telonex local trades`.
 
-Multi-replay Telonex loading uses the same staged architecture: all Polymarket
-Gamma/CLOB metadata is prepared first, all book days load next, and execution
-trade ticks load after book data is available. `BACKTEST_REPLAY_LOAD_WORKERS`
-controls replay-level concurrency and defaults to `32`. Telonex API requests
-are separately capped by `TELONEX_API_WORKERS` and default to `128`; local file,
-DuckDB, and parquet operations are capped by `TELONEX_FILE_WORKERS` and default
-to `28` to avoid file-descriptor pressure on large 100-market loads.
+Multi-replay Telonex loading uses staged source preparation with bounded
+materialization: all Polymarket Gamma/CLOB metadata is prepared first, source
+fetch/cache work fans out, then book materialization, trade loading, and replay
+building run through a smaller memory cap. `BACKTEST_REPLAY_LOAD_WORKERS`
+controls source-stage concurrency and defaults to `32`;
+`BACKTEST_REPLAY_MATERIALIZE_WORKERS` controls the memory-heavy replay object
+stage and defaults to `4`. Telonex API requests are separately capped by
+`TELONEX_API_WORKERS` and default to `128`; local file, DuckDB, and parquet
+operations are capped by `TELONEX_FILE_WORKERS` and default to `28` to avoid
+file-descriptor pressure on large 100-market loads.
 
 ## Timing Expectations By Source
 

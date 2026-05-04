@@ -161,9 +161,9 @@ def run() -> None:
     def _run() -> None:
         run_experiment(
             build_replay_experiment(
-                name="polymarket_telonex_book_100_replay_joint_portfolio_runner",
+                name="polymarket_pmxt_book_100_replay_runner",
                 description=(
-                    "Joint-portfolio Telonex book backtest over 100 popular Polymarket markets"
+                    "Joint-portfolio PMXT book backtest over 100 popular Polymarket markets"
                 ),
                 data=MarketDataConfig(
                     platform=Polymarket,
@@ -218,9 +218,7 @@ def run() -> None:
                     market_key="sim_label",
                     summary_report=True,
                     summary_report_path=(
-                        "output/"
-                        "polymarket_telonex_book_100_replay_joint_portfolio_runner_"
-                        "joint_portfolio.html"
+                        "output/polymarket_pmxt_book_100_replay_runner_joint_portfolio.html"
                     ),
                     summary_plot_panels=(
                         "total_equity",

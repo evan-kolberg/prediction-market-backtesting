@@ -132,9 +132,10 @@ The Telonex downloader writes Hive-partitioned parquet files under
 
 Telonex replay loading has separate concurrency controls for different
 resources. `BACKTEST_REPLAY_LOAD_WORKERS` defaults to `32` for replay-level
-staging, `TELONEX_API_WORKERS` defaults to `128` for API fetches, and
-`TELONEX_FILE_WORKERS` defaults to `28` for local parquet/DuckDB/cache file
-work.
+source staging, `BACKTEST_REPLAY_MATERIALIZE_WORKERS` defaults to `4` for the
+memory-heavy replay object materialization stage, `TELONEX_API_WORKERS`
+defaults to `128` for API fetches, and `TELONEX_FILE_WORKERS` defaults to `28`
+for local parquet/DuckDB/cache file work.
 It is crash-safe and resumable: completed days and empty days are recorded in
 the manifest, and reruns skip already-recorded work. The writer queue is bounded
 and periodically flushed so long `--all-markets` runs do not accumulate pending
