@@ -10,6 +10,7 @@ from prediction_market_extensions.backtesting._timing_test import (
     _active_transfer_progress,
     _loader_progress_enabled,
     _loader_progress_lines_enabled,
+    _loader_tqdm_enabled,
     _progress_bar_description,
     _progress_bar_position,
     _progress_bar_total,
@@ -31,12 +32,20 @@ def test_loader_progress_can_be_disabled(monkeypatch) -> None:
     assert not _loader_progress_enabled()
 
 
-def test_loader_progress_lines_are_opt_in_by_default(monkeypatch) -> None:
+def test_loader_progress_lines_are_enabled_by_default(monkeypatch) -> None:
     monkeypatch.delenv("BACKTEST_LOADER_PROGRESS_LINES", raising=False)
+    assert _loader_progress_lines_enabled()
+
+    monkeypatch.setenv("BACKTEST_LOADER_PROGRESS_LINES", "0")
     assert not _loader_progress_lines_enabled()
 
-    monkeypatch.setenv("BACKTEST_LOADER_PROGRESS_LINES", "1")
-    assert _loader_progress_lines_enabled()
+
+def test_loader_tqdm_is_opt_in_by_default(monkeypatch) -> None:
+    monkeypatch.delenv("BACKTEST_LOADER_TQDM", raising=False)
+    assert not _loader_tqdm_enabled()
+
+    monkeypatch.setenv("BACKTEST_LOADER_TQDM", "1")
+    assert _loader_tqdm_enabled()
 
 
 def test_transfer_label_identifies_local_raw_paths() -> None:
@@ -261,6 +270,7 @@ def test_grouped_pmxt_timing_drives_tqdm_progress(monkeypatch) -> None:
 
     monkeypatch.delenv("BACKTEST_LOADER_PROGRESS", raising=False)
     monkeypatch.setenv("BACKTEST_LOADER_PROGRESS_LINES", "1")
+    monkeypatch.setenv("BACKTEST_LOADER_TQDM", "1")
     timing_module = importlib.reload(timing_module)
     updates: list[object] = []
 

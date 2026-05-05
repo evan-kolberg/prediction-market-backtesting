@@ -1,8 +1,8 @@
 # Codebase UML Inventory
 
 This file is generated from Python AST metadata and excludes `tests/`.
-Generated: 2026-05-05T19:57:06+00:00
-Modules: 112 | Classes: 166 | Functions/methods: 1512
+Generated: 2026-05-05T20:00:30+00:00
+Modules: 112 | Classes: 166 | Functions/methods: 1513
 
 ## Backtesting Data Flow
 
@@ -1104,25 +1104,26 @@ flowchart TD
 
 ### `prediction_market_extensions/backtesting/_timing_test.py`
 - Imports: `__future__, asyncio, importlib, os, pathlib, sys, threading, time, urllib`
-- Function L41: `_env_flag_enabled(value: str | None, *, default: bool = True) -> bool`
-- Function L47: `_loader_progress_enabled() -> bool`
-- Function L51: `_loader_progress_lines_enabled() -> bool`
-- Function L55: `_loader_progress_log_interval_secs() -> float`
-- Function L65: `_hour_label(source: str) -> str`
-- Function L74: `_filename_label(source: str) -> str`
-- Function L80: `_format_bytes(size: int | None) -> str`
-- Function L93: `_transfer_label(source: str) -> str`
-- Function L121: `_progress_bar_description(*, total_hours: int, started_hours: int, completed_hours: int, active_hours: int | None = None, item_label: str = 'hours') -> str`
-- Function L150: `_hour_progress_key(hour) -> str`
-- Function L157: `_progress_bar_total(total_hours: int) -> int`
-- Function L161: `_text_progress_bar(position: float, total: int, *, width: int = 24) -> str`
-- Function L169: `_progress_bar_position(*, total_hours: int, completed_hours: int, active_hours_progress: float = 0.0) -> float`
-- Function L179: `_hour_label_from_hour(hour) -> str`
-- Function L186: `_is_local_scan_source(source: str | None) -> bool`
-- Function L195: `_transfer_progress_fraction(*, mode: str | None, source: str | None = None, downloaded_bytes: int, total_bytes: int | None, scanned_batches: int) -> float`
-- Function L223: `_active_transfer_progress(downloads: dict[str, dict[str, object]]) -> tuple[int, float]`
-- Function L244: `install_timing() -> None`
-- Function L917: `_load_backtest_module(path_str: str) -> Any`
+- Function L42: `_env_flag_enabled(value: str | None, *, default: bool = True) -> bool`
+- Function L48: `_loader_progress_enabled() -> bool`
+- Function L52: `_loader_progress_lines_enabled() -> bool`
+- Function L56: `_loader_tqdm_enabled() -> bool`
+- Function L60: `_loader_progress_log_interval_secs() -> float`
+- Function L70: `_hour_label(source: str) -> str`
+- Function L79: `_filename_label(source: str) -> str`
+- Function L85: `_format_bytes(size: int | None) -> str`
+- Function L98: `_transfer_label(source: str) -> str`
+- Function L126: `_progress_bar_description(*, total_hours: int, started_hours: int, completed_hours: int, active_hours: int | None = None, item_label: str = 'hours') -> str`
+- Function L155: `_hour_progress_key(hour) -> str`
+- Function L162: `_progress_bar_total(total_hours: int) -> int`
+- Function L166: `_text_progress_bar(position: float, total: int, *, width: int = 24) -> str`
+- Function L174: `_progress_bar_position(*, total_hours: int, completed_hours: int, active_hours_progress: float = 0.0) -> float`
+- Function L184: `_hour_label_from_hour(hour) -> str`
+- Function L191: `_is_local_scan_source(source: str | None) -> bool`
+- Function L200: `_transfer_progress_fraction(*, mode: str | None, source: str | None = None, downloaded_bytes: int, total_bytes: int | None, scanned_batches: int) -> float`
+- Function L228: `_active_transfer_progress(downloads: dict[str, dict[str, object]]) -> tuple[int, float]`
+- Function L249: `install_timing() -> None`
+- Function L916: `_load_backtest_module(path_str: str) -> Any`
 
 ### `prediction_market_extensions/backtesting/data_sources/__init__.py`
 - Imports: `prediction_market_extensions`

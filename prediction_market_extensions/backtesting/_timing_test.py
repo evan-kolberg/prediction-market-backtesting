@@ -34,6 +34,7 @@ _installed = False
 _TELONEX_TIMING_WORKERS_ENV = "TELONEX_TIMING_WORKERS"
 _LOADER_PROGRESS_ENV = "BACKTEST_LOADER_PROGRESS"
 _LOADER_PROGRESS_LINES_ENV = "BACKTEST_LOADER_PROGRESS_LINES"
+_LOADER_TQDM_ENV = "BACKTEST_LOADER_TQDM"
 _LOADER_PROGRESS_LOG_INTERVAL_ENV = "BACKTEST_LOADER_PROGRESS_LOG_INTERVAL"
 _DEFAULT_PROGRESS_LOG_INTERVAL_SECS = 2.0
 
@@ -49,7 +50,11 @@ def _loader_progress_enabled() -> bool:
 
 
 def _loader_progress_lines_enabled() -> bool:
-    return _env_flag_enabled(os.getenv(_LOADER_PROGRESS_LINES_ENV), default=False)
+    return _env_flag_enabled(os.getenv(_LOADER_PROGRESS_LINES_ENV), default=True)
+
+
+def _loader_tqdm_enabled() -> bool:
+    return _env_flag_enabled(os.getenv(_LOADER_TQDM_ENV), default=False)
 
 
 def _loader_progress_log_interval_secs() -> float:
@@ -582,7 +587,6 @@ def install_timing() -> None:
                 transfer_state["item_label"] = "hours"
                 transfer_state["vendor"] = "PMXT"
                 transfer_state["parallel"] = parallel
-                progress_line_state["last_emit"] = 0.0
                 hour_keys_by_label.clear()
                 progress_keys["started"].clear()
                 progress_keys["completed"].clear()
@@ -600,11 +604,11 @@ def install_timing() -> None:
                     ),
                     unit="hr",
                     leave=False,
-                    disable=not sys.stderr.isatty(),
+                    disable=not _loader_tqdm_enabled(),
                     bar_format=("{l_bar}{bar}| [{elapsed}<{remaining}]{postfix}"),
                 )
             _refresh_transfer_status(emit_line=False)
-            _emit_plain_progress_line(force=first_active_call)
+            _emit_plain_progress_line()
 
             if grouped_heartbeat_thread is None or not grouped_heartbeat_thread.is_alive():
                 grouped_heartbeat_thread = threading.Thread(
@@ -624,7 +628,7 @@ def install_timing() -> None:
             _set_dynamic_total_hours()
             _refresh_transfer_status(emit_line=False)
             grouped_active_calls = max(0, grouped_active_calls - 1)
-            _emit_plain_progress_line(force=grouped_active_calls == 0)
+            _emit_plain_progress_line()
             if grouped_active_calls == 0:
                 stop_event: threading.Event = transfer_state["stop"]  # type: ignore[assignment]
                 stop_event.set()
@@ -695,7 +699,6 @@ def install_timing() -> None:
                 progress_state["completed_hours"] = 0
                 transfer_state["item_label"] = "hours"
                 transfer_state["vendor"] = "PMXT"
-                progress_line_state["last_emit"] = 0.0
                 hour_keys_by_label.clear()
                 progress_keys["started"].clear()
                 progress_keys["completed"].clear()
@@ -709,7 +712,7 @@ def install_timing() -> None:
                     ),
                     unit="hr",
                     leave=False,
-                    disable=not sys.stderr.isatty(),
+                    disable=not _loader_tqdm_enabled(),
                     bar_format=("{l_bar}{bar}| [{elapsed}<{remaining}]{postfix}"),
                 )
                 previous_callback = getattr(self, "_pmxt_download_progress_callback", None)
@@ -719,7 +722,7 @@ def install_timing() -> None:
                 transfer_state["parallel"] = (
                     min(getattr(self, "_pmxt_prefetch_workers", 1), len(hours)) > 1
                 )
-                _emit_plain_progress_line(force=True)
+                _emit_plain_progress_line()
                 heartbeat_thread.start()
             try:
                 yield from orig_iter(self, hours, batch_size=batch_size)
@@ -794,10 +797,7 @@ def install_timing() -> None:
                         return
                     _mark_hour_completed(date)
                     _refresh_transfer_status(emit_line=False)
-                    _emit_plain_progress_line(
-                        force=int(progress_state["completed_hours"])
-                        >= int(progress_state["total_hours"])
-                    )
+                    _emit_plain_progress_line()
 
             with pbar_lock:
                 stop_event: threading.Event = transfer_state["stop"]  # type: ignore[assignment]
@@ -807,7 +807,6 @@ def install_timing() -> None:
                 progress_state["completed_hours"] = 0
                 transfer_state["item_label"] = "days"
                 transfer_state["vendor"] = "Telonex"
-                progress_line_state["last_emit"] = 0.0
                 hour_keys_by_label.clear()
                 progress_keys["started"].clear()
                 progress_keys["completed"].clear()
@@ -824,7 +823,7 @@ def install_timing() -> None:
                     ),
                     unit="day",
                     leave=False,
-                    disable=not sys.stderr.isatty(),
+                    disable=not _loader_tqdm_enabled(),
                     bar_format=("{l_bar}{bar}| [{elapsed}<{remaining}]{postfix}"),
                 )
                 previous_download_callback = getattr(
@@ -836,7 +835,7 @@ def install_timing() -> None:
                 transfer_state["parallel"] = (
                     min(getattr(self, "_telonex_prefetch_workers", 1), len(dates)) > 1
                 )
-                _emit_plain_progress_line(force=True)
+                _emit_plain_progress_line()
                 heartbeat_thread.start()
 
             try:
