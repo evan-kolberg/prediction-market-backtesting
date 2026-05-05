@@ -1249,6 +1249,7 @@ def test_telonex_day_progress_emits_loader_event() -> None:
     assert event.stage == "cache_read"
     assert event.status == "cache_hit"
     assert event.source_kind == "cache"
+    assert event.cache_path == "/tmp/day.parquet"
     assert event.market_slug == "cache-test"
     assert event.token_id == "0"
     assert event.rows == 12

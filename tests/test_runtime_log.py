@@ -14,6 +14,7 @@ from prediction_market_extensions._runtime_log import (
     capture_loader_events,
     configure_loader_event_sinks_from_env,
     emit_loader_event,
+    format_loader_event_message,
     format_log_line,
     format_utc_timestamp_ns,
     get_loader_event_sinks,
@@ -65,6 +66,76 @@ def test_format_log_line_colors_warnings_and_errors() -> None:
 def test_log_message_rejects_unknown_levels() -> None:
     with pytest.raises(ValueError, match="Unsupported log level"):
         format_log_line("bad", level="NOTICE", origin="demo.test", timestamp_ns=0)
+
+
+def test_format_loader_event_message_unifies_pmxt_cache_hit() -> None:
+    event = LoaderEvent(
+        level="INFO",
+        message="Loaded PMXT filtered cache for 2026-03-21T11:00:00Z (1234 rows)",
+        origin="pmxt.load",
+        timestamp_ns=0,
+        stage="cache_read",
+        vendor="pmxt",
+        status="cache_hit",
+        platform="polymarket",
+        data_type="book",
+        source_kind="cache",
+        cache_path="/tmp/demo.parquet",
+        rows=1234,
+        elapsed_ms=123.4,
+        attrs={"hour": "2026-03-21T11:00:00Z"},
+    )
+
+    assert format_loader_event_message(event) == (
+        "PMXT book cache hit 2026-03-21T11:00:00Z (0.123s) (1,234 rows) cache /tmp/demo.parquet"
+    )
+
+
+def test_format_loader_event_message_unifies_telonex_local_day() -> None:
+    event = LoaderEvent(
+        level="INFO",
+        message="Telonex day complete for 2026-04-21: 42 rows from local:/data",
+        origin="telonex.load",
+        timestamp_ns=0,
+        stage="fetch",
+        vendor="telonex",
+        status="complete",
+        platform="polymarket",
+        data_type="book",
+        source_kind="local",
+        source="local:/data",
+        rows=42,
+        attrs={"date": "2026-04-21"},
+    )
+
+    assert (
+        format_loader_event_message(event)
+        == "Telonex book local complete 2026-04-21 (42 rows) local:/data"
+    )
+
+
+def test_format_loader_event_message_includes_raw_copy_error_context() -> None:
+    event = LoaderEvent(
+        level="ERROR",
+        message="Failed to write PMXT raw archive copy for 2026-04-21T01:00:00+00:00",
+        origin="pmxt.raw",
+        timestamp_ns=0,
+        stage="raw_write",
+        vendor="pmxt",
+        status="error",
+        platform="polymarket",
+        data_type="book",
+        source_kind="local",
+        source="archive:https://r2.pmxt.dev/hour.parquet",
+        cache_path="/tmp/raw/hour.parquet",
+        attrs={"hour": "2026-04-21T01:00:00+00:00", "error": "Permission denied"},
+    )
+
+    assert format_loader_event_message(event) == (
+        "PMXT book raw copy error 2026-04-21T01:00:00+00:00 "
+        "archive:https://r2.pmxt.dev/hour.parquet -> /tmp/raw/hour.parquet "
+        "error=Permission denied"
+    )
 
 
 def test_log_info_writes_timestamped_lines() -> None:

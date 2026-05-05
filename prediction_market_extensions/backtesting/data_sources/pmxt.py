@@ -445,7 +445,7 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
     ) -> Path | None:  # type: ignore[no-untyped-def]
         raw_path = raw_path.expanduser()
         temp_path = raw_path.with_name(
-            f".{raw_path.name}.{os.getpid()}.{threading.get_ident()}.tmp"
+            f".{raw_path.name}.{os.getpid()}.{threading.get_ident()}.{time.monotonic_ns()}.tmp"
         )
         emit_loader_event(
             f"Writing PMXT raw archive copy for {self._hour_label(hour)}",
@@ -1126,7 +1126,7 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
                 source=source,
                 condition_id=getattr(self, "condition_id", None),
                 token_id=getattr(self, "token_id", None),
-                attrs=self._pmxt_source_attrs(hour),
+                attrs=self._pmxt_source_attrs(hour, {"request_count": len(requests)}),
             )
             if kind == _PMXT_SOURCE_STAGE_RAW_REMOTE:
                 remote_url = target or getattr(self, "_pmxt_remote_base_url", None)
@@ -1164,7 +1164,7 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
                         source=source,
                         condition_id=getattr(self, "condition_id", None),
                         token_id=getattr(self, "token_id", None),
-                        attrs=self._pmxt_source_attrs(hour),
+                        attrs=self._pmxt_source_attrs(hour, {"request_count": len(requests)}),
                     )
                     continue
                 batches_by_request = self._load_shared_market_batches_from_raw_file(
@@ -1187,7 +1187,7 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
                     source=source,
                     condition_id=getattr(self, "condition_id", None),
                     token_id=getattr(self, "token_id", None),
-                    attrs=self._pmxt_source_attrs(hour),
+                    attrs=self._pmxt_source_attrs(hour, {"request_count": len(requests)}),
                 )
                 continue
 
@@ -1209,7 +1209,7 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
                 rows=rows,
                 condition_id=getattr(self, "condition_id", None),
                 token_id=getattr(self, "token_id", None),
-                attrs=self._pmxt_source_attrs(hour),
+                attrs=self._pmxt_source_attrs(hour, {"request_count": len(requests)}),
             )
             return {**missing, **batches_by_request}
 

@@ -149,6 +149,190 @@ class LoaderEventSink(Protocol):
     def emit(self, event: LoaderEvent) -> None: ...
 
 
+_STRUCTURED_CONSOLE_VENDORS = frozenset({"pmxt", "telonex", "polymarket"})
+_VENDOR_LABELS = {
+    "pmxt": "PMXT",
+    "telonex": "Telonex",
+    "polymarket": "Polymarket",
+}
+_SOURCE_KIND_LABELS = {
+    "remote": "archive",
+}
+_STATUS_LABELS = {
+    "cache_hit": "cache hit",
+    "cache_miss": "cache miss",
+}
+
+
+def _format_status(value: str) -> str:
+    return _STATUS_LABELS.get(value, value.replace("_", " "))
+
+
+def _format_source_kind(value: str | None) -> str | None:
+    if value is None:
+        return None
+    return _SOURCE_KIND_LABELS.get(value, value.replace("_", " "))
+
+
+def _format_elapsed_ms(elapsed_ms: float | None) -> str | None:
+    if elapsed_ms is None:
+        return None
+    return f"({elapsed_ms / 1000.0:.3f}s)"
+
+
+def _format_int_count(value: int | None, label: str) -> str | None:
+    if value is None:
+        return None
+    return f"({value:,} {label})"
+
+
+def _format_bytes(value: int | None) -> str | None:
+    if value is None:
+        return None
+    units = ("B", "KB", "MB", "GB", "TB")
+    size = float(value)
+    unit = units[0]
+    for unit in units:
+        if abs(size) < 1024.0 or unit == units[-1]:
+            break
+        size /= 1024.0
+    if unit == "B":
+        return f"({int(size):,} {unit})"
+    return f"({size:.1f} {unit})"
+
+
+def _event_time_label(event: LoaderEvent) -> str | None:
+    for key in ("date", "day", "hour"):
+        value = event.attrs.get(key)
+        if value is not None:
+            return str(value)
+    return None
+
+
+def _event_request_count(event: LoaderEvent) -> int | None:
+    for key in ("request_count", "requests"):
+        value = event.attrs.get(key)
+        if value is None:
+            continue
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+    return None
+
+
+def _event_error(event: LoaderEvent) -> str | None:
+    value = event.attrs.get("error")
+    if value is None:
+        return None
+    return str(value)
+
+
+def _event_count_label(event: LoaderEvent) -> str | None:
+    if event.rows is not None:
+        return _format_int_count(event.rows, "rows")
+    if event.book_events is not None:
+        return _format_int_count(event.book_events, "book events")
+    if event.trade_ticks is not None:
+        return _format_int_count(event.trade_ticks, "trades")
+    return None
+
+
+def _event_location_label(event: LoaderEvent) -> str | None:
+    source_label = event.attrs.get("source_label")
+    if source_label is not None:
+        return str(source_label)
+    source_kind = _format_source_kind(event.source_kind)
+    if event.stage == "raw_write" and event.source and event.cache_path:
+        return f"{event.source} -> {event.cache_path}"
+    if event.cache_path:
+        label = (
+            "cache" if event.source_kind == "cache" or event.stage.startswith("cache") else "file"
+        )
+        return f"{label} {event.cache_path}"
+    if event.source:
+        if source_kind and event.source.startswith(f"{source_kind}:"):
+            return event.source
+        if source_kind == "archive" and event.source.startswith("archive:"):
+            return event.source
+        return f"{source_kind} {event.source}" if source_kind else event.source
+    return source_kind
+
+
+def _event_operation_label(event: LoaderEvent) -> str:
+    status = _format_status(event.status)
+    if event.trade_ticks is not None:
+        return "trades" if event.status == "complete" else f"trades {status}"
+    if event.stage == "cache_read":
+        return status if event.status in {"cache_hit", "cache_miss"} else f"cache read {status}"
+    if event.stage == "cache_write":
+        return f"cache write {status}"
+    if event.stage == "raw_write":
+        return f"raw copy {status}"
+    if event.stage == "fetch":
+        source_kind = _format_source_kind(event.source_kind)
+        if source_kind is not None:
+            return f"{source_kind} {status}"
+        return status
+    if event.stage == "runtime":
+        return status
+    return f"{event.stage.replace('_', ' ')} {status}"
+
+
+def _should_format_loader_event(event: LoaderEvent) -> bool:
+    if event.vendor not in _STRUCTURED_CONSOLE_VENDORS:
+        return False
+    if event.vendor == "polymarket" and event.trade_ticks is None:
+        return False
+    if event.stage == "runtime":
+        return False
+    return any(
+        (
+            event.source_kind is not None,
+            event.source is not None,
+            event.cache_path is not None,
+            event.rows is not None,
+            event.book_events is not None,
+            event.trade_ticks is not None,
+            event.bytes is not None,
+            event.elapsed_ms is not None,
+            _event_time_label(event) is not None,
+        )
+    )
+
+
+def format_loader_event_message(event: LoaderEvent) -> str:
+    if not _should_format_loader_event(event):
+        return event.message
+
+    vendor = _VENDOR_LABELS.get(event.vendor, event.vendor.upper())
+    noun = "trades" if event.trade_ticks is not None else str(event.data_type or "data")
+    operation = _event_operation_label(event)
+    if operation == noun:
+        parts = [vendor, noun]
+    elif operation.startswith(f"{noun} "):
+        parts = [vendor, operation]
+    else:
+        parts = [vendor, noun, operation]
+
+    for label in (
+        _event_time_label(event),
+        _format_elapsed_ms(event.elapsed_ms),
+        _event_count_label(event),
+        _format_bytes(event.bytes),
+        _format_int_count(_event_request_count(event), "requests"),
+        _event_location_label(event),
+    ):
+        if label:
+            parts.append(label)
+
+    error = _event_error(event)
+    if error:
+        parts.append(f"error={error}")
+
+    return " ".join(parts)
+
+
 def _is_standard_stream(stream: TextIO) -> bool:
     return stream is sys.stdout or stream is sys.stderr
 
@@ -178,7 +362,7 @@ class ConsoleEventSink:
         target = self.stream if self.stream is not None else sys.stderr
         _write_console_line(
             format_log_line(
-                event.message,
+                format_loader_event_message(event),
                 level=event.level,
                 origin=event.origin,
                 timestamp_ns=event.timestamp_ns,

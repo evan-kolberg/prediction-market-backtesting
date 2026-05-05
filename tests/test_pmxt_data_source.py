@@ -762,12 +762,14 @@ def test_runner_loader_persists_remote_archive_download_to_raw_root(monkeypatch,
 
     assert batches == ["batch"]
     assert raw_path.read_bytes() == b"raw"
-    assert downloaded == [
-        (
-            "https://archive.vendor.test/polymarket_orderbook_2026-03-21T12.parquet",
-            raw_path.with_name(f".{raw_path.name}.{os.getpid()}.{threading.get_ident()}.tmp"),
-        )
-    ]
+    assert len(downloaded) == 1
+    assert downloaded[0][0] == (
+        "https://archive.vendor.test/polymarket_orderbook_2026-03-21T12.parquet"
+    )
+    temp_path = downloaded[0][1]
+    assert temp_path.parent == raw_path.parent
+    assert temp_path.name.startswith(f".{raw_path.name}.{os.getpid()}.{threading.get_ident()}.")
+    assert temp_path.name.endswith(".tmp")
     assert loaded == {
         "parquet_path": raw_path,
         "batch_size": 1_000,

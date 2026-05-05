@@ -649,6 +649,9 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
                 status = "cache_hit"
             else:
                 status = "complete"
+        cache_path: str | None = None
+        if "::" in source and "cache" in source:
+            cache_path = source.partition("::")[2] or None
         emit_loader_event(
             f"Telonex day {event} for {date}: {rows} rows from {source}",
             level="INFO",
@@ -659,6 +662,7 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
             data_type="book",
             source_kind=self._telonex_source_kind(source),
             source=None if source == "none" else source,
+            cache_path=cache_path,
             market_slug=getattr(self, "_telonex_market_slug", None),
             token_id=str(getattr(self, "_telonex_token_index", "")),
             outcome=getattr(self, "_telonex_outcome", None),
