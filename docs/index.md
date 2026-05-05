@@ -16,11 +16,11 @@ surface. Telonex uses a local Hive-partitioned full-book mirror, materialized
 operating docs are grouped under Core Framework; optimizer research and ledger
 replay are grouped under Advanced / Experiments.
 
-## Start Here
+##### Start Here
 
 - [Setup](setup.md)
 
-## Core Framework
+##### Core Framework
 
 - [Backtests And Runners](backtests.md)
 - [Data Loading](data-loading.md)
@@ -30,12 +30,12 @@ replay are grouped under Advanced / Experiments.
 - [Plotting](plotting.md)
 - [Testing](testing.md)
 
-## Advanced / Experiments
+##### Advanced / Experiments
 
 - [Research And Optimizers](research.md)
 - [Polymarket Account Ledger Replay](account-ledger-replay.md)
 
-## Project
+##### Project
 
 - [Project Status](project-status.md)
 - [License Notes](license.md)
