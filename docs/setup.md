@@ -4,6 +4,8 @@
 
 - Python 3.12+ (`3.13` recommended)
 - [uv](https://docs.astral.sh/uv/getting-started/installation/)
+- Rust 1.93.1+ via [rustup](https://rustup.rs/) for the native data-loading
+  extension
 
 ## Install
 
@@ -16,6 +18,7 @@ unset CONDA_PREFIX
 
 uv venv --python 3.13
 uv pip install "nautilus_trader[polymarket,visualization]==1.225.0" bokeh plotly numpy py-clob-client duckdb textual nbformat nbclient ipykernel optuna python-dotenv
+make native-develop
 ```
 
 If you want to build docs locally:
@@ -28,6 +31,7 @@ You can also use:
 
 ```bash
 make install
+make native-develop
 ```
 
 After setup, run commands with `uv run ...`. You do not need to manually

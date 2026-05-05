@@ -22,11 +22,10 @@
 ![GitHub closed pull requests](https://img.shields.io/github/issues-pr-closed/evan-kolberg/prediction-market-backtesting)
 
 **New in Version 4:**
+- Rust-native PMXT and Telonex data conversion; local setup now requires Rust
 - Faster staged PMXT and Telonex data loading
 - Unified cache/local/archive/API source progress output
 - Materialized replay caches for repeated book loads
-- Expanded data-loading docs and runner-flow diagrams
-- Leaner loader internals after removing stale progress and source helpers
 
 **New in Version 3:**
 - Telonex vendor support
@@ -49,7 +48,8 @@ Looking for the old version? That was renamed to [Version 1](https://github.com/
 Backtesting framework for prediction market strategies on
 [Polymarket](https://polymarket.com), built on top of
 [NautilusTrader](https://github.com/nautechsystems/nautilus_trader) with custom
-exchange adapters. Limitless.exchange and Opinion.trade are planned next; Kalshi
+exchange adapters. [Limitless.exchange](https://limitless.exchange) and
+[Opinion.trade](https://opinion.trade) are planned next; Kalshi
 support depends on access to L2 historical book data. Current Kalshi components
 are research and fee-modeling plumbing, not a public runnable backtest path.
 Plotting inspired by [minitrade](https://github.com/dodid/minitrade). This repo
