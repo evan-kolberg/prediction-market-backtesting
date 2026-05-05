@@ -411,10 +411,10 @@ def _runner_preview_renderable(backtest: dict[str, Any]) -> Any:
     return Syntax(
         preview,
         _runner_preview_lexer(backtest),
-        theme="monokai",
+        theme="ansi_dark",
         line_numbers=True,
         word_wrap=False,
-        background_color="#062a2f",
+        background_color="#0a2428",
     )
 
 
@@ -428,16 +428,16 @@ if TEXTUAL_AVAILABLE:
     class _BacktestMenuApp(App[int]):
         CSS = """
         Screen {
-            background: #031b1f;
-            color: #e8fff7;
+            background: #07191d;
+            color: #d9ece8;
         }
 
         #banner {
             dock: top;
             height: 1;
             padding: 0 1;
-            background: #00c2a8;
-            color: #021f22;
+            background: #214f4d;
+            color: #eaf7f3;
             text-style: bold;
         }
 
@@ -449,43 +449,43 @@ if TEXTUAL_AVAILABLE:
         #sidebar {
             width: 80;
             min-width: 60;
-            border: round #00d4d8;
-            background: #05282d;
+            border: round #2f7774;
+            background: #092226;
             padding: 0 1;
             margin: 1 1 1 0;
         }
 
         #filter {
             margin: 1 0;
-            border: tall #00c2a8;
-            background: #08343a;
-            color: #f0fff8;
+            border: tall #2f7774;
+            background: #0d2a2e;
+            color: #d9ece8;
         }
 
         #filter:focus {
-            border: tall #ff6f61;
+            border: tall #8a6f5c;
         }
 
         #runner_list {
             height: 1fr;
             border: none;
-            background: #05282d;
+            background: #092226;
         }
 
         _BacktestListItem {
             padding: 0 1;
-            color: #e8fff7;
+            color: #d9ece8;
         }
 
         _BacktestListItem.-highlight {
-            background: #ffd166;
-            color: #021f22;
+            background: #2f6965;
+            color: #f2fbf8;
             text-style: bold;
         }
 
         #runner_list:focus > _BacktestListItem.-highlight {
-            background: #ff6f61;
-            color: #021f22;
+            background: #6f5f58;
+            color: #fff7f1;
             text-style: bold;
         }
 
@@ -496,8 +496,8 @@ if TEXTUAL_AVAILABLE:
 
         #details {
             width: 1fr;
-            border: round #ffd166;
-            background: #062a2f;
+            border: round #7b6f54;
+            background: #0a2428;
             padding: 0 1;
             margin: 1 0 1 0;
         }
@@ -505,33 +505,33 @@ if TEXTUAL_AVAILABLE:
         #details_title {
             margin-top: 1;
             text-style: bold;
-            color: #7cffd4;
+            color: #9ad9ca;
         }
 
         #details_meta {
             margin: 1 0;
-            color: #b8fff0;
+            color: #b7d9d1;
         }
 
         #preview_heading {
             text-style: bold;
-            color: #ffd166;
+            color: #c8b06e;
         }
 
         #details_preview {
             height: 1fr;
             margin: 1 0 0 0;
             padding: 0 1 1 1;
-            border: tall #00d4d8;
-            background: #062a2f;
-            color: #e8fff7;
+            border: tall #2f7774;
+            background: #0a2428;
+            color: #d9ece8;
             overflow: auto auto;
             text-wrap: nowrap;
         }
 
         Footer {
-            background: #031b1f;
-            color: #7cffd4;
+            background: #07191d;
+            color: #9ad9ca;
         }
         """
 
