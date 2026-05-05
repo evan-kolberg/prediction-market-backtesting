@@ -21,6 +21,13 @@
 ![GitHub closed issues](https://img.shields.io/github/issues-closed/evan-kolberg/prediction-market-backtesting)
 ![GitHub closed pull requests](https://img.shields.io/github/issues-pr-closed/evan-kolberg/prediction-market-backtesting)
 
+**New in Version 4:**
+- Faster staged PMXT and Telonex data loading
+- Unified cache/local/archive/API source progress output
+- Materialized replay caches for repeated book loads
+- Expanded data-loading docs and runner-flow diagrams
+- Leaner loader internals after removing stale progress and source helpers
+
 **New in Version 3:**
 - Telonex vendor support
 - Local Telonex download script
@@ -40,9 +47,13 @@
 Looking for the old version? That was renamed to [Version 1](https://github.com/evan-kolberg/prediction-market-backtesting/tree/v1)
 
 Backtesting framework for prediction market strategies on
-[Kalshi](https://kalshi.com) and [Polymarket](https://polymarket.com), built on
-top of [NautilusTrader](https://github.com/nautechsystems/nautilus_trader) with
-custom exchange adapters. Plotting inspired by [minitrade](https://github.com/dodid/minitrade). This repo is still in active development.
+[Polymarket](https://polymarket.com), built on top of
+[NautilusTrader](https://github.com/nautechsystems/nautilus_trader) with custom
+exchange adapters. Limitless.exchange and Opinion.trade are planned next; Kalshi
+support depends on access to L2 historical book data. Current Kalshi components
+are research and fee-modeling plumbing, not a public runnable backtest path.
+Plotting inspired by [minitrade](https://github.com/dodid/minitrade). This repo
+is still in active development.
 
 
 Fantastic single & multi-market charting. Featuring: equity (total & individual markets), profit / loss ticks, P&L periodic bars, market allocation, YES price (with green buy and red sell fills), drawdown, sharpe (with above/below shading), cash / equity, monthly returns, and cumulative brier advantage.
@@ -76,55 +87,15 @@ Detailed guides have been filed away in the [docs index](https://evan-kolberg.gi
     - [Native Vendors](https://evan-kolberg.github.io/prediction-market-backtesting/backtests/#native-vendors)
     - [PMXT](https://evan-kolberg.github.io/prediction-market-backtesting/backtests/#pmxt)
     - [Telonex](https://evan-kolberg.github.io/prediction-market-backtesting/backtests/#telonex)
-- [V4 Rust Data Loading Plan](https://evan-kolberg.github.io/prediction-market-backtesting/v4-rust-data-loading-plan/)
-  - [Goals](https://evan-kolberg.github.io/prediction-market-backtesting/v4-rust-data-loading-plan/#goals)
-  - [Non-Goals](https://evan-kolberg.github.io/prediction-market-backtesting/v4-rust-data-loading-plan/#non-goals)
-  - [Realism Invariants](https://evan-kolberg.github.io/prediction-market-backtesting/v4-rust-data-loading-plan/#realism-invariants)
-  - [Architecture](https://evan-kolberg.github.io/prediction-market-backtesting/v4-rust-data-loading-plan/#architecture)
-  - [Current Loader Diagnosis](https://evan-kolberg.github.io/prediction-market-backtesting/v4-rust-data-loading-plan/#current-loader-diagnosis)
-  - [Unified Ingestion Contract](https://evan-kolberg.github.io/prediction-market-backtesting/v4-rust-data-loading-plan/#unified-ingestion-contract)
-    - [Replay Load Request](https://evan-kolberg.github.io/prediction-market-backtesting/v4-rust-data-loading-plan/#replay-load-request)
-    - [Replay Work Plan](https://evan-kolberg.github.io/prediction-market-backtesting/v4-rust-data-loading-plan/#replay-work-plan)
-    - [Source Envelope](https://evan-kolberg.github.io/prediction-market-backtesting/v4-rust-data-loading-plan/#source-envelope)
-    - [Canonical Output](https://evan-kolberg.github.io/prediction-market-backtesting/v4-rust-data-loading-plan/#canonical-output)
-  - [Message Bus](https://evan-kolberg.github.io/prediction-market-backtesting/v4-rust-data-loading-plan/#message-bus)
-    - [Log Line Format](https://evan-kolberg.github.io/prediction-market-backtesting/v4-rust-data-loading-plan/#log-line-format)
-    - [Event Schema](https://evan-kolberg.github.io/prediction-market-backtesting/v4-rust-data-loading-plan/#event-schema)
-    - [Stages](https://evan-kolberg.github.io/prediction-market-backtesting/v4-rust-data-loading-plan/#stages)
-    - [Status Values](https://evan-kolberg.github.io/prediction-market-backtesting/v4-rust-data-loading-plan/#status-values)
-    - [Sinks](https://evan-kolberg.github.io/prediction-market-backtesting/v4-rust-data-loading-plan/#sinks)
-    - [Rust Emission](https://evan-kolberg.github.io/prediction-market-backtesting/v4-rust-data-loading-plan/#rust-emission)
-  - [Unified Data Model](https://evan-kolberg.github.io/prediction-market-backtesting/v4-rust-data-loading-plan/#unified-data-model)
-    - [Canonical Book Delta Table](https://evan-kolberg.github.io/prediction-market-backtesting/v4-rust-data-loading-plan/#canonical-book-delta-table)
-    - [Canonical Trade Tick Table](https://evan-kolberg.github.io/prediction-market-backtesting/v4-rust-data-loading-plan/#canonical-trade-tick-table)
-    - [Replay Manifest](https://evan-kolberg.github.io/prediction-market-backtesting/v4-rust-data-loading-plan/#replay-manifest)
-  - [Materialized Cache And Catalog Plan](https://evan-kolberg.github.io/prediction-market-backtesting/v4-rust-data-loading-plan/#materialized-cache-and-catalog-plan)
-    - [Short-Term Cache](https://evan-kolberg.github.io/prediction-market-backtesting/v4-rust-data-loading-plan/#short-term-cache)
-    - [Nautilus Catalog Evaluation](https://evan-kolberg.github.io/prediction-market-backtesting/v4-rust-data-loading-plan/#nautilus-catalog-evaluation)
-  - [Rust Crate Plan](https://evan-kolberg.github.io/prediction-market-backtesting/v4-rust-data-loading-plan/#rust-crate-plan)
-  - [Conversion Inventory](https://evan-kolberg.github.io/prediction-market-backtesting/v4-rust-data-loading-plan/#conversion-inventory)
-  - [Performance-Priority Conversion Targets](https://evan-kolberg.github.io/prediction-market-backtesting/v4-rust-data-loading-plan/#performance-priority-conversion-targets)
-  - [Conversion Roadmap](https://evan-kolberg.github.io/prediction-market-backtesting/v4-rust-data-loading-plan/#conversion-roadmap)
-    - [Slice 0: Message Bus Foundation](https://evan-kolberg.github.io/prediction-market-backtesting/v4-rust-data-loading-plan/#slice-0-message-bus-foundation)
-    - [Slice 1: Rust Smoke Module](https://evan-kolberg.github.io/prediction-market-backtesting/v4-rust-data-loading-plan/#slice-1-rust-smoke-module)
-    - [Slice 2: Canonical Replay Schema](https://evan-kolberg.github.io/prediction-market-backtesting/v4-rust-data-loading-plan/#slice-2-canonical-replay-schema)
-    - [Slice 3: Trade Tick Conversion](https://evan-kolberg.github.io/prediction-market-backtesting/v4-rust-data-loading-plan/#slice-3-trade-tick-conversion)
-    - [Slice 4: Telonex Snapshot-To-Deltas](https://evan-kolberg.github.io/prediction-market-backtesting/v4-rust-data-loading-plan/#slice-4-telonex-snapshot-to-deltas)
-    - [Slice 5: PMXT Payload Decode](https://evan-kolberg.github.io/prediction-market-backtesting/v4-rust-data-loading-plan/#slice-5-pmxt-payload-decode)
-    - [Slice 6: Replay Merge And Sort](https://evan-kolberg.github.io/prediction-market-backtesting/v4-rust-data-loading-plan/#slice-6-replay-merge-and-sort)
-    - [Slice 7: Nautilus Object Boundary](https://evan-kolberg.github.io/prediction-market-backtesting/v4-rust-data-loading-plan/#slice-7-nautilus-object-boundary)
-    - [Slice 8: Catalog Backtest Prototype](https://evan-kolberg.github.io/prediction-market-backtesting/v4-rust-data-loading-plan/#slice-8-catalog-backtest-prototype)
-    - [Slice 9: Optimizer Data Reuse](https://evan-kolberg.github.io/prediction-market-backtesting/v4-rust-data-loading-plan/#slice-9-optimizer-data-reuse)
-  - [Vendor-Specific Plans](https://evan-kolberg.github.io/prediction-market-backtesting/v4-rust-data-loading-plan/#vendor-specific-plans)
-    - [PMXT](https://evan-kolberg.github.io/prediction-market-backtesting/v4-rust-data-loading-plan/#pmxt)
-    - [Telonex](https://evan-kolberg.github.io/prediction-market-backtesting/v4-rust-data-loading-plan/#telonex)
-    - [Polymarket Native](https://evan-kolberg.github.io/prediction-market-backtesting/v4-rust-data-loading-plan/#polymarket-native)
-    - [Kalshi](https://evan-kolberg.github.io/prediction-market-backtesting/v4-rust-data-loading-plan/#kalshi)
-  - [Verification Matrix](https://evan-kolberg.github.io/prediction-market-backtesting/v4-rust-data-loading-plan/#verification-matrix)
-  - [Rollout Controls](https://evan-kolberg.github.io/prediction-market-backtesting/v4-rust-data-loading-plan/#rollout-controls)
-  - [Performance Metrics](https://evan-kolberg.github.io/prediction-market-backtesting/v4-rust-data-loading-plan/#performance-metrics)
-  - [Open Decisions](https://evan-kolberg.github.io/prediction-market-backtesting/v4-rust-data-loading-plan/#open-decisions)
-  - [First Implementation Order](https://evan-kolberg.github.io/prediction-market-backtesting/v4-rust-data-loading-plan/#first-implementation-order)
+- [Data Loading](https://evan-kolberg.github.io/prediction-market-backtesting/data-loading/)
+  - [Mental Model](https://evan-kolberg.github.io/prediction-market-backtesting/data-loading/#mental-model)
+  - [Staged Loading](https://evan-kolberg.github.io/prediction-market-backtesting/data-loading/#staged-loading)
+  - [PMXT Flow](https://evan-kolberg.github.io/prediction-market-backtesting/data-loading/#pmxt-flow)
+  - [Telonex Flow](https://evan-kolberg.github.io/prediction-market-backtesting/data-loading/#telonex-flow)
+  - [Caching](https://evan-kolberg.github.io/prediction-market-backtesting/data-loading/#caching)
+  - [Downloading Local Data](https://evan-kolberg.github.io/prediction-market-backtesting/data-loading/#downloading-local-data)
+  - [Progress And Timing](https://evan-kolberg.github.io/prediction-market-backtesting/data-loading/#progress-and-timing)
+  - [Failure Semantics](https://evan-kolberg.github.io/prediction-market-backtesting/data-loading/#failure-semantics)
 - [Polymarket Account Ledger Replay](https://evan-kolberg.github.io/prediction-market-backtesting/account-ledger-replay/)
   - [Runner And Notebook](https://evan-kolberg.github.io/prediction-market-backtesting/account-ledger-replay/#runner-and-notebook)
   - [What The Strategy Does](https://evan-kolberg.github.io/prediction-market-backtesting/account-ledger-replay/#what-the-strategy-does)

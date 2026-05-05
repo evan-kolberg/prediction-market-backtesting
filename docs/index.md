@@ -12,20 +12,25 @@ This repository is documented around two active operating assumptions:
 
 PMXT uses local raw files plus remote archives instead of a separate service
 surface. Telonex uses a local Hive-partitioned full-book mirror, materialized
-`OrderBookDeltas` replay cache, and `api:` as an explicit fallback.
+`OrderBookDeltas` replay cache, and `api:` as an explicit fallback. The primary
+operating docs are grouped under Core Framework; optimizer research and ledger
+replay are grouped under Advanced / Experiments.
 
 - [Setup](setup.md)
-- [Backtests And Runners](backtests.md)
-- [V4 Rust Data Loading Plan](v4-rust-data-loading-plan.md)
-- [Polymarket Account Ledger Replay](account-ledger-replay.md)
-- [Research](research.md)
-- [Execution Modeling](execution-modeling.md)
-- [Data Vendors And Local Mirrors](data-vendors.md)
-- [Vendor Fetch Sources And Timing](vendor-fetch-sources.md)
-- [Plotting](plotting.md)
-- [Testing](testing.md)
-- [Project Status](project-status.md)
-- [License Notes](license.md)
+- Core Framework:
+  - [Backtests And Runners](backtests.md)
+  - [Data Loading](data-loading.md)
+  - [Data Vendors And Local Mirrors](data-vendors.md)
+  - [Vendor Fetch Sources And Timing](vendor-fetch-sources.md)
+  - [Execution Modeling](execution-modeling.md)
+  - [Plotting](plotting.md)
+  - [Testing](testing.md)
+- Advanced / Experiments:
+  - [Research And Optimizers](research.md)
+  - [Polymarket Account Ledger Replay](account-ledger-replay.md)
+- Project:
+  - [Project Status](project-status.md)
+  - [License Notes](license.md)
 
 ### Acknowledgements
 

@@ -44,7 +44,7 @@ Loading PMXT Polymarket market will-ludvig-aberg-win-the-2026-masters-tournament
   2026-04-05T00:00:00+00:00      ...          ... rows  cache polymarket_orderbook_2026-04-05T00.parquet
   2026-04-06T12:00:00+00:00      ...          ... rows  local raw
   2026-04-07T23:00:00+00:00      ...            0 rows  none
-Fetching hours (69/72 done, 3 active): ...
+PMXT book progress [#######################-] 69.0/72 hours (95.8%; started=72, done=69, active=3)
 ```
 
 Important fields:
@@ -120,7 +120,7 @@ building run through a smaller memory cap. `BACKTEST_REPLAY_LOAD_WORKERS`
 controls source-stage concurrency, defaults to `32`, and can be raised to `128`;
 `BACKTEST_REPLAY_MATERIALIZE_WORKERS` controls the memory-heavy replay object
 stage and defaults to `4`. Telonex API requests are separately capped by
-`TELONEX_API_WORKERS` and default to `128`; local file, DuckDB, and parquet
+`TELONEX_API_WORKERS` and default to `32`; local file, DuckDB, and parquet
 operations are capped by `TELONEX_FILE_WORKERS` and default to `28` to avoid
 file-descriptor pressure on large 100-market loads.
 

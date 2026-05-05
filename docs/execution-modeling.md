@@ -31,8 +31,8 @@ repo-level interpretation is:
 - If a fee-enabled market cannot be mapped to a documented rebate category from
   market metadata or a documented fee rate, the backtest applies no maker
   rebate for that market.
-- Kalshi fee logic remains in the extension layer, but the public v3 runner
-  surface is Polymarket book replay.
+- Kalshi fee logic remains in the extension layer, but the public runner surface
+  is Polymarket book replay.
 
 ### Maker Rebates
 

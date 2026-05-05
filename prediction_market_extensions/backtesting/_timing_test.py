@@ -31,7 +31,6 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 _installed = False
-_TELONEX_TIMING_WORKERS_ENV = "TELONEX_TIMING_WORKERS"
 _LOADER_PROGRESS_ENV = "BACKTEST_LOADER_PROGRESS"
 _LOADER_PROGRESS_LINES_ENV = "BACKTEST_LOADER_PROGRESS_LINES"
 _LOADER_PROGRESS_LOG_INTERVAL_ENV = "BACKTEST_LOADER_PROGRESS_LOG_INTERVAL"
@@ -116,35 +115,6 @@ def _transfer_label(source: str) -> str:
     if parsed.scheme == "file" or source.startswith("/"):
         return "local raw"
     return "r2 raw"
-
-
-def _progress_bar_description(
-    *,
-    total_hours: int,
-    started_hours: int,
-    completed_hours: int,
-    active_hours: int | None = None,
-    item_label: str = "hours",
-) -> str:
-    if total_hours <= 0:
-        return f"Fetching {item_label}"
-
-    started = min(max(0, started_hours), total_hours)
-    completed = min(max(0, completed_hours), total_hours)
-    if active_hours is None:
-        active = max(0, started - completed)
-    else:
-        active = min(max(0, active_hours), total_hours)
-
-    if completed == 0 and active > 0:
-        return f"Fetching {item_label} ({started}/{total_hours} started, {active} active)"
-    if completed == 0 and started > 0:
-        return f"Fetching {item_label} ({started}/{total_hours} started)"
-    if active > 0:
-        return f"Fetching {item_label} ({completed}/{total_hours} done, {active} active)"
-    if completed >= total_hours:
-        return f"Fetching {item_label} ({total_hours}/{total_hours} done)"
-    return f"Fetching {item_label} ({completed}/{total_hours} done)"
 
 
 def _hour_progress_key(hour) -> str:  # type: ignore[no-untyped-def]
@@ -598,17 +568,9 @@ def install_timing() -> None:
 
     def _install_full_timing(loader_cls) -> None:  # type: ignore[no-untyped-def]
         orig_load = loader_cls._load_market_batches
-        orig_cached = loader_cls._load_cached_market_batches
-        orig_local_archive = loader_cls._load_local_archive_market_batches
         orig_remote = loader_cls._load_remote_market_batches
         orig_iter = loader_cls._iter_market_batches
         orig_shared = getattr(loader_cls, "load_shared_market_batches_for_hour", None)
-
-        def patched_cached(self, hour):
-            return orig_cached(self, hour)
-
-        def patched_local_archive(self, hour, *, batch_size):
-            return orig_local_archive(self, hour, batch_size=batch_size)
 
         def patched_remote(self, hour, *, batch_size):
             remote_url = self._archive_url_for_hour(hour)
@@ -676,8 +638,6 @@ def install_timing() -> None:
                     progress_keys["completed"].clear()
                 heartbeat_thread.join(timeout=1.0)
 
-        loader_cls._load_cached_market_batches = patched_cached
-        loader_cls._load_local_archive_market_batches = patched_local_archive
         loader_cls._load_remote_market_batches = patched_remote
         loader_cls._load_market_batches = timed_load
         loader_cls._iter_market_batches = patched_iter
@@ -698,14 +658,6 @@ def install_timing() -> None:
                     _exit_grouped_pmxt_loader_callbacks(self)
 
             loader_cls.load_shared_market_batches_for_hour = patched_shared
-
-    def _install_runner_local_archive_timing(loader_cls) -> None:  # type: ignore[no-untyped-def]
-        orig_local_archive = loader_cls._load_local_archive_market_batches
-
-        def patched_local_archive(self, hour, *, batch_size):
-            return orig_local_archive(self, hour, batch_size=batch_size)
-
-        loader_cls._load_local_archive_market_batches = patched_local_archive
 
     def _install_telonex_timing(loader_cls) -> None:  # type: ignore[no-untyped-def]
         orig_load_order_book_deltas = loader_cls.load_order_book_deltas
@@ -814,7 +766,6 @@ def install_timing() -> None:
         # _load_market_batches; patching only the base class leaves local
         # mirror scans outside the started/completed hour bookkeeping.
         _install_full_timing(RunnerPolymarketPMXTDataLoader)
-        _install_runner_local_archive_timing(RunnerPolymarketPMXTDataLoader)
     _install_full_timing(PolymarketPMXTDataLoader)
     if RunnerPolymarketTelonexBookDataLoader is not None:
         _install_telonex_timing(RunnerPolymarketTelonexBookDataLoader)

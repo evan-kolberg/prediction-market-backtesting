@@ -1344,7 +1344,6 @@ def test_telonex_full_book_loader_uses_local_before_api_cache(
     monkeypatch.setattr(loader, "_load_deltas_cache_day", lambda **kwargs: (None, "none"))
     monkeypatch.setattr(loader, "_write_deltas_cache_day", lambda **kwargs: None)
     monkeypatch.setattr(loader, "_try_load_day_from_local", fake_local)
-    monkeypatch.setattr(loader, "_try_load_day_from_entry", fail_source)
     monkeypatch.setattr(loader, "_try_load_day_from_api_entry", fail_source)
     monkeypatch.setattr(
         loader,

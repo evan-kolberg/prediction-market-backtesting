@@ -180,8 +180,6 @@ def test_download_raw_hours_skips_existing_files(monkeypatch, tmp_path: Path) ->
         "urlopen",
         lambda request, timeout=60: _Response(payload),  # type: ignore[arg-type]
     )
-    monkeypatch.setattr(raw_download, "_existing_refresh_reason", lambda **_: None)
-
     summary = raw_download.download_raw_hours(
         destination=destination, show_progress=False, **_window_kwargs()
     )
@@ -216,7 +214,6 @@ def test_download_raw_hours_removes_stale_temp_files_before_skipping(
         raise AssertionError(f"unexpected download request for {request.full_url}")
 
     monkeypatch.setattr(raw_download, "_pid_is_active", fake_pid_is_active)
-    monkeypatch.setattr(raw_download, "_existing_refresh_reason", lambda **_: None)
     monkeypatch.setattr(raw_download, "urlopen", unexpected_urlopen)
 
     summary = raw_download.download_raw_hours(
@@ -414,8 +411,6 @@ def test_download_raw_hours_does_not_refresh_existing_without_overwrite(
     )
     existing_path.parent.mkdir(parents=True, exist_ok=True)
     existing_path.write_bytes(b"old")
-
-    monkeypatch.setattr(raw_download, "_local_raw_is_empty", lambda path: False)
 
     def fake_urlopen(request, timeout=60):  # type: ignore[no-untyped-def]
         del timeout

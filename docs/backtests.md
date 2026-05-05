@@ -19,6 +19,10 @@ Current public Python runners:
 - `backtests/polymarket_book_ema_optimizer.py`
 - `backtests/polymarket_book_joint_portfolio_runner.py`
 - `backtests/polymarket_beffer45_trade_replay_telonex.py`
+- `backtests/polymarket_btc_5m_late_favorite_taker_hold.py`
+- `backtests/polymarket_btc_5m_pair_arbitrage.py`
+- `backtests/polymarket_pmxt_book_100_replay_runner.py`
+- `backtests/polymarket_telonex_book_100_replay_runner.py`
 - `backtests/polymarket_telonex_book_joint_portfolio_runner.py`
 
 Current public notebook runners:
@@ -301,6 +305,7 @@ Public notebooks:
 
 - `backtests/generic_optimizer_research.ipynb`
 - `backtests/generic_tpe_research.ipynb`
+- `backtests/polymarket_beffer45_trade_replay_telonex.ipynb`
 - `backtests/pmxt_book_joint_portfolio_runner.ipynb`
 - `backtests/telonex_book_joint_portfolio_runner.ipynb`
 
@@ -340,7 +345,7 @@ Low-level env vars still exist for custom workflows:
 
 ### Native Vendors
 
-The public v3 runner surface is focused on Polymarket book replay through PMXT
+The public runner surface is focused on Polymarket book replay through PMXT
 and Telonex. Native source env vars remain available for lower-level extension
 work, but public direct-runner examples should not reintroduce standalone
 trade-tick replay.
@@ -373,3 +378,4 @@ For vendor-specific behavior and timings, use:
 
 - [Data Vendors And Local Mirrors](data-vendors.md)
 - [Vendor Fetch Sources And Timing](vendor-fetch-sources.md)
+- [Data Loading](data-loading.md)

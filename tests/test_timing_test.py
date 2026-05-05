@@ -8,7 +8,6 @@ from prediction_market_extensions.backtesting._timing_test import (
     _active_transfer_progress,
     _loader_progress_enabled,
     _loader_progress_lines_enabled,
-    _progress_bar_description,
     _progress_bar_position,
     _text_progress_bar,
     _transfer_label,
@@ -85,34 +84,6 @@ def test_transfer_label_identifies_telonex_sources() -> None:
     assert local_blob_label == "telonex local"
     assert local_label == "telonex local"
     assert api_label == "telonex api"
-
-
-def test_progress_bar_description_reports_started_hours_before_completion() -> None:
-    description = _progress_bar_description(total_hours=44, started_hours=4, completed_hours=0)
-
-    assert description == "Fetching hours (4/44 started, 4 active)"
-
-
-def test_progress_bar_description_reports_completion_and_active_work() -> None:
-    description = _progress_bar_description(total_hours=44, started_hours=7, completed_hours=3)
-
-    assert description == "Fetching hours (3/44 done, 4 active)"
-
-
-def test_progress_bar_description_can_report_days() -> None:
-    description = _progress_bar_description(
-        total_hours=3, started_hours=1, completed_hours=0, item_label="days"
-    )
-
-    assert description == "Fetching days (1/3 started, 1 active)"
-
-
-def test_progress_bar_description_uses_actual_active_transfer_count() -> None:
-    description = _progress_bar_description(
-        total_hours=44, started_hours=39, completed_hours=0, active_hours=8
-    )
-
-    assert description == "Fetching hours (39/44 started, 8 active)"
 
 
 def test_text_progress_bar_renders_plain_log_bar() -> None:

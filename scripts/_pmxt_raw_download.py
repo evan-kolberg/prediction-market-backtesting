@@ -28,7 +28,6 @@ _DEFAULT_ARCHIVE_SOURCES = (
 )
 _DOWNLOAD_CHUNK_SIZE = 8 * 1024 * 1024
 _STATUS_REFRESH_SECS = 0.2
-_MIN_NONEMPTY_RAW_BYTES = 1024 * 1024
 _RAW_FILENAME_PREFIX = "polymarket_orderbook_"
 _RAW_FILENAME_SUFFIX = ".parquet"
 
@@ -426,35 +425,6 @@ def _read_parquet_row_count(path: Path) -> int | None:
         return pq.read_metadata(path).num_rows
     except Exception:
         return None
-
-
-def _local_raw_is_empty(path: Path) -> bool:
-    try:
-        path.stat()
-    except OSError:
-        return True
-    return False
-
-
-def _existing_refresh_reason(
-    *,
-    path: Path,
-    source_urls: list[str],
-    timeout_secs: int,
-) -> str | None:
-    try:
-        local_size = path.stat().st_size
-    except OSError:
-        return "unreadable"
-
-    if _local_raw_is_empty(path):
-        return "empty"
-
-    for url in source_urls:
-        remote_size = _remote_content_length(url=url, timeout_secs=timeout_secs)
-        if remote_size is not None and remote_size > local_size:
-            return f"remote-larger:{_format_mib(remote_size)}"
-    return None
 
 
 def _validate_local_raw_hours(

@@ -9,14 +9,21 @@
 - [x] Polymarket L2 order-book backtests [PR#10](https://github.com/evan-kolberg/prediction-market-backtesting/pull/10), [PR#45](https://github.com/evan-kolberg/prediction-market-backtesting/pull/45), [PR#57](https://github.com/evan-kolberg/prediction-market-backtesting/pull/57)
 - [x] PMXT raw archive workflow: local raw mirrors, direct archive fallback,
   filtered replay cache, and incremental downloader reruns [PR#17](https://github.com/evan-kolberg/prediction-market-backtesting/pull/17), [PR#22](https://github.com/evan-kolberg/prediction-market-backtesting/pull/22), [PR#40](https://github.com/evan-kolberg/prediction-market-backtesting/pull/40), [PR#47](https://github.com/evan-kolberg/prediction-market-backtesting/pull/47), [PR#56](https://github.com/evan-kolberg/prediction-market-backtesting/pull/56), [PR#61](https://github.com/evan-kolberg/prediction-market-backtesting/pull/61), [PR#64](https://github.com/evan-kolberg/prediction-market-backtesting/pull/64)
-- [ ] Kalshi L2 order-book backtests need data we do not have yet
+- [ ] Kalshi L2 order-book backtests need L2 historical book data we do not have
+  yet. The next exchange expansion targets are Limitless.exchange and
+  Opinion.trade after the Polymarket loading path stays stable.
 - [x] richer charting and honest multi-run HTML/report outputs [PR#5](https://github.com/ben-gramling/nautilus_pm/pull/5), [PR#52](https://github.com/evan-kolberg/prediction-market-backtesting/pull/52), [PR#68](https://github.com/evan-kolberg/prediction-market-backtesting/pull/68), [PR#74](https://github.com/evan-kolberg/prediction-market-backtesting/pull/74), [PR#80](https://github.com/evan-kolberg/prediction-market-backtesting/pull/80), [PR#83](https://github.com/evan-kolberg/prediction-market-backtesting/pull/83)
 - [x] manifest-based runner architecture and repo-level optimizer surface [PR#67](https://github.com/evan-kolberg/prediction-market-backtesting/pull/67)
 - [x] repo-level runner/report contracts, docs validation, and launcher/docs hardening [PR#64](https://github.com/evan-kolberg/prediction-market-backtesting/pull/64), [PR#65](https://github.com/evan-kolberg/prediction-market-backtesting/pull/65), [PR#68](https://github.com/evan-kolberg/prediction-market-backtesting/pull/68), [PR#69](https://github.com/evan-kolberg/prediction-market-backtesting/pull/69), [PR#71](https://github.com/evan-kolberg/prediction-market-backtesting/pull/71), [PR#76](https://github.com/evan-kolberg/prediction-market-backtesting/pull/76), [PR#77](https://github.com/evan-kolberg/prediction-market-backtesting/pull/77), [PR#78](https://github.com/evan-kolberg/prediction-market-backtesting/pull/78), [PR#80](https://github.com/evan-kolberg/prediction-market-backtesting/pull/80), [PR#81](https://github.com/evan-kolberg/prediction-market-backtesting/pull/81)
 
 ## Known Issues
 
-No repo-level open issues are tracked here right now.
+- Kalshi is not currently exposed as a public runnable backtest path. The repo
+  still contains Kalshi instrument, trade/candlestick loader, fee-model, and
+  research helper components, but the built-in replay adapter registry only
+  exposes Polymarket PMXT and Telonex book replay adapters. Users should treat
+  Kalshi as experimental adapter plumbing until real Kalshi L2 historical book
+  data, a Kalshi replay adapter, and a public runner are added.
 
 ## Recently Fixed
 
@@ -101,7 +108,7 @@ No repo-level open issues are tracked here right now.
   [PR#80](https://github.com/evan-kolberg/prediction-market-backtesting/pull/80)
 - [x] backtest runner examples refreshed to match current runner contracts
   [PR#78](https://github.com/evan-kolberg/prediction-market-backtesting/pull/78)
-- [x] public Kalshi trade-tick runners now pin `end_time` to a known-good close
+- [x] legacy Kalshi trade-tick runners pinned `end_time` to a known-good close
   window so direct script paths and the repo pytest gate stay deterministic,
   the docs/examples now point at current runnable entrypoints, and shared
   startup reporting no longer understates factory-backed runs [PR#76](https://github.com/evan-kolberg/prediction-market-backtesting/pull/76), [PR#77](https://github.com/evan-kolberg/prediction-market-backtesting/pull/77)

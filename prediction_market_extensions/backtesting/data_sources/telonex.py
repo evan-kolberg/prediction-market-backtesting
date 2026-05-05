@@ -2026,26 +2026,6 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
             )
             return None
 
-    def _load_local_range(
-        self,
-        *,
-        root: Path,
-        channel: str,
-        market_slug: str,
-        token_index: int,
-        outcome: str | None,
-    ) -> pd.DataFrame | None:
-        path = self._local_consolidated_path(
-            root=root,
-            channel=channel,
-            market_slug=market_slug,
-            token_index=token_index,
-            outcome=outcome,
-        )
-        if path is None:
-            return None
-        return self._safe_read_parquet(path)
-
     def _load_local_day(
         self,
         *,
@@ -3572,54 +3552,6 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
         _release_arrow_memory()
         return None
 
-    def _try_load_range_from_local(
-        self,
-        *,
-        entry: TelonexSourceEntry,
-        channel: str,
-        market_slug: str,
-        token_index: int,
-        outcome: str | None,
-        start: pd.Timestamp,
-        end: pd.Timestamp,
-    ) -> pd.DataFrame | None:
-        assert entry.target is not None
-        root = Path(entry.target).expanduser()
-        blob_root = self._local_blob_root(root)
-        if blob_root is not None:
-            try:
-                blob_frame = self._load_blob_range(
-                    store_root=blob_root,
-                    channel=channel,
-                    market_slug=market_slug,
-                    token_index=token_index,
-                    outcome=outcome,
-                    start=start,
-                    end=end,
-                )
-            except Exception as exc:  # noqa: BLE001 — fall through to next source
-                warnings.warn(
-                    f"Telonex: local blob read failed at {blob_root} ({exc}); trying next source.",
-                    stacklevel=2,
-                )
-                blob_frame = None
-            if blob_frame is not None:
-                return blob_frame
-        try:
-            return self._load_local_range(
-                root=root,
-                channel=channel,
-                market_slug=market_slug,
-                token_index=token_index,
-                outcome=outcome,
-            )
-        except Exception as exc:  # noqa: BLE001 — fall through to next source
-            warnings.warn(
-                f"Telonex: local consolidated read failed at {root} ({exc}); trying next source.",
-                stacklevel=2,
-            )
-            return None
-
     def _try_load_day_from_local(
         self,
         *,
@@ -3688,46 +3620,6 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
             range_cache[path] = self._safe_read_parquet(path)
         return range_cache[path]
 
-    def _try_load_day_from_entry(
-        self,
-        *,
-        entry: TelonexSourceEntry,
-        channel: str,
-        date: str,
-        market_slug: str,
-        token_index: int,
-        outcome: str | None,
-    ) -> pd.DataFrame | None:
-        assert entry.target is not None
-        try:
-            if entry.kind == _TELONEX_SOURCE_LOCAL:
-                return self._load_local_day(
-                    root=Path(entry.target).expanduser(),
-                    channel=channel,
-                    date=date,
-                    market_slug=market_slug,
-                    token_index=token_index,
-                    outcome=outcome,
-                )
-            if entry.kind == _TELONEX_SOURCE_API:
-                return self._load_api_day(
-                    base_url=entry.target,
-                    channel=channel,
-                    date=date,
-                    market_slug=market_slug,
-                    token_index=token_index,
-                    outcome=outcome,
-                    api_key=entry.api_key,
-                )
-        except (HTTPError, URLError, OSError, ValueError, RuntimeError) as exc:
-            warnings.warn(
-                f"Telonex: source {entry.kind}:{entry.target} failed for {date} "
-                f"({market_slug}/{token_index}): {exc}; trying next source.",
-                stacklevel=2,
-            )
-            return None
-        return None
-
     def _try_load_day_from_api_entry(
         self,
         *,
@@ -3794,7 +3686,6 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
         *,
         date: str,
         config: TelonexLoaderConfig,
-        api_entries: Sequence[TelonexSourceEntry],
         start: pd.Timestamp,
         end: pd.Timestamp,
         market_slug: str,
@@ -3804,7 +3695,6 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
         range_cache: dict[Path, pd.DataFrame | None],
     ) -> _TelonexDayResult:
         self._day_progress(date, "start", "none", 0)
-        _ = api_entries  # API cache is consulted only when an API source is reached.
         day_source = "none"
         emitted_day_complete = False
         try:
@@ -4000,7 +3890,6 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
                 yield self._load_order_book_deltas_day(
                     date=date,
                     config=config,
-                    api_entries=api_entries,
                     start=start,
                     end=end,
                     market_slug=market_slug,
@@ -4025,7 +3914,6 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
                     self._load_order_book_deltas_day,
                     date=date,
                     config=config,
-                    api_entries=api_entries,
                     start=start,
                     end=end,
                     market_slug=market_slug,

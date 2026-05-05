@@ -158,7 +158,6 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
 
     def __init__(self, *args, **kwargs) -> None:  # type: ignore[no-untyped-def]
         super().__init__(*args, **kwargs)
-        self._pmxt_source_lock = threading.RLock()
         self._pmxt_remote_base_urls = self._resolve_remote_base_urls()
         self._pmxt_remote_base_url = (
             self._pmxt_remote_base_urls[0] if self._pmxt_remote_base_urls else None
@@ -609,54 +608,6 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
             PMXT_ROW_GROUP_SCAN_WORKERS_ENV,
             default=_PMXT_DEFAULT_ROW_GROUP_SCAN_WORKERS,
         )
-
-    @contextmanager
-    def _scoped_source_entry(self, kind: str, target: str):  # type: ignore[no-untyped-def]
-        """
-        Temporarily bind the loader's active raw_root / remote_base_url
-        to match the entry under evaluation. Restores the prior values afterwards.
-        """
-        lock = getattr(self, "_pmxt_source_lock", None)
-        if lock is None:
-            lock = threading.RLock()
-            self._pmxt_source_lock = lock
-        with lock:
-            prior_raw_root = self._pmxt_raw_root
-            prior_remote_url = self._pmxt_remote_base_url
-            prior_remote_urls = getattr(self, "_pmxt_remote_base_urls", ())
-            try:
-                if kind == _PMXT_SOURCE_STAGE_RAW_LOCAL:
-                    self._pmxt_raw_root = Path(target).expanduser()
-                elif kind == _PMXT_SOURCE_STAGE_RAW_REMOTE:
-                    self._pmxt_remote_base_url = target
-                    self._pmxt_remote_base_urls = (target,)
-                yield
-            finally:
-                self._pmxt_raw_root = prior_raw_root
-                self._pmxt_remote_base_url = prior_remote_url
-                if hasattr(self, "_pmxt_remote_base_urls"):
-                    self._pmxt_remote_base_urls = prior_remote_urls
-
-    def _load_entry_batches(self, kind: str, hour, *, batch_size: int):  # type: ignore[no-untyped-def]
-        if kind == _PMXT_SOURCE_STAGE_RAW_LOCAL:
-            raw_root = getattr(self, "_pmxt_raw_root", None)
-            if raw_root is None:
-                return None
-            return self._load_local_raw_market_batches_from_root(
-                Path(raw_root).expanduser(),
-                hour,
-                batch_size=batch_size,
-            )
-        if kind == _PMXT_SOURCE_STAGE_RAW_REMOTE:
-            remote_url = getattr(self, "_pmxt_remote_base_url", None)
-            if remote_url is None:
-                return None
-            return self._load_remote_market_batches_from_base_url(
-                str(remote_url),
-                hour,
-                batch_size=batch_size,
-            )
-        return None
 
     def _load_ordered_entry_batches(
         self,

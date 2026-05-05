@@ -47,12 +47,14 @@ Lookup order:
 Runner files should carry their source priority inline. These lower-level env
 vars remain available for custom integrations:
 
-- `PMXT_LOCAL_ARCHIVE_DIR`
+- `PMXT_LOCAL_RAWS_DIR`
 - `PMXT_RAW_ROOT`
 - `PMXT_REMOTE_BASE_URL`
 - `PMXT_CACHE_DIR`
 - `PMXT_DISABLE_CACHE`
 - `PMXT_PREFETCH_WORKERS`
+- `PMXT_CACHE_PREFETCH_WORKERS`
+- `PMXT_ROW_GROUP_SCAN_WORKERS`
 
 ### What Works Today
 
@@ -145,7 +147,7 @@ payload. For the fixed-column schema, it filters `decode(market)` and
 
 `PMXT_PREFETCH_WORKERS` controls how many archive hours are read ahead while a
 single market window is loading. The repo data-source wrapper defaults local
-raw mirrors to `8` workers. Multi-replay PMXT loading also groups filtered-cache
+raw mirrors to `6` workers. Multi-replay PMXT loading also groups filtered-cache
 misses by raw hour, so a basket that needs the same hourly parquet for many
 market/token requests scans that raw hour once and splits the filtered Arrow
 batches per replay. `BACKTEST_REPLAY_MATERIALIZE_WORKERS` separately caps the
@@ -303,7 +305,8 @@ Downloader behavior:
 - Default channel is `book_snapshot_full`.
 - Default `--workers` is 16.
 - `--max-days` caps post-resume day jobs for smoke tests.
-- Runner API day loading uses `TELONEX_PREFETCH_WORKERS`, default `128`.
+- Runner API day loading uses `TELONEX_API_WORKERS`, default `32`; the broader
+  Telonex prefetch planner uses `TELONEX_PREFETCH_WORKERS`, default `128`.
 - `--parse-workers` or `TELONEX_PARSE_WORKERS` controls the bounded Arrow
   decode pool.
 - `--writer-queue-items` or `TELONEX_WRITER_QUEUE_ITEMS` bounds parsed day
@@ -326,6 +329,13 @@ Downloader behavior:
 
 - Arbitrary third-party vendor raw formats.
 - Automatic normalization from another vendor into PMXT raw archive hours.
+- Public Kalshi backtests. Kalshi fee-model, instrument-provider, trade,
+  candlestick, and research helper components exist, but there is no built-in
+  Kalshi replay adapter or public `backtests/` runner in the current framework
+  because we do not yet have Kalshi L2 historical book data.
+- Limitless.exchange and Opinion.trade adapters. They are planned exchange
+  expansion targets after the Polymarket PMXT/Telonex loading path remains
+  stable.
 - True L3/MBO priority reconstruction from public Polymarket L2 data.
 
 If you have custom global raw dumps, the safe paths are:

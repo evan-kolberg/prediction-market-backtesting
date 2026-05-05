@@ -239,10 +239,10 @@ def run() -> None:
                     ),
                 ),
                 empty_message=(
-                    "No Telonex 100-market joint-portfolio windows met the book requirements."
+                    "No PMXT 100-market joint-portfolio windows met the book requirements."
                 ),
                 partial_message=(
-                    "Completed {completed} of {total} Telonex 100-market joint-portfolio replays."
+                    "Completed {completed} of {total} PMXT 100-market joint-portfolio replays."
                 ),
                 return_summary_series=True,
             )
