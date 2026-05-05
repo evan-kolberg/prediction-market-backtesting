@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import importlib
+import sys
+from types import SimpleNamespace
 
 import pytest
 
@@ -234,6 +236,78 @@ def test_install_timing_patches_runner_loader_override() -> None:
             )
         elif "load_shared_market_batches_for_hour" in RunnerPolymarketPMXTDataLoader.__dict__:
             delattr(RunnerPolymarketPMXTDataLoader, "load_shared_market_batches_for_hour")
+
+
+def test_grouped_pmxt_timing_drives_tqdm_progress(monkeypatch) -> None:
+    from prediction_market_extensions.backtesting import _timing_test as timing_module
+    from prediction_market_extensions.backtesting.data_sources.pmxt import (
+        RunnerPolymarketPMXTDataLoader,
+    )
+
+    timing_module = importlib.reload(timing_module)
+    updates: list[object] = []
+
+    class FakeTqdm:
+        def __init__(self, *, total, desc, unit, leave, bar_format):  # type: ignore[no-untyped-def]
+            del desc, unit, leave, bar_format
+            self.total = total
+            self.n = 0.0
+            updates.append(("init", total))
+
+        def update(self, value):  # type: ignore[no-untyped-def]
+            self.n += value
+            updates.append(("update", value))
+
+        def set_description_str(self, value, *, refresh):  # type: ignore[no-untyped-def]
+            del refresh
+            updates.append(("desc", value))
+
+        def set_postfix_str(self, value, *, refresh):  # type: ignore[no-untyped-def]
+            del refresh
+            updates.append(("postfix", value))
+
+        def clear(self, *, nolock):  # type: ignore[no-untyped-def]
+            del nolock
+            updates.append(("clear", None))
+
+        def close(self):  # type: ignore[no-untyped-def]
+            updates.append(("close", None))
+
+    original_shared = RunnerPolymarketPMXTDataLoader.load_shared_market_batches_for_hour
+    had_shared = "load_shared_market_batches_for_hour" in RunnerPolymarketPMXTDataLoader.__dict__
+
+    def fake_shared(self, hour, *, requests, batch_size):  # type: ignore[no-untyped-def]
+        del hour, requests, batch_size
+        self._pmxt_download_progress_callback("https://r2v2.pmxt.dev/hour.parquet", 0, 100, False)
+        self._pmxt_download_progress_callback("https://r2v2.pmxt.dev/hour.parquet", 100, 100, True)
+        return {}
+
+    monkeypatch.setitem(sys.modules, "tqdm", SimpleNamespace(tqdm=FakeTqdm))
+    monkeypatch.setattr(
+        RunnerPolymarketPMXTDataLoader,
+        "load_shared_market_batches_for_hour",
+        fake_shared,
+    )
+
+    try:
+        timing_module.install_timing()
+        loader = object.__new__(RunnerPolymarketPMXTDataLoader)
+        loader._pmxt_prefetch_workers = 2
+        loader.load_shared_market_batches_for_hour(
+            "2026-04-22T15:00:00+00:00",
+            requests=((0, "condition", "token"),),
+            batch_size=1000,
+        )
+    finally:
+        timing_module._installed = False
+        if had_shared:
+            RunnerPolymarketPMXTDataLoader.load_shared_market_batches_for_hour = original_shared
+        elif "load_shared_market_batches_for_hour" in RunnerPolymarketPMXTDataLoader.__dict__:
+            delattr(RunnerPolymarketPMXTDataLoader, "load_shared_market_batches_for_hour")
+
+    assert ("init", 1) in updates
+    assert any(item[0] == "postfix" and "100 B/100 B" in item[1] for item in updates)
+    assert ("close", None) in updates
 
 
 def test_install_timing_patches_telonex_loader() -> None:
