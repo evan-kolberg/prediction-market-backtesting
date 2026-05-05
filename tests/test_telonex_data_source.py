@@ -1244,7 +1244,8 @@ def test_telonex_materialized_deltas_cache_writes_use_unique_temp_paths(
     assert not [event for event in capture.events if event.level == "ERROR"]
 
 
-def test_telonex_day_progress_emits_loader_event() -> None:
+def test_telonex_day_progress_emits_loader_event(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("BACKTEST_LOADER_PROGRESS", "1")
     loader = RunnerPolymarketTelonexBookDataLoader.__new__(RunnerPolymarketTelonexBookDataLoader)
     loader._telonex_market_slug = "cache-test"
     loader._telonex_token_index = 0
@@ -1258,8 +1259,7 @@ def test_telonex_day_progress_emits_loader_event() -> None:
             12,
         )
 
-    assert len(capture.events) == 1
-    event = capture.events[0]
+    event = next(event for event in capture.events if event.stage == "cache_read")
     assert event.vendor == "telonex"
     assert event.stage == "cache_read"
     assert event.status == "cache_hit"
@@ -1268,6 +1268,8 @@ def test_telonex_day_progress_emits_loader_event() -> None:
     assert event.market_slug == "cache-test"
     assert event.token_id == "0"
     assert event.rows == 12
+    progress_event = next(event for event in capture.events if event.stage == "runtime")
+    assert "Telonex book day progress [" in progress_event.message
 
 
 def test_telonex_api_cache_write_failure_emits_error(

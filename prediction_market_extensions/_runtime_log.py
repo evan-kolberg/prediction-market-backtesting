@@ -83,11 +83,16 @@ def _env_flag_enabled(value: str | None, *, default: bool = True) -> bool:
     return value.strip().casefold() not in {"0", "false", "no", "off"}
 
 
+def loader_progress_enabled(environ: Mapping[str, str] | None = None) -> bool:
+    env = os.environ if environ is None else environ
+    return _env_flag_enabled(env.get(LOADER_PROGRESS_ENV), default=True)
+
+
 def loader_progress_logs_enabled(environ: Mapping[str, str] | None = None) -> bool:
     env = os.environ if environ is None else environ
     return (
         _env_flag_enabled(env.get(BACKTEST_ENABLE_TIMING_ENV), default=True)
-        and _env_flag_enabled(env.get(LOADER_PROGRESS_ENV), default=True)
+        and loader_progress_enabled(env)
         and _env_flag_enabled(env.get(LOADER_PROGRESS_LOGS_ENV), default=True)
     )
 
@@ -239,6 +244,14 @@ def _format_bytes(value: int | None) -> str | None:
 def _format_progress_bytes(value: int | None) -> str:
     formatted = _format_bytes(value)
     return "?" if formatted is None else formatted.removeprefix("(").removesuffix(")")
+
+
+def format_progress_bar(position: float, total: int, *, width: int = 24) -> str:
+    if total <= 0:
+        return "[" + ("-" * width) + "]"
+    fraction = min(1.0, max(0.0, position / float(total)))
+    filled = min(width, max(0, int(round(fraction * width))))
+    return "[" + ("#" * filled) + ("-" * (width - filled)) + "]"
 
 
 def _progress_source_time_label(source: str) -> str | None:

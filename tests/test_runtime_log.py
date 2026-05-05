@@ -17,6 +17,7 @@ from prediction_market_extensions._runtime_log import (
     emit_loader_progress_snapshot,
     format_loader_event_message,
     format_log_line,
+    format_progress_bar,
     format_utc_timestamp_ns,
     get_loader_event_sinks,
     loader_progress_logs_enabled,
@@ -63,6 +64,11 @@ def test_format_log_line_colors_warnings_and_errors() -> None:
         "\033[1;33m1970-01-01T00:00:00.000000000Z [WARNING] demo.warn: Careful\033[0m"
     )
     assert error == ("\033[1;31m1970-01-01T00:00:00.000000000Z [ERROR] demo.error: Broken\033[0m")
+
+
+def test_format_progress_bar_renders_text_bar() -> None:
+    assert format_progress_bar(2, 4, width=8) == "[####----]"
+    assert format_progress_bar(0, 0, width=4) == "[----]"
 
 
 def test_log_message_rejects_unknown_levels() -> None:

@@ -18,6 +18,8 @@ import pyarrow.parquet as pq
 
 from prediction_market_extensions._runtime_log import (
     emit_loader_event,
+    format_progress_bar,
+    loader_progress_enabled,
     loader_progress_logs_enabled,
 )
 from prediction_market_extensions.adapters.polymarket.pmxt import PolymarketPMXTDataLoader
@@ -1147,6 +1149,53 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
         except Exception:
             return None
 
+    def _emit_grouped_source_progress(
+        self,
+        hour,
+        *,
+        position: int,
+        total: int,
+        source_kind: str,
+        source: str | None,
+        status: str,
+        request_count: int,
+        rows: int | None = None,
+    ) -> None:  # type: ignore[no-untyped-def]
+        if not loader_progress_enabled():
+            return
+
+        safe_total = max(1, int(total))
+        safe_position = min(safe_total, max(0, int(position)))
+        hour_label = self._hour_label(hour)
+        source_label = f" {source}" if source else ""
+        row_label = f" ({rows:,} rows)" if rows is not None else ""
+        emit_loader_event(
+            (
+                f"PMXT book source progress {format_progress_bar(safe_position, safe_total)} "
+                f"{safe_position}/{safe_total} sources {hour_label} {source_kind} {status} "
+                f"({request_count} requests){row_label}{source_label}"
+            ),
+            level="INFO",
+            stage="runtime",
+            status="complete" if status == "complete" else "progress",
+            vendor="pmxt",
+            platform="polymarket",
+            data_type="book",
+            source_kind=source_kind,
+            source=source,
+            rows=rows,
+            condition_id=getattr(self, "condition_id", None),
+            token_id=getattr(self, "token_id", None),
+            attrs={
+                "hour": hour_label,
+                "position": safe_position,
+                "total": safe_total,
+                "request_count": request_count,
+                "source_status": status,
+            },
+            stacklevel=3,
+        )
+
     def load_shared_market_batches_for_hour(
         self,
         hour,
@@ -1165,12 +1214,23 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
         )
         missing = {request_id: None for request_id, _, _ in requests}
 
-        for kind, target in source_entries:
+        source_total = len(source_entries)
+        for source_index, (kind, target) in enumerate(source_entries, start=1):
             source_target = target or None
             source = self._source_label_for_stage(kind, source_target)
+            source_kind = self._source_kind_for_stage(kind)
+            self._emit_grouped_source_progress(
+                hour,
+                position=source_index - 1,
+                total=source_total,
+                source_kind=source_kind,
+                source=source,
+                status="start",
+                request_count=len(requests),
+            )
             emit_loader_event(
                 (
-                    f"Trying PMXT grouped {self._source_kind_for_stage(kind)} source "
+                    f"Trying PMXT grouped {source_kind} source "
                     f"for {self._hour_label(hour)} ({len(requests)} request(s))"
                 ),
                 stage="fetch",
@@ -1178,7 +1238,7 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
                 vendor="pmxt",
                 platform="polymarket",
                 data_type="book",
-                source_kind=self._source_kind_for_stage(kind),
+                source_kind=source_kind,
                 source=source,
                 condition_id=getattr(self, "condition_id", None),
                 token_id=getattr(self, "token_id", None),
@@ -1206,9 +1266,18 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
                     else self._raw_path_for_source_stage(kind, hour)
                 )
                 if raw_path is None:
+                    self._emit_grouped_source_progress(
+                        hour,
+                        position=source_index,
+                        total=source_total,
+                        source_kind=source_kind,
+                        source=source,
+                        status="skip",
+                        request_count=len(requests),
+                    )
                     emit_loader_event(
                         (
-                            f"PMXT grouped {self._source_kind_for_stage(kind)} source "
+                            f"PMXT grouped {source_kind} source "
                             f"had no usable data for {self._hour_label(hour)}"
                         ),
                         stage="fetch",
@@ -1216,7 +1285,7 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
                         vendor="pmxt",
                         platform="polymarket",
                         data_type="book",
-                        source_kind=self._source_kind_for_stage(kind),
+                        source_kind=source_kind,
                         source=source,
                         condition_id=getattr(self, "condition_id", None),
                         token_id=getattr(self, "token_id", None),
@@ -1229,9 +1298,18 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
                     batch_size=batch_size,
                 )
             if batches_by_request is None:
+                self._emit_grouped_source_progress(
+                    hour,
+                    position=source_index,
+                    total=source_total,
+                    source_kind=source_kind,
+                    source=source,
+                    status="skip",
+                    request_count=len(requests),
+                )
                 emit_loader_event(
                     (
-                        f"PMXT grouped {self._source_kind_for_stage(kind)} source "
+                        f"PMXT grouped {source_kind} source "
                         f"had no usable data for {self._hour_label(hour)}"
                     ),
                     stage="fetch",
@@ -1239,7 +1317,7 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
                     vendor="pmxt",
                     platform="polymarket",
                     data_type="book",
-                    source_kind=self._source_kind_for_stage(kind),
+                    source_kind=source_kind,
                     source=source,
                     condition_id=getattr(self, "condition_id", None),
                     token_id=getattr(self, "token_id", None),
@@ -1250,9 +1328,19 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
             rows = sum(
                 self._row_count_from_batches(batches) for batches in batches_by_request.values()
             )
+            self._emit_grouped_source_progress(
+                hour,
+                position=source_total,
+                total=source_total,
+                source_kind=source_kind,
+                source=source,
+                status="complete",
+                request_count=len(requests),
+                rows=rows,
+            )
             emit_loader_event(
                 (
-                    f"Loaded PMXT grouped {self._source_kind_for_stage(kind)} source "
+                    f"Loaded PMXT grouped {source_kind} source "
                     f"for {self._hour_label(hour)} ({rows} rows across {len(requests)} request(s))"
                 ),
                 stage="fetch",
@@ -1260,7 +1348,7 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
                 vendor="pmxt",
                 platform="polymarket",
                 data_type="book",
-                source_kind=self._source_kind_for_stage(kind),
+                source_kind=source_kind,
                 source=source,
                 rows=rows,
                 condition_id=getattr(self, "condition_id", None),

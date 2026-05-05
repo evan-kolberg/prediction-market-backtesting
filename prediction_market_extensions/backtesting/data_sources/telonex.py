@@ -48,6 +48,8 @@ from prediction_market_extensions._native import (
 from prediction_market_extensions._runtime_log import (
     emit_loader_event,
     emit_loader_progress_snapshot,
+    format_progress_bar,
+    loader_progress_enabled,
 )
 from prediction_market_extensions.adapters.polymarket.loaders import PolymarketDataLoader
 from prediction_market_extensions.backtesting.data_sources._common import (
@@ -681,6 +683,35 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
     def _telonex_stage_for_source(source: str) -> str:
         return telonex_stage_for_source(source)
 
+    def _emit_day_progress_bar(self, date: str, event: str, source: str, rows: int) -> None:
+        if not loader_progress_enabled():
+            return
+
+        position = 0 if event == "start" else 1
+        source_kind = self._telonex_source_kind(source)
+        source_label = f" {source}" if source != "none" else ""
+        row_label = f" ({rows:,} rows)" if event != "start" else ""
+        emit_loader_event(
+            (
+                f"Telonex book day progress {format_progress_bar(position, 1)} "
+                f"{position}/1 day {date} {event}{row_label}{source_label}"
+            ),
+            level="INFO",
+            stage="runtime",
+            status="complete" if event == "complete" else "progress",
+            vendor="telonex",
+            platform="polymarket",
+            data_type="book",
+            source_kind=source_kind,
+            source=None if source == "none" else source,
+            rows=rows if event != "start" else None,
+            market_slug=getattr(self, "_telonex_market_slug", None),
+            token_id=str(getattr(self, "_telonex_token_index", "")),
+            outcome=getattr(self, "_telonex_outcome", None),
+            attrs={"date": date, "event": event, "position": position, "total": 1},
+            stacklevel=3,
+        )
+
     def _day_progress(self, date: str, event: str, source: str, rows: int) -> None:
         status = "start"
         if event == "complete":
@@ -710,6 +741,7 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
             rows=rows,
             attrs={"date": date, "event": event},
         )
+        self._emit_day_progress_bar(date, event, source, rows)
         callback = getattr(self, "_telonex_day_progress_callback", None)
         if callback is not None:
             callback(date, event, source, rows)

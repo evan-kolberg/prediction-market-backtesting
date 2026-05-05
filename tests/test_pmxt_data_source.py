@@ -428,7 +428,10 @@ def test_runner_loader_emits_ordered_source_skip_event(tmp_path) -> None:
     ) in statuses
 
 
-def test_runner_loader_grouped_raw_hour_load_splits_requests(tmp_path) -> None:
+def test_runner_loader_grouped_raw_hour_load_splits_requests(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    monkeypatch.setenv("BACKTEST_LOADER_PROGRESS", "1")
     loader = _make_loader(cache_dir=None)
     hour = pd.Timestamp("2026-03-21T12:00:00Z")
     raw_path = tmp_path / "2026" / "03" / "21" / "polymarket_orderbook_2026-03-21T12.parquet"
@@ -488,6 +491,7 @@ def test_runner_loader_grouped_raw_hour_load_splits_requests(tmp_path) -> None:
         ("complete", "pmxt.load_shared_market_batches_for_hour"),
     ]
     assert fetch_events[1].rows == 2
+    assert any("PMXT book source progress [" in event.message for event in capture.events)
 
 
 def test_runner_loader_grouped_raw_hour_scopes_requests_by_row_group(
@@ -610,6 +614,7 @@ def test_runner_loader_grouped_raw_hour_prunes_row_groups_by_token(
 def test_runner_loader_grouped_remote_uses_temp_when_raw_copy_fails(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
+    monkeypatch.setenv("BACKTEST_LOADER_PROGRESS", "1")
     loader = _make_loader(cache_dir=tmp_path / "cache", raw_root=tmp_path / "missing-raw-root")
     hour = pd.Timestamp("2026-03-21T12:00:00Z")
     loader._pmxt_ordered_source_entries = (("raw-remote", "https://archive.vendor.test"),)
@@ -661,6 +666,7 @@ def test_runner_loader_grouped_remote_uses_temp_when_raw_copy_fails(
         ("start", "remote", "pmxt.load_shared_market_batches_for_hour"),
         ("complete", "remote", "pmxt.load_shared_market_batches_for_hour"),
     ]
+    assert any("PMXT book source progress [" in event.message for event in capture.events)
 
 
 def test_runner_loader_grouped_remote_skips_raw_copy_when_raw_root_unavailable(
