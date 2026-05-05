@@ -51,7 +51,7 @@ The runner smokes cover:
   optional `queue_position=True`.
 - Summary report generation without per-market HTML files.
 
-PMXT public runners pin `local:/Volumes/LaCie/pmxt_data` first, then
+PMXT public runners pin `local:/Volumes/storage/pmxt_data` first, then
 `archive:r2v2.pmxt.dev` and `archive:r2.pmxt.dev`. The Telonex joint runner
 pins a local Telonex mirror first, then includes `api:${TELONEX_API_KEY}` as a
 runtime-expanded API fallback.

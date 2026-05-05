@@ -182,7 +182,9 @@ def add_engine_data_by_type(engine: BacktestEngine, records: Sequence[Any]) -> N
     for record in records:
         records_by_type.setdefault(type(record), []).append(record)
     for typed_records in records_by_type.values():
-        engine.add_data(typed_records)
+        engine.add_data(typed_records, sort=False)
+    if records_by_type:
+        engine.sort_data()
 
 
 def run_market_backtest(

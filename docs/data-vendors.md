@@ -26,7 +26,7 @@ MarketDataConfig(
     data_type=Book,
     vendor=PMXT,
     sources=(
-        "local:/Volumes/LaCie/pmxt_data",
+        "local:/Volumes/storage/pmxt_data",
         "archive:r2v2.pmxt.dev",
         "archive:r2.pmxt.dev",
     ),
@@ -47,11 +47,14 @@ Lookup order:
 Runner files should carry their source priority inline. These lower-level env
 vars remain available for custom integrations:
 
-- `PMXT_LOCAL_ARCHIVE_DIR`
+- `PMXT_LOCAL_RAWS_DIR`
 - `PMXT_RAW_ROOT`
 - `PMXT_REMOTE_BASE_URL`
 - `PMXT_CACHE_DIR`
 - `PMXT_DISABLE_CACHE`
+- `PMXT_PREFETCH_WORKERS`
+- `PMXT_CACHE_PREFETCH_WORKERS`
+- `PMXT_ROW_GROUP_SCAN_WORKERS`
 
 ### What Works Today
 
@@ -119,21 +122,40 @@ sources=("local:/data/pmxt/raw",)
 
 ### Required Parquet Columns
 
-Raw PMXT archive parquet must contain:
+Raw PMXT archive parquet may use the legacy payload schema:
 
 - `market_id`
 - `update_type`
 - `data`
 
-The loader filters raw hours to `market_id` at parquet scan time, then filters
-the remaining rows to `token_id` inside the JSON payload.
+or the fixed-column schema:
+
+- `timestamp`
+- `market`
+- `event_type`
+- `asset_id`
+- `bids`
+- `asks`
+- `price`
+- `size`
+- `side`
+
+For the legacy schema, the loader filters raw hours to `market_id` at parquet
+scan time, then filters the remaining rows to `token_id` inside the JSON
+payload. For the fixed-column schema, it filters `decode(market)` and
+`asset_id`, then sends the selected columns directly to the Rust PMXT converter.
 
 `PMXT_PREFETCH_WORKERS` controls how many archive hours are read ahead while a
-market window is loading. Local raw mirrors default to `4` workers through the
-repo data-source wrapper; raise it, for example `PMXT_PREFETCH_WORKERS=8`, only
-after checking that the local disk has enough read bandwidth.
+single market window is loading. The repo data-source wrapper defaults local
+raw mirrors to `6` workers. Multi-replay PMXT loading also groups filtered-cache
+misses by raw hour, so a basket that needs the same hourly parquet for many
+market/token requests scans that raw hour once and splits the filtered Arrow
+batches per replay. `BACKTEST_REPLAY_MATERIALIZE_WORKERS` separately caps the
+memory-heavy conversion from filtered/cache data into Nautilus replay objects,
+so source-stage workers can be raised without materializing too many full
+replays at once.
 
-### Required JSON Payload Shape
+### Legacy JSON Payload Shape
 
 For `book_snapshot`, the loader expects the `data` JSON to include:
 
@@ -231,7 +253,7 @@ configured local data stores and parents containing those stores.
 Recommended local mirror root:
 
 ```text
-/Volumes/LaCie/telonex_data/
+/Volumes/storage/telonex_data/
   telonex.duckdb
   data/
     channel=book_snapshot_full/
@@ -262,7 +284,7 @@ Full Polymarket mirror:
 
 ```bash
 uv run python scripts/telonex_download_data.py \
-  --destination /Volumes/LaCie/telonex_data \
+  --destination /Volumes/storage/telonex_data \
   --all-markets \
   --channels book_snapshot_full onchain_fills trades
 ```
@@ -279,11 +301,12 @@ depth.
 
 Downloader behavior:
 
-- Default destination is `/Volumes/LaCie/telonex_data`.
+- Default destination is `/Volumes/storage/telonex_data`.
 - Default channel is `book_snapshot_full`.
 - Default `--workers` is 16.
 - `--max-days` caps post-resume day jobs for smoke tests.
-- Runner API day loading uses `TELONEX_PREFETCH_WORKERS`, default `128`.
+- Runner API day loading uses `TELONEX_API_WORKERS`, default `32`; the broader
+  Telonex prefetch planner uses `TELONEX_PREFETCH_WORKERS`, default `128`.
 - `--parse-workers` or `TELONEX_PARSE_WORKERS` controls the bounded Arrow
   decode pool.
 - `--writer-queue-items` or `TELONEX_WRITER_QUEUE_ITEMS` bounds parsed day
@@ -306,6 +329,14 @@ Downloader behavior:
 
 - Arbitrary third-party vendor raw formats.
 - Automatic normalization from another vendor into PMXT raw archive hours.
+- Public Kalshi backtests. Kalshi fee-model, instrument-provider, trade,
+  candlestick, and research helper components exist, but there is no built-in
+  Kalshi replay adapter or public `backtests/` runner in the current framework
+  because we do not yet have Kalshi L2 historical book data.
+- [Limitless.exchange](https://limitless.exchange) and
+  [Opinion.trade](https://opinion.trade) adapters. They are planned exchange
+  expansion targets after the Polymarket PMXT/Telonex loading path remains
+  stable.
 - True L3/MBO priority reconstruction from public Polymarket L2 data.
 
 If you have custom global raw dumps, the safe paths are:

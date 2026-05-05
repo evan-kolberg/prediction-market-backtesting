@@ -4,6 +4,8 @@
 
 - Python 3.12+ (`3.13` recommended)
 - [uv](https://docs.astral.sh/uv/getting-started/installation/)
+- Rust 1.93.1+ via [rustup](https://rustup.rs/) for the native data-loading
+  extension
 
 ## Install
 
@@ -16,6 +18,7 @@ unset CONDA_PREFIX
 
 uv venv --python 3.13
 uv pip install "nautilus_trader[polymarket,visualization]==1.225.0" bokeh plotly numpy py-clob-client duckdb textual nbformat nbclient ipykernel optuna python-dotenv
+make native-develop
 ```
 
 If you want to build docs locally:
@@ -28,6 +31,7 @@ You can also use:
 
 ```bash
 make install
+make native-develop
 ```
 
 After setup, run commands with `uv run ...`. You do not need to manually
@@ -70,6 +74,8 @@ Public runner files carry their market, source, and execution assumptions in
 code. To use a different market, source priority, or strategy config, edit the
 runner directly or copy it into `backtests/private/`.
 
+For the full loading/caching flow, see [Data Loading](data-loading.md).
+
 Repo-layer source syntax is explicit:
 
 - PMXT book runners use `local:` and `archive:`.
@@ -91,10 +97,11 @@ explicitly request overwrite behavior, so rerunning the command fills missing
 hours without replacing completed hours.
 
 PMXT replay loads can read multiple raw hours ahead. For local mirrors, the
-repo wrapper defaults to `PMXT_PREFETCH_WORKERS=4`; increase it for faster disks:
+repo wrapper defaults to `PMXT_PREFETCH_WORKERS=6`; adjust it only after
+checking local disk throughput:
 
 ```bash
-PMXT_PREFETCH_WORKERS=8 uv run python backtests/polymarket_book_joint_portfolio_runner.py
+PMXT_PREFETCH_WORKERS=6 uv run python backtests/polymarket_book_joint_portfolio_runner.py
 ```
 
 Mirror a small Telonex window:
@@ -112,7 +119,7 @@ Mirror Telonex full-book data for all markets:
 
 ```bash
 uv run python scripts/telonex_download_data.py \
-  --destination /Volumes/LaCie/telonex_data \
+  --destination /Volumes/storage/telonex_data \
   --all-markets \
   --channels book_snapshot_full onchain_fills trades
 ```
@@ -128,6 +135,14 @@ first, then include `api:${TELONEX_API_KEY}` as a runtime-expanded API fallback.
 
 The Telonex downloader writes Hive-partitioned parquet files under
 `<destination>/data/` and a DuckDB manifest at `<destination>/telonex.duckdb`.
+
+Telonex replay loading has separate concurrency controls for different
+resources. `BACKTEST_REPLAY_LOAD_WORKERS` defaults to `32` for replay-level
+source staging and can be raised to `128`, `BACKTEST_REPLAY_MATERIALIZE_WORKERS`
+defaults to `4` for the memory-heavy replay object materialization stage,
+`TELONEX_API_WORKERS` defaults to `32` for API fetches, and
+`TELONEX_FILE_WORKERS` defaults to `28` for local parquet/DuckDB/cache file
+work.
 It is crash-safe and resumable: completed days and empty days are recorded in
 the manifest, and reruns skip already-recorded work. The writer queue is bounded
 and periodically flushed so long `--all-markets` runs do not accumulate pending
@@ -137,7 +152,8 @@ Throughput and memory controls:
 
 - `--workers` controls concurrent HTTP downloads.
 - `--max-days` caps post-resume day jobs for smoke tests.
-- Telonex runner API day loading uses `TELONEX_PREFETCH_WORKERS`, default
+- Telonex runner API day loading uses `TELONEX_API_WORKERS`, default `32`.
+  The broader Telonex prefetch planner uses `TELONEX_PREFETCH_WORKERS`, default
   `128`.
 - `--parse-workers` or `TELONEX_PARSE_WORKERS` controls concurrent Arrow
   parquet decoders.
@@ -157,7 +173,7 @@ Throughput and memory controls:
 - Normal Nautilus logs are still printed; timing output is additive.
 - PMXT filtered cache is enabled by default at
   `~/.cache/nautilus_trader/pmxt`.
-- Public PMXT runners usually pin `local:/Volumes/LaCie/pmxt_data` first,
+- Public PMXT runners usually pin `local:/Volumes/storage/pmxt_data` first,
   `archive:r2v2.pmxt.dev` second, and `archive:r2.pmxt.dev` third.
 - Telonex API-day cache is enabled by default at
   `~/.cache/nautilus_trader/telonex`.
@@ -173,9 +189,13 @@ Throughput and memory controls:
   `trades`, then the Polymarket trade fallback.
 - `make clear-telonex-cache` clears Telonex API-day and materialized replay
   caches, and refuses configured local data stores.
+- `make clear-pmxt-cache` clears the PMXT filtered market/token/hour cache under
+  `~/.cache/nautilus_trader/pmxt`.
 - `make clear-polymarket-cache` clears the Polymarket public trade-tick cache
   under `~/.cache/nautilus_trader/polymarket_trades`; Telonex cache clearing
   does not remove those fallback trade files.
+- To clear all replay caches in one shell command, run
+  `make clear-telonex-cache && make clear-pmxt-cache && make clear-polymarket-cache`.
 
 ## Extension Architecture
 

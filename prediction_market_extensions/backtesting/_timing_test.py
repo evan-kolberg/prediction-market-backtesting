@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import importlib.util
+import os
 import sys
 import threading
 import time
@@ -30,10 +31,34 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 _installed = False
-_COMPLETED_HOUR_TIMESTAMP_WIDTH = 25
-_COMPLETED_HOUR_ELAPSED_WIDTH = 9
-_COMPLETED_HOUR_ROWS_WIDTH = 8
-_TELONEX_TIMING_WORKERS_ENV = "TELONEX_TIMING_WORKERS"
+_LOADER_PROGRESS_ENV = "BACKTEST_LOADER_PROGRESS"
+_LOADER_PROGRESS_LINES_ENV = "BACKTEST_LOADER_PROGRESS_LINES"
+_LOADER_PROGRESS_LOG_INTERVAL_ENV = "BACKTEST_LOADER_PROGRESS_LOG_INTERVAL"
+_DEFAULT_PROGRESS_LOG_INTERVAL_SECS = 2.0
+
+
+def _env_flag_enabled(value: str | None, *, default: bool = True) -> bool:
+    if value is None:
+        return default
+    return value.strip().casefold() not in {"0", "false", "no", "off"}
+
+
+def _loader_progress_enabled() -> bool:
+    return _env_flag_enabled(os.getenv(_LOADER_PROGRESS_ENV))
+
+
+def _loader_progress_lines_enabled() -> bool:
+    return _env_flag_enabled(os.getenv(_LOADER_PROGRESS_LINES_ENV), default=True)
+
+
+def _loader_progress_log_interval_secs() -> float:
+    configured = os.getenv(_LOADER_PROGRESS_LOG_INTERVAL_ENV)
+    if configured is None:
+        return _DEFAULT_PROGRESS_LOG_INTERVAL_SECS
+    try:
+        return max(0.1, float(configured))
+    except ValueError:
+        return _DEFAULT_PROGRESS_LOG_INTERVAL_SECS
 
 
 def _hour_label(source: str) -> str:
@@ -92,35 +117,6 @@ def _transfer_label(source: str) -> str:
     return "r2 raw"
 
 
-def _progress_bar_description(
-    *,
-    total_hours: int,
-    started_hours: int,
-    completed_hours: int,
-    active_hours: int | None = None,
-    item_label: str = "hours",
-) -> str:
-    if total_hours <= 0:
-        return f"Fetching {item_label}"
-
-    started = min(max(0, started_hours), total_hours)
-    completed = min(max(0, completed_hours), total_hours)
-    if active_hours is None:
-        active = max(0, started - completed)
-    else:
-        active = min(max(0, active_hours), total_hours)
-
-    if completed == 0 and active > 0:
-        return f"Fetching {item_label} ({started}/{total_hours} started, {active} active)"
-    if completed == 0 and started > 0:
-        return f"Fetching {item_label} ({started}/{total_hours} started)"
-    if active > 0:
-        return f"Fetching {item_label} ({completed}/{total_hours} done, {active} active)"
-    if completed >= total_hours:
-        return f"Fetching {item_label} ({total_hours}/{total_hours} done)"
-    return f"Fetching {item_label} ({completed}/{total_hours} done)"
-
-
 def _hour_progress_key(hour) -> str:  # type: ignore[no-untyped-def]
     try:
         return hour.isoformat()
@@ -128,8 +124,12 @@ def _hour_progress_key(hour) -> str:  # type: ignore[no-untyped-def]
         return str(hour)
 
 
-def _progress_bar_total(total_hours: int) -> int:
-    return max(0, total_hours)
+def _text_progress_bar(position: float, total: int, *, width: int = 24) -> str:
+    if total <= 0:
+        return "[" + ("-" * width) + "]"
+    fraction = min(1.0, max(0.0, position / float(total)))
+    filled = min(width, max(0, int(round(fraction * width))))
+    return "[" + ("#" * filled) + ("-" * (width - filled)) + "]"
 
 
 def _progress_bar_position(
@@ -140,21 +140,6 @@ def _progress_bar_position(
     remaining = max(0.0, float(total - completed))
     active_progress = min(max(0.0, active_hours_progress), remaining)
     return completed + active_progress
-
-
-def _format_completed_hour_line(
-    hour,  # type: ignore[no-untyped-def]
-    *,
-    elapsed: float,
-    rows: int,
-    source: str,
-    timestamp_width: int = _COMPLETED_HOUR_TIMESTAMP_WIDTH,
-) -> str:
-    return (
-        f"  {_hour_progress_key(hour):>{timestamp_width}s}"
-        f"  {elapsed:{_COMPLETED_HOUR_ELAPSED_WIDTH}.3f}s"
-        f"  {rows:>{_COMPLETED_HOUR_ROWS_WIDTH}} rows  {_transfer_label(source)}"
-    )
 
 
 def _hour_label_from_hour(hour) -> str:  # type: ignore[no-untyped-def]
@@ -229,8 +214,7 @@ def install_timing() -> None:
         return
     _installed = True
 
-    from tqdm import tqdm
-
+    from prediction_market_extensions._runtime_log import emit_loader_event
     from prediction_market_extensions.adapters.polymarket.pmxt import PolymarketPMXTDataLoader
 
     try:
@@ -246,8 +230,6 @@ def install_timing() -> None:
     except ImportError:
         RunnerPolymarketTelonexBookDataLoader = None
 
-    source_local = threading.local()
-    pbar_state: dict = {"bar": None}
     pbar_lock = threading.Lock()
     progress_state: dict[str, int] = {"total_hours": 0, "started_hours": 0, "completed_hours": 0}
     hour_keys_by_label: dict[str, str] = {}
@@ -258,7 +240,13 @@ def install_timing() -> None:
         "spinner_index": 0,
         "parallel": False,
         "item_label": "hours",
+        "vendor": "loader",
     }
+    progress_line_state: dict[str, float] = {"last_emit": 0.0}
+    grouped_loader_refcounts: dict[int, int] = {}
+    grouped_loader_callbacks: dict[int, tuple[object, object]] = {}
+    grouped_active_calls = 0
+    grouped_heartbeat_thread: threading.Thread | None = None
 
     def _ensure_transfer_state(
         *, url: str, total_bytes: int | None, mode: str | None = None, hour_key: str | None = None
@@ -341,31 +329,59 @@ def install_timing() -> None:
         prefix = "prefetch:" if bool(transfer_state["parallel"]) else "active:"
         return f"{prefix} {spinner} " + " | ".join(labels)
 
-    def _refresh_transfer_status() -> None:
-        bar = pbar_state["bar"]
-        if bar is None:
+    def _emit_plain_progress_line(*, force: bool = False) -> None:
+        if not _loader_progress_lines_enabled():
             return
+        now = time.monotonic()
+        interval = _loader_progress_log_interval_secs()
+        if not force and (now - progress_line_state["last_emit"]) < interval:
+            return
+
+        total = int(progress_state["total_hours"])
+        started = int(progress_state["started_hours"])
+        completed = int(progress_state["completed_hours"])
         downloads: dict[str, dict[str, object]] = transfer_state["downloads"]  # type: ignore[assignment]
         active_hours, active_progress = _active_transfer_progress(downloads)
-        target_position = _progress_bar_position(
-            total_hours=int(progress_state["total_hours"]),
-            completed_hours=int(progress_state["completed_hours"]),
+        position = _progress_bar_position(
+            total_hours=total,
+            completed_hours=completed,
             active_hours_progress=active_progress,
         )
-        if target_position > float(bar.n):
-            bar.update(target_position - bar.n)
-        bar.set_description_str(
-            _progress_bar_description(
-                total_hours=int(progress_state["total_hours"]),
-                started_hours=int(progress_state["started_hours"]),
-                completed_hours=int(progress_state["completed_hours"]),
-                active_hours=active_hours,
-                item_label=str(transfer_state["item_label"]),
-            ),
-            refresh=False,
-        )
+        percent = 0.0 if total <= 0 else min(100.0, max(0.0, position / total * 100.0))
+        item_label = str(transfer_state["item_label"])
+        vendor = str(transfer_state["vendor"])
         status_text = _transfer_status_text()
-        bar.set_postfix_str(status_text, refresh=True)
+        message = (
+            f"{vendor} book progress {_text_progress_bar(position, total)} "
+            f"{position:.1f}/{total} {item_label} ({percent:.1f}%; "
+            f"started={started}, done={completed}, active={active_hours})"
+        )
+        if status_text:
+            message = f"{message} {status_text}"
+
+        progress_line_state["last_emit"] = now
+        emit_loader_event(
+            message,
+            level="INFO",
+            stage="runtime",
+            status="progress",
+            vendor=vendor.casefold(),
+            platform="polymarket",
+            data_type="book",
+            rows=completed,
+            attrs={
+                "progress_position": round(position, 3),
+                "progress_total": total,
+                "started": started,
+                "active": active_hours,
+                "item_label": item_label,
+            },
+            stacklevel=3,
+        )
+
+    def _refresh_transfer_status(*, emit_line: bool = True) -> None:
+        if emit_line:
+            _emit_plain_progress_line()
 
     def _mark_hour_started(hour) -> None:  # type: ignore[no-untyped-def]
         key = _hour_progress_key(hour)
@@ -410,10 +426,6 @@ def install_timing() -> None:
         total_bytes: int | None,
         finished: bool,
     ) -> None:
-        if source.startswith(("http://", "https://")):
-            source_local.source = f"remote-raw::{source}"
-        else:
-            source_local.source = f"local-raw::{source}"
         with pbar_lock:
             state = _ensure_transfer_state(
                 url=source,
@@ -458,68 +470,131 @@ def install_timing() -> None:
             _close_transfer_state(url)
             _refresh_transfer_status()
 
+    def _set_dynamic_total_hours() -> None:
+        total_hours = max(
+            int(progress_state["total_hours"]),
+            len(progress_keys["started"]),
+            len(progress_keys["completed"]),
+        )
+        progress_state["total_hours"] = total_hours
+
+    def _enter_grouped_pmxt_loader_callbacks(loader) -> None:  # type: ignore[no-untyped-def]
+        key = id(loader)
+        with pbar_lock:
+            count = grouped_loader_refcounts.get(key, 0)
+            if count == 0:
+                grouped_loader_callbacks[key] = (
+                    getattr(loader, "_pmxt_download_progress_callback", None),
+                    getattr(loader, "_pmxt_scan_progress_callback", None),
+                )
+                loader._pmxt_download_progress_callback = _download_progress
+                loader._pmxt_scan_progress_callback = _scan_progress
+            grouped_loader_refcounts[key] = count + 1
+
+    def _exit_grouped_pmxt_loader_callbacks(loader) -> None:  # type: ignore[no-untyped-def]
+        key = id(loader)
+        with pbar_lock:
+            count = grouped_loader_refcounts.get(key, 0)
+            if count <= 1:
+                previous_download, previous_scan = grouped_loader_callbacks.pop(key, (None, None))
+                loader._pmxt_download_progress_callback = previous_download
+                loader._pmxt_scan_progress_callback = previous_scan
+                grouped_loader_refcounts.pop(key, None)
+                return
+            grouped_loader_refcounts[key] = count - 1
+
+    def _start_grouped_pmxt_progress(hour, *, parallel: bool) -> None:  # type: ignore[no-untyped-def]
+        nonlocal grouped_active_calls
+        nonlocal grouped_heartbeat_thread
+
+        with pbar_lock:
+            stop_event: threading.Event = transfer_state["stop"]  # type: ignore[assignment]
+            first_active_call = grouped_active_calls == 0
+            if first_active_call:
+                stop_event.clear()
+                progress_state["total_hours"] = 0
+                progress_state["started_hours"] = 0
+                progress_state["completed_hours"] = 0
+                transfer_state["item_label"] = "hours"
+                transfer_state["vendor"] = "PMXT"
+                transfer_state["parallel"] = parallel
+                hour_keys_by_label.clear()
+                progress_keys["started"].clear()
+                progress_keys["completed"].clear()
+
+            grouped_active_calls += 1
+            _mark_hour_started(hour)
+            _set_dynamic_total_hours()
+            _refresh_transfer_status(emit_line=False)
+            _emit_plain_progress_line()
+
+            if grouped_heartbeat_thread is None or not grouped_heartbeat_thread.is_alive():
+                grouped_heartbeat_thread = threading.Thread(
+                    target=_transfer_heartbeat,
+                    name="pmxt-grouped-timing-heartbeat",
+                    daemon=True,
+                )
+                grouped_heartbeat_thread.start()
+
+    def _finish_grouped_pmxt_progress(hour) -> None:  # type: ignore[no-untyped-def]
+        nonlocal grouped_active_calls
+        nonlocal grouped_heartbeat_thread
+
+        thread_to_join: threading.Thread | None = None
+        with pbar_lock:
+            _mark_hour_completed(hour)
+            _set_dynamic_total_hours()
+            _refresh_transfer_status(emit_line=False)
+            grouped_active_calls = max(0, grouped_active_calls - 1)
+            _emit_plain_progress_line()
+            if grouped_active_calls == 0:
+                stop_event: threading.Event = transfer_state["stop"]  # type: ignore[assignment]
+                stop_event.set()
+                downloads: dict[str, dict[str, object]] = transfer_state["downloads"]  # type: ignore[assignment]
+                downloads.clear()
+                transfer_state["parallel"] = False
+                transfer_state["item_label"] = "hours"
+                transfer_state["vendor"] = "loader"
+                progress_state["total_hours"] = 0
+                progress_state["started_hours"] = 0
+                progress_state["completed_hours"] = 0
+                hour_keys_by_label.clear()
+                progress_keys["started"].clear()
+                progress_keys["completed"].clear()
+                thread_to_join = grouped_heartbeat_thread
+                grouped_heartbeat_thread = None
+        if thread_to_join is not None:
+            thread_to_join.join(timeout=1.0)
+
     def _install_full_timing(loader_cls) -> None:  # type: ignore[no-untyped-def]
         orig_load = loader_cls._load_market_batches
-        orig_cached = loader_cls._load_cached_market_batches
-        orig_local_archive = loader_cls._load_local_archive_market_batches
         orig_remote = loader_cls._load_remote_market_batches
         orig_iter = loader_cls._iter_market_batches
-
-        def patched_cached(self, hour):
-            result = orig_cached(self, hour)
-            if result is not None:
-                cache_path = self._cache_path_for_hour(hour)
-                source_local.source = f"cache::{cache_path}"
-            return result
-
-        def patched_local_archive(self, hour, *, batch_size):
-            result = orig_local_archive(self, hour, batch_size=batch_size)
-            if result is not None:
-                archive_paths = self._local_archive_paths_for_hour(hour)
-                existing_path = next((path for path in archive_paths if path.exists()), None)
-                source_local.source = (
-                    f"local-raw::{existing_path}" if existing_path is not None else "local raw"
-                )
-            return result
+        orig_shared = getattr(loader_cls, "load_shared_market_batches_for_hour", None)
 
         def patched_remote(self, hour, *, batch_size):
             remote_url = self._archive_url_for_hour(hour)
             _start_transfer(hour, remote_url)
             try:
-                result = orig_remote(self, hour, batch_size=batch_size)
+                return orig_remote(self, hour, batch_size=batch_size)
             finally:
                 _finish_transfer(remote_url)
-            if result is not None:
-                source_local.source = f"remote-raw::{remote_url}"
-            return result
 
         def timed_load(self, hour, *, batch_size):
-            source_local.source = "none"
-            t0 = time.perf_counter()
             with pbar_lock:
                 _mark_hour_started(hour)
                 _refresh_transfer_status()
             result = orig_load(self, hour, batch_size=batch_size)
-            elapsed = time.perf_counter() - t0
-            rows = sum(b.num_rows for b in result) if result else 0
-            source = getattr(source_local, "source", "unknown")
-
             with pbar_lock:
-                bar = pbar_state["bar"]
-                if bar is not None:
-                    bar.write(
-                        _format_completed_hour_line(
-                            hour,
-                            elapsed=elapsed,
-                            rows=rows,
-                            source=source,
-                        )
-                    )
-                    _mark_hour_completed(hour)
-                    _refresh_transfer_status()
+                _mark_hour_completed(hour)
+                _refresh_transfer_status()
             return result
 
         def patched_iter(self, hours, *, batch_size):
+            if not _loader_progress_enabled():
+                yield from orig_iter(self, hours, batch_size=batch_size)
+                return
+
             with pbar_lock:
                 stop_event: threading.Event = transfer_state["stop"]  # type: ignore[assignment]
                 stop_event.clear()
@@ -527,20 +602,12 @@ def install_timing() -> None:
                 progress_state["started_hours"] = 0
                 progress_state["completed_hours"] = 0
                 transfer_state["item_label"] = "hours"
+                transfer_state["vendor"] = "PMXT"
                 hour_keys_by_label.clear()
                 progress_keys["started"].clear()
                 progress_keys["completed"].clear()
                 heartbeat_thread = threading.Thread(
                     target=_transfer_heartbeat, name="pmxt-timing-heartbeat", daemon=True
-                )
-                pbar_state["bar"] = tqdm(
-                    total=_progress_bar_total(len(hours)),
-                    desc=_progress_bar_description(
-                        total_hours=len(hours), started_hours=0, completed_hours=0
-                    ),
-                    unit="hr",
-                    leave=False,
-                    bar_format=("{l_bar}{bar}| [{elapsed}<{remaining}]{postfix}"),
                 )
                 previous_callback = getattr(self, "_pmxt_download_progress_callback", None)
                 previous_scan_callback = getattr(self, "_pmxt_scan_progress_callback", None)
@@ -549,6 +616,7 @@ def install_timing() -> None:
                 transfer_state["parallel"] = (
                     min(getattr(self, "_pmxt_prefetch_workers", 1), len(hours)) > 1
                 )
+                _emit_plain_progress_line()
                 heartbeat_thread.start()
             try:
                 yield from orig_iter(self, hours, batch_size=batch_size)
@@ -561,74 +629,53 @@ def install_timing() -> None:
                     downloads.clear()
                     transfer_state["parallel"] = False
                     transfer_state["item_label"] = "hours"
+                    transfer_state["vendor"] = "loader"
                     progress_state["total_hours"] = 0
                     progress_state["started_hours"] = 0
                     progress_state["completed_hours"] = 0
                     hour_keys_by_label.clear()
                     progress_keys["started"].clear()
                     progress_keys["completed"].clear()
-                    bar = pbar_state["bar"]
-                    if bar is not None:
-                        bar.clear(nolock=True)
-                        bar.set_postfix_str("", refresh=False)
-                        bar.close()
-                        pbar_state["bar"] = None
                 heartbeat_thread.join(timeout=1.0)
 
-        loader_cls._load_cached_market_batches = patched_cached
-        loader_cls._load_local_archive_market_batches = patched_local_archive
         loader_cls._load_remote_market_batches = patched_remote
         loader_cls._load_market_batches = timed_load
         loader_cls._iter_market_batches = patched_iter
 
-    def _install_runner_local_archive_timing(loader_cls) -> None:  # type: ignore[no-untyped-def]
-        orig_local_archive = loader_cls._load_local_archive_market_batches
+        if callable(orig_shared):
 
-        def patched_local_archive(self, hour, *, batch_size):
-            result = orig_local_archive(self, hour, batch_size=batch_size)
-            if result is not None:
-                raw_path = self._raw_path_for_hour(hour)
-                if raw_path is not None and raw_path.exists():
-                    source_local.source = f"local-raw::{raw_path}"
-                else:
-                    archive_paths = self._local_archive_paths_for_hour(hour)
-                    existing_path = next((path for path in archive_paths if path.exists()), None)
-                    source_local.source = (
-                        f"local-raw::{existing_path}" if existing_path is not None else "local raw"
-                    )
-            return result
+            def patched_shared(self, hour, *, requests, batch_size):  # type: ignore[no-untyped-def]
+                if not _loader_progress_enabled():
+                    return orig_shared(self, hour, requests=requests, batch_size=batch_size)
 
-        loader_cls._load_local_archive_market_batches = patched_local_archive
+                parallel = min(getattr(self, "_pmxt_prefetch_workers", 1), 2) > 1
+                _enter_grouped_pmxt_loader_callbacks(self)
+                _start_grouped_pmxt_progress(hour, parallel=parallel)
+                try:
+                    return orig_shared(self, hour, requests=requests, batch_size=batch_size)
+                finally:
+                    _finish_grouped_pmxt_progress(hour)
+                    _exit_grouped_pmxt_loader_callbacks(self)
+
+            loader_cls.load_shared_market_batches_for_hour = patched_shared
 
     def _install_telonex_timing(loader_cls) -> None:  # type: ignore[no-untyped-def]
         orig_load_order_book_deltas = loader_cls.load_order_book_deltas
 
         def _run_with_telonex_day_timing(self, dates, load_fn):  # type: ignore[no-untyped-def]
-            day_started_at: dict[str, float] = {}
-
             def _day_progress(date: str, event: str, source: str, rows: int) -> None:
+                del source, rows
                 with pbar_lock:
                     if event == "start":
-                        day_started_at[date] = time.perf_counter()
                         _mark_hour_started(date)
-                        _refresh_transfer_status()
+                        _refresh_transfer_status(emit_line=False)
+                        _emit_plain_progress_line()
                         return
                     if event != "complete":
                         return
-                    elapsed = time.perf_counter() - day_started_at.get(date, time.perf_counter())
-                    bar = pbar_state["bar"]
-                    if bar is not None:
-                        bar.write(
-                            _format_completed_hour_line(
-                                date,
-                                elapsed=elapsed,
-                                rows=rows,
-                                source=source,
-                                timestamp_width=10,
-                            )
-                        )
-                        _mark_hour_completed(date)
-                        _refresh_transfer_status()
+                    _mark_hour_completed(date)
+                    _refresh_transfer_status(emit_line=False)
+                    _emit_plain_progress_line()
 
             with pbar_lock:
                 stop_event: threading.Event = transfer_state["stop"]  # type: ignore[assignment]
@@ -637,23 +684,12 @@ def install_timing() -> None:
                 progress_state["started_hours"] = 0
                 progress_state["completed_hours"] = 0
                 transfer_state["item_label"] = "days"
+                transfer_state["vendor"] = "Telonex"
                 hour_keys_by_label.clear()
                 progress_keys["started"].clear()
                 progress_keys["completed"].clear()
                 heartbeat_thread = threading.Thread(
                     target=_transfer_heartbeat, name="telonex-timing-heartbeat", daemon=True
-                )
-                pbar_state["bar"] = tqdm(
-                    total=_progress_bar_total(len(dates)),
-                    desc=_progress_bar_description(
-                        total_hours=len(dates),
-                        started_hours=0,
-                        completed_hours=0,
-                        item_label="days",
-                    ),
-                    unit="day",
-                    leave=False,
-                    bar_format=("{l_bar}{bar}| [{elapsed}<{remaining}]{postfix}"),
                 )
                 previous_download_callback = getattr(
                     self, "_telonex_download_progress_callback", None
@@ -664,6 +700,7 @@ def install_timing() -> None:
                 transfer_state["parallel"] = (
                     min(getattr(self, "_telonex_prefetch_workers", 1), len(dates)) > 1
                 )
+                _emit_plain_progress_line()
                 heartbeat_thread.start()
 
             try:
@@ -677,18 +714,13 @@ def install_timing() -> None:
                     downloads.clear()
                     transfer_state["parallel"] = False
                     transfer_state["item_label"] = "hours"
+                    transfer_state["vendor"] = "loader"
                     progress_state["total_hours"] = 0
                     progress_state["started_hours"] = 0
                     progress_state["completed_hours"] = 0
                     hour_keys_by_label.clear()
                     progress_keys["started"].clear()
                     progress_keys["completed"].clear()
-                    bar = pbar_state["bar"]
-                    if bar is not None:
-                        bar.clear(nolock=True)
-                        bar.set_postfix_str("", refresh=False)
-                        bar.close()
-                        pbar_state["bar"] = None
                 heartbeat_thread.join(timeout=1.0)
 
         def timed_load_order_book_deltas(
@@ -701,6 +733,17 @@ def install_timing() -> None:
             outcome: str | None,
             include_order_book: bool = True,
         ):
+            if not _loader_progress_enabled():
+                return orig_load_order_book_deltas(
+                    self,
+                    start,
+                    end,
+                    market_slug=market_slug,
+                    token_index=token_index,
+                    outcome=outcome,
+                    include_order_book=include_order_book,
+                )
+
             dates = self._date_range(start, end)
             return _run_with_telonex_day_timing(
                 self,
@@ -723,7 +766,6 @@ def install_timing() -> None:
         # _load_market_batches; patching only the base class leaves local
         # mirror scans outside the started/completed hour bookkeeping.
         _install_full_timing(RunnerPolymarketPMXTDataLoader)
-        _install_runner_local_archive_timing(RunnerPolymarketPMXTDataLoader)
     _install_full_timing(PolymarketPMXTDataLoader)
     if RunnerPolymarketTelonexBookDataLoader is not None:
         _install_telonex_timing(RunnerPolymarketTelonexBookDataLoader)

@@ -17,7 +17,7 @@ The public PMXT runners usually use:
 
 ```python
 sources=(
-    "local:/Volumes/LaCie/pmxt_data",
+    "local:/Volumes/storage/pmxt_data",
     "archive:r2v2.pmxt.dev",
     "archive:r2.pmxt.dev",
 )
@@ -28,17 +28,23 @@ the filtered cache under `~/.cache/nautilus_trader/pmxt`. Warm filtered-cache
 reads should be sub-millisecond to low-millisecond per hour because the cache
 stores a compact filtered parquet slice rather than the full raw archive hour.
 
+When multiple PMXT replays load together, the adapter stages all metadata
+first, then all book data, then all execution trade ticks. Filtered-cache
+misses are grouped by raw archive hour: one local or remote raw parquet hour can
+serve many market/token requests before the per-replay filtered caches are
+written.
+
 ## Example Output
 
 A representative PMXT run prints:
 
 ```text
-PMXT source: explicit priority (cache -> local /Volumes/LaCie/pmxt_data -> archive https://r2v2.pmxt.dev -> archive https://r2.pmxt.dev)
+PMXT source: explicit priority (cache -> local /Volumes/storage/pmxt_data -> archive https://r2v2.pmxt.dev -> archive https://r2.pmxt.dev)
 Loading PMXT Polymarket market will-ludvig-aberg-win-the-2026-masters-tournament (token_index=0, window_start=2026-04-05T00:00:00+00:00, window_end=2026-04-07T23:59:59+00:00)...
   2026-04-05T00:00:00+00:00      ...          ... rows  cache polymarket_orderbook_2026-04-05T00.parquet
   2026-04-06T12:00:00+00:00      ...          ... rows  local raw
   2026-04-07T23:00:00+00:00      ...            0 rows  none
-Fetching hours (69/72 done, 3 active): ...
+PMXT book progress [#######################-] 69.0/72 hours (95.8%; started=72, done=69, active=3)
 ```
 
 Important fields:
@@ -63,7 +69,7 @@ MarketDataConfig(
     data_type=Book,
     vendor=Telonex,
     sources=(
-        "local:/Volumes/LaCie/telonex_data",
+        "local:/Volumes/storage/telonex_data",
         "api:",
     ),
 )
@@ -80,8 +86,8 @@ The effective lookup order for converted replay records is:
 The `Telonex source:` line shows that implicit cache layer:
 
 ```text
-Telonex book source: explicit priority (cache -> local /Volumes/LaCie/telonex_data -> api https://api.telonex.io (key set))
-Telonex trade source: explicit priority (cache -> local /Volumes/LaCie/telonex_data -> api https://api.telonex.io (key set) -> polymarket cache -> api https://data-api.polymarket.com/trades)
+Telonex book source: explicit priority (cache -> local /Volumes/storage/telonex_data -> api https://api.telonex.io (key set))
+Telonex trade source: explicit priority (cache -> local /Volumes/storage/telonex_data -> api https://api.telonex.io (key set) -> polymarket cache -> api https://data-api.polymarket.com/trades)
 ```
 
 Local reads use the DuckDB manifest when present. The manifest maps requested
@@ -107,17 +113,28 @@ day, and clipped window report `telonex deltas cache ...` or
 local/API decoding. Local/API trade-tick labels also include the exact Telonex
 channel, such as `telonex local onchain_fills` or `telonex local trades`.
 
+Multi-replay Telonex loading uses staged source preparation with bounded
+materialization: all Polymarket Gamma/CLOB metadata is prepared first, source
+fetch/cache work fans out, then book materialization, trade loading, and replay
+building run through a smaller memory cap. `BACKTEST_REPLAY_LOAD_WORKERS`
+controls source-stage concurrency, defaults to `32`, and can be raised to `128`;
+`BACKTEST_REPLAY_MATERIALIZE_WORKERS` controls the memory-heavy replay object
+stage and defaults to `4`. Telonex API requests are separately capped by
+`TELONEX_API_WORKERS` and default to `32`; local file, DuckDB, and parquet
+operations are capped by `TELONEX_FILE_WORKERS` and default to `28` to avoid
+file-descriptor pressure on large 100-market loads.
+
 ## Timing Expectations By Source
 
 | Source | Expected behavior | When it happens |
 |---|---|---|
 | PMXT filtered cache | Fastest PMXT path; compact filtered parquet per market/token/hour | Second run onward for the same market, token, and hour |
-| Local PMXT raw archive | Local disk bound; scans full raw hour then filters to market/token | Hour is missing from filtered cache but exists in `local:/...` |
-| Remote PMXT raw archive | Network and full-hour parquet bound | Hour is missing locally and archive fallback is configured |
+| Local PMXT raw archive | Local disk bound; grouped by raw hour during batch loads | Hour is missing from filtered cache but exists in `local:/...` |
+| Remote PMXT raw archive | Network and full-hour parquet bound; grouped by raw hour during batch loads | Hour is missing locally and archive fallback is configured |
 | Telonex deltas cache | Fastest Telonex path; materialized Nautilus `OrderBookDeltas` | Same market/token/day/window was already converted once |
 | Telonex materialized trade-tick cache | Fastest Telonex execution path; materialized Nautilus `TradeTick`s | Same market/token/day/window Telonex fills or trades were already converted once |
 | Telonex fast API cache | Local disk bound; avoids nested payload materialization | API day was previously downloaded and sidecar exists or was lazily migrated |
-| Local Telonex mirror | Local disk bound; manifest-pruned parquet parts | `/Volumes/LaCie/telonex_data` has the requested full-book day |
+| Local Telonex mirror | Local disk bound; manifest-pruned parquet parts | `/Volumes/storage/telonex_data` has the requested full-book day |
 | Telonex API | Network and daily parquet bound | Cache/local mirror misses and `TELONEX_API_KEY` is available |
 | None | Fast miss | Hour/day does not exist in any source |
 

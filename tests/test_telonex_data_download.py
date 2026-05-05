@@ -205,6 +205,7 @@ def test_download_telonex_days_writes_duckdb_blob(
         assert rel[1].startswith("year=")
         assert rel[2].startswith("month=")
         assert path.name.startswith("part-")
+    assert sum(telonex_download.pq.ParquetFile(path).num_row_groups for path in parquet_files) == 2
 
     con = duckdb.connect(str(manifest_path), read_only=True)
     try:

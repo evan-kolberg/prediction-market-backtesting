@@ -17,16 +17,20 @@ theme:
 nav:
   - Home: index.md
   - Setup: setup.md
-  - Backtests And Runners: backtests.md
-  - Polymarket Account Ledger Replay: account-ledger-replay.md
-  - Research: research.md
-  - Execution Modeling: execution-modeling.md
-  - Data Vendors And Local Mirrors: data-vendors.md
-  - Vendor Fetch Sources And Timing: vendor-fetch-sources.md
-  - Plotting: plotting.md
-  - Testing: testing.md
-  - Project Status: project-status.md
-  - License Notes: license.md
+  - Core Framework:
+      - Backtests And Runners: backtests.md
+      - Data Loading: data-loading.md
+      - Data Vendors And Local Mirrors: data-vendors.md
+      - Vendor Fetch Sources And Timing: vendor-fetch-sources.md
+      - Execution Modeling: execution-modeling.md
+      - Plotting: plotting.md
+      - Testing: testing.md
+  - Advanced / Experiments:
+      - Research And Optimizers: research.md
+      - Polymarket Account Ledger Replay: account-ledger-replay.md
+  - Project:
+      - Project Status: project-status.md
+      - License Notes: license.md
 
 markdown_extensions:
   - tables

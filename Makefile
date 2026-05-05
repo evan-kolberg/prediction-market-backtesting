@@ -1,12 +1,12 @@
-.PHONY: backtest install update test check clear-pmxt-cache clear-telonex-cache clear-polymarket-cache download-pmxt-raws download-telonex-data
+.PHONY: backtest install update test check native-develop native-debug-develop clear-pmxt-cache clear-telonex-cache clear-polymarket-cache download-pmxt-raws download-telonex-data
 
 PMXT_CACHE_ROOT ?= $(if $(XDG_CACHE_HOME),$(XDG_CACHE_HOME),$(HOME)/.cache)/nautilus_trader/pmxt
-PMXT_LOCAL_DATA_ROOT ?= /Volumes/LaCie/pmxt_raws
+PMXT_LOCAL_DATA_ROOT ?= /Volumes/storage/pmxt_data
 TELONEX_CACHE_ROOT ?= $(if $(XDG_CACHE_HOME),$(XDG_CACHE_HOME),$(HOME)/.cache)/nautilus_trader/telonex
 POLYMARKET_CACHE_ROOT ?= $(if $(XDG_CACHE_HOME),$(XDG_CACHE_HOME),$(HOME)/.cache)/nautilus_trader/polymarket_trades
 DESTINATION ?=
 PMXT_RAW_DOWNLOAD_FLAGS ?=
-TELONEX_DATA_DESTINATION ?= /Volumes/LaCie/telonex_data
+TELONEX_DATA_DESTINATION ?= /Volumes/storage/telonex_data
 TELONEX_DOWNLOAD_FLAGS ?=
 
 backtest:
@@ -21,6 +21,12 @@ check:
 	uv run pytest tests/ -q
 
 test: check
+
+native-develop:
+	unset CONDA_PREFIX && uv run --with "maturin>=1.12,<2" maturin develop --release --manifest-path crates/python/Cargo.toml --uv
+
+native-debug-develop:
+	unset CONDA_PREFIX && uv run --with "maturin>=1.12,<2" maturin develop --manifest-path crates/python/Cargo.toml --uv
 
 clear-pmxt-cache:
 	@python3 scripts/_cache_clear_guard.py --name PMXT_CACHE_ROOT --target "$(PMXT_CACHE_ROOT)" --unsafe "$(PMXT_LOCAL_DATA_ROOT)" --unsafe "$(TELONEX_DATA_DESTINATION)" --unsafe "$(DESTINATION)"

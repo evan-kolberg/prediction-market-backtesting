@@ -235,6 +235,17 @@ def _pairs_to_series(pairs: Sequence[tuple[str, float]] | Sequence[tuple[Any, fl
     return series.groupby(series.index).last().sort_index()
 
 
+def _fill_event_timestamp(event: Mapping[str, Any]) -> pd.Timestamp:
+    timestamp_ns = event.get("timestamp_ns")
+    if timestamp_ns is not None:
+        try:
+            return pd.Timestamp(int(timestamp_ns), unit="ns", tz="UTC")
+        except (TypeError, ValueError, OverflowError):
+            pass
+
+    return pd.to_datetime(event.get("timestamp"), utc=True, errors="coerce")
+
+
 def _to_legacy_datetime(timestamp: pd.Timestamp) -> datetime:
     return _timestamp_to_naive_utc_datetime(pd.Timestamp(timestamp))
 
@@ -358,6 +369,7 @@ def _serialize_fill_events(*, market_id: str, fills_report: pd.DataFrame) -> lis
                 "price": _parse_float_like(row.get("avg_px", row.get("last_px", row.get("price")))),
                 "quantity": quantity,
                 "timestamp": timestamp.isoformat(),
+                "timestamp_ns": int(timestamp.value),
                 "commission": _parse_float_like(
                     row.get("commissions", row.get("commission", row.get("fees")))
                 ),
@@ -375,7 +387,7 @@ def _deserialize_fill_events(
     market_side = legacy_plot_adapter._infer_market_side(models_module, market_id)
 
     for idx, event in enumerate(fill_events, start=1):
-        timestamp = pd.to_datetime(event.get("timestamp"), utc=True, errors="coerce")
+        timestamp = _fill_event_timestamp(event)
         if pd.isna(timestamp):
             continue
         assert isinstance(timestamp, pd.Timestamp)
@@ -901,7 +913,7 @@ def save_aggregate_backtest_report(
                 )
             )
             for event in result.get("fill_events") or []:
-                timestamp = pd.to_datetime(event.get("timestamp"), utc=True, errors="coerce")
+                timestamp = _fill_event_timestamp(event)
                 if not pd.isna(timestamp):
                     timeline_points.add(timestamp)
 
@@ -1169,7 +1181,7 @@ def save_joint_portfolio_backtest_report(
                 )
             )
             for event in result.get("fill_events") or []:
-                timestamp = pd.to_datetime(event.get("timestamp"), utc=True, errors="coerce")
+                timestamp = _fill_event_timestamp(event)
                 if not pd.isna(timestamp):
                     timeline_points.add(timestamp)
 

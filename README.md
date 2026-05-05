@@ -21,6 +21,12 @@
 ![GitHub closed issues](https://img.shields.io/github/issues-closed/evan-kolberg/prediction-market-backtesting)
 ![GitHub closed pull requests](https://img.shields.io/github/issues-pr-closed/evan-kolberg/prediction-market-backtesting)
 
+**New in Version 4:**
+- Rust-native PMXT and Telonex data conversion
+- Faster staged PMXT and Telonex data loading
+- Unified cache/local/archive/API source progress output
+- Materialized replay caches for repeated book loads
+
 **New in Version 3:**
 - Telonex vendor support
 - Local Telonex download script
@@ -40,9 +46,10 @@
 Looking for the old version? That was renamed to [Version 1](https://github.com/evan-kolberg/prediction-market-backtesting/tree/v1)
 
 Backtesting framework for prediction market strategies on
-[Kalshi](https://kalshi.com) and [Polymarket](https://polymarket.com), built on
-top of [NautilusTrader](https://github.com/nautechsystems/nautilus_trader) with
-custom exchange adapters. Plotting inspired by [minitrade](https://github.com/dodid/minitrade). This repo is still in active development.
+[Polymarket](https://polymarket.com), built on top of
+[NautilusTrader](https://github.com/nautechsystems/nautilus_trader) with custom
+exchange adapters. [Limitless.exchange](https://limitless.exchange) and
+[Opinion.trade](https://opinion.trade) are planned next; [Kalshi](https://kalshi.com) support depends on access to L2 historical book data. Current Kalshi components are research and fee-modeling plumbing, not a public runnable backtest path. Plotting inspired by [minitrade](https://github.com/dodid/minitrade). This repo is still in active development.
 
 
 Fantastic single & multi-market charting. Featuring: equity (total & individual markets), profit / loss ticks, P&L periodic bars, market allocation, YES price (with green buy and red sell fills), drawdown, sharpe (with above/below shading), cash / equity, monthly returns, and cumulative brier advantage.
@@ -55,6 +62,10 @@ Detailed guides have been filed away in the [docs index](https://evan-kolberg.gi
 ## Table of Contents
 
 - [Docs Index](https://evan-kolberg.github.io/prediction-market-backtesting/)
+  - [Start Here](https://evan-kolberg.github.io/prediction-market-backtesting/#start-here)
+  - [Core Framework](https://evan-kolberg.github.io/prediction-market-backtesting/#core-framework)
+  - [Advanced / Experiments](https://evan-kolberg.github.io/prediction-market-backtesting/#advanced-experiments)
+  - [Project](https://evan-kolberg.github.io/prediction-market-backtesting/#project)
   - [Acknowledgements](https://evan-kolberg.github.io/prediction-market-backtesting/#acknowledgements)
 - [Setup](https://evan-kolberg.github.io/prediction-market-backtesting/setup/)
   - [Prerequisites](https://evan-kolberg.github.io/prediction-market-backtesting/setup/#prerequisites)
@@ -76,6 +87,15 @@ Detailed guides have been filed away in the [docs index](https://evan-kolberg.gi
     - [Native Vendors](https://evan-kolberg.github.io/prediction-market-backtesting/backtests/#native-vendors)
     - [PMXT](https://evan-kolberg.github.io/prediction-market-backtesting/backtests/#pmxt)
     - [Telonex](https://evan-kolberg.github.io/prediction-market-backtesting/backtests/#telonex)
+- [Data Loading](https://evan-kolberg.github.io/prediction-market-backtesting/data-loading/)
+  - [Mental Model](https://evan-kolberg.github.io/prediction-market-backtesting/data-loading/#mental-model)
+  - [Staged Loading](https://evan-kolberg.github.io/prediction-market-backtesting/data-loading/#staged-loading)
+  - [PMXT Flow](https://evan-kolberg.github.io/prediction-market-backtesting/data-loading/#pmxt-flow)
+  - [Telonex Flow](https://evan-kolberg.github.io/prediction-market-backtesting/data-loading/#telonex-flow)
+  - [Caching](https://evan-kolberg.github.io/prediction-market-backtesting/data-loading/#caching)
+  - [Downloading Local Data](https://evan-kolberg.github.io/prediction-market-backtesting/data-loading/#downloading-local-data)
+  - [Progress And Timing](https://evan-kolberg.github.io/prediction-market-backtesting/data-loading/#progress-and-timing)
+  - [Failure Semantics](https://evan-kolberg.github.io/prediction-market-backtesting/data-loading/#failure-semantics)
 - [Polymarket Account Ledger Replay](https://evan-kolberg.github.io/prediction-market-backtesting/account-ledger-replay/)
   - [Runner And Notebook](https://evan-kolberg.github.io/prediction-market-backtesting/account-ledger-replay/#runner-and-notebook)
   - [What The Strategy Does](https://evan-kolberg.github.io/prediction-market-backtesting/account-ledger-replay/#what-the-strategy-does)
@@ -112,7 +132,7 @@ Detailed guides have been filed away in the [docs index](https://evan-kolberg.gi
     - [What Works Today](https://evan-kolberg.github.io/prediction-market-backtesting/data-vendors/#what-works-today)
     - [Supported Local File Layout](https://evan-kolberg.github.io/prediction-market-backtesting/data-vendors/#supported-local-file-layout)
     - [Required Parquet Columns](https://evan-kolberg.github.io/prediction-market-backtesting/data-vendors/#required-parquet-columns)
-    - [Required JSON Payload Shape](https://evan-kolberg.github.io/prediction-market-backtesting/data-vendors/#required-json-payload-shape)
+    - [Legacy JSON Payload Shape](https://evan-kolberg.github.io/prediction-market-backtesting/data-vendors/#legacy-json-payload-shape)
   - [Telonex](https://evan-kolberg.github.io/prediction-market-backtesting/data-vendors/#telonex)
     - [Download Local Telonex Files](https://evan-kolberg.github.io/prediction-market-backtesting/data-vendors/#download-local-telonex-files)
   - [What Is Not Plug-And-Play Yet](https://evan-kolberg.github.io/prediction-market-backtesting/data-vendors/#what-is-not-plug-and-play-yet)

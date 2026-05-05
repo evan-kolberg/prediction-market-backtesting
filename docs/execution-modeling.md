@@ -31,8 +31,8 @@ repo-level interpretation is:
 - If a fee-enabled market cannot be mapped to a documented rebate category from
   market metadata or a documented fee rate, the backtest applies no maker
   rebate for that market.
-- Kalshi fee logic remains in the extension layer, but the public v3 runner
-  surface is Polymarket book replay.
+- Kalshi fee logic remains in the extension layer, but the public runner surface
+  is Polymarket book replay.
 
 ### Maker Rebates
 
@@ -180,7 +180,7 @@ enabled unless you are intentionally testing a lower-bound execution scenario.
   rebuilds the book.
 - PMXT filtered cache is enabled by default at
   `~/.cache/nautilus_trader/pmxt`.
-- Public runners usually try `local:/Volumes/LaCie/pmxt_data` first, then
+- Public runners usually try `local:/Volumes/storage/pmxt_data` first, then
   `archive:r2v2.pmxt.dev`, then `archive:r2.pmxt.dev`.
 
 ### Telonex
@@ -195,7 +195,7 @@ enabled unless you are intentionally testing a lower-bound execution scenario.
   materialized `OrderBookDeltas` cache under `book-deltas-v1`. Warm runs can
   load `telonex-deltas-cache::...` directly and avoid re-diffing full-book
   snapshots.
-- `local:/Volumes/LaCie/telonex_data` reads the Hive-partitioned blob mirror
+- `local:/Volumes/storage/telonex_data` reads the Hive-partitioned blob mirror
   through the DuckDB manifest when available, selecting only the parquet parts
   needed for the requested channel, market, outcome, and date range.
 - `api:` downloads daily Telonex parquet payloads and writes both the raw

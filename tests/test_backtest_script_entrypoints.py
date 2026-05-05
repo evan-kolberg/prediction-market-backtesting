@@ -39,13 +39,19 @@ EXPECTED_PUBLIC_RUNNER_PATHS = [
     Path("backtests/polymarket_book_joint_portfolio_runner.py"),
     Path("backtests/polymarket_btc_5m_late_favorite_taker_hold.py"),
     Path("backtests/polymarket_btc_5m_pair_arbitrage.py"),
+    Path("backtests/polymarket_pmxt_book_100_replay_runner.py"),
+    Path("backtests/polymarket_telonex_book_100_replay_runner.py"),
     Path("backtests/polymarket_telonex_book_joint_portfolio_runner.py"),
     Path("backtests/telonex_book_joint_portfolio_runner.ipynb"),
 ]
 
 PMXT_SINGLE_MARKET_BOOK_RUNNERS = [Path("backtests/polymarket_book_ema_crossover.py")]
 PMXT_JOINT_BOOK_RUNNERS = [Path("backtests/polymarket_book_joint_portfolio_runner.py")]
-TELONEX_JOINT_BOOK_RUNNERS = [Path("backtests/polymarket_telonex_book_joint_portfolio_runner.py")]
+TELONEX_SMALL_JOINT_BOOK_RUNNER = Path(
+    "backtests/polymarket_telonex_book_joint_portfolio_runner.py"
+)
+TELONEX_100_JOINT_BOOK_RUNNER = Path("backtests/polymarket_telonex_book_100_replay_runner.py")
+TELONEX_JOINT_BOOK_RUNNERS = [TELONEX_100_JOINT_BOOK_RUNNER, TELONEX_SMALL_JOINT_BOOK_RUNNER]
 TELONEX_ACCOUNT_REPLAY_RUNNERS = [Path("backtests/polymarket_beffer45_trade_replay_telonex.py")]
 PMXT_BOOK_OPTIMIZER_RUNNERS = [Path("backtests/polymarket_book_ema_optimizer.py")]
 
@@ -281,7 +287,7 @@ def test_btc_5m_pair_arbitrage_runner_builds_pmxt_book_pairs(
     assert experiment.data.data_type == "book"
     assert experiment.data.vendor == "pmxt"
     assert experiment.data.sources == (
-        "local:/Volumes/LaCie/pmxt_data",
+        "local:/Volumes/storage/pmxt_data",
         "archive:r2v2.pmxt.dev",
         "archive:r2.pmxt.dev",
     )
@@ -318,7 +324,7 @@ def test_btc_5m_late_favorite_taker_runner_builds_pmxt_book_replays(
     assert experiment.data.data_type == "book"
     assert experiment.data.vendor == "pmxt"
     assert experiment.data.sources == (
-        "local:/Volumes/LaCie/pmxt_data",
+        "local:/Volumes/storage/pmxt_data",
         "archive:r2v2.pmxt.dev",
         "archive:r2.pmxt.dev",
     )
@@ -369,26 +375,13 @@ def test_telonex_book_joint_runners_build_inline_summary_contract(
     assert experiment.data.platform == "polymarket"
     assert experiment.data.data_type == "book"
     assert experiment.data.vendor == "telonex"
-    assert experiment.data.sources == (
-        "local:/Users/evankolberg/Downloads/temp",
-        "api:${TELONEX_API_KEY}",
-    )
-    assert len(experiment.replays) == 10
-    assert experiment.replays[0].market_slug == "will-the-iranian-regime-fall-by-may-31"
-    assert experiment.replays[-1].market_slug == "will-china-invade-taiwan-before-2027"
+    assert experiment.data.sources[-1] == "api:${TELONEX_API_KEY}"
     assert all("btc-updown-5m" not in replay.market_slug for replay in experiment.replays)
-    assert all(replay.start_time == "2026-04-28T00:00:00Z" for replay in experiment.replays)
-    assert all(replay.end_time == "2026-04-30T23:59:59Z" for replay in experiment.replays)
-    assert all(
-        replay.metadata["market_close_time_ns"] == 1777593599000000000
-        for replay in experiment.replays
-    )
+    assert len({replay.market_slug for replay in experiment.replays}) == len(experiment.replays)
+    assert all(replay.token_index == 0 for replay in experiment.replays)
+    assert all("result" not in replay.metadata for replay in experiment.replays)
     assert "test-telonex-key" not in repr(experiment)
     assert experiment.report.summary_report is True
-    assert (
-        experiment.report.summary_report_path
-        == "output/polymarket_telonex_book_joint_portfolio_runner_joint_portfolio.html"
-    )
     assert experiment.strategy_configs[0]["strategy_path"] == (
         "strategies:BookMicropriceImbalanceStrategy"
     )
@@ -401,6 +394,53 @@ def test_telonex_book_joint_runners_build_inline_summary_contract(
     assert "allocation" in experiment.report.summary_plot_panels
     assert experiment.return_summary_series is True
 
+    if relative_path == TELONEX_SMALL_JOINT_BOOK_RUNNER:
+        assert experiment.data.sources == (
+            "local:/Users/evankolberg/Downloads/temp",
+            "api:${TELONEX_API_KEY}",
+        )
+        assert len(experiment.replays) == 10
+        assert experiment.replays[0].market_slug == "will-the-iranian-regime-fall-by-may-31"
+        assert experiment.replays[-1].market_slug == "will-china-invade-taiwan-before-2027"
+        assert all(replay.start_time == "2026-04-28T00:00:00Z" for replay in experiment.replays)
+        assert all(replay.end_time == "2026-04-30T23:59:59Z" for replay in experiment.replays)
+        assert all(
+            replay.metadata["market_close_time_ns"] == 1777593599000000000
+            for replay in experiment.replays
+        )
+        assert (
+            experiment.report.summary_report_path
+            == "output/polymarket_telonex_book_joint_portfolio_runner_joint_portfolio.html"
+        )
+    elif relative_path == TELONEX_100_JOINT_BOOK_RUNNER:
+        assert experiment.data.sources == (
+            "local:/Volumes/storage/telonex_data",
+            "api:${TELONEX_API_KEY}",
+        )
+        assert len(experiment.replays) == 100
+        assert experiment.initial_cash == 1_000.0
+        assert experiment.replays[0].market_slug == "will-jesus-christ-return-before-2027"
+        assert experiment.replays[-1].market_slug == (
+            "will-gavin-newsom-win-the-2028-us-presidential-election"
+        )
+        assert all(replay.start_time == "2026-04-21T00:00:00Z" for replay in experiment.replays)
+        assert all(
+            replay.end_time == "2026-04-27T23:59:59.999999999Z" for replay in experiment.replays
+        )
+        assert all(
+            replay.metadata["replay_window_start_ns"] == 1776729600000000000
+            for replay in experiment.replays
+        )
+        assert all(
+            replay.metadata["replay_window_end_ns"] == 1777334399999999999
+            for replay in experiment.replays
+        )
+        assert experiment.report.summary_report_path == (
+            "output/polymarket_telonex_book_100_replay_runner_joint_portfolio.html"
+        )
+    else:
+        raise AssertionError(f"Unhandled Telonex joint book runner: {relative_path}")
+
 
 @pytest.mark.parametrize("relative_path", TELONEX_JOINT_BOOK_RUNNERS)
 def test_telonex_book_joint_runners_do_not_embed_empty_api_key(
@@ -409,11 +449,8 @@ def test_telonex_book_joint_runners_do_not_embed_empty_api_key(
     monkeypatch.setenv("TELONEX_API_KEY", "")
     experiment = _capture_script_experiment(monkeypatch, relative_path)
 
-    assert experiment.data.sources == (
-        "local:/Users/evankolberg/Downloads/temp",
-        "api:${TELONEX_API_KEY}",
-    )
-    assert "api:" in experiment.data.sources[1]
+    assert experiment.data.sources[-1] == "api:${TELONEX_API_KEY}"
+    assert "api:" in experiment.data.sources[-1]
     assert "api:," not in repr(experiment)
 
 

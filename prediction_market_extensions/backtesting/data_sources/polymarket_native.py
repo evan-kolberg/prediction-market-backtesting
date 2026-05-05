@@ -59,6 +59,14 @@ def _current_loader_config() -> PolymarketNativeLoaderConfig | None:
 
 class RunnerPolymarketDataLoader(PolymarketDataLoader):
     @classmethod
+    def _gamma_metadata_cache_key(cls) -> str:
+        return cls._configured_gamma_base_url()
+
+    @classmethod
+    def _clob_metadata_cache_key(cls) -> str:
+        return cls._configured_clob_base_url()
+
+    @classmethod
     def _configured_gamma_base_url(cls) -> str:
         config = _current_loader_config()
         if config is not None:

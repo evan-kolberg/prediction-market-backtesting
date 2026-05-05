@@ -1,0 +1,9 @@
+[workspace]
+members = ["crates/core", "crates/python"]
+resolver = "3"
+
+[workspace.package]
+edition = "2024"
+license = "MIT OR LGPL-3.0-or-later"
+repository = "https://github.com/evan-kolberg/prediction-market-backtesting"
+rust-version = "1.93.1"

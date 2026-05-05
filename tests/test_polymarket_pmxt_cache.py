@@ -9,6 +9,7 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.dataset as ds
 import pyarrow.parquet as pq
+from nautilus_trader.adapters.polymarket.common.parsing import parse_polymarket_instrument
 
 from prediction_market_extensions.adapters.polymarket import pmxt as pmxt_module
 from prediction_market_extensions.adapters.polymarket.pmxt import PolymarketPMXTDataLoader
@@ -33,6 +34,106 @@ def _make_loader(
     return loader
 
 
+def _make_instrument():
+    return parse_polymarket_instrument(
+        market_info={
+            "condition_id": "0x" + "1" * 64,
+            "question": "Synthetic PMXT market",
+            "minimum_tick_size": "0.01",
+            "minimum_order_size": "1",
+            "end_date_iso": "2026-12-31T00:00:00Z",
+            "maker_base_fee": "0",
+            "taker_base_fee": "0",
+        },
+        token_id="2" * 64,
+        outcome="Yes",
+        ts_init=0,
+    )
+
+
+def test_delta_columns_preserve_instrument_rounding(tmp_path):
+    loader = _make_loader(tmp_path)
+    loader._instrument = _make_instrument()
+
+    records = loader._deltas_records_from_columns(
+        {
+            "event_index": [0],
+            "action": [1],
+            "side": [1],
+            "price": [0.105],
+            "size": [1009.1234564],
+            "flags": [0],
+            "sequence": [0],
+            "ts_event": [100],
+            "ts_init": [100],
+        }
+    )
+    delta = records[0].deltas[0]
+
+    assert delta.order.price.raw == loader.instrument.make_price(0.105).raw
+    assert delta.order.size.raw == loader.instrument.make_qty(1009.1234564).raw
+
+
+def test_materialized_deltas_cache_round_trips(tmp_path):
+    loader = _make_loader(tmp_path)
+    loader._instrument = _make_instrument()
+    start = pd.Timestamp("2026-03-16T12:00:00Z")
+    end = pd.Timestamp("2026-03-16T13:00:00Z")
+    records = loader._deltas_records_from_columns(
+        {
+            "event_index": [0, 1],
+            "action": [4, 1],
+            "side": [0, 1],
+            "price": [0.0, 0.105],
+            "size": [0.0, 1009.1234564],
+            "flags": [0, 0],
+            "sequence": [0, 1],
+            "ts_event": [100, 200],
+            "ts_init": [100, 200],
+        }
+    )
+
+    loader._write_deltas_cache_for_range(records, start, end)
+    cached = loader._load_deltas_cache_for_range(start, end)
+
+    assert cached is not None
+    assert len(cached) == len(records)
+    assert [int(record.ts_event) for record in cached] == [100, 200]
+    assert cached[1].deltas[0].order.price.raw == loader.instrument.make_price(0.105).raw
+
+
+def test_load_order_book_deltas_prefers_materialized_cache(monkeypatch, tmp_path):
+    loader = _make_loader(tmp_path)
+    loader._instrument = _make_instrument()
+    start = pd.Timestamp("2026-03-16T12:00:00Z")
+    end = pd.Timestamp("2026-03-16T13:00:00Z")
+    records = loader._deltas_records_from_columns(
+        {
+            "event_index": [0],
+            "action": [4],
+            "side": [0],
+            "price": [0.0],
+            "size": [0.0],
+            "flags": [0],
+            "sequence": [0],
+            "ts_event": [100],
+            "ts_init": [100],
+        }
+    )
+    loader._write_deltas_cache_for_range(records, start, end)
+
+    def fail(*args, **kwargs):  # type: ignore[no-untyped-def]
+        raise AssertionError("PMXT materialized cache should bypass row caches and raw dumps")
+
+    monkeypatch.setattr(loader, "_load_window_cache_batches", fail)
+    monkeypatch.setattr(loader, "_iter_market_batches", fail)
+
+    cached = loader.load_order_book_deltas(start, end)
+
+    assert len(cached) == 1
+    assert int(cached[0].ts_event) == 100
+
+
 def test_resolve_cache_dir_defaults_to_xdg_cache_home(monkeypatch, tmp_path):
     monkeypatch.delenv(PolymarketPMXTDataLoader._PMXT_CACHE_DIR_ENV, raising=False)
     monkeypatch.delenv(PolymarketPMXTDataLoader._PMXT_DISABLE_CACHE_ENV, raising=False)
@@ -52,6 +153,54 @@ def test_resolve_prefetch_workers_parses_env(monkeypatch):
 
     monkeypatch.setenv(PolymarketPMXTDataLoader._PMXT_PREFETCH_WORKERS_ENV, "invalid")
     assert PolymarketPMXTDataLoader._resolve_prefetch_workers() == 16
+
+
+def test_write_window_cache_is_opt_in(monkeypatch):
+    monkeypatch.delenv(PolymarketPMXTDataLoader._PMXT_WRITE_WINDOW_CACHE_ENV, raising=False)
+    assert not PolymarketPMXTDataLoader._write_window_cache_enabled()
+
+    monkeypatch.setenv(PolymarketPMXTDataLoader._PMXT_WRITE_WINDOW_CACHE_ENV, "1")
+    assert PolymarketPMXTDataLoader._write_window_cache_enabled()
+
+    monkeypatch.setenv(PolymarketPMXTDataLoader._PMXT_WRITE_WINDOW_CACHE_ENV, "0")
+    assert not PolymarketPMXTDataLoader._write_window_cache_enabled()
+
+
+def test_resolve_scan_batch_size_parses_env(monkeypatch):
+    monkeypatch.delenv(PolymarketPMXTDataLoader._PMXT_SCAN_BATCH_SIZE_ENV, raising=False)
+    assert (
+        PolymarketPMXTDataLoader._resolve_scan_batch_size()
+        == PolymarketPMXTDataLoader._PMXT_DEFAULT_SCAN_BATCH_SIZE
+    )
+
+    monkeypatch.setenv(PolymarketPMXTDataLoader._PMXT_SCAN_BATCH_SIZE_ENV, "250000")
+    assert PolymarketPMXTDataLoader._resolve_scan_batch_size() == 250_000
+
+    monkeypatch.setenv(PolymarketPMXTDataLoader._PMXT_SCAN_BATCH_SIZE_ENV, "invalid")
+    assert (
+        PolymarketPMXTDataLoader._resolve_scan_batch_size()
+        == PolymarketPMXTDataLoader._PMXT_DEFAULT_SCAN_BATCH_SIZE
+    )
+
+
+def test_load_order_book_deltas_uses_large_default_scan_batch(tmp_path):
+    loader = _make_loader(tmp_path)
+    loader._instrument = _make_instrument()
+    hour = pd.Timestamp("2026-03-16T12:00:00Z")
+    captured: dict[str, int] = {}
+
+    loader._archive_hours = lambda _start, _end: [hour]  # type: ignore[method-assign]
+
+    def _iter_market_batches(hours, *, batch_size):  # type: ignore[no-untyped-def]
+        captured["batch_size"] = batch_size
+        return iter((hour, []) for hour in hours)
+
+    loader._iter_market_batches = _iter_market_batches  # type: ignore[method-assign]
+
+    data = loader.load_order_book_deltas(hour, hour + pd.Timedelta(hours=1))
+
+    assert data == []
+    assert captured["batch_size"] == PolymarketPMXTDataLoader._PMXT_DEFAULT_SCAN_BATCH_SIZE
 
 
 def test_resolve_local_archive_dir_parses_env(monkeypatch, tmp_path):
@@ -320,43 +469,8 @@ def test_load_market_batches_reads_nested_local_archive_layout(tmp_path):
     )
 
 
-def test_decode_book_snapshot_accepts_null_top_of_book_fields():
-    payload = PolymarketPMXTDataLoader._decode_book_snapshot(
-        '{"update_type":"book_snapshot","market_id":"condition-123","token_id":"token-yes-123",'
-        '"side":"NO","best_bid":null,"best_ask":"0.02","timestamp":1771767624.001295,'
-        '"bids":[],"asks":[["0.99","10"]]}'
-    )
-
-    assert payload.best_bid is None
-    assert payload.best_ask == "0.02"
-
-
-def test_decode_price_change_accepts_null_top_of_book_fields():
-    payload = PolymarketPMXTDataLoader._decode_price_change(
-        '{"update_type":"price_change","market_id":"condition-123","token_id":"token-yes-123",'
-        '"side":"NO","best_bid":null,"best_ask":"0.02","timestamp":1771767624.001295,'
-        '"change_price":"0.02","change_size":"10","change_side":"SELL"}'
-    )
-
-    assert payload.best_bid is None
-    assert payload.best_ask == "0.02"
-
-
 def test_timestamp_to_ns_preserves_decimal_precision() -> None:
     assert PolymarketPMXTDataLoader._timestamp_to_ns(1771767624.001295) == 1_771_767_624_001_295_000
-
-
-def test_to_book_snapshot_normalizes_book_level_ordering() -> None:
-    snapshot = PolymarketPMXTDataLoader._to_book_snapshot(
-        PolymarketPMXTDataLoader._decode_book_snapshot(
-            '{"update_type":"book_snapshot","market_id":"condition-123","token_id":"token-yes-123",'
-            '"side":"YES","best_bid":"0.49","best_ask":"0.51","timestamp":1.0,'
-            '"bids":[["0.49","10"],["0.10","5"]],"asks":[["0.51","10"],["0.90","5"]]}'
-        )
-    )
-
-    assert snapshot.bids[-1].price == "0.49"
-    assert snapshot.asks[-1].price == "0.51"
 
 
 def test_iter_market_tables_preserves_hour_order(tmp_path):
@@ -403,18 +517,10 @@ def test_load_order_book_deltas_returns_snapshot_event(monkeypatch, tmp_path):
     loader._instrument = SimpleNamespace(id="POLYMARKET.TEST")
     hour = pd.Timestamp("2026-03-16T12:00:00Z")
 
-    class _FakeOrderBook:
-        def __init__(self, instrument_id, book_type):  # type: ignore[no-untyped-def]
-            self.instrument_id = instrument_id
-            self.book_type = book_type
-
     class _FakeOrderBookDeltas:
         def __init__(self, ts_event: int, ts_init: int) -> None:
             self.ts_event = ts_event
             self.ts_init = ts_init
-
-    monkeypatch.setattr(pmxt_module, "OrderBook", _FakeOrderBook)
-    monkeypatch.setattr(pmxt_module, "OrderBookDeltas", _FakeOrderBookDeltas)
 
     loader._archive_hours = lambda _start, _end: [hour]  # type: ignore[method-assign]
     loader._iter_market_batches = (  # type: ignore[method-assign]
@@ -448,42 +554,43 @@ def test_load_order_book_deltas_returns_snapshot_event(monkeypatch, tmp_path):
         )
     )
 
-    def _process_book_snapshot(  # type: ignore[no-untyped-def]
-        payload_text,
-        *,
-        token_id,
-        instrument,
-        local_book,
-        has_snapshot,
-        events,
-        start_ns,
-        end_ns,
-        include_order_book,
-    ):
-        del payload_text, token_id, instrument, has_snapshot, start_ns, end_ns
-        if include_order_book:
-            events.append(_FakeOrderBookDeltas(ts_event=10, ts_init=20))
-        return local_book, True
-
-    monkeypatch.setattr(loader, "_process_book_snapshot", _process_book_snapshot)
+    monkeypatch.setattr(
+        pmxt_module,
+        "pmxt_payload_delta_rows",
+        lambda **_kwargs: (
+            True,
+            (1_000_000_000, 0),
+            {
+                "event_index": [0],
+                "action": [4],
+                "side": [0],
+                "price": [0.0],
+                "size": [0.0],
+                "flags": [0],
+                "sequence": [0],
+                "ts_event": [10],
+                "ts_init": [20],
+            },
+        ),
+    )
+    monkeypatch.setattr(
+        loader,
+        "_deltas_records_from_columns",
+        lambda data: [
+            _FakeOrderBookDeltas(ts_event=data["ts_event"][0], ts_init=data["ts_init"][0])
+        ],
+    )
 
     data = loader.load_order_book_deltas(hour, hour + pd.Timedelta(hours=1))
 
     assert [type(record).__name__ for record in data] == ["_FakeOrderBookDeltas"]
 
 
-def test_load_order_book_deltas_sorts_payloads_before_book_mutation(monkeypatch, tmp_path):
+def test_load_order_book_deltas_delegates_payload_ordering_to_native(monkeypatch, tmp_path):
     loader = _make_loader(tmp_path)
     loader._instrument = SimpleNamespace(id="POLYMARKET.TEST")
     hour = pd.Timestamp("2026-03-16T12:00:00Z")
-    processed: list[str] = []
 
-    class _FakeOrderBook:
-        def __init__(self, instrument_id, book_type):  # type: ignore[no-untyped-def]
-            self.instrument_id = instrument_id
-            self.book_type = book_type
-
-    monkeypatch.setattr(pmxt_module, "OrderBook", _FakeOrderBook)
     loader._archive_hours = lambda _start, _end: [hour]  # type: ignore[method-assign]
     loader._iter_market_batches = (  # type: ignore[method-assign]
         lambda hours, *, batch_size: iter(
@@ -524,47 +631,111 @@ def test_load_order_book_deltas_sorts_payloads_before_book_mutation(monkeypatch,
             ]
         )
     )
+    native_calls: list[dict[str, object]] = []
 
-    def _process_book_snapshot(  # type: ignore[no-untyped-def]
-        payload_text,
-        *,
-        token_id,
-        instrument,
-        local_book,
-        has_snapshot,
-        events,
-        start_ns,
-        end_ns,
-        include_order_book,
-    ):
-        del payload_text, token_id, instrument, has_snapshot, events, start_ns, end_ns
-        del include_order_book
-        processed.append("book_snapshot")
-        return local_book, True
+    def _native_payload_delta_rows(**kwargs):  # type: ignore[no-untyped-def]
+        native_calls.append(kwargs)
+        return (
+            True,
+            (2_000_000_000, 1),
+            {
+                "event_index": [],
+                "action": [],
+                "side": [],
+                "price": [],
+                "size": [],
+                "flags": [],
+                "sequence": [],
+                "ts_event": [],
+                "ts_init": [],
+            },
+        )
 
-    def _process_price_change(  # type: ignore[no-untyped-def]
-        payload_text,
-        *,
-        token_id,
-        instrument,
-        local_book,
-        has_snapshot,
-        events,
-        start_ns,
-        end_ns,
-        include_order_book,
-    ):
-        del payload_text, token_id, instrument, has_snapshot, events, start_ns, end_ns
-        del include_order_book
-        processed.append("price_change")
-        return local_book
-
-    monkeypatch.setattr(loader, "_process_book_snapshot", _process_book_snapshot)
-    monkeypatch.setattr(loader, "_process_price_change", _process_price_change)
+    monkeypatch.setattr(pmxt_module, "pmxt_payload_delta_rows", _native_payload_delta_rows)
 
     loader.load_order_book_deltas(hour, hour + pd.Timedelta(hours=1))
 
-    assert processed == ["book_snapshot", "price_change"]
+    assert native_calls
+    assert [str(value) for value in native_calls[0]["update_type_columns"][0]] == [
+        "price_change",
+        "book_snapshot",
+    ]
+
+
+def test_load_order_book_deltas_uses_native_payload_delta_rows(monkeypatch, tmp_path):
+    loader = _make_loader(tmp_path)
+    loader._instrument = SimpleNamespace(id="POLYMARKET.TEST")
+    hour = pd.Timestamp("2026-03-16T12:00:00Z")
+
+    class _FakeOrderBookDeltas:
+        def __init__(self, ts_event, ts_init):  # type: ignore[no-untyped-def]
+            self.ts_event = ts_event
+            self.ts_init = ts_init
+
+    loader._archive_hours = lambda _start, _end: [hour]  # type: ignore[method-assign]
+    loader._iter_market_batches = (  # type: ignore[method-assign]
+        lambda hours, *, batch_size: iter(
+            [
+                (
+                    hour,
+                    [
+                        pa.record_batch(
+                            [
+                                pa.array(["book_snapshot"]),
+                                pa.array(
+                                    [
+                                        (
+                                            '{"update_type":"book_snapshot",'
+                                            '"market_id":"condition-123",'
+                                            '"token_id":"token-yes-123",'
+                                            '"timestamp":1.0,'
+                                            '"bids":[["0.49","10"]],'
+                                            '"asks":[["0.51","10"]]}'
+                                        )
+                                    ]
+                                ),
+                            ],
+                            names=["update_type", "data"],
+                        )
+                    ],
+                )
+            ]
+        )
+    )
+    native_calls: list[dict[str, object]] = []
+
+    def _native_payload_delta_rows(**kwargs):  # type: ignore[no-untyped-def]
+        native_calls.append(kwargs)
+        return (
+            True,
+            (1_000_000_000, 0),
+            {
+                "event_index": [0],
+                "action": [4],
+                "side": [0],
+                "price": [0.0],
+                "size": [0.0],
+                "flags": [0],
+                "sequence": [0],
+                "ts_event": [1_000_000_000],
+                "ts_init": [1_000_000_000],
+            },
+        )
+
+    monkeypatch.setattr(pmxt_module, "pmxt_payload_delta_rows", _native_payload_delta_rows)
+    monkeypatch.setattr(
+        loader,
+        "_deltas_records_from_columns",
+        lambda data: [
+            _FakeOrderBookDeltas(ts_event=data["ts_event"][0], ts_init=data["ts_init"][0])
+        ],
+    )
+
+    data = loader.load_order_book_deltas(hour, hour + pd.Timedelta(hours=1))
+
+    assert native_calls
+    assert native_calls[0]["token_id"] == "token-yes-123"
+    assert [type(record).__name__ for record in data] == ["_FakeOrderBookDeltas"]
 
 
 def test_load_order_book_deltas_skips_stale_cross_hour_payloads(monkeypatch, tmp_path):
@@ -574,14 +745,6 @@ def test_load_order_book_deltas_skips_stale_cross_hour_payloads(monkeypatch, tmp
         pd.Timestamp("2026-03-16T12:00:00Z"),
         pd.Timestamp("2026-03-16T13:00:00Z"),
     ]
-    processed: list[str] = []
-
-    class _FakeOrderBook:
-        def __init__(self, instrument_id, book_type):  # type: ignore[no-untyped-def]
-            self.instrument_id = instrument_id
-            self.book_type = book_type
-
-    monkeypatch.setattr(pmxt_module, "OrderBook", _FakeOrderBook)
     loader._archive_hours = lambda _start, _end: hours  # type: ignore[method-assign]
     loader._iter_market_batches = (  # type: ignore[method-assign]
         lambda iter_hours, *, batch_size: iter(
@@ -637,47 +800,34 @@ def test_load_order_book_deltas_skips_stale_cross_hour_payloads(monkeypatch, tmp
             ]
         )
     )
+    native_calls: list[dict[str, object]] = []
 
-    def _process_book_snapshot(  # type: ignore[no-untyped-def]
-        payload_text,
-        *,
-        token_id,
-        instrument,
-        local_book,
-        has_snapshot,
-        events,
-        start_ns,
-        end_ns,
-        include_order_book,
-    ):
-        del payload_text, token_id, instrument, has_snapshot, events, start_ns, end_ns
-        del include_order_book
-        processed.append("book_snapshot")
-        return local_book, True
+    def _native_payload_delta_rows(**kwargs):  # type: ignore[no-untyped-def]
+        native_calls.append(kwargs)
+        call_index = len(native_calls)
+        return (
+            True,
+            (call_index * 1_000_000_000, call_index - 1),
+            {
+                "event_index": [],
+                "action": [],
+                "side": [],
+                "price": [],
+                "size": [],
+                "flags": [],
+                "sequence": [],
+                "ts_event": [],
+                "ts_init": [],
+            },
+        )
 
-    def _process_price_change(  # type: ignore[no-untyped-def]
-        payload_text,
-        *,
-        token_id,
-        instrument,
-        local_book,
-        has_snapshot,
-        events,
-        start_ns,
-        end_ns,
-        include_order_book,
-    ):
-        del payload_text, token_id, instrument, has_snapshot, events, start_ns, end_ns
-        del include_order_book
-        processed.append("price_change")
-        return local_book
-
-    monkeypatch.setattr(loader, "_process_book_snapshot", _process_book_snapshot)
-    monkeypatch.setattr(loader, "_process_price_change", _process_price_change)
+    monkeypatch.setattr(pmxt_module, "pmxt_payload_delta_rows", _native_payload_delta_rows)
 
     loader.load_order_book_deltas(hours[0], hours[-1] + pd.Timedelta(hours=1))
 
-    assert processed == ["book_snapshot", "price_change"]
+    assert len(native_calls) == 2
+    assert native_calls[0]["last_payload_key"] is None
+    assert native_calls[1]["last_payload_key"] == (1_000_000_000, 0)
 
 
 def test_iter_market_batches_preserves_hour_order(tmp_path):

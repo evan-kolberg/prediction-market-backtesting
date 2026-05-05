@@ -55,7 +55,7 @@ For faster local mirror scans, raise PMXT hour prefetch after checking disk
 headroom:
 
 ```bash
-PMXT_PREFETCH_WORKERS=8 uv run python backtests/polymarket_book_joint_portfolio_runner.py
+PMXT_PREFETCH_WORKERS=6 uv run python backtests/polymarket_book_joint_portfolio_runner.py
 ```
 
 For Telonex notebook research, including the bundled random-grid and TPE
@@ -63,7 +63,7 @@ examples, warm the local full-book mirror first:
 
 ```bash
 TELONEX_API_KEY=... uv run python scripts/telonex_download_data.py \
-  --destination /Volumes/LaCie/telonex_data \
+  --destination /Volumes/storage/telonex_data \
   --all-markets \
   --channels book_snapshot_full
 ```
@@ -74,7 +74,8 @@ mirrors, tune `--writer-queue-items`, `--pending-commit-items`, and
 `--parse-workers` based on available RAM; the writer still drains at least
 hourly, closes open Parquet part writers, and commits their manifest rows so
 pending Arrow tables and part metadata cannot grow forever.
-Telonex runner API day loading uses `TELONEX_PREFETCH_WORKERS`, default `128`.
+Telonex runner API day loading uses `TELONEX_API_WORKERS`, default `32`. The
+broader Telonex prefetch planner uses `TELONEX_PREFETCH_WORKERS`, default `128`.
 
 ## Scoring
 
