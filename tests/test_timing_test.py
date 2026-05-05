@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import importlib
-import sys
-from types import SimpleNamespace
 
 import pytest
 
@@ -10,10 +8,8 @@ from prediction_market_extensions.backtesting._timing_test import (
     _active_transfer_progress,
     _loader_progress_enabled,
     _loader_progress_lines_enabled,
-    _loader_tqdm_enabled,
     _progress_bar_description,
     _progress_bar_position,
-    _progress_bar_total,
     _text_progress_bar,
     _transfer_label,
     _transfer_progress_fraction,
@@ -38,14 +34,6 @@ def test_loader_progress_lines_are_enabled_by_default(monkeypatch) -> None:
 
     monkeypatch.setenv("BACKTEST_LOADER_PROGRESS_LINES", "0")
     assert not _loader_progress_lines_enabled()
-
-
-def test_loader_tqdm_is_opt_in_by_default(monkeypatch) -> None:
-    monkeypatch.delenv("BACKTEST_LOADER_TQDM", raising=False)
-    assert not _loader_tqdm_enabled()
-
-    monkeypatch.setenv("BACKTEST_LOADER_TQDM", "1")
-    assert _loader_tqdm_enabled()
 
 
 def test_transfer_label_identifies_local_raw_paths() -> None:
@@ -125,10 +113,6 @@ def test_progress_bar_description_uses_actual_active_transfer_count() -> None:
     )
 
     assert description == "Fetching hours (39/44 started, 8 active)"
-
-
-def test_progress_bar_total_matches_total_hours() -> None:
-    assert _progress_bar_total(7) == 7
 
 
 def test_text_progress_bar_renders_plain_log_bar() -> None:
@@ -262,7 +246,7 @@ def test_install_timing_patches_runner_loader_override() -> None:
             delattr(RunnerPolymarketPMXTDataLoader, "load_shared_market_batches_for_hour")
 
 
-def test_grouped_pmxt_timing_drives_tqdm_progress(monkeypatch) -> None:
+def test_grouped_pmxt_timing_emits_text_progress(monkeypatch) -> None:
     from prediction_market_extensions.backtesting import _timing_test as timing_module
     from prediction_market_extensions.backtesting.data_sources.pmxt import (
         RunnerPolymarketPMXTDataLoader,
@@ -270,35 +254,7 @@ def test_grouped_pmxt_timing_drives_tqdm_progress(monkeypatch) -> None:
 
     monkeypatch.delenv("BACKTEST_LOADER_PROGRESS", raising=False)
     monkeypatch.setenv("BACKTEST_LOADER_PROGRESS_LINES", "1")
-    monkeypatch.setenv("BACKTEST_LOADER_TQDM", "1")
     timing_module = importlib.reload(timing_module)
-    updates: list[object] = []
-
-    class FakeTqdm:
-        def __init__(self, *, total, desc, unit, leave, disable, bar_format):  # type: ignore[no-untyped-def]
-            del desc, unit, leave, disable, bar_format
-            self.total = total
-            self.n = 0.0
-            updates.append(("init", total))
-
-        def update(self, value):  # type: ignore[no-untyped-def]
-            self.n += value
-            updates.append(("update", value))
-
-        def set_description_str(self, value, *, refresh):  # type: ignore[no-untyped-def]
-            del refresh
-            updates.append(("desc", value))
-
-        def set_postfix_str(self, value, *, refresh):  # type: ignore[no-untyped-def]
-            del refresh
-            updates.append(("postfix", value))
-
-        def clear(self, *, nolock):  # type: ignore[no-untyped-def]
-            del nolock
-            updates.append(("clear", None))
-
-        def close(self):  # type: ignore[no-untyped-def]
-            updates.append(("close", None))
 
     original_shared = RunnerPolymarketPMXTDataLoader.load_shared_market_batches_for_hour
     had_shared = "load_shared_market_batches_for_hour" in RunnerPolymarketPMXTDataLoader.__dict__
@@ -309,7 +265,6 @@ def test_grouped_pmxt_timing_drives_tqdm_progress(monkeypatch) -> None:
         self._pmxt_download_progress_callback("https://r2v2.pmxt.dev/hour.parquet", 100, 100, True)
         return {}
 
-    monkeypatch.setitem(sys.modules, "tqdm", SimpleNamespace(tqdm=FakeTqdm))
     monkeypatch.setattr(
         RunnerPolymarketPMXTDataLoader,
         "load_shared_market_batches_for_hour",
@@ -335,9 +290,6 @@ def test_grouped_pmxt_timing_drives_tqdm_progress(monkeypatch) -> None:
         elif "load_shared_market_batches_for_hour" in RunnerPolymarketPMXTDataLoader.__dict__:
             delattr(RunnerPolymarketPMXTDataLoader, "load_shared_market_batches_for_hour")
 
-    assert ("init", 1) in updates
-    assert any(item[0] == "postfix" and "100 B/100 B" in item[1] for item in updates)
-    assert ("close", None) in updates
     assert any("PMXT book progress [" in event.message for event in capture.events)
 
 

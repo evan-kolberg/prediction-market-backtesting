@@ -34,7 +34,6 @@ _installed = False
 _TELONEX_TIMING_WORKERS_ENV = "TELONEX_TIMING_WORKERS"
 _LOADER_PROGRESS_ENV = "BACKTEST_LOADER_PROGRESS"
 _LOADER_PROGRESS_LINES_ENV = "BACKTEST_LOADER_PROGRESS_LINES"
-_LOADER_TQDM_ENV = "BACKTEST_LOADER_TQDM"
 _LOADER_PROGRESS_LOG_INTERVAL_ENV = "BACKTEST_LOADER_PROGRESS_LOG_INTERVAL"
 _DEFAULT_PROGRESS_LOG_INTERVAL_SECS = 2.0
 
@@ -51,10 +50,6 @@ def _loader_progress_enabled() -> bool:
 
 def _loader_progress_lines_enabled() -> bool:
     return _env_flag_enabled(os.getenv(_LOADER_PROGRESS_LINES_ENV), default=True)
-
-
-def _loader_tqdm_enabled() -> bool:
-    return _env_flag_enabled(os.getenv(_LOADER_TQDM_ENV), default=False)
 
 
 def _loader_progress_log_interval_secs() -> float:
@@ -159,10 +154,6 @@ def _hour_progress_key(hour) -> str:  # type: ignore[no-untyped-def]
         return str(hour)
 
 
-def _progress_bar_total(total_hours: int) -> int:
-    return max(0, total_hours)
-
-
 def _text_progress_bar(position: float, total: int, *, width: int = 24) -> str:
     if total <= 0:
         return "[" + ("-" * width) + "]"
@@ -253,8 +244,6 @@ def install_timing() -> None:
         return
     _installed = True
 
-    from tqdm import tqdm
-
     from prediction_market_extensions._runtime_log import emit_loader_event
     from prediction_market_extensions.adapters.polymarket.pmxt import PolymarketPMXTDataLoader
 
@@ -271,7 +260,6 @@ def install_timing() -> None:
     except ImportError:
         RunnerPolymarketTelonexBookDataLoader = None
 
-    pbar_state: dict = {"bar": None}
     pbar_lock = threading.Lock()
     progress_state: dict[str, int] = {"total_hours": 0, "started_hours": 0, "completed_hours": 0}
     hour_keys_by_label: dict[str, str] = {}
@@ -422,30 +410,6 @@ def install_timing() -> None:
         )
 
     def _refresh_transfer_status(*, emit_line: bool = True) -> None:
-        bar = pbar_state["bar"]
-        if bar is None:
-            return
-        downloads: dict[str, dict[str, object]] = transfer_state["downloads"]  # type: ignore[assignment]
-        active_hours, active_progress = _active_transfer_progress(downloads)
-        target_position = _progress_bar_position(
-            total_hours=int(progress_state["total_hours"]),
-            completed_hours=int(progress_state["completed_hours"]),
-            active_hours_progress=active_progress,
-        )
-        if target_position > float(bar.n):
-            bar.update(target_position - bar.n)
-        bar.set_description_str(
-            _progress_bar_description(
-                total_hours=int(progress_state["total_hours"]),
-                started_hours=int(progress_state["started_hours"]),
-                completed_hours=int(progress_state["completed_hours"]),
-                active_hours=active_hours,
-                item_label=str(transfer_state["item_label"]),
-            ),
-            refresh=False,
-        )
-        status_text = _transfer_status_text()
-        bar.set_postfix_str(status_text, refresh=True)
         if emit_line:
             _emit_plain_progress_line()
 
@@ -543,9 +507,6 @@ def install_timing() -> None:
             len(progress_keys["completed"]),
         )
         progress_state["total_hours"] = total_hours
-        bar = pbar_state["bar"]
-        if bar is not None:
-            bar.total = _progress_bar_total(total_hours)
 
     def _enter_grouped_pmxt_loader_callbacks(loader) -> None:  # type: ignore[no-untyped-def]
         key = id(loader)
@@ -594,19 +555,6 @@ def install_timing() -> None:
             grouped_active_calls += 1
             _mark_hour_started(hour)
             _set_dynamic_total_hours()
-            if pbar_state["bar"] is None:
-                pbar_state["bar"] = tqdm(
-                    total=_progress_bar_total(int(progress_state["total_hours"])),
-                    desc=_progress_bar_description(
-                        total_hours=int(progress_state["total_hours"]),
-                        started_hours=int(progress_state["started_hours"]),
-                        completed_hours=int(progress_state["completed_hours"]),
-                    ),
-                    unit="hr",
-                    leave=False,
-                    disable=not _loader_tqdm_enabled(),
-                    bar_format=("{l_bar}{bar}| [{elapsed}<{remaining}]{postfix}"),
-                )
             _refresh_transfer_status(emit_line=False)
             _emit_plain_progress_line()
 
@@ -643,12 +591,6 @@ def install_timing() -> None:
                 hour_keys_by_label.clear()
                 progress_keys["started"].clear()
                 progress_keys["completed"].clear()
-                bar = pbar_state["bar"]
-                if bar is not None:
-                    bar.clear(nolock=True)
-                    bar.set_postfix_str("", refresh=False)
-                    bar.close()
-                    pbar_state["bar"] = None
                 thread_to_join = grouped_heartbeat_thread
                 grouped_heartbeat_thread = None
         if thread_to_join is not None:
@@ -705,16 +647,6 @@ def install_timing() -> None:
                 heartbeat_thread = threading.Thread(
                     target=_transfer_heartbeat, name="pmxt-timing-heartbeat", daemon=True
                 )
-                pbar_state["bar"] = tqdm(
-                    total=_progress_bar_total(len(hours)),
-                    desc=_progress_bar_description(
-                        total_hours=len(hours), started_hours=0, completed_hours=0
-                    ),
-                    unit="hr",
-                    leave=False,
-                    disable=not _loader_tqdm_enabled(),
-                    bar_format=("{l_bar}{bar}| [{elapsed}<{remaining}]{postfix}"),
-                )
                 previous_callback = getattr(self, "_pmxt_download_progress_callback", None)
                 previous_scan_callback = getattr(self, "_pmxt_scan_progress_callback", None)
                 self._pmxt_download_progress_callback = _download_progress
@@ -742,12 +674,6 @@ def install_timing() -> None:
                     hour_keys_by_label.clear()
                     progress_keys["started"].clear()
                     progress_keys["completed"].clear()
-                    bar = pbar_state["bar"]
-                    if bar is not None:
-                        bar.clear(nolock=True)
-                        bar.set_postfix_str("", refresh=False)
-                        bar.close()
-                        pbar_state["bar"] = None
                 heartbeat_thread.join(timeout=1.0)
 
         loader_cls._load_cached_market_batches = patched_cached
@@ -813,19 +739,6 @@ def install_timing() -> None:
                 heartbeat_thread = threading.Thread(
                     target=_transfer_heartbeat, name="telonex-timing-heartbeat", daemon=True
                 )
-                pbar_state["bar"] = tqdm(
-                    total=_progress_bar_total(len(dates)),
-                    desc=_progress_bar_description(
-                        total_hours=len(dates),
-                        started_hours=0,
-                        completed_hours=0,
-                        item_label="days",
-                    ),
-                    unit="day",
-                    leave=False,
-                    disable=not _loader_tqdm_enabled(),
-                    bar_format=("{l_bar}{bar}| [{elapsed}<{remaining}]{postfix}"),
-                )
                 previous_download_callback = getattr(
                     self, "_telonex_download_progress_callback", None
                 )
@@ -856,12 +769,6 @@ def install_timing() -> None:
                     hour_keys_by_label.clear()
                     progress_keys["started"].clear()
                     progress_keys["completed"].clear()
-                    bar = pbar_state["bar"]
-                    if bar is not None:
-                        bar.clear(nolock=True)
-                        bar.set_postfix_str("", refresh=False)
-                        bar.close()
-                        pbar_state["bar"] = None
                 heartbeat_thread.join(timeout=1.0)
 
         def timed_load_order_book_deltas(
