@@ -428,16 +428,16 @@ if TEXTUAL_AVAILABLE:
     class _BacktestMenuApp(App[int]):
         CSS = """
         Screen {
-            background: #07191d;
-            color: #d9ece8;
+            background: #10181a;
+            color: #d6dfdd;
         }
 
         #banner {
             dock: top;
             height: 1;
             padding: 0 1;
-            background: #214f4d;
-            color: #eaf7f3;
+            background: #253a3b;
+            color: #e6eeeb;
             text-style: bold;
         }
 
@@ -449,43 +449,43 @@ if TEXTUAL_AVAILABLE:
         #sidebar {
             width: 80;
             min-width: 60;
-            border: round #2f7774;
-            background: #092226;
+            border: round #425b59;
+            background: #142225;
             padding: 0 1;
             margin: 1 1 1 0;
         }
 
         #filter {
             margin: 1 0;
-            border: tall #2f7774;
-            background: #0d2a2e;
-            color: #d9ece8;
+            border: tall #425b59;
+            background: #17282b;
+            color: #d6dfdd;
         }
 
         #filter:focus {
-            border: tall #8a6f5c;
+            border: tall #746f65;
         }
 
         #runner_list {
             height: 1fr;
             border: none;
-            background: #092226;
+            background: #142225;
         }
 
         _BacktestListItem {
             padding: 0 1;
-            color: #d9ece8;
+            color: #d6dfdd;
         }
 
         _BacktestListItem.-highlight {
-            background: #2f6965;
-            color: #f2fbf8;
+            background: #344847;
+            color: #f0f6f4;
             text-style: bold;
         }
 
         #runner_list:focus > _BacktestListItem.-highlight {
-            background: #6f5f58;
-            color: #fff7f1;
+            background: #4b5553;
+            color: #f7f3ef;
             text-style: bold;
         }
 
@@ -496,8 +496,8 @@ if TEXTUAL_AVAILABLE:
 
         #details {
             width: 1fr;
-            border: round #7b6f54;
-            background: #0a2428;
+            border: round #5f5a4f;
+            background: #162427;
             padding: 0 1;
             margin: 1 0 1 0;
         }
@@ -505,33 +505,33 @@ if TEXTUAL_AVAILABLE:
         #details_title {
             margin-top: 1;
             text-style: bold;
-            color: #9ad9ca;
+            color: #abc8c0;
         }
 
         #details_meta {
             margin: 1 0;
-            color: #b7d9d1;
+            color: #bdcbc8;
         }
 
         #preview_heading {
             text-style: bold;
-            color: #c8b06e;
+            color: #b7a77f;
         }
 
         #details_preview {
             height: 1fr;
             margin: 1 0 0 0;
             padding: 0 1 1 1;
-            border: tall #2f7774;
-            background: #0a2428;
-            color: #d9ece8;
+            border: tall #425b59;
+            background: #162427;
+            color: #d6dfdd;
             overflow: auto auto;
             text-wrap: nowrap;
         }
 
         Footer {
-            background: #07191d;
-            color: #9ad9ca;
+            background: #10181a;
+            color: #abc8c0;
         }
         """
 

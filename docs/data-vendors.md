@@ -333,7 +333,8 @@ Downloader behavior:
   candlestick, and research helper components exist, but there is no built-in
   Kalshi replay adapter or public `backtests/` runner in the current framework
   because we do not yet have Kalshi L2 historical book data.
-- Limitless.exchange and Opinion.trade adapters. They are planned exchange
+- [Limitless.exchange](https://limitless.exchange) and
+  [Opinion.trade](https://opinion.trade) adapters. They are planned exchange
   expansion targets after the Polymarket PMXT/Telonex loading path remains
   stable.
 - True L3/MBO priority reconstruction from public Polymarket L2 data.
