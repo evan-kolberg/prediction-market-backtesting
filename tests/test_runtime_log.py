@@ -14,10 +14,12 @@ from prediction_market_extensions._runtime_log import (
     capture_loader_events,
     configure_loader_event_sinks_from_env,
     emit_loader_event,
+    emit_loader_progress_snapshot,
     format_loader_event_message,
     format_log_line,
     format_utc_timestamp_ns,
     get_loader_event_sinks,
+    loader_progress_logs_enabled,
     loader_event_sinks_from_env,
     log_info,
     log_message,
@@ -317,6 +319,117 @@ def test_emit_loader_event_captures_structured_fields() -> None:
             attrs={"hour": "2026-03-21T11:00:00Z"},
         )
     ]
+
+
+def test_loader_progress_snapshot_emits_throttled_lines(monkeypatch) -> None:
+    monkeypatch.delenv("BACKTEST_ENABLE_TIMING", raising=False)
+    monkeypatch.delenv("BACKTEST_LOADER_PROGRESS", raising=False)
+    monkeypatch.delenv("BACKTEST_LOADER_PROGRESS_LOGS", raising=False)
+    owner = object()
+    clock_values = iter((0.0, 0.5, 2.1, 2.2))
+
+    with capture_loader_events() as capture:
+        emit_loader_progress_snapshot(
+            owner=owner,
+            vendor="pmxt",
+            mode="download",
+            source="https://r2v2.pmxt.dev/polymarket_orderbook_2026-04-23T13.parquet",
+            downloaded_bytes=0,
+            total_bytes=100,
+            clock=lambda: next(clock_values),
+        )
+        emit_loader_progress_snapshot(
+            owner=owner,
+            vendor="pmxt",
+            mode="download",
+            source="https://r2v2.pmxt.dev/polymarket_orderbook_2026-04-23T13.parquet",
+            downloaded_bytes=25,
+            total_bytes=100,
+            clock=lambda: next(clock_values),
+        )
+        emit_loader_progress_snapshot(
+            owner=owner,
+            vendor="pmxt",
+            mode="download",
+            source="https://r2v2.pmxt.dev/polymarket_orderbook_2026-04-23T13.parquet",
+            downloaded_bytes=50,
+            total_bytes=100,
+            clock=lambda: next(clock_values),
+        )
+        emit_loader_progress_snapshot(
+            owner=owner,
+            vendor="pmxt",
+            mode="download",
+            source="https://r2v2.pmxt.dev/polymarket_orderbook_2026-04-23T13.parquet",
+            downloaded_bytes=100,
+            total_bytes=100,
+            finished=True,
+            clock=lambda: next(clock_values),
+        )
+
+    assert [event.message for event in capture.events] == [
+        (
+            "PMXT book download progress 2026-04-23T13 0 B/100 B (0.0%) "
+            "archive https://r2v2.pmxt.dev/polymarket_orderbook_2026-04-23T13.parquet"
+        ),
+        (
+            "PMXT book download progress 2026-04-23T13 50 B/100 B (50.0%) "
+            "archive https://r2v2.pmxt.dev/polymarket_orderbook_2026-04-23T13.parquet"
+        ),
+        (
+            "PMXT book download complete 2026-04-23T13 100 B/100 B (100.0%) "
+            "archive https://r2v2.pmxt.dev/polymarket_orderbook_2026-04-23T13.parquet"
+        ),
+    ]
+    assert capture.events[-1].status == "complete"
+    assert capture.events[-1].source_kind == "remote"
+    assert capture.events[-1].bytes == 100
+
+
+def test_loader_progress_snapshot_formats_scan_rows(monkeypatch) -> None:
+    monkeypatch.delenv("BACKTEST_ENABLE_TIMING", raising=False)
+    monkeypatch.delenv("BACKTEST_LOADER_PROGRESS", raising=False)
+    monkeypatch.delenv("BACKTEST_LOADER_PROGRESS_LOGS", raising=False)
+
+    with capture_loader_events() as capture:
+        emit_loader_progress_snapshot(
+            owner=object(),
+            vendor="pmxt",
+            mode="scan",
+            source="/data/2026/04/23/polymarket_orderbook_2026-04-23T13.parquet",
+            source_kind="local",
+            total_bytes=2048,
+            scanned_batches=7,
+            scanned_rows=12345,
+            matched_rows=89,
+            finished=True,
+            clock=lambda: 0.0,
+        )
+
+    assert capture.events[0].message == (
+        "PMXT book scan complete 2026-04-23T13 file 2.0 KB 7 batches "
+        "12,345 scanned rows 89 matched rows "
+        "local /data/2026/04/23/polymarket_orderbook_2026-04-23T13.parquet"
+    )
+    assert capture.events[0].rows == 89
+
+
+def test_loader_progress_snapshot_respects_timing_env(monkeypatch) -> None:
+    monkeypatch.setenv("BACKTEST_ENABLE_TIMING", "0")
+
+    with capture_loader_events() as capture:
+        emit_loader_progress_snapshot(
+            owner=object(),
+            vendor="telonex",
+            mode="download",
+            source="telonex-api::https://api.telonex.io/demo.parquet",
+            downloaded_bytes=1,
+            total_bytes=2,
+            clock=lambda: 0.0,
+        )
+
+    assert not capture.events
+    assert not loader_progress_logs_enabled()
 
 
 def test_capture_loader_events_replaces_console_sink(capsys) -> None:

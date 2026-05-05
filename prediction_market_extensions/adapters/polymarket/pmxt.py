@@ -39,7 +39,11 @@ from prediction_market_extensions._native import (
     pmxt_payload_delta_rows,
     pmxt_payload_sort_key,
 )
-from prediction_market_extensions._runtime_log import emit_loader_event
+from prediction_market_extensions._runtime_log import (
+    emit_loader_event,
+    emit_loader_progress_snapshot,
+    loader_progress_logs_enabled,
+)
 
 
 def _raw_fixed_values(values: Sequence[object], precision: int) -> list[int]:
@@ -1088,6 +1092,16 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
     def _emit_download_progress(
         self, url: str, *, downloaded_bytes: int, total_bytes: int | None, finished: bool
     ) -> None:
+        emit_loader_progress_snapshot(
+            owner=self,
+            vendor="pmxt",
+            mode="download",
+            source=url,
+            source_kind="remote" if url.startswith(("http://", "https://")) else None,
+            downloaded_bytes=downloaded_bytes,
+            total_bytes=total_bytes,
+            finished=finished,
+        )
         callback = getattr(self, "_pmxt_download_progress_callback", None)
         if callback is None:
             return
@@ -1103,6 +1117,18 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
         total_bytes: int | None,
         finished: bool,
     ) -> None:
+        emit_loader_progress_snapshot(
+            owner=self,
+            vendor="pmxt",
+            mode="scan",
+            source=source,
+            source_kind=None,
+            scanned_batches=scanned_batches,
+            scanned_rows=scanned_rows,
+            matched_rows=matched_rows,
+            total_bytes=total_bytes,
+            finished=finished,
+        )
         callback = getattr(self, "_pmxt_scan_progress_callback", None)
         if callback is None:
             return
@@ -1122,7 +1148,10 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
             return None
 
     def _progress_total_bytes(self, source: str) -> int | None:
-        if getattr(self, "_pmxt_scan_progress_callback", None) is None:
+        if (
+            getattr(self, "_pmxt_scan_progress_callback", None) is None
+            and not loader_progress_logs_enabled()
+        ):
             return None
 
         cache = getattr(self, "_pmxt_progress_size_cache", None)

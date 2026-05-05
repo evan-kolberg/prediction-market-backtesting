@@ -16,7 +16,10 @@ import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
-from prediction_market_extensions._runtime_log import emit_loader_event
+from prediction_market_extensions._runtime_log import (
+    emit_loader_event,
+    loader_progress_logs_enabled,
+)
 from prediction_market_extensions.adapters.polymarket.pmxt import PolymarketPMXTDataLoader
 from prediction_market_extensions.backtesting.data_sources._common import (
     DISABLED_ENV_VALUES,
@@ -1695,7 +1698,10 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
             return b"".join(chunks)
 
     def _progress_total_bytes(self, source: str) -> int | None:  # type: ignore[override]
-        if getattr(self, "_pmxt_scan_progress_callback", None) is None:
+        if (
+            getattr(self, "_pmxt_scan_progress_callback", None) is None
+            and not loader_progress_logs_enabled()
+        ):
             return None
 
         cache = getattr(self, "_pmxt_progress_size_cache", None)

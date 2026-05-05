@@ -3,6 +3,7 @@ from __future__ import annotations
 import inspect
 import json
 import os
+import re
 import sys
 import threading
 import time
@@ -12,12 +13,20 @@ from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal, Protocol, TextIO
+from urllib.parse import urlparse
 
 LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR"]
 
 TRACE_JSONL_ENV = "PREDICTION_MARKET_TRACE_JSONL"
+LOADER_PROGRESS_ENV = "BACKTEST_LOADER_PROGRESS"
+LOADER_PROGRESS_LOGS_ENV = "BACKTEST_LOADER_PROGRESS_LOGS"
+LOADER_PROGRESS_LOG_INTERVAL_ENV = "BACKTEST_LOADER_PROGRESS_LOG_INTERVAL"
+BACKTEST_ENABLE_TIMING_ENV = "BACKTEST_ENABLE_TIMING"
 _VALID_LEVELS: frozenset[str] = frozenset({"DEBUG", "INFO", "WARNING", "ERROR"})
 _LOG_LOCK = threading.RLock()
+_PROGRESS_LOG_LOCK = threading.Lock()
+_PROGRESS_LOG_STATE: dict[tuple[int, str, str, str], float] = {}
+_DEFAULT_PROGRESS_LOG_INTERVAL_SECS = 2.0
 _ANSI_RESET = "\033[0m"
 _ANSI_BOLD_RED = "\033[1;31m"
 _ANSI_BOLD_YELLOW = "\033[1;33m"
@@ -66,6 +75,32 @@ def _json_safe(value: Any) -> Any:
     if isinstance(value, bool | int | float | str) or value is None:
         return value
     return str(value)
+
+
+def _env_flag_enabled(value: str | None, *, default: bool = True) -> bool:
+    if value is None:
+        return default
+    return value.strip().casefold() not in {"0", "false", "no", "off"}
+
+
+def loader_progress_logs_enabled(environ: Mapping[str, str] | None = None) -> bool:
+    env = os.environ if environ is None else environ
+    return (
+        _env_flag_enabled(env.get(BACKTEST_ENABLE_TIMING_ENV), default=True)
+        and _env_flag_enabled(env.get(LOADER_PROGRESS_ENV), default=True)
+        and _env_flag_enabled(env.get(LOADER_PROGRESS_LOGS_ENV), default=True)
+    )
+
+
+def _progress_log_interval_secs(environ: Mapping[str, str] | None = None) -> float:
+    env = os.environ if environ is None else environ
+    configured = env.get(LOADER_PROGRESS_LOG_INTERVAL_ENV)
+    if configured is None:
+        return _DEFAULT_PROGRESS_LOG_INTERVAL_SECS
+    try:
+        return max(0.1, float(configured))
+    except ValueError:
+        return _DEFAULT_PROGRESS_LOG_INTERVAL_SECS
 
 
 @dataclass(frozen=True)
@@ -199,6 +234,178 @@ def _format_bytes(value: int | None) -> str | None:
     if unit == "B":
         return f"({int(size):,} {unit})"
     return f"({size:.1f} {unit})"
+
+
+def _format_progress_bytes(value: int | None) -> str:
+    formatted = _format_bytes(value)
+    return "?" if formatted is None else formatted.removeprefix("(").removesuffix(")")
+
+
+def _progress_source_time_label(source: str) -> str | None:
+    for pattern in (r"\d{4}-\d{2}-\d{2}T\d{2}", r"\d{4}-\d{2}-\d{2}"):
+        match = re.search(pattern, source)
+        if match is not None:
+            return match.group(0)
+    target = source.partition("::")[2] if "::" in source else source
+    if target.startswith("archive:"):
+        target = target.removeprefix("archive:")
+    parsed = urlparse(target)
+    path = parsed.path if parsed.scheme else target
+    filename = Path(path).name
+    return filename or None
+
+
+def _infer_progress_source_kind(vendor: str, source: str, source_kind: str | None) -> str | None:
+    if source_kind is not None:
+        return source_kind
+    if source.startswith("cache") or "cache::" in source:
+        return "cache"
+    if source.startswith("telonex-local::") or source.startswith("local:"):
+        return "local"
+    if source.startswith("telonex-api::"):
+        return "remote"
+    if source.startswith(("http://", "https://", "archive:")):
+        return "remote"
+    if vendor == "pmxt" and "r2" in source:
+        return "remote"
+    return "local" if source else None
+
+
+def _progress_source_kind_label(vendor: str, source_kind: str | None) -> str | None:
+    if source_kind == "remote":
+        return "archive" if vendor == "pmxt" else "api"
+    return source_kind.replace("_", " ") if source_kind is not None else None
+
+
+def _progress_source_label(vendor: str, source: str, source_kind: str | None) -> str:
+    kind_label = _progress_source_kind_label(vendor, source_kind)
+    if not kind_label:
+        return source
+    if source.startswith(f"{kind_label}:"):
+        return source
+    if kind_label == "api" and source.startswith("telonex-api::"):
+        return source
+    if kind_label == "archive" and source.startswith("archive:"):
+        return source
+    return f"{kind_label} {source}"
+
+
+def _progress_message(
+    *,
+    vendor: str,
+    mode: str,
+    source: str,
+    source_kind: str | None,
+    downloaded_bytes: int | None,
+    total_bytes: int | None,
+    scanned_batches: int | None,
+    scanned_rows: int | None,
+    matched_rows: int | None,
+    finished: bool,
+) -> str:
+    vendor_label = _VENDOR_LABELS.get(vendor, vendor.upper())
+    status = "complete" if finished else "progress"
+    parts = [vendor_label, "book", mode, status]
+    time_label = _progress_source_time_label(source)
+    if time_label:
+        parts.append(time_label)
+
+    if mode == "download":
+        amount = f"{_format_progress_bytes(downloaded_bytes)}/{_format_progress_bytes(total_bytes)}"
+        if total_bytes:
+            percent = (float(downloaded_bytes or 0) / float(total_bytes)) * 100.0
+            amount = f"{amount} ({percent:.1f}%)"
+        parts.append(amount)
+    else:
+        if total_bytes is not None:
+            parts.append(f"file {_format_progress_bytes(total_bytes)}")
+        if scanned_batches is not None:
+            parts.append(f"{scanned_batches:,} batches")
+        if scanned_rows is not None:
+            parts.append(f"{scanned_rows:,} scanned rows")
+        if matched_rows is not None:
+            parts.append(f"{matched_rows:,} matched rows")
+
+    parts.append(_progress_source_label(vendor, source, source_kind))
+    return " ".join(parts)
+
+
+def emit_loader_progress_snapshot(
+    *,
+    owner: object,
+    vendor: str,
+    mode: str,
+    source: str,
+    source_kind: str | None = None,
+    downloaded_bytes: int | None = None,
+    total_bytes: int | None = None,
+    scanned_batches: int | None = None,
+    scanned_rows: int | None = None,
+    matched_rows: int | None = None,
+    finished: bool = False,
+    clock: Callable[[], float] = time.monotonic,
+) -> None:
+    """Emit throttled line progress for environments that do not render tqdm."""
+    if not loader_progress_logs_enabled():
+        return
+
+    normalized_vendor = vendor.strip().casefold()
+    normalized_mode = mode.strip().casefold().replace("_", " ")
+    normalized_source = str(source)
+    resolved_source_kind = _infer_progress_source_kind(
+        normalized_vendor, normalized_source, source_kind
+    )
+    key = (id(owner), normalized_vendor, normalized_mode, normalized_source)
+    now = clock()
+    with _PROGRESS_LOG_LOCK:
+        last_emit = _PROGRESS_LOG_STATE.get(key)
+        should_emit = (
+            finished or last_emit is None or (now - last_emit) >= _progress_log_interval_secs()
+        )
+        if not should_emit:
+            return
+        if finished:
+            _PROGRESS_LOG_STATE.pop(key, None)
+        else:
+            _PROGRESS_LOG_STATE[key] = now
+
+    attrs: dict[str, object] = {"mode": normalized_mode}
+    if scanned_batches is not None:
+        attrs["scanned_batches"] = scanned_batches
+    if scanned_rows is not None:
+        attrs["scanned_rows"] = scanned_rows
+    if total_bytes is not None:
+        attrs["total_bytes"] = total_bytes
+    time_label = _progress_source_time_label(normalized_source)
+    if time_label is not None:
+        attrs["hour"] = time_label
+
+    emit_loader_event(
+        _progress_message(
+            vendor=normalized_vendor,
+            mode=normalized_mode,
+            source=normalized_source,
+            source_kind=resolved_source_kind,
+            downloaded_bytes=downloaded_bytes,
+            total_bytes=total_bytes,
+            scanned_batches=scanned_batches,
+            scanned_rows=scanned_rows,
+            matched_rows=matched_rows,
+            finished=finished,
+        ),
+        level="INFO",
+        stage="runtime",
+        status="complete" if finished else "progress",
+        vendor=normalized_vendor,
+        platform="polymarket",
+        data_type="book",
+        source_kind=resolved_source_kind,
+        source=normalized_source,
+        rows=matched_rows if matched_rows is not None else scanned_rows,
+        bytes=downloaded_bytes,
+        attrs=attrs,
+        stacklevel=3,
+    )
 
 
 def _event_time_label(event: LoaderEvent) -> str | None:

@@ -45,7 +45,10 @@ from prediction_market_extensions._native import (
     telonex_stage_for_source,
     telonex_trade_ticks_cache_relative_path,
 )
-from prediction_market_extensions._runtime_log import emit_loader_event
+from prediction_market_extensions._runtime_log import (
+    emit_loader_event,
+    emit_loader_progress_snapshot,
+)
 from prediction_market_extensions.adapters.polymarket.loaders import PolymarketDataLoader
 from prediction_market_extensions.backtesting.data_sources._common import (
     DISABLED_ENV_VALUES,
@@ -656,6 +659,16 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
     def _download_progress(
         self, url: str, downloaded_bytes: int, total_bytes: int | None, finished: bool
     ) -> None:
+        emit_loader_progress_snapshot(
+            owner=self,
+            vendor="telonex",
+            mode="download",
+            source=url,
+            source_kind=self._telonex_source_kind(url),
+            downloaded_bytes=downloaded_bytes,
+            total_bytes=total_bytes,
+            finished=finished,
+        )
         callback = getattr(self, "_telonex_download_progress_callback", None)
         if callback is not None:
             callback(url, downloaded_bytes, total_bytes, finished)

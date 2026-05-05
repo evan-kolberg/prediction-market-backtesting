@@ -825,7 +825,7 @@ def test_runner_loader_persists_remote_archive_download_to_raw_root(monkeypatch,
         "parquet_path": raw_path,
         "batch_size": 1_000,
         "source": str(raw_path),
-        "total_bytes": None,
+        "total_bytes": 3,
     }
     raw_write_events = [event for event in capture.events if event.stage == "raw_write"]
     assert [(event.status, event.level, event.origin) for event in raw_write_events] == [
