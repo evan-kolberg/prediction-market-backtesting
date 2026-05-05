@@ -33,6 +33,9 @@ if str(_REPO_ROOT) not in sys.path:
 _installed = False
 _TELONEX_TIMING_WORKERS_ENV = "TELONEX_TIMING_WORKERS"
 _LOADER_PROGRESS_ENV = "BACKTEST_LOADER_PROGRESS"
+_LOADER_PROGRESS_LINES_ENV = "BACKTEST_LOADER_PROGRESS_LINES"
+_LOADER_PROGRESS_LOG_INTERVAL_ENV = "BACKTEST_LOADER_PROGRESS_LOG_INTERVAL"
+_DEFAULT_PROGRESS_LOG_INTERVAL_SECS = 2.0
 
 
 def _env_flag_enabled(value: str | None) -> bool:
@@ -43,6 +46,20 @@ def _env_flag_enabled(value: str | None) -> bool:
 
 def _loader_progress_enabled() -> bool:
     return _env_flag_enabled(os.getenv(_LOADER_PROGRESS_ENV))
+
+
+def _loader_progress_lines_enabled() -> bool:
+    return _env_flag_enabled(os.getenv(_LOADER_PROGRESS_LINES_ENV))
+
+
+def _loader_progress_log_interval_secs() -> float:
+    configured = os.getenv(_LOADER_PROGRESS_LOG_INTERVAL_ENV)
+    if configured is None:
+        return _DEFAULT_PROGRESS_LOG_INTERVAL_SECS
+    try:
+        return max(0.1, float(configured))
+    except ValueError:
+        return _DEFAULT_PROGRESS_LOG_INTERVAL_SECS
 
 
 def _hour_label(source: str) -> str:
@@ -141,6 +158,14 @@ def _progress_bar_total(total_hours: int) -> int:
     return max(0, total_hours)
 
 
+def _text_progress_bar(position: float, total: int, *, width: int = 24) -> str:
+    if total <= 0:
+        return "[" + ("-" * width) + "]"
+    fraction = min(1.0, max(0.0, position / float(total)))
+    filled = min(width, max(0, int(round(fraction * width))))
+    return "[" + ("#" * filled) + ("-" * (width - filled)) + "]"
+
+
 def _progress_bar_position(
     *, total_hours: int, completed_hours: int, active_hours_progress: float = 0.0
 ) -> float:
@@ -225,6 +250,7 @@ def install_timing() -> None:
 
     from tqdm import tqdm
 
+    from prediction_market_extensions._runtime_log import emit_loader_event
     from prediction_market_extensions.adapters.polymarket.pmxt import PolymarketPMXTDataLoader
 
     try:
@@ -251,7 +277,9 @@ def install_timing() -> None:
         "spinner_index": 0,
         "parallel": False,
         "item_label": "hours",
+        "vendor": "loader",
     }
+    progress_line_state: dict[str, float] = {"last_emit": 0.0}
     grouped_loader_refcounts: dict[int, int] = {}
     grouped_loader_callbacks: dict[int, tuple[object, object]] = {}
     grouped_active_calls = 0
@@ -338,7 +366,57 @@ def install_timing() -> None:
         prefix = "prefetch:" if bool(transfer_state["parallel"]) else "active:"
         return f"{prefix} {spinner} " + " | ".join(labels)
 
-    def _refresh_transfer_status() -> None:
+    def _emit_plain_progress_line(*, force: bool = False) -> None:
+        if not _loader_progress_lines_enabled():
+            return
+        now = time.monotonic()
+        interval = _loader_progress_log_interval_secs()
+        if not force and (now - progress_line_state["last_emit"]) < interval:
+            return
+
+        total = int(progress_state["total_hours"])
+        started = int(progress_state["started_hours"])
+        completed = int(progress_state["completed_hours"])
+        downloads: dict[str, dict[str, object]] = transfer_state["downloads"]  # type: ignore[assignment]
+        active_hours, active_progress = _active_transfer_progress(downloads)
+        position = _progress_bar_position(
+            total_hours=total,
+            completed_hours=completed,
+            active_hours_progress=active_progress,
+        )
+        percent = 0.0 if total <= 0 else min(100.0, max(0.0, position / total * 100.0))
+        item_label = str(transfer_state["item_label"])
+        vendor = str(transfer_state["vendor"])
+        status_text = _transfer_status_text()
+        message = (
+            f"{vendor} book progress {_text_progress_bar(position, total)} "
+            f"{position:.1f}/{total} {item_label} ({percent:.1f}%; "
+            f"started={started}, done={completed}, active={active_hours})"
+        )
+        if status_text:
+            message = f"{message} {status_text}"
+
+        progress_line_state["last_emit"] = now
+        emit_loader_event(
+            message,
+            level="INFO",
+            stage="runtime",
+            status="progress",
+            vendor=vendor.casefold(),
+            platform="polymarket",
+            data_type="book",
+            rows=completed,
+            attrs={
+                "progress_position": round(position, 3),
+                "progress_total": total,
+                "started": started,
+                "active": active_hours,
+                "item_label": item_label,
+            },
+            stacklevel=3,
+        )
+
+    def _refresh_transfer_status(*, emit_line: bool = True) -> None:
         bar = pbar_state["bar"]
         if bar is None:
             return
@@ -363,6 +441,8 @@ def install_timing() -> None:
         )
         status_text = _transfer_status_text()
         bar.set_postfix_str(status_text, refresh=True)
+        if emit_line:
+            _emit_plain_progress_line()
 
     def _mark_hour_started(hour) -> None:  # type: ignore[no-untyped-def]
         key = _hour_progress_key(hour)
@@ -499,7 +579,9 @@ def install_timing() -> None:
                 progress_state["started_hours"] = 0
                 progress_state["completed_hours"] = 0
                 transfer_state["item_label"] = "hours"
+                transfer_state["vendor"] = "PMXT"
                 transfer_state["parallel"] = parallel
+                progress_line_state["last_emit"] = 0.0
                 hour_keys_by_label.clear()
                 progress_keys["started"].clear()
                 progress_keys["completed"].clear()
@@ -519,7 +601,8 @@ def install_timing() -> None:
                     leave=False,
                     bar_format=("{l_bar}{bar}| [{elapsed}<{remaining}]{postfix}"),
                 )
-            _refresh_transfer_status()
+            _refresh_transfer_status(emit_line=False)
+            _emit_plain_progress_line(force=True)
 
             if grouped_heartbeat_thread is None or not grouped_heartbeat_thread.is_alive():
                 grouped_heartbeat_thread = threading.Thread(
@@ -537,7 +620,8 @@ def install_timing() -> None:
         with pbar_lock:
             _mark_hour_completed(hour)
             _set_dynamic_total_hours()
-            _refresh_transfer_status()
+            _refresh_transfer_status(emit_line=False)
+            _emit_plain_progress_line(force=True)
             grouped_active_calls = max(0, grouped_active_calls - 1)
             if grouped_active_calls == 0:
                 stop_event: threading.Event = transfer_state["stop"]  # type: ignore[assignment]
@@ -546,6 +630,7 @@ def install_timing() -> None:
                 downloads.clear()
                 transfer_state["parallel"] = False
                 transfer_state["item_label"] = "hours"
+                transfer_state["vendor"] = "loader"
                 progress_state["total_hours"] = 0
                 progress_state["started_hours"] = 0
                 progress_state["completed_hours"] = 0
@@ -607,6 +692,8 @@ def install_timing() -> None:
                 progress_state["started_hours"] = 0
                 progress_state["completed_hours"] = 0
                 transfer_state["item_label"] = "hours"
+                transfer_state["vendor"] = "PMXT"
+                progress_line_state["last_emit"] = 0.0
                 hour_keys_by_label.clear()
                 progress_keys["started"].clear()
                 progress_keys["completed"].clear()
@@ -629,6 +716,7 @@ def install_timing() -> None:
                 transfer_state["parallel"] = (
                     min(getattr(self, "_pmxt_prefetch_workers", 1), len(hours)) > 1
                 )
+                _emit_plain_progress_line(force=True)
                 heartbeat_thread.start()
             try:
                 yield from orig_iter(self, hours, batch_size=batch_size)
@@ -641,6 +729,7 @@ def install_timing() -> None:
                     downloads.clear()
                     transfer_state["parallel"] = False
                     transfer_state["item_label"] = "hours"
+                    transfer_state["vendor"] = "loader"
                     progress_state["total_hours"] = 0
                     progress_state["started_hours"] = 0
                     progress_state["completed_hours"] = 0
@@ -695,12 +784,14 @@ def install_timing() -> None:
                 with pbar_lock:
                     if event == "start":
                         _mark_hour_started(date)
-                        _refresh_transfer_status()
+                        _refresh_transfer_status(emit_line=False)
+                        _emit_plain_progress_line(force=True)
                         return
                     if event != "complete":
                         return
                     _mark_hour_completed(date)
-                    _refresh_transfer_status()
+                    _refresh_transfer_status(emit_line=False)
+                    _emit_plain_progress_line(force=True)
 
             with pbar_lock:
                 stop_event: threading.Event = transfer_state["stop"]  # type: ignore[assignment]
@@ -709,6 +800,8 @@ def install_timing() -> None:
                 progress_state["started_hours"] = 0
                 progress_state["completed_hours"] = 0
                 transfer_state["item_label"] = "days"
+                transfer_state["vendor"] = "Telonex"
+                progress_line_state["last_emit"] = 0.0
                 hour_keys_by_label.clear()
                 progress_keys["started"].clear()
                 progress_keys["completed"].clear()
@@ -736,6 +829,7 @@ def install_timing() -> None:
                 transfer_state["parallel"] = (
                     min(getattr(self, "_telonex_prefetch_workers", 1), len(dates)) > 1
                 )
+                _emit_plain_progress_line(force=True)
                 heartbeat_thread.start()
 
             try:
@@ -749,6 +843,7 @@ def install_timing() -> None:
                     downloads.clear()
                     transfer_state["parallel"] = False
                     transfer_state["item_label"] = "hours"
+                    transfer_state["vendor"] = "loader"
                     progress_state["total_hours"] = 0
                     progress_state["started_hours"] = 0
                     progress_state["completed_hours"] = 0

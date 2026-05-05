@@ -12,6 +12,7 @@ from prediction_market_extensions.backtesting._timing_test import (
     _progress_bar_description,
     _progress_bar_position,
     _progress_bar_total,
+    _text_progress_bar,
     _transfer_label,
     _transfer_progress_fraction,
 )
@@ -110,6 +111,11 @@ def test_progress_bar_description_uses_actual_active_transfer_count() -> None:
 
 def test_progress_bar_total_matches_total_hours() -> None:
     assert _progress_bar_total(7) == 7
+
+
+def test_text_progress_bar_renders_plain_log_bar() -> None:
+    assert _text_progress_bar(2, 4, width=8) == "[####----]"
+    assert _text_progress_bar(0, 0, width=4) == "[----]"
 
 
 def test_progress_bar_position_includes_active_transfer_progress() -> None:
@@ -294,11 +300,14 @@ def test_grouped_pmxt_timing_drives_tqdm_progress(monkeypatch) -> None:
         timing_module.install_timing()
         loader = object.__new__(RunnerPolymarketPMXTDataLoader)
         loader._pmxt_prefetch_workers = 2
-        loader.load_shared_market_batches_for_hour(
-            "2026-04-22T15:00:00+00:00",
-            requests=((0, "condition", "token"),),
-            batch_size=1000,
-        )
+        from prediction_market_extensions._runtime_log import capture_loader_events
+
+        with capture_loader_events() as capture:
+            loader.load_shared_market_batches_for_hour(
+                "2026-04-22T15:00:00+00:00",
+                requests=((0, "condition", "token"),),
+                batch_size=1000,
+            )
     finally:
         timing_module._installed = False
         if had_shared:
@@ -309,6 +318,7 @@ def test_grouped_pmxt_timing_drives_tqdm_progress(monkeypatch) -> None:
     assert ("init", 1) in updates
     assert any(item[0] == "postfix" and "100 B/100 B" in item[1] for item in updates)
     assert ("close", None) in updates
+    assert any("PMXT book progress [" in event.message for event in capture.events)
 
 
 def test_install_timing_patches_telonex_loader() -> None:
