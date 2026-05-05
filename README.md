@@ -22,7 +22,7 @@
 ![GitHub closed pull requests](https://img.shields.io/github/issues-pr-closed/evan-kolberg/prediction-market-backtesting)
 
 **New in Version 4:**
-- Rust-native PMXT and Telonex data conversion; local setup now requires Rust
+- Rust-native PMXT and Telonex data conversion
 - Faster staged PMXT and Telonex data loading
 - Unified cache/local/archive/API source progress output
 - Materialized replay caches for repeated book loads
@@ -49,11 +49,7 @@ Backtesting framework for prediction market strategies on
 [Polymarket](https://polymarket.com), built on top of
 [NautilusTrader](https://github.com/nautechsystems/nautilus_trader) with custom
 exchange adapters. [Limitless.exchange](https://limitless.exchange) and
-[Opinion.trade](https://opinion.trade) are planned next; Kalshi
-support depends on access to L2 historical book data. Current Kalshi components
-are research and fee-modeling plumbing, not a public runnable backtest path.
-Plotting inspired by [minitrade](https://github.com/dodid/minitrade). This repo
-is still in active development.
+[Opinion.trade](https://opinion.trade) are planned next; [Kalshi](https://kalshi.com) support depends on access to L2 historical book data. Current Kalshi components are research and fee-modeling plumbing, not a public runnable backtest path. Plotting inspired by [minitrade](https://github.com/dodid/minitrade). This repo is still in active development.
 
 
 Fantastic single & multi-market charting. Featuring: equity (total & individual markets), profit / loss ticks, P&L periodic bars, market allocation, YES price (with green buy and red sell fills), drawdown, sharpe (with above/below shading), cash / equity, monthly returns, and cumulative brier advantage.

@@ -33,6 +33,7 @@ from string import ascii_lowercase, ascii_uppercase
 from typing import Any, ClassVar
 
 try:
+    from rich.syntax import Syntax
     from textual.app import App, ComposeResult
     from textual.binding import Binding
     from textual.containers import Horizontal, Vertical
@@ -41,6 +42,7 @@ try:
 
     TEXTUAL_AVAILABLE = True
 except ImportError:  # pragma: no cover - fallback is covered through non-TTY tests
+    Syntax = None  # type: ignore[assignment]
     App = None  # type: ignore[assignment]
     ComposeResult = Any  # type: ignore[misc,assignment]
     Binding = None  # type: ignore[assignment]
@@ -393,6 +395,29 @@ def _runner_preview(backtest: dict[str, Any]) -> str:
     return _runner_file_preview(PROJECT_ROOT / _relative_runner_path(backtest))
 
 
+def _runner_preview_lexer(backtest: dict[str, Any]) -> str:
+    suffix = _relative_runner_path(backtest).suffix.casefold()
+    if suffix == ".ipynb":
+        return "json"
+    if suffix == ".py":
+        return "python"
+    return "text"
+
+
+def _runner_preview_renderable(backtest: dict[str, Any]) -> Any:
+    preview = _runner_preview(backtest)
+    if Syntax is None or preview.startswith("(unable to read runner file:"):
+        return preview
+    return Syntax(
+        preview,
+        _runner_preview_lexer(backtest),
+        theme="monokai",
+        line_numbers=True,
+        word_wrap=False,
+        background_color="#062a2f",
+    )
+
+
 if TEXTUAL_AVAILABLE:
 
     class _BacktestListItem(ListItem):
@@ -403,16 +428,16 @@ if TEXTUAL_AVAILABLE:
     class _BacktestMenuApp(App[int]):
         CSS = """
         Screen {
-            background: $surface;
-            color: $text;
+            background: #031b1f;
+            color: #e8fff7;
         }
 
         #banner {
             dock: top;
             height: 1;
             padding: 0 1;
-            background: $panel;
-            color: $text;
+            background: #00c2a8;
+            color: #021f22;
             text-style: bold;
         }
 
@@ -424,32 +449,44 @@ if TEXTUAL_AVAILABLE:
         #sidebar {
             width: 80;
             min-width: 60;
-            border: round white;
+            border: round #00d4d8;
+            background: #05282d;
             padding: 0 1;
             margin: 1 1 1 0;
         }
 
         #filter {
             margin: 1 0;
+            border: tall #00c2a8;
+            background: #08343a;
+            color: #f0fff8;
+        }
+
+        #filter:focus {
+            border: tall #ff6f61;
         }
 
         #runner_list {
             height: 1fr;
             border: none;
+            background: #05282d;
         }
 
         _BacktestListItem {
             padding: 0 1;
+            color: #e8fff7;
         }
 
         _BacktestListItem.-highlight {
-            background: white;
-            color: $surface;
+            background: #ffd166;
+            color: #021f22;
+            text-style: bold;
         }
 
         #runner_list:focus > _BacktestListItem.-highlight {
-            background: white;
-            color: $surface;
+            background: #ff6f61;
+            color: #021f22;
+            text-style: bold;
         }
 
         .runner-label {
@@ -459,7 +496,8 @@ if TEXTUAL_AVAILABLE:
 
         #details {
             width: 1fr;
-            border: round white;
+            border: round #ffd166;
+            background: #062a2f;
             padding: 0 1;
             margin: 1 0 1 0;
         }
@@ -467,25 +505,33 @@ if TEXTUAL_AVAILABLE:
         #details_title {
             margin-top: 1;
             text-style: bold;
-            color: white;
+            color: #7cffd4;
         }
 
         #details_meta {
             margin: 1 0;
+            color: #b8fff0;
         }
 
         #preview_heading {
             text-style: bold;
-            color: $text;
+            color: #ffd166;
         }
 
         #details_preview {
             height: 1fr;
             margin: 1 0 0 0;
             padding: 0 1 1 1;
-            border: tall white;
+            border: tall #00d4d8;
+            background: #062a2f;
+            color: #e8fff7;
             overflow: auto auto;
             text-wrap: nowrap;
+        }
+
+        Footer {
+            background: #031b1f;
+            color: #7cffd4;
         }
         """
 
@@ -566,7 +612,7 @@ if TEXTUAL_AVAILABLE:
             if description:
                 meta_lines.append(description)
             meta.update("\n".join(meta_lines))
-            preview.update(_runner_preview(backtest))
+            preview.update(_runner_preview_renderable(backtest))
             self._details_backtest_index = backtest_index
 
         async def _refresh_menu(self, preferred_index: int | None = None) -> None:

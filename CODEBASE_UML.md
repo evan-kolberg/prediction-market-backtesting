@@ -1,8 +1,8 @@
 # Codebase UML Inventory
 
 This file is generated from Python AST metadata and excludes `tests/`.
-Generated: 2026-05-05T20:24:38+00:00
-Modules: 112 | Classes: 166 | Functions/methods: 1503
+Generated: 2026-05-05T21:09:55+00:00
+Modules: 112 | Classes: 166 | Functions/methods: 1505
 
 ## Backtesting Data Flow
 
@@ -95,41 +95,43 @@ flowchart TD
 
 ### `main.py`
 - Imports: `__future__, ast, asyncio, functools, importlib, inspect, json, os, pathlib, re, string, subprocess, sys, time, typing`
-- Function L64: `_env_flag_enabled(name: str) -> bool`
-- Function L71: `_discoverable_backtest_paths(backtests_root: Path) -> list[Path]`
-- Function L89: `_warn(message: str) -> None`
-- Function L93: `_literal_string(node: ast.AST | None) -> str | None`
-- Function L103: `_assignment_targets(node: ast.Assign | ast.AnnAssign) -> list[str]`
-- Function L111: `_has_assignment(module_ast: ast.Module, target_name: str) -> bool`
-- Function L120: `_call_name(node: ast.AST) -> str | None`
-- Function L128: `_literal_runner_kwargs(call: ast.Call) -> dict[str, str]`
-- Function L138: `_experiment_constructor_kwargs(module_ast: ast.Module) -> dict[str, str] | None`
-- Function L161: `_has_run_entrypoint(module_ast: ast.Module) -> bool`
-- Function L168: `_load_runner_metadata(path: Path) -> dict[str, Any] | None`
-- Function L208: `_notebook_source_text(cell: dict[str, Any]) -> str`
-- Function L215: `_notebook_description(cells: list[dict[str, Any]]) -> str`
-- Function L230: `_load_notebook_metadata(path: Path, *, project_root: Path) -> dict[str, Any] | None`
-- Function L272: `discover() -> list[dict]`
-- Function L285: `_relative_parts(backtest: dict[str, Any]) -> tuple[str, ...]`
-- Function L294: `_relative_runner_path(backtest: dict[str, Any]) -> Path`
-- Function L298: `_runner_stem(backtest: dict[str, Any]) -> str`
-- Function L302: `_menu_label(backtest: dict[str, Any]) -> str`
-- Function L306: `_textual_menu_label(backtest: dict[str, Any], shortcut: str | None) -> str`
-- Function L313: `_runner_search_text(backtest: dict[str, Any]) -> str`
-- Function L325: `_filter_backtests(backtests: list[dict[str, Any]], query: str) -> list[int]`
-- Function L336: `_shortcut_candidates(backtest: dict[str, Any]) -> list[str]`
-- Function L367: `_assign_shortcuts(backtests: list[dict[str, Any]]) -> dict[str, str | None]`
-- Function L385: `_runner_file_preview(path: Path) -> str`
-- Function L392: `_runner_preview(backtest: dict[str, Any]) -> str`
-- Function L650: `_load_runner(backtest: dict[str, Any]) -> Any`
-- Function L701: `_install_runtime_patches() -> None`
-- Function L707: `_supports_textual_menu() -> bool`
-- Function L728: `_show_basic_menu(backtests: list[dict[str, Any]]) -> int`
-- Function L756: `_show_textual_menu(backtests: list[dict[str, Any]]) -> int`
-- Function L766: `_build_menu_tree(backtests: list[dict[str, Any]]) -> dict[str, Any]`
-- Function L777: `_render_menu_tree(node: dict[str, Any], *, prefix: str = '') -> list[str]`
-- Function L804: `show_menu(backtests: list[dict]) -> int`
-- Function L814: `main() -> None`
+- Function L66: `_env_flag_enabled(name: str) -> bool`
+- Function L73: `_discoverable_backtest_paths(backtests_root: Path) -> list[Path]`
+- Function L91: `_warn(message: str) -> None`
+- Function L95: `_literal_string(node: ast.AST | None) -> str | None`
+- Function L105: `_assignment_targets(node: ast.Assign | ast.AnnAssign) -> list[str]`
+- Function L113: `_has_assignment(module_ast: ast.Module, target_name: str) -> bool`
+- Function L122: `_call_name(node: ast.AST) -> str | None`
+- Function L130: `_literal_runner_kwargs(call: ast.Call) -> dict[str, str]`
+- Function L140: `_experiment_constructor_kwargs(module_ast: ast.Module) -> dict[str, str] | None`
+- Function L163: `_has_run_entrypoint(module_ast: ast.Module) -> bool`
+- Function L170: `_load_runner_metadata(path: Path) -> dict[str, Any] | None`
+- Function L210: `_notebook_source_text(cell: dict[str, Any]) -> str`
+- Function L217: `_notebook_description(cells: list[dict[str, Any]]) -> str`
+- Function L232: `_load_notebook_metadata(path: Path, *, project_root: Path) -> dict[str, Any] | None`
+- Function L274: `discover() -> list[dict]`
+- Function L287: `_relative_parts(backtest: dict[str, Any]) -> tuple[str, ...]`
+- Function L296: `_relative_runner_path(backtest: dict[str, Any]) -> Path`
+- Function L300: `_runner_stem(backtest: dict[str, Any]) -> str`
+- Function L304: `_menu_label(backtest: dict[str, Any]) -> str`
+- Function L308: `_textual_menu_label(backtest: dict[str, Any], shortcut: str | None) -> str`
+- Function L315: `_runner_search_text(backtest: dict[str, Any]) -> str`
+- Function L327: `_filter_backtests(backtests: list[dict[str, Any]], query: str) -> list[int]`
+- Function L338: `_shortcut_candidates(backtest: dict[str, Any]) -> list[str]`
+- Function L369: `_assign_shortcuts(backtests: list[dict[str, Any]]) -> dict[str, str | None]`
+- Function L387: `_runner_file_preview(path: Path) -> str`
+- Function L394: `_runner_preview(backtest: dict[str, Any]) -> str`
+- Function L398: `_runner_preview_lexer(backtest: dict[str, Any]) -> str`
+- Function L407: `_runner_preview_renderable(backtest: dict[str, Any]) -> Any`
+- Function L696: `_load_runner(backtest: dict[str, Any]) -> Any`
+- Function L747: `_install_runtime_patches() -> None`
+- Function L753: `_supports_textual_menu() -> bool`
+- Function L774: `_show_basic_menu(backtests: list[dict[str, Any]]) -> int`
+- Function L802: `_show_textual_menu(backtests: list[dict[str, Any]]) -> int`
+- Function L812: `_build_menu_tree(backtests: list[dict[str, Any]]) -> dict[str, Any]`
+- Function L823: `_render_menu_tree(node: dict[str, Any], *, prefix: str = '') -> list[str]`
+- Function L850: `show_menu(backtests: list[dict]) -> int`
+- Function L860: `main() -> None`
 
 ### `prediction_market_extensions/__init__.py`
 - Imports: `__future__`

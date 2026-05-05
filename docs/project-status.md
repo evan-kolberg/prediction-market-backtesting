@@ -3,12 +3,14 @@
 ## Roadmap
 
 - [x] multi-market support within strategies [PR#30](https://github.com/evan-kolberg/prediction-market-backtesting/pull/30), [PR#53](https://github.com/evan-kolberg/prediction-market-backtesting/pull/53), [PR#54](https://github.com/evan-kolberg/prediction-market-backtesting/pull/54), [PR#64](https://github.com/evan-kolberg/prediction-market-backtesting/pull/64)
-- [x] better position sizing
+- [x] better position sizing [PR#8](https://github.com/evan-kolberg/prediction-market-backtesting/pull/8)
 - [x] fee modeling [PR#4](https://github.com/ben-gramling/nautilus_pm/pull/4), [PR#42](https://github.com/evan-kolberg/prediction-market-backtesting/pull/42)
 - [ ] fuller slippage modeling for maker realism still needs L3 data [PR#6](https://github.com/ben-gramling/nautilus_pm/pull/6), [PR#9](https://github.com/evan-kolberg/prediction-market-backtesting/pull/9), [PR#50](https://github.com/evan-kolberg/prediction-market-backtesting/pull/50)
 - [x] Polymarket L2 order-book backtests [PR#10](https://github.com/evan-kolberg/prediction-market-backtesting/pull/10), [PR#45](https://github.com/evan-kolberg/prediction-market-backtesting/pull/45), [PR#57](https://github.com/evan-kolberg/prediction-market-backtesting/pull/57)
 - [x] PMXT raw archive workflow: local raw mirrors, direct archive fallback,
   filtered replay cache, and incremental downloader reruns [PR#17](https://github.com/evan-kolberg/prediction-market-backtesting/pull/17), [PR#22](https://github.com/evan-kolberg/prediction-market-backtesting/pull/22), [PR#40](https://github.com/evan-kolberg/prediction-market-backtesting/pull/40), [PR#47](https://github.com/evan-kolberg/prediction-market-backtesting/pull/47), [PR#56](https://github.com/evan-kolberg/prediction-market-backtesting/pull/56), [PR#61](https://github.com/evan-kolberg/prediction-market-backtesting/pull/61), [PR#64](https://github.com/evan-kolberg/prediction-market-backtesting/pull/64)
+- [x] Rust-native staged data loading for PMXT and Telonex with unified
+  cache/local/archive/API progress output [PR#132](https://github.com/evan-kolberg/prediction-market-backtesting/pull/132)
 - [ ] Kalshi L2 order-book backtests need L2 historical book data we do not have
   yet. The next exchange expansion targets are Limitless.exchange and
   Opinion.trade after the Polymarket loading path stays stable.
@@ -31,7 +33,7 @@
   book data second, and loads execution trade ticks last. PMXT filtered-cache
   misses are grouped by raw archive hour, Telonex API/file work has separate
   worker caps, and warm 100-market Telonex loads avoid redundant full-week book
-  sorting/count scans.
+  sorting/count scans [PR#132](https://github.com/evan-kolberg/prediction-market-backtesting/pull/132).
 - [x] PR#119 upgrades public Polymarket runners to L2-native `BookReplay`
   semantics with `OrderBookDeltas` plus real `TradeTick` execution evidence,
   keeps Nautilus on `BookType.L2_MBP` with `trade_execution=True`, removes
