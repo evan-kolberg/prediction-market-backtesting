@@ -34,11 +34,13 @@ PMXT_CACHE_DIR_ENV = "PMXT_CACHE_DIR"
 PMXT_DISABLE_CACHE_ENV = "PMXT_DISABLE_CACHE"
 PMXT_SOURCE_PRIORITY_ENV = "PMXT_SOURCE_PRIORITY"
 PMXT_PREFETCH_WORKERS_ENV = "PMXT_PREFETCH_WORKERS"
+PMXT_CACHE_PREFETCH_WORKERS_ENV = "PMXT_CACHE_PREFETCH_WORKERS"
 PMXT_ROW_GROUP_CHUNK_SIZE_ENV = "PMXT_ROW_GROUP_CHUNK_SIZE"
 PMXT_ROW_GROUP_SCAN_WORKERS_ENV = "PMXT_ROW_GROUP_SCAN_WORKERS"
 _PMXT_RUNNER_HTTP_USER_AGENT = "prediction-market-backtesting/1.0"
 _PMXT_RUNNER_HTTP_TIMEOUT_SECS = 30
-_PMXT_LOCAL_RAW_PREFETCH_WORKERS = "4"
+_PMXT_LOCAL_RAW_PREFETCH_WORKERS = "6"
+_PMXT_DEFAULT_CACHE_PREFETCH_WORKERS = 32
 _PMXT_DEFAULT_ROW_GROUP_CHUNK_SIZE = 4
 _PMXT_DEFAULT_ROW_GROUP_SCAN_WORKERS = 2
 _PMXT_ARCHIVE_SOURCE_PREFIXES = ("archive:",)
@@ -545,6 +547,13 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
         return super()._resolve_prefetch_workers()
 
     @classmethod
+    def _resolve_cache_prefetch_workers(cls) -> int:
+        return _resolve_positive_int_env(
+            PMXT_CACHE_PREFETCH_WORKERS_ENV,
+            default=_PMXT_DEFAULT_CACHE_PREFETCH_WORKERS,
+        )
+
+    @classmethod
     def _resolve_row_group_chunk_size(cls) -> int:
         return _resolve_positive_int_env(
             PMXT_ROW_GROUP_CHUNK_SIZE_ENV,
@@ -797,6 +806,7 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
             market_index = schema.names.index("market")
         except ValueError:
             return None
+        token_index = schema.names.index("asset_id") if "asset_id" in schema.names else None
 
         market_type = schema.field("market").type
         request_market_values = tuple(
@@ -816,6 +826,21 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
                 )
             except TypeError:
                 return None
+            if matching_requests and token_index is not None:
+                token_stats = parquet_file.metadata.row_group(index).column(token_index).statistics
+                if (
+                    token_stats is not None
+                    and token_stats.min is not None
+                    and token_stats.max is not None
+                ):
+                    try:
+                        matching_requests = tuple(
+                            request
+                            for request in matching_requests
+                            if token_stats.min <= request[2] <= token_stats.max
+                        )
+                    except TypeError:
+                        pass
             if matching_requests:
                 row_groups.append((index, matching_requests))
         return row_groups

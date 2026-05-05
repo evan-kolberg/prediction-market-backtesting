@@ -413,7 +413,10 @@ def test_telonex_book_joint_runners_build_inline_summary_contract(
             == "output/polymarket_telonex_book_joint_portfolio_runner_joint_portfolio.html"
         )
     elif relative_path == TELONEX_100_JOINT_BOOK_RUNNER:
-        assert experiment.data.sources == ("api:${TELONEX_API_KEY}",)
+        assert experiment.data.sources == (
+            "local:/Volumes/storage/telonex_data",
+            "api:${TELONEX_API_KEY}",
+        )
         assert len(experiment.replays) == 100
         assert experiment.initial_cash == 1_000.0
         assert experiment.replays[0].market_slug == "will-jesus-christ-return-before-2027"

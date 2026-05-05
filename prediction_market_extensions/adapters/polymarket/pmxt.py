@@ -46,6 +46,10 @@ def _raw_fixed_values(values: Sequence[object], precision: int) -> list[int]:
     return fixed_raw_values(values, precision)
 
 
+def _unique_tmp_path(path: Path) -> Path:
+    return path.with_name(f"{path.name}.tmp.{os.getpid()}.{time.monotonic_ns()}")
+
+
 @dataclass
 class _PMXTOrderBookConversionState:
     has_snapshot: bool = False
@@ -91,7 +95,22 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
     _PMXT_LOCAL_ARCHIVE_DIR_ENV = "PMXT_LOCAL_ARCHIVE_DIR"
     _PMXT_PREFETCH_WORKERS_ENV = "PMXT_PREFETCH_WORKERS"
     _PMXT_SCAN_BATCH_SIZE_ENV = "PMXT_SCAN_BATCH_SIZE"
+    _PMXT_WRITE_MATERIALIZED_CACHE_ENV = "PMXT_WRITE_MATERIALIZED_CACHE"
+    _PMXT_WRITE_WINDOW_CACHE_ENV = "PMXT_WRITE_WINDOW_CACHE"
     _PMXT_WINDOW_CACHE_SUBDIR = "window-v1"
+    _PMXT_DELTAS_CACHE_SUBDIR = "book-deltas-v1"
+    _PMXT_DELTAS_CACHE_COLUMN_ORDER: ClassVar[list[str]] = [
+        "event_index",
+        "action",
+        "side",
+        "price",
+        "size",
+        "flags",
+        "sequence",
+        "ts_event",
+        "ts_init",
+    ]
+    _PMXT_DELTAS_CACHE_COLUMNS: ClassVar[set[str]] = set(_PMXT_DELTAS_CACHE_COLUMN_ORDER)
     _PMXT_DEFAULT_PREFETCH_WORKERS = 16
     _PMXT_DEFAULT_SCAN_BATCH_SIZE = 100_000
     _PMXT_DOWNLOAD_CHUNK_SIZE = 4 * 1024 * 1024
@@ -235,6 +254,14 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
             return cls._PMXT_DEFAULT_SCAN_BATCH_SIZE
 
     @classmethod
+    def _write_materialized_cache_enabled(cls) -> bool:
+        return cls._env_flag_enabled(os.getenv(cls._PMXT_WRITE_MATERIALIZED_CACHE_ENV))
+
+    @classmethod
+    def _write_window_cache_enabled(cls) -> bool:
+        return cls._env_flag_enabled(os.getenv(cls._PMXT_WRITE_WINDOW_CACHE_ENV))
+
+    @classmethod
     def _market_cache_path_for_hour(
         cls, cache_dir: Path, condition_id: str, token_id: str, hour: pd.Timestamp
     ) -> Path:
@@ -258,6 +285,21 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
         return (
             self._pmxt_cache_dir
             / self._PMXT_WINDOW_CACHE_SUBDIR
+            / self.condition_id
+            / self.token_id
+            / f"{int(start_ts.value)}-{int(end_ts.value)}.parquet"
+        )
+
+    def _deltas_cache_path_for_range(self, start: pd.Timestamp, end: pd.Timestamp) -> Path | None:
+        if self._pmxt_cache_dir is None or self.condition_id is None or self.token_id is None:
+            return None
+        start_ts = self._normalize_timestamp(start)
+        end_ts = self._normalize_timestamp(end)
+        if start_ts is None or end_ts is None or end_ts <= start_ts:
+            return None
+        return (
+            self._pmxt_cache_dir
+            / self._PMXT_DELTAS_CACHE_SUBDIR
             / self.condition_id
             / self.token_id
             / f"{int(start_ts.value)}-{int(end_ts.value)}.parquet"
@@ -497,13 +539,152 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
             cache_path.unlink(missing_ok=True)
             return None
 
+    def _load_deltas_cache_for_range(
+        self, start: pd.Timestamp, end: pd.Timestamp
+    ) -> list[OrderBookDeltas] | None:
+        cache_path = self._deltas_cache_path_for_range(start, end)
+        if cache_path is None or not cache_path.exists():
+            return None
+
+        try:
+            table = pq.read_table(cache_path, columns=self._PMXT_DELTAS_CACHE_COLUMN_ORDER)
+            if not self._PMXT_DELTAS_CACHE_COLUMNS.issubset(set(table.schema.names)):
+                raise ValueError("missing required PMXT materialized deltas cache columns")
+            data = {
+                name: table.column(name).to_pylist()
+                for name in self._PMXT_DELTAS_CACHE_COLUMN_ORDER
+            }
+            records = self._deltas_records_from_columns(data)
+            emit_loader_event(
+                f"Loaded PMXT materialized deltas cache ({len(records)} events)",
+                stage="cache_read",
+                status="cache_hit",
+                vendor="pmxt",
+                platform="polymarket",
+                data_type="book",
+                source_kind="cache",
+                cache_path=str(cache_path),
+                rows=int(table.num_rows),
+                book_events=len(records),
+                condition_id=getattr(self, "condition_id", None),
+                token_id=getattr(self, "token_id", None),
+                attrs={
+                    "window_start_ns": int(self._normalize_timestamp(start).value),
+                    "window_end_ns": int(self._normalize_timestamp(end).value),
+                },
+            )
+            return records
+        except (OSError, ValueError, pa.ArrowException):
+            cache_path.unlink(missing_ok=True)
+            return None
+
+    @staticmethod
+    def _deltas_records_to_table(records: Sequence[OrderBookDeltas]) -> pa.Table | None:
+        if records and not hasattr(records[0], "deltas"):
+            return None
+
+        event_indexes: list[int] = []
+        actions: list[int] = []
+        sides: list[int] = []
+        prices: list[float] = []
+        sizes: list[float] = []
+        flags: list[int] = []
+        sequences: list[int] = []
+        ts_events: list[int] = []
+        ts_inits: list[int] = []
+        for event_index, record in enumerate(records):
+            for delta in record.deltas:
+                event_indexes.append(event_index)
+                actions.append(int(delta.action))
+                sides.append(int(delta.order.side))
+                prices.append(float(delta.order.price))
+                sizes.append(float(delta.order.size))
+                flags.append(int(delta.flags))
+                sequences.append(int(delta.sequence))
+                ts_events.append(int(delta.ts_event))
+                ts_inits.append(int(delta.ts_init))
+        return pa.table(
+            {
+                "event_index": pa.array(event_indexes, pa.int32()),
+                "action": pa.array(actions, pa.uint8()),
+                "side": pa.array(sides, pa.uint8()),
+                "price": pa.array(prices, pa.float64()),
+                "size": pa.array(sizes, pa.float64()),
+                "flags": pa.array(flags, pa.uint8()),
+                "sequence": pa.array(sequences, pa.int32()),
+                "ts_event": pa.array(ts_events, pa.int64()),
+                "ts_init": pa.array(ts_inits, pa.int64()),
+            }
+        )
+
+    def _write_deltas_cache_for_range(
+        self,
+        records: Sequence[OrderBookDeltas],
+        start: pd.Timestamp,
+        end: pd.Timestamp,
+    ) -> None:
+        cache_path = self._deltas_cache_path_for_range(start, end)
+        if cache_path is None:
+            return
+
+        table = self._deltas_records_to_table(records)
+        if table is None:
+            return
+
+        tmp_path = _unique_tmp_path(cache_path)
+        try:
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
+            pq.write_table(table, tmp_path, compression="zstd")
+            os.replace(tmp_path, cache_path)
+            emit_loader_event(
+                f"Wrote PMXT materialized deltas cache ({len(records)} events)",
+                stage="cache_write",
+                status="complete",
+                vendor="pmxt",
+                platform="polymarket",
+                data_type="book",
+                source_kind="cache",
+                cache_path=str(cache_path),
+                rows=int(table.num_rows),
+                book_events=len(records),
+                condition_id=getattr(self, "condition_id", None),
+                token_id=getattr(self, "token_id", None),
+                attrs={
+                    "window_start_ns": int(self._normalize_timestamp(start).value),
+                    "window_end_ns": int(self._normalize_timestamp(end).value),
+                },
+            )
+        except (OSError, ValueError, pa.ArrowException) as exc:
+            emit_loader_event(
+                "Failed to write PMXT materialized deltas cache",
+                level="ERROR",
+                stage="cache_write",
+                status="error",
+                vendor="pmxt",
+                platform="polymarket",
+                data_type="book",
+                source_kind="cache",
+                cache_path=str(cache_path),
+                rows=int(table.num_rows),
+                book_events=len(records),
+                condition_id=getattr(self, "condition_id", None),
+                token_id=getattr(self, "token_id", None),
+                attrs={
+                    "window_start_ns": int(self._normalize_timestamp(start).value),
+                    "window_end_ns": int(self._normalize_timestamp(end).value),
+                    "error": str(exc),
+                },
+            )
+        finally:
+            tmp_path.unlink(missing_ok=True)
+
     def _write_market_cache(self, hour: pd.Timestamp, table: pa.Table) -> None:
         cache_path = self._cache_path_for_hour(hour)
         if cache_path is None:
             return
 
         cache_path.parent.mkdir(parents=True, exist_ok=True)
-        tmp_path = cache_path.with_name(f"{cache_path.name}.tmp.{os.getpid()}")
+        tmp_path = _unique_tmp_path(cache_path)
         try:
             pq.write_table(table, tmp_path)
             os.replace(tmp_path, cache_path)
@@ -586,6 +767,7 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
             market_index = schema.names.index("market")
         except ValueError:
             return None
+        token_index = schema.names.index("asset_id") if "asset_id" in schema.names else None
 
         market_value = self._market_stats_value(schema.field("market").type, self.condition_id)
         row_groups: list[int] = []
@@ -595,10 +777,24 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
             if stats is None or stats.min is None or stats.max is None:
                 return None
             try:
-                if stats.min <= market_value <= stats.max:
-                    row_groups.append(index)
+                market_matches = stats.min <= market_value <= stats.max
             except TypeError:
                 return None
+            if not market_matches:
+                continue
+            if self.token_id is not None and token_index is not None:
+                token_stats = parquet_file.metadata.row_group(index).column(token_index).statistics
+                if (
+                    token_stats is not None
+                    and token_stats.min is not None
+                    and token_stats.max is not None
+                ):
+                    try:
+                        if not token_stats.min <= self.token_id <= token_stats.max:
+                            continue
+                    except TypeError:
+                        pass
+            row_groups.append(index)
         return row_groups
 
     def _load_raw_fixed_market_batches_pyarrow(
@@ -1343,6 +1539,7 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
         *,
         state: _PMXTOrderBookConversionState,
         include_order_book: bool = True,
+        sort_events: bool = True,
     ) -> tuple[list[OrderBookDeltas], tuple[pd.Timestamp, ...]]:
         start_ts = self._normalize_timestamp(start)
         end_ts = self._normalize_timestamp(end)
@@ -1356,7 +1553,8 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
             include_order_book=include_order_book,
             state=state,
         )
-        events.sort(key=self._event_sort_key)
+        if sort_events:
+            events.sort(key=self._event_sort_key)
         return events, tuple(gap_hours)
 
     def _order_book_deltas_from_hour_batches(
@@ -1411,12 +1609,19 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
         if start_ts is None or end_ts is None or end_ts <= start_ts:
             return []
 
-        return self._order_book_deltas_from_hour_batches(
+        records = self._order_book_deltas_from_hour_batches(
             start_ts=start_ts,
             end_ts=end_ts,
             hour_batches=iter(hour_batches),
             include_order_book=include_order_book,
         )
+        if (
+            include_order_book
+            and not self._pmxt_last_load_gap_hours
+            and self._write_materialized_cache_enabled()
+        ):
+            self._write_deltas_cache_for_range(records, start_ts, end_ts)
+        return records
 
     def load_order_book_deltas(
         self,
@@ -1442,14 +1647,25 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
         if start_ts is None or end_ts is None or end_ts <= start_ts:
             return []
 
+        deltas_cache = self._load_deltas_cache_for_range(start_ts, end_ts)
+        if deltas_cache is not None:
+            return deltas_cache
+
         window_cache_batches = self._load_window_cache_batches(start_ts, end_ts)
         if window_cache_batches is not None:
-            return self._order_book_deltas_from_hour_batches(
+            records = self._order_book_deltas_from_hour_batches(
                 start_ts=start_ts,
                 end_ts=end_ts,
                 hour_batches=iter(((start_ts, window_cache_batches),)),
                 include_order_book=include_order_book,
             )
+            if (
+                include_order_book
+                and not self._pmxt_last_load_gap_hours
+                and self._write_materialized_cache_enabled()
+            ):
+                self._write_deltas_cache_for_range(records, start_ts, end_ts)
+            return records
 
         hours = self._archive_hours(start_ts, end_ts)
         resolved_batch_size = (
@@ -1457,12 +1673,19 @@ class PolymarketPMXTDataLoader(PolymarketDataLoader):
             if batch_size is not None
             else int(getattr(self, "_pmxt_scan_batch_size", self._PMXT_DEFAULT_SCAN_BATCH_SIZE))
         )
-        return self._order_book_deltas_from_hour_batches(
+        records = self._order_book_deltas_from_hour_batches(
             start_ts=start_ts,
             end_ts=end_ts,
             hour_batches=self._iter_market_batches(hours, batch_size=resolved_batch_size),
             include_order_book=include_order_book,
         )
+        if (
+            include_order_book
+            and not self._pmxt_last_load_gap_hours
+            and self._write_materialized_cache_enabled()
+        ):
+            self._write_deltas_cache_for_range(records, start_ts, end_ts)
+        return records
 
     @staticmethod
     def _timestamp_to_ns(value: object) -> int:

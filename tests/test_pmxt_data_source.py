@@ -16,6 +16,7 @@ import pytest
 import prediction_market_extensions.backtesting.data_sources.pmxt as pmxt_module
 from prediction_market_extensions._runtime_log import capture_loader_events
 from prediction_market_extensions.backtesting.data_sources.pmxt import (
+    PMXT_CACHE_PREFETCH_WORKERS_ENV,
     PMXT_DATA_SOURCE_ENV,
     PMXT_LOCAL_RAWS_DIR_ENV,
     PMXT_PREFETCH_WORKERS_ENV,
@@ -66,7 +67,7 @@ def test_configured_pmxt_data_source_sets_raw_local_overrides(monkeypatch, tmp_p
         assert str(mirror_root) in selection.summary
         assert RunnerPolymarketPMXTDataLoader._resolve_remote_base_url() is None
         assert RunnerPolymarketPMXTDataLoader._resolve_raw_root() == mirror_root
-        assert RunnerPolymarketPMXTDataLoader._resolve_prefetch_workers() == 4
+        assert RunnerPolymarketPMXTDataLoader._resolve_prefetch_workers() == 6
 
     assert os.getenv(PMXT_RAW_ROOT_ENV) is None
 
@@ -112,7 +113,7 @@ def test_configured_pmxt_data_source_preserves_explicit_source_order(monkeypatch
             "raw-remote",
             "raw-local",
         )
-        assert RunnerPolymarketPMXTDataLoader._resolve_prefetch_workers() == 4
+        assert RunnerPolymarketPMXTDataLoader._resolve_prefetch_workers() == 6
 
     assert os.getenv(PMXT_RAW_ROOT_ENV) is None
     assert os.getenv(PMXT_REMOTE_BASE_URL_ENV) is None
@@ -129,6 +130,17 @@ def test_configured_pmxt_data_source_preserves_existing_prefetch_override(
     with configured_pmxt_data_source(sources=[f"local:{mirror_root}"]) as selection:
         assert selection.mode == "auto"
         assert RunnerPolymarketPMXTDataLoader._resolve_prefetch_workers() == 7
+
+
+def test_runner_pmxt_cache_prefetch_workers_default_and_env(monkeypatch) -> None:
+    monkeypatch.delenv(PMXT_CACHE_PREFETCH_WORKERS_ENV, raising=False)
+    assert RunnerPolymarketPMXTDataLoader._resolve_cache_prefetch_workers() == 32
+
+    monkeypatch.setenv(PMXT_CACHE_PREFETCH_WORKERS_ENV, "12")
+    assert RunnerPolymarketPMXTDataLoader._resolve_cache_prefetch_workers() == 12
+
+    monkeypatch.setenv(PMXT_CACHE_PREFETCH_WORKERS_ENV, "invalid")
+    assert RunnerPolymarketPMXTDataLoader._resolve_cache_prefetch_workers() == 32
 
 
 def test_runner_pmxt_row_group_scan_bounds_default_and_env(monkeypatch) -> None:
@@ -539,6 +551,60 @@ def test_runner_loader_grouped_raw_hour_scopes_requests_by_row_group(
         for key, value in batches_by_request.items()
     } == {0: 1, 1: 1}
     assert split_request_ids == [(0,), (1,)]
+
+
+def test_runner_loader_grouped_raw_hour_prunes_row_groups_by_token(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    loader = _make_loader(cache_dir=None)
+    hour = pd.Timestamp("2026-03-21T12:00:00Z")
+    raw_path = tmp_path / "2026" / "03" / "21" / "polymarket_orderbook_2026-03-21T12.parquet"
+    raw_path.parent.mkdir(parents=True, exist_ok=True)
+    condition = "0x" + ("a" * 64)
+    pq.write_table(
+        pa.table(
+            {
+                "timestamp": pa.array(
+                    [
+                        pd.Timestamp("2026-03-21T12:00:01Z"),
+                        pd.Timestamp("2026-03-21T12:00:02Z"),
+                    ],
+                    type=pa.timestamp("ms", tz="UTC"),
+                ),
+                "market": pa.array([condition.encode(), condition.encode()], type=pa.binary(66)),
+                "event_type": ["book", "book"],
+                "asset_id": ["token-a", "token-z"],
+                "bids": ["[]", "[]"],
+                "asks": ["[]", "[]"],
+                "price": ["0.40", "0.90"],
+                "size": ["1.0", "3.0"],
+                "side": ["BUY", "BUY"],
+            }
+        ),
+        raw_path,
+        row_group_size=1,
+    )
+    loader._pmxt_ordered_source_entries = (("raw-local", str(tmp_path)),)
+    monkeypatch.setenv(PMXT_ROW_GROUP_CHUNK_SIZE_ENV, "1")
+
+    original_split = loader._split_shared_fixed_table
+    split_request_ids: list[tuple[int, ...]] = []
+
+    def capture_split(table, *, requests, batch_size: int):  # type: ignore[no-untyped-def]
+        split_request_ids.append(tuple(request_id for request_id, _, _ in requests))
+        return original_split(table, requests=requests, batch_size=batch_size)
+
+    monkeypatch.setattr(loader, "_split_shared_fixed_table", capture_split)
+
+    batches_by_request = loader.load_shared_market_batches_for_hour(
+        hour,
+        requests=((0, condition, "token-a"),),
+        batch_size=1_000,
+    )
+
+    assert loader._row_count_from_batches(batches_by_request[0] or []) == 1
+    assert split_request_ids == [(0,)]
 
 
 def test_runner_loader_grouped_remote_uses_temp_when_raw_copy_fails(

@@ -74,6 +74,66 @@ def test_delta_columns_preserve_instrument_rounding(tmp_path):
     assert delta.order.size.raw == loader.instrument.make_qty(1009.1234564).raw
 
 
+def test_materialized_deltas_cache_round_trips(tmp_path):
+    loader = _make_loader(tmp_path)
+    loader._instrument = _make_instrument()
+    start = pd.Timestamp("2026-03-16T12:00:00Z")
+    end = pd.Timestamp("2026-03-16T13:00:00Z")
+    records = loader._deltas_records_from_columns(
+        {
+            "event_index": [0, 1],
+            "action": [4, 1],
+            "side": [0, 1],
+            "price": [0.0, 0.105],
+            "size": [0.0, 1009.1234564],
+            "flags": [0, 0],
+            "sequence": [0, 1],
+            "ts_event": [100, 200],
+            "ts_init": [100, 200],
+        }
+    )
+
+    loader._write_deltas_cache_for_range(records, start, end)
+    cached = loader._load_deltas_cache_for_range(start, end)
+
+    assert cached is not None
+    assert len(cached) == len(records)
+    assert [int(record.ts_event) for record in cached] == [100, 200]
+    assert cached[1].deltas[0].order.price.raw == loader.instrument.make_price(0.105).raw
+
+
+def test_load_order_book_deltas_prefers_materialized_cache(monkeypatch, tmp_path):
+    loader = _make_loader(tmp_path)
+    loader._instrument = _make_instrument()
+    start = pd.Timestamp("2026-03-16T12:00:00Z")
+    end = pd.Timestamp("2026-03-16T13:00:00Z")
+    records = loader._deltas_records_from_columns(
+        {
+            "event_index": [0],
+            "action": [4],
+            "side": [0],
+            "price": [0.0],
+            "size": [0.0],
+            "flags": [0],
+            "sequence": [0],
+            "ts_event": [100],
+            "ts_init": [100],
+        }
+    )
+    loader._write_deltas_cache_for_range(records, start, end)
+
+    def fail(*args, **kwargs):  # type: ignore[no-untyped-def]
+        raise AssertionError("PMXT materialized cache should bypass row caches and raw dumps")
+
+    monkeypatch.setattr(loader, "_load_window_cache_batches", fail)
+    monkeypatch.setattr(loader, "_iter_market_batches", fail)
+
+    cached = loader.load_order_book_deltas(start, end)
+
+    assert len(cached) == 1
+    assert int(cached[0].ts_event) == 100
+
+
 def test_resolve_cache_dir_defaults_to_xdg_cache_home(monkeypatch, tmp_path):
     monkeypatch.delenv(PolymarketPMXTDataLoader._PMXT_CACHE_DIR_ENV, raising=False)
     monkeypatch.delenv(PolymarketPMXTDataLoader._PMXT_DISABLE_CACHE_ENV, raising=False)
@@ -93,6 +153,17 @@ def test_resolve_prefetch_workers_parses_env(monkeypatch):
 
     monkeypatch.setenv(PolymarketPMXTDataLoader._PMXT_PREFETCH_WORKERS_ENV, "invalid")
     assert PolymarketPMXTDataLoader._resolve_prefetch_workers() == 16
+
+
+def test_write_window_cache_is_opt_in(monkeypatch):
+    monkeypatch.delenv(PolymarketPMXTDataLoader._PMXT_WRITE_WINDOW_CACHE_ENV, raising=False)
+    assert not PolymarketPMXTDataLoader._write_window_cache_enabled()
+
+    monkeypatch.setenv(PolymarketPMXTDataLoader._PMXT_WRITE_WINDOW_CACHE_ENV, "1")
+    assert PolymarketPMXTDataLoader._write_window_cache_enabled()
+
+    monkeypatch.setenv(PolymarketPMXTDataLoader._PMXT_WRITE_WINDOW_CACHE_ENV, "0")
+    assert not PolymarketPMXTDataLoader._write_window_cache_enabled()
 
 
 def test_resolve_scan_batch_size_parses_env(monkeypatch):

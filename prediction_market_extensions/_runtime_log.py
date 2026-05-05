@@ -18,6 +18,13 @@ LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR"]
 TRACE_JSONL_ENV = "PREDICTION_MARKET_TRACE_JSONL"
 _VALID_LEVELS: frozenset[str] = frozenset({"DEBUG", "INFO", "WARNING", "ERROR"})
 _LOG_LOCK = threading.RLock()
+_ANSI_RESET = "\033[0m"
+_ANSI_BOLD_RED = "\033[1;31m"
+_ANSI_BOLD_YELLOW = "\033[1;33m"
+_LOG_LINE_STYLE_BY_LEVEL = {
+    "ERROR": _ANSI_BOLD_RED,
+    "WARNING": _ANSI_BOLD_YELLOW,
+}
 
 
 def format_utc_timestamp_ns(epoch_ns: int) -> str:
@@ -225,9 +232,12 @@ def format_log_line(
     origin: str,
     timestamp_ns: int,
 ) -> str:
-    return (
-        f"{format_utc_timestamp_ns(timestamp_ns)} [{_normalize_level(level)}] {origin}: {message}"
-    )
+    normalized_level = _normalize_level(level)
+    line = f"{format_utc_timestamp_ns(timestamp_ns)} [{normalized_level}] {origin}: {message}"
+    style = _LOG_LINE_STYLE_BY_LEVEL.get(normalized_level)
+    if style is None:
+        return line
+    return f"{style}{line}{_ANSI_RESET}"
 
 
 def get_loader_event_sinks() -> tuple[LoaderEventSink, ...]:

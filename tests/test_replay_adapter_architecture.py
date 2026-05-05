@@ -332,6 +332,92 @@ def test_book_batch_loader_stages_metadata_then_bounded_materialization(
     assert [item.market_id for item in loaded] == ["first", "second"]
 
 
+def test_telonex_book_worker_recommendation_is_source_aware() -> None:
+    replay = BookReplay(
+        market_slug="demo",
+        token_index=0,
+        start_time="2026-04-21T00:00:00Z",
+        end_time="2026-04-28T00:00:00Z",
+    )
+
+    class Loader:
+        def __init__(self, kind: str, *, cache_complete: bool = False) -> None:
+            self.kind = kind
+            self.cache_complete = cache_complete
+
+        def _date_range(self, start, end):  # type: ignore[no-untyped-def]
+            del start, end
+            return [f"2026-04-{day:02d}" for day in range(21, 28)]
+
+        def _config(self):  # type: ignore[no-untyped-def]
+            return SimpleNamespace(
+                ordered_source_entries=(SimpleNamespace(kind=self.kind),),
+            )
+
+        def _resolve_local_prefetch_workers(self) -> int:
+            return 4
+
+        def _resolve_file_worker_limit(self) -> int:
+            return 28
+
+        def _resolve_prefetch_workers(self) -> int:
+            return 128
+
+        def _resolve_api_worker_limit(self) -> int:
+            return 128
+
+        def _resolve_cache_prefetch_workers(self) -> int:
+            return 64
+
+        def has_complete_materialized_deltas_cache(self, **kwargs: object) -> bool:
+            del kwargs
+            return self.cache_complete
+
+    def prepared(loader: Loader):
+        return SimpleNamespace(
+            loader=loader,
+            resolved=SimpleNamespace(
+                replay=replay,
+                start=pd.Timestamp(replay.start_time),
+                end=pd.Timestamp(replay.end_time),
+            ),
+            outcome="Yes",
+        )
+
+    assert (
+        replay_adapters._resolve_telonex_book_workers(
+            (prepared(Loader("local")),),
+            requested_workers=64,
+        )
+        == 7
+    )
+    assert (
+        replay_adapters._resolve_telonex_book_workers(
+            (prepared(Loader("api")),),
+            requested_workers=64,
+        )
+        == 18
+    )
+    assert (
+        replay_adapters._resolve_telonex_book_workers(
+            (prepared(Loader("local", cache_complete=True)),),
+            requested_workers=64,
+        )
+        == 64
+    )
+
+
+def test_pmxt_grouped_market_chunk_size_default_and_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv(replay_adapters.PMXT_GROUPED_MARKET_CHUNK_SIZE_ENV, raising=False)
+    assert replay_adapters._resolve_pmxt_grouped_market_chunk_size() == 24
+
+    monkeypatch.setenv(replay_adapters.PMXT_GROUPED_MARKET_CHUNK_SIZE_ENV, "12")
+    assert replay_adapters._resolve_pmxt_grouped_market_chunk_size() == 12
+
+    monkeypatch.setenv(replay_adapters.PMXT_GROUPED_MARKET_CHUNK_SIZE_ENV, "invalid")
+    assert replay_adapters._resolve_pmxt_grouped_market_chunk_size() == 24
+
+
 def test_pmxt_grouped_cache_probe_does_not_retain_cached_batches(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -455,6 +541,125 @@ def test_pmxt_grouped_cache_probe_does_not_retain_cached_batches(
 
     assert [item.market_id for item in loaded] == ["first", "second"]
     assert "cache-batches-retained" not in events
+
+
+def test_pmxt_grouped_loader_skips_cache_probe_when_cache_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    events: list[str] = []
+
+    class FakeLoader:
+        condition_id = "0xcondition"
+        token_id = "token"
+        _pmxt_cache_dir = None
+
+        def __init__(self, slug: str) -> None:
+            self.slug = slug
+            self.instrument = SimpleNamespace(id=f"POLYMARKET.{slug}", outcome="Yes")
+
+        @classmethod
+        async def from_market_slug(cls, market_slug: str, *, token_index: int = 0):
+            del token_index
+            return cls(market_slug)
+
+        def _resolve_prefetch_workers(self) -> int:
+            return 2
+
+        def _archive_hours(self, start, end):  # type: ignore[no-untyped-def]
+            del end
+            return (pd.Timestamp(start),)
+
+        def _load_cached_market_batches(self, hour):  # type: ignore[no-untyped-def]
+            del hour
+            raise AssertionError("cache probe should be skipped when PMXT cache is disabled")
+
+        def load_shared_market_batches_for_hour(self, hour, *, requests, batch_size):  # type: ignore[no-untyped-def]
+            del batch_size
+            events.append(f"shared:{pd.Timestamp(hour).isoformat()}:{len(requests)}")
+            return {request[0]: [] for request in requests}
+
+        def new_order_book_delta_state(self):
+            return SimpleNamespace()
+
+        def load_order_book_deltas_from_hour_batches_incremental(
+            self,
+            start,
+            end,
+            hour_batches,
+            *,
+            state,
+            include_order_book=True,
+            sort_events=True,
+        ):  # type: ignore[no-untyped-def]
+            del start, end, hour_batches, state, include_order_book, sort_events
+            return ([SimpleNamespace(kind="book", slug=self.slug, ts_event=1, ts_init=1)], ())
+
+        def load_order_book_deltas_from_hour_batches(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+            del args, kwargs
+            return ()
+
+        def load_order_book_deltas(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+            del args, kwargs
+            raise AssertionError("grouped preloaded book should be used")
+
+        def _event_sort_key(self, record):  # type: ignore[no-untyped-def]
+            return (int(record.ts_event), int(record.ts_init))
+
+    original_resolver = replay_adapters._resolve_backtest_compat_symbol
+
+    def fake_resolver(name: str, default):  # type: ignore[no-untyped-def]
+        if name == "PolymarketPMXTDataLoader":
+            return FakeLoader
+        return original_resolver(name, default)
+
+    async def fake_load_trade_ticks(loader, *, start, end, market_label):  # type: ignore[no-untyped-def]
+        del loader, start, end, market_label
+        return ()
+
+    def fake_build_loaded_replay(
+        self,
+        *,
+        prepared,
+        records,
+        book_event_count=None,
+        request,
+        vendor,
+        source_label,
+    ):  # type: ignore[no-untyped-def]
+        del self, records, book_event_count, request, vendor, source_label
+        return SimpleNamespace(market_id=prepared.resolved.replay.market_slug)
+
+    monkeypatch.setattr(replay_adapters, "_resolve_backtest_compat_symbol", fake_resolver)
+    monkeypatch.setattr(replay_adapters, "_load_trade_ticks", fake_load_trade_ticks)
+    monkeypatch.setattr(
+        replay_adapters._BaseReplayAdapter,
+        "_build_loaded_book_replay_or_none",
+        fake_build_loaded_replay,
+    )
+
+    loaded = asyncio.run(
+        replay_adapters.PolymarketPMXTBookReplayAdapter().load_replays(
+            (
+                BookReplay(
+                    market_slug="first",
+                    token_index=0,
+                    start_time="2026-04-21T00:00:00Z",
+                    end_time="2026-04-21T01:00:00Z",
+                ),
+                BookReplay(
+                    market_slug="second",
+                    token_index=1,
+                    start_time="2026-04-21T00:00:00Z",
+                    end_time="2026-04-21T01:00:00Z",
+                ),
+            ),
+            request=ReplayLoadRequest(),
+            workers=2,
+        )
+    )
+
+    assert [item.market_id for item in loaded] == ["first", "second"]
+    assert events == ["shared:2026-04-21T00:00:00+00:00:2"]
 
 
 def test_trade_tick_loader_reports_api_and_cache_progress(

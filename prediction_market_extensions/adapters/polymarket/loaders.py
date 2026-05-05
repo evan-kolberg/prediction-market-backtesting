@@ -55,6 +55,10 @@ def _rounded_float64_array(values: Any, precision: int) -> np.ndarray:
     return np.round(np.asarray(values, dtype=np.float64), decimals=precision)
 
 
+def _unique_tmp_path(path: Path) -> Path:
+    return path.with_name(f"{path.name}.tmp.{os.getpid()}.{time.monotonic_ns()}")
+
+
 class PolymarketDataLoader:
     """
     Provides a data loader for historical Polymarket market data.
@@ -316,7 +320,7 @@ class PolymarketDataLoader:
             "expires_ns": now_ns + ttl_secs * 1_000_000_000,
             "payload": payload,
         }
-        tmp_path = cache_path.with_name(f"{cache_path.name}.tmp.{os.getpid()}")
+        tmp_path = _unique_tmp_path(cache_path)
         try:
             cache_path.parent.mkdir(parents=True, exist_ok=True)
             bytes_written = tmp_path.write_bytes(msgspec.json.encode(envelope))

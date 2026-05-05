@@ -8,6 +8,7 @@ import os
 import threading
 import time
 from collections.abc import Sequence
+from contextlib import nullcontext
 from pathlib import Path
 from typing import Any
 
@@ -44,7 +45,12 @@ def _source_tuple(vendor: str, source: str) -> tuple[str, ...]:
     raise ValueError(f"Unsupported vendor/source pair: {vendor}/{source}")
 
 
-def _replays_for_vendor(vendor: str) -> tuple[Any, ...]:
+def _replays_for_vendor(
+    vendor: str,
+    *,
+    limit: int | None = None,
+    offset: int = 0,
+) -> tuple[Any, ...]:
     from prediction_market_extensions.backtesting._replay_specs import BookReplay
 
     if vendor == "telonex":
@@ -66,6 +72,9 @@ def _replays_for_vendor(vendor: str) -> tuple[Any, ...]:
     else:
         raise ValueError(f"Unsupported vendor: {vendor}")
 
+    slugs = POPULAR_MARKET_SLUGS[offset:]
+    if limit is not None:
+        slugs = slugs[:limit]
     return tuple(
         BookReplay(
             market_slug=slug,
@@ -78,11 +87,17 @@ def _replays_for_vendor(vendor: str) -> tuple[Any, ...]:
                 "replay_window_end_ns": WINDOW_END_NS,
             },
         )
-        for slug in POPULAR_MARKET_SLUGS
+        for slug in slugs
     )
 
 
-def _build_backtest(*, vendor: str, source: str) -> Any:
+def _build_backtest(
+    *,
+    vendor: str,
+    source: str,
+    source_limit: int | None = None,
+    source_offset: int = 0,
+) -> Any:
     from prediction_market_extensions.backtesting._market_data_config import MarketDataConfig
     from prediction_market_extensions.backtesting._prediction_market_backtest import (
         PredictionMarketBacktest,
@@ -103,7 +118,7 @@ def _build_backtest(*, vendor: str, source: str) -> Any:
             vendor=vendor_type,
             sources=_source_tuple(vendor, source),
         ),
-        replays=_replays_for_vendor(vendor),
+        replays=_replays_for_vendor(vendor, limit=source_limit, offset=source_offset),
         strategy_configs=[
             {
                 "strategy_path": "strategies:BookMicropriceImbalanceStrategy",
@@ -191,21 +206,34 @@ def _apply_worker_env(args: argparse.Namespace) -> None:
     _set_env("BACKTEST_REPLAY_MATERIALIZE_WORKERS", args.materialize_workers)
     _set_env("BACKTEST_LOADER_PROGRESS", "0")
     _set_env("BACKTEST_ENABLE_TIMING", "0")
+    if args.source in {"api", "local"}:
+        if args.vendor == "telonex":
+            _set_env("TELONEX_CACHE_ROOT", "0")
+        if args.vendor == "pmxt":
+            _set_env("PMXT_DISABLE_CACHE", "1")
     if args.vendor == "telonex":
         _set_env("TELONEX_API_WORKERS", args.telonex_api_workers)
         _set_env("TELONEX_PREFETCH_WORKERS", args.telonex_prefetch_workers)
+        _set_env("TELONEX_CACHE_PREFETCH_WORKERS", args.telonex_cache_prefetch_workers)
         _set_env("TELONEX_FILE_WORKERS", args.telonex_file_workers)
         _set_env("TELONEX_LOCAL_PREFETCH_WORKERS", args.telonex_local_prefetch_workers)
     if args.vendor == "pmxt":
         _set_env("PMXT_PREFETCH_WORKERS", args.pmxt_prefetch_workers)
+        _set_env("PMXT_CACHE_PREFETCH_WORKERS", args.pmxt_cache_prefetch_workers)
         _set_env("PMXT_ROW_GROUP_CHUNK_SIZE", args.pmxt_row_group_chunk_size)
         _set_env("PMXT_ROW_GROUP_SCAN_WORKERS", args.pmxt_row_group_scan_workers)
+        _set_env("PMXT_GROUPED_MARKET_CHUNK_SIZE", args.pmxt_grouped_market_chunk_size)
 
 
 async def _load_once(args: argparse.Namespace) -> dict[str, Any]:
     from prediction_market_extensions._runtime_log import loader_event_sinks
 
-    backtest = _build_backtest(vendor=args.vendor, source=args.source)
+    backtest = _build_backtest(
+        vendor=args.vendor,
+        source=args.source,
+        source_limit=args.limit,
+        source_offset=args.offset,
+    )
     sampler = MemorySampler(
         interval_secs=args.sample_interval,
         limit_gb=args.memory_limit_gb,
@@ -215,7 +243,8 @@ async def _load_once(args: argparse.Namespace) -> dict[str, Any]:
     started_at = time.perf_counter()
     sampler.start()
     try:
-        with loader_event_sinks([]):
+        sink_context = nullcontext() if args.show_events else loader_event_sinks([])
+        with sink_context:
             loaded = await backtest._load_sims_async()
     finally:
         sampler.stop()
@@ -241,11 +270,16 @@ async def _load_once(args: argparse.Namespace) -> dict[str, Any]:
             "BACKTEST_REPLAY_MATERIALIZE_WORKERS": os.getenv("BACKTEST_REPLAY_MATERIALIZE_WORKERS"),
             "TELONEX_API_WORKERS": os.getenv("TELONEX_API_WORKERS"),
             "TELONEX_PREFETCH_WORKERS": os.getenv("TELONEX_PREFETCH_WORKERS"),
+            "TELONEX_CACHE_PREFETCH_WORKERS": os.getenv("TELONEX_CACHE_PREFETCH_WORKERS"),
             "TELONEX_FILE_WORKERS": os.getenv("TELONEX_FILE_WORKERS"),
             "TELONEX_LOCAL_PREFETCH_WORKERS": os.getenv("TELONEX_LOCAL_PREFETCH_WORKERS"),
             "PMXT_PREFETCH_WORKERS": os.getenv("PMXT_PREFETCH_WORKERS"),
+            "PMXT_CACHE_PREFETCH_WORKERS": os.getenv("PMXT_CACHE_PREFETCH_WORKERS"),
             "PMXT_ROW_GROUP_CHUNK_SIZE": os.getenv("PMXT_ROW_GROUP_CHUNK_SIZE"),
             "PMXT_ROW_GROUP_SCAN_WORKERS": os.getenv("PMXT_ROW_GROUP_SCAN_WORKERS"),
+            "PMXT_GROUPED_MARKET_CHUNK_SIZE": os.getenv("PMXT_GROUPED_MARKET_CHUNK_SIZE"),
+            "PMXT_DISABLE_CACHE": os.getenv("PMXT_DISABLE_CACHE"),
+            "TELONEX_CACHE_ROOT": os.getenv("TELONEX_CACHE_ROOT"),
         },
     }
 
@@ -259,11 +293,17 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--materialize-workers", type=int, default=4)
     parser.add_argument("--telonex-api-workers", type=int)
     parser.add_argument("--telonex-prefetch-workers", type=int)
+    parser.add_argument("--telonex-cache-prefetch-workers", type=int)
     parser.add_argument("--telonex-file-workers", type=int)
     parser.add_argument("--telonex-local-prefetch-workers", type=int)
     parser.add_argument("--pmxt-prefetch-workers", type=int)
+    parser.add_argument("--pmxt-cache-prefetch-workers", type=int)
     parser.add_argument("--pmxt-row-group-chunk-size", type=int)
     parser.add_argument("--pmxt-row-group-scan-workers", type=int)
+    parser.add_argument("--pmxt-grouped-market-chunk-size", type=int)
+    parser.add_argument("--limit", type=int)
+    parser.add_argument("--offset", type=int, default=0)
+    parser.add_argument("--show-events", action="store_true")
     parser.add_argument("--sample-interval", type=float, default=0.5)
     parser.add_argument("--memory-limit-gb", type=float, default=24.0)
     parser.add_argument("--time-limit-secs", type=float)

@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import os
 import re
+import tempfile
 import threading
+import time
 import warnings
 from collections.abc import Iterator, Mapping, Sequence
 from concurrent.futures import Future, ThreadPoolExecutor
@@ -57,6 +59,7 @@ TELONEX_CHANNEL_ENV = "TELONEX_CHANNEL"
 TELONEX_CACHE_ROOT_ENV = "TELONEX_CACHE_ROOT"
 TELONEX_PREFETCH_WORKERS_ENV = "TELONEX_PREFETCH_WORKERS"
 TELONEX_LOCAL_PREFETCH_WORKERS_ENV = "TELONEX_LOCAL_PREFETCH_WORKERS"
+TELONEX_CACHE_PREFETCH_WORKERS_ENV = "TELONEX_CACHE_PREFETCH_WORKERS"
 TELONEX_API_WORKERS_ENV = "TELONEX_API_WORKERS"
 TELONEX_FILE_WORKERS_ENV = "TELONEX_FILE_WORKERS"
 TELONEX_MAX_BLOB_PART_BYTES_ENV = "TELONEX_MAX_BLOB_PART_BYTES"
@@ -71,8 +74,9 @@ _TELONEX_DEFAULT_CHANNEL = TELONEX_FULL_BOOK_CHANNEL
 _TELONEX_EXCHANGE = "polymarket"
 _TELONEX_HTTP_TIMEOUT_SECS = 60
 _TELONEX_DEFAULT_PREFETCH_WORKERS = 128
-_TELONEX_DEFAULT_LOCAL_PREFETCH_WORKERS = 1
-_TELONEX_DEFAULT_API_WORKERS = 128
+_TELONEX_DEFAULT_LOCAL_PREFETCH_WORKERS = 4
+_TELONEX_DEFAULT_CACHE_PREFETCH_WORKERS = 64
+_TELONEX_DEFAULT_API_WORKERS = 32
 _TELONEX_DEFAULT_FILE_WORKERS = 28
 _TELONEX_DEFAULT_MAX_BLOB_PART_BYTES = 0
 _TELONEX_DEFAULT_BLOB_SCAN_BATCH_SIZE = 4_096
@@ -87,19 +91,18 @@ _TELONEX_DATA_SUBDIR = "data"
 _TELONEX_CACHE_SUBDIR = "api-days"
 _TELONEX_DELTAS_CACHE_SUBDIR = "book-deltas-v1"
 _TELONEX_TRADE_TICKS_CACHE_SUBDIR = "trade-ticks-v1"
-_TELONEX_DELTAS_CACHE_COLUMNS = frozenset(
-    {
-        "event_index",
-        "action",
-        "side",
-        "price",
-        "size",
-        "flags",
-        "sequence",
-        "ts_event",
-        "ts_init",
-    }
+_TELONEX_DELTAS_CACHE_COLUMN_ORDER = (
+    "event_index",
+    "action",
+    "side",
+    "price",
+    "size",
+    "flags",
+    "sequence",
+    "ts_event",
+    "ts_init",
 )
+_TELONEX_DELTAS_CACHE_COLUMNS = frozenset(_TELONEX_DELTAS_CACHE_COLUMN_ORDER)
 
 _TELONEX_API_SEMAPHORE_LOCK = threading.Lock()
 _TELONEX_API_SEMAPHORE: tuple[int, threading.BoundedSemaphore] | None = None
@@ -109,21 +112,26 @@ _TELONEX_BLOB_ROW_GROUP_INDEX_LOCK = threading.Lock()
 _TELONEX_BLOB_ROW_GROUP_INDEX_CACHE: dict[tuple[str, int, int], "_TelonexBlobRowGroupIndex"] = {}
 _TELONEX_BLOB_PARQUET_FILE_LOCAL = threading.local()
 _TELONEX_BLOB_ROW_GROUP_FALLBACK = object()
-_TELONEX_TRADE_TICKS_CACHE_COLUMNS = frozenset(
-    {
-        "price",
-        "size",
-        "aggressor_side",
-        "trade_id",
-        "ts_event",
-        "ts_init",
-    }
+_TELONEX_TRADE_TICKS_CACHE_COLUMN_ORDER = (
+    "price",
+    "size",
+    "aggressor_side",
+    "trade_id",
+    "ts_event",
+    "ts_init",
 )
+_TELONEX_TRADE_TICKS_CACHE_COLUMNS = frozenset(_TELONEX_TRADE_TICKS_CACHE_COLUMN_ORDER)
 _TELONEX_TRADE_TICK_CHANNELS = (TELONEX_ONCHAIN_FILLS_CHANNEL, TELONEX_TRADES_CHANNEL)
 
 
 def _raw_fixed_values(values: Sequence[object], precision: int) -> list[int]:
     return fixed_raw_values(values, precision)
+
+
+def _unique_tmp_path(path: Path) -> Path:
+    return path.with_name(
+        f"{path.name}.tmp.{os.getpid()}.{threading.get_ident()}.{time.monotonic_ns()}"
+    )
 
 
 @dataclass(frozen=True)
@@ -732,6 +740,24 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
             return max(1, int(configured))
         except ValueError:
             return _TELONEX_DEFAULT_LOCAL_PREFETCH_WORKERS
+
+    @classmethod
+    def _resolve_cache_prefetch_workers(cls) -> int:
+        configured = _env_value(TELONEX_CACHE_PREFETCH_WORKERS_ENV)
+        if configured is None:
+            return _TELONEX_DEFAULT_CACHE_PREFETCH_WORKERS
+        try:
+            return max(1, int(configured))
+        except ValueError:
+            return _TELONEX_DEFAULT_CACHE_PREFETCH_WORKERS
+
+    @classmethod
+    def _resolve_api_worker_limit(cls) -> int:
+        return _resolve_api_workers()
+
+    @classmethod
+    def _resolve_file_worker_limit(cls) -> int:
+        return _resolve_file_workers()
 
     def _config(self) -> TelonexLoaderConfig:
         config = _current_loader_config()
@@ -1546,6 +1572,160 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
         records.sort(key=lambda record: int(record.ts_event))
         return records, merged_columns, f"telonex-local::{entry.target}"
 
+    def _download_api_day_to_cache(
+        self,
+        *,
+        presigned_url: str,
+        progress_url: str,
+        cache_path: Path,
+        channel: str,
+        date: str,
+        market_slug: str,
+        token_index: int,
+        outcome: str | None,
+    ) -> int | None:
+        tmp_path = _unique_tmp_path(cache_path)
+        downloaded = 0
+        total_bytes: int | None = None
+        try:
+            with _telonex_file_slot():
+                cache_path.parent.mkdir(parents=True, exist_ok=True)
+                fetch_request = Request(
+                    presigned_url,
+                    headers={"User-Agent": _TELONEX_USER_AGENT},
+                )
+                with (
+                    urlopen(fetch_request, timeout=_TELONEX_HTTP_TIMEOUT_SECS) as response,
+                    tmp_path.open("wb") as handle,
+                ):
+                    total_bytes_header = response.headers.get("Content-Length")
+                    total_bytes = int(total_bytes_header) if total_bytes_header else None
+                    self._download_progress(progress_url, 0, total_bytes, False)
+                    while True:
+                        chunk = response.read(_TELONEX_DOWNLOAD_CHUNK_SIZE)
+                        if not chunk:
+                            break
+                        handle.write(chunk)
+                        downloaded += len(chunk)
+                        self._download_progress(progress_url, downloaded, total_bytes, False)
+                    self._download_progress(progress_url, downloaded, total_bytes, True)
+                os.replace(tmp_path, cache_path)
+            self._emit_cache_write_event(
+                cache_kind="api",
+                cache_path=cache_path,
+                channel=channel,
+                date=date,
+                market_slug=market_slug,
+                token_index=token_index,
+                outcome=outcome,
+                level="INFO",
+                status="complete",
+                message=f"Wrote Telonex API cache for {market_slug} {date}",
+                bytes_count=downloaded if downloaded else total_bytes,
+            )
+            return downloaded if downloaded else total_bytes
+        except HTTPError:
+            try:
+                tmp_path.unlink()
+            except OSError:
+                pass
+            raise
+        except URLError:
+            try:
+                tmp_path.unlink()
+            except OSError:
+                pass
+            raise
+        except OSError as exc:
+            try:
+                tmp_path.unlink()
+            except OSError:
+                pass
+            self._emit_cache_write_event(
+                cache_kind="api",
+                cache_path=cache_path,
+                channel=channel,
+                date=date,
+                market_slug=market_slug,
+                token_index=token_index,
+                outcome=outcome,
+                level="ERROR",
+                status="error",
+                message=f"Failed to write Telonex API cache for {market_slug} {date}",
+                bytes_count=downloaded if downloaded else total_bytes,
+                error=str(exc),
+            )
+            return None
+
+    def _download_api_day_to_temp_file(
+        self,
+        *,
+        entry: TelonexSourceEntry,
+        channel: str,
+        date: str,
+        market_slug: str,
+        token_index: int,
+        outcome: str | None,
+    ) -> tuple[Path, str] | None:
+        assert entry.target is not None
+        api_key = entry.api_key or _env_value(TELONEX_API_KEY_ENV)
+        if api_key is None:
+            raise ValueError(f"{TELONEX_API_KEY_ENV} is required when using Telonex api:.")
+
+        url = self._api_url(
+            base_url=entry.target,
+            channel=channel,
+            date=date,
+            market_slug=market_slug,
+            token_index=token_index,
+            outcome=outcome,
+        )
+        with _telonex_api_slot():
+            try:
+                presigned_url = self._resolve_presigned_url(url=url, api_key=api_key)
+            except HTTPError as exc:
+                if exc.code == 404:
+                    return None
+                raise
+
+            fd, tmp_name = tempfile.mkstemp(prefix="telonex-api-", suffix=".parquet")
+            os.close(fd)
+            tmp_path = Path(tmp_name)
+            downloaded = 0
+            total_bytes: int | None = None
+            progress_url = f"telonex-api::{url}"
+            try:
+                with _telonex_file_slot():
+                    fetch_request = Request(
+                        presigned_url,
+                        headers={"User-Agent": _TELONEX_USER_AGENT},
+                    )
+                    with (
+                        urlopen(fetch_request, timeout=_TELONEX_HTTP_TIMEOUT_SECS) as response,
+                        tmp_path.open("wb") as handle,
+                    ):
+                        total_bytes_header = response.headers.get("Content-Length")
+                        total_bytes = int(total_bytes_header) if total_bytes_header else None
+                        self._download_progress(progress_url, 0, total_bytes, False)
+                        while True:
+                            chunk = response.read(_TELONEX_DOWNLOAD_CHUNK_SIZE)
+                            if not chunk:
+                                break
+                            handle.write(chunk)
+                            downloaded += len(chunk)
+                            self._download_progress(progress_url, downloaded, total_bytes, False)
+                        self._download_progress(progress_url, downloaded, total_bytes, True)
+            except HTTPError as exc:
+                tmp_path.unlink(missing_ok=True)
+                if exc.code == 404:
+                    return None
+                raise
+            except (URLError, OSError):
+                tmp_path.unlink(missing_ok=True)
+                raise
+
+        return tmp_path, progress_url
+
     def _ensure_api_day_cache_path(
         self,
         *,
@@ -1590,38 +1770,23 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
                     return None, "none"
                 raise
 
-            fetch_request = Request(presigned_url, headers={"User-Agent": _TELONEX_USER_AGENT})
             progress_url = f"telonex-api::{url}"
             try:
-                with urlopen(fetch_request, timeout=_TELONEX_HTTP_TIMEOUT_SECS) as response:
-                    total_bytes_header = response.headers.get("Content-Length")
-                    total_bytes = int(total_bytes_header) if total_bytes_header else None
-                    downloaded = 0
-                    chunks: list[bytes] = []
-                    self._download_progress(progress_url, 0, total_bytes, False)
-                    while True:
-                        chunk = response.read(_TELONEX_DOWNLOAD_CHUNK_SIZE)
-                        if not chunk:
-                            break
-                        chunks.append(chunk)
-                        downloaded += len(chunk)
-                        self._download_progress(progress_url, downloaded, total_bytes, False)
-                    self._download_progress(progress_url, downloaded, total_bytes, True)
-                    payload = b"".join(chunks)
+                self._download_api_day_to_cache(
+                    presigned_url=presigned_url,
+                    progress_url=progress_url,
+                    cache_path=cache_path,
+                    channel=channel,
+                    date=date,
+                    market_slug=market_slug,
+                    token_index=token_index,
+                    outcome=outcome,
+                )
             except HTTPError as exc:
                 if exc.code == 404:
                     return None, "none"
                 raise
 
-        self._write_api_cache_day(
-            payload=payload,
-            base_url=entry.target,
-            channel=channel,
-            date=date,
-            market_slug=market_slug,
-            token_index=token_index,
-            outcome=outcome,
-        )
         return cache_path, f"telonex-api::{url}"
 
     def _try_load_deltas_day_from_api_native(
@@ -1638,56 +1803,81 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
     ) -> tuple[list[OrderBookDeltas], Mapping[str, Sequence[object]], str] | None:
         if channel != TELONEX_FULL_BOOK_CHANNEL:
             return None
-        cache_path, source = self._ensure_api_day_cache_path(
-            entry=entry,
-            channel=channel,
-            date=date,
-            market_slug=market_slug,
-            token_index=token_index,
-            outcome=outcome,
-        )
+        cleanup_path: Path | None = None
+        try:
+            if self._resolve_api_cache_root() is None:
+                temp_result = self._download_api_day_to_temp_file(
+                    entry=entry,
+                    channel=channel,
+                    date=date,
+                    market_slug=market_slug,
+                    token_index=token_index,
+                    outcome=outcome,
+                )
+                if temp_result is None:
+                    return None
+                cache_path, source = temp_result
+                cleanup_path = cache_path
+            else:
+                cache_path, source = self._ensure_api_day_cache_path(
+                    entry=entry,
+                    channel=channel,
+                    date=date,
+                    market_slug=market_slug,
+                    token_index=token_index,
+                    outcome=outcome,
+                )
+        except (HTTPError, URLError):
+            return None
         if cache_path is None:
             return None
         try:
-            with _telonex_file_slot():
-                parquet_file = _cached_blob_parquet_file(
-                    str(cache_path), _blob_file_cache_key(str(cache_path))
-                )
-                row_groups = list(range(parquet_file.num_row_groups))
-        except (OSError, ValueError, pa.ArrowInvalid, pa.ArrowIOError):
-            return None
-        native_rows = telonex_parquet_book_snapshot_diff_rows(
-            path=str(cache_path),
-            row_groups=row_groups,
-            start_ns=int(self._normalize_to_utc(start).value),
-            end_ns=int(self._normalize_to_utc(end).value),
-        )
-        (
-            _first_snapshot_index,
-            event_indexes,
-            actions,
-            sides,
-            prices,
-            sizes,
-            flags,
-            sequences,
-            ts_events,
-            ts_inits,
-        ) = native_rows
-        delta_columns: dict[str, Sequence[object]] = {
-            "event_index": event_indexes,
-            "action": actions,
-            "side": sides,
-            "price": prices,
-            "size": sizes,
-            "flags": flags,
-            "sequence": sequences,
-            "ts_event": ts_events,
-            "ts_init": ts_inits,
-        }
-        records = self._deltas_records_from_columns(delta_columns) if event_indexes else []
-        records.sort(key=lambda record: int(record.ts_event))
-        return records, delta_columns, source
+            try:
+                with _telonex_file_slot():
+                    if cleanup_path is None:
+                        parquet_file = _cached_blob_parquet_file(
+                            str(cache_path), _blob_file_cache_key(str(cache_path))
+                        )
+                    else:
+                        parquet_file = pq.ParquetFile(cache_path)
+                    row_groups = list(range(parquet_file.num_row_groups))
+            except (OSError, ValueError, pa.ArrowInvalid, pa.ArrowIOError):
+                return None
+            native_rows = telonex_parquet_book_snapshot_diff_rows(
+                path=str(cache_path),
+                row_groups=row_groups,
+                start_ns=int(self._normalize_to_utc(start).value),
+                end_ns=int(self._normalize_to_utc(end).value),
+            )
+            (
+                _first_snapshot_index,
+                event_indexes,
+                actions,
+                sides,
+                prices,
+                sizes,
+                flags,
+                sequences,
+                ts_events,
+                ts_inits,
+            ) = native_rows
+            delta_columns: dict[str, Sequence[object]] = {
+                "event_index": event_indexes,
+                "action": actions,
+                "side": sides,
+                "price": prices,
+                "size": sizes,
+                "flags": flags,
+                "sequence": sequences,
+                "ts_event": ts_events,
+                "ts_init": ts_inits,
+            }
+            records = self._deltas_records_from_columns(delta_columns) if event_indexes else []
+            records.sort(key=lambda record: int(record.ts_event))
+            return records, delta_columns, source
+        finally:
+            if cleanup_path is not None:
+                cleanup_path.unlink(missing_ok=True)
 
     def _cached_ts_ns_for_frame(self, frame: pd.DataFrame, column_name: str) -> np.ndarray | None:
         """Return a pre-computed ts_ns array if *frame* is a memoized blob
@@ -1927,7 +2117,7 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
         )
         if cache_path is None:
             return
-        tmp_path = cache_path.with_name(f"{cache_path.name}.tmp.{os.getpid()}")
+        tmp_path = _unique_tmp_path(cache_path)
         try:
             with _telonex_file_slot():
                 cache_path.parent.mkdir(parents=True, exist_ok=True)
@@ -2076,7 +2266,7 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
         fast_frame["bid_sizes"] = bid_sizes_list
         fast_frame["ask_prices"] = ask_prices_list
         fast_frame["ask_sizes"] = ask_sizes_list
-        tmp_path = fast_path.with_name(f"{fast_path.name}.tmp.{os.getpid()}")
+        tmp_path = _unique_tmp_path(fast_path)
         try:
             with _telonex_file_slot():
                 fast_path.parent.mkdir(parents=True, exist_ok=True)
@@ -2219,6 +2409,37 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
             end_ns=end_ns,
         )
 
+    def has_complete_materialized_deltas_cache(
+        self,
+        *,
+        start: pd.Timestamp,
+        end: pd.Timestamp,
+        market_slug: str,
+        token_index: int,
+        outcome: str | None,
+    ) -> bool:
+        config = self._config()
+        checked = False
+        for date in self._date_range(start, end):
+            day_window = self._day_window(date, start=start, end=end)
+            if day_window is None:
+                continue
+            day_start, day_end = day_window
+            cache_path = self._deltas_cache_path(
+                channel=config.channel,
+                date=date,
+                market_slug=market_slug,
+                token_index=token_index,
+                outcome=outcome,
+                instrument_id=self.instrument.id,
+                start=day_start,
+                end=day_end,
+            )
+            if cache_path is None or not cache_path.exists():
+                return False
+            checked = True
+        return checked
+
     def _load_deltas_cache_day(
         self,
         *,
@@ -2244,7 +2465,10 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
             return None, "none"
         try:
             with _telonex_file_slot():
-                table = pq.read_table(cache_path)
+                table = pq.read_table(
+                    cache_path,
+                    columns=list(_TELONEX_DELTAS_CACHE_COLUMN_ORDER),
+                )
             if not _TELONEX_DELTAS_CACHE_COLUMNS.issubset(set(table.schema.names)):
                 raise ValueError("missing required deltas cache columns")
             records = self._deltas_records_from_table(table)
@@ -2287,7 +2511,7 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
         )
         if cache_path is None:
             return
-        tmp_path = cache_path.with_name(f"{cache_path.name}.tmp.{os.getpid()}")
+        tmp_path = _unique_tmp_path(cache_path)
         try:
             table = (
                 self._deltas_columns_to_table(delta_columns)
@@ -2394,7 +2618,10 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
             return None, "none"
         try:
             with _telonex_file_slot():
-                table = pq.read_table(cache_path)
+                table = pq.read_table(
+                    cache_path,
+                    columns=list(_TELONEX_TRADE_TICKS_CACHE_COLUMN_ORDER),
+                )
             if not _TELONEX_TRADE_TICKS_CACHE_COLUMNS.issubset(set(table.schema.names)):
                 raise ValueError("missing required trade tick cache columns")
             if table.num_rows == 0:
@@ -2448,7 +2675,7 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
         )
         if cache_path is None:
             return
-        tmp_path = cache_path.with_name(f"{cache_path.name}.tmp.{os.getpid()}")
+        tmp_path = _unique_tmp_path(cache_path)
         try:
             table = self._trade_ticks_to_cache_table(records)
             with _telonex_file_slot():
@@ -3806,6 +4033,7 @@ __all__ = [
     "TELONEX_API_BASE_URL_ENV",
     "TELONEX_API_WORKERS_ENV",
     "TELONEX_BLOB_SCAN_BATCH_SIZE_ENV",
+    "TELONEX_CACHE_PREFETCH_WORKERS_ENV",
     "TELONEX_CACHE_ROOT_ENV",
     "TELONEX_API_KEY_ENV",
     "TELONEX_CHANNEL_ENV",

@@ -42,6 +42,26 @@ def test_format_log_line_includes_severity_origin_and_message() -> None:
     )
 
 
+def test_format_log_line_colors_warnings_and_errors() -> None:
+    warning = format_log_line(
+        "Careful",
+        level="WARNING",
+        origin="demo.warn",
+        timestamp_ns=0,
+    )
+    error = format_log_line(
+        "Broken",
+        level="ERROR",
+        origin="demo.error",
+        timestamp_ns=0,
+    )
+
+    assert warning == (
+        "\033[1;33m1970-01-01T00:00:00.000000000Z [WARNING] demo.warn: Careful\033[0m"
+    )
+    assert error == ("\033[1;31m1970-01-01T00:00:00.000000000Z [ERROR] demo.error: Broken\033[0m")
+
+
 def test_log_message_rejects_unknown_levels() -> None:
     with pytest.raises(ValueError, match="Unsupported log level"):
         format_log_line("bad", level="NOTICE", origin="demo.test", timestamp_ns=0)

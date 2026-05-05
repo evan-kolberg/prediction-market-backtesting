@@ -24,6 +24,7 @@ from scripts import _telonex_data_download as telonex_download
 from prediction_market_extensions._runtime_log import capture_loader_events
 from prediction_market_extensions.backtesting.data_sources.telonex import (
     TELONEX_API_WORKERS_ENV,
+    TELONEX_CACHE_PREFETCH_WORKERS_ENV,
     TELONEX_CACHE_ROOT_ENV,
     TELONEX_API_KEY_ENV,
     TELONEX_FILE_WORKERS_ENV,
@@ -308,17 +309,41 @@ def test_telonex_prefetch_workers_default_and_env(monkeypatch: pytest.MonkeyPatc
     assert RunnerPolymarketTelonexBookDataLoader._resolve_prefetch_workers() == 128
 
 
+def test_telonex_cache_prefetch_workers_default_and_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv(TELONEX_CACHE_PREFETCH_WORKERS_ENV, raising=False)
+    assert RunnerPolymarketTelonexBookDataLoader._resolve_cache_prefetch_workers() == 64
+
+    monkeypatch.setenv(TELONEX_CACHE_PREFETCH_WORKERS_ENV, "11")
+    assert RunnerPolymarketTelonexBookDataLoader._resolve_cache_prefetch_workers() == 11
+
+    monkeypatch.setenv(TELONEX_CACHE_PREFETCH_WORKERS_ENV, "invalid")
+    assert RunnerPolymarketTelonexBookDataLoader._resolve_cache_prefetch_workers() == 64
+
+
+def test_telonex_api_workers_default_and_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv(TELONEX_API_WORKERS_ENV, raising=False)
+    assert RunnerPolymarketTelonexBookDataLoader._resolve_api_worker_limit() == 32
+
+    monkeypatch.setenv(TELONEX_API_WORKERS_ENV, "48")
+    assert RunnerPolymarketTelonexBookDataLoader._resolve_api_worker_limit() == 48
+
+    monkeypatch.setenv(TELONEX_API_WORKERS_ENV, "invalid")
+    assert RunnerPolymarketTelonexBookDataLoader._resolve_api_worker_limit() == 32
+
+
 def test_telonex_local_prefetch_workers_default_and_env(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.delenv(TELONEX_LOCAL_PREFETCH_WORKERS_ENV, raising=False)
-    assert RunnerPolymarketTelonexBookDataLoader._resolve_local_prefetch_workers() == 1
+    assert RunnerPolymarketTelonexBookDataLoader._resolve_local_prefetch_workers() == 4
 
     monkeypatch.setenv(TELONEX_LOCAL_PREFETCH_WORKERS_ENV, "3")
     assert RunnerPolymarketTelonexBookDataLoader._resolve_local_prefetch_workers() == 3
 
     monkeypatch.setenv(TELONEX_LOCAL_PREFETCH_WORKERS_ENV, "invalid")
-    assert RunnerPolymarketTelonexBookDataLoader._resolve_local_prefetch_workers() == 1
+    assert RunnerPolymarketTelonexBookDataLoader._resolve_local_prefetch_workers() == 4
 
 
 def test_telonex_api_url_uses_slug_and_outcome_id_without_key() -> None:
@@ -335,6 +360,82 @@ def test_telonex_api_url_uses_slug_and_outcome_id_without_key() -> None:
         "https://api.telonex.io/v1/downloads/polymarket/book_snapshot_full/2026-01-20"
         "?slug=will-the-us-strike-iran-next-433&outcome_id=1"
     )
+
+
+def test_telonex_api_native_uses_temp_file_when_cache_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(TELONEX_CACHE_ROOT_ENV, "0")
+    loader = _make_polymarket_loader()
+    payload = BytesIO()
+    pq.write_table(pa.table({"timestamp_us": [1_768_780_800_000_000]}), payload)
+    data = payload.getvalue()
+
+    class FakeResponse:
+        headers = {"Content-Length": str(len(data))}
+
+        def __init__(self) -> None:
+            self.offset = 0
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):  # type: ignore[no-untyped-def]
+            del exc_type, exc, tb
+            return False
+
+        def read(self, size: int) -> bytes:
+            chunk = data[self.offset : self.offset + size]
+            self.offset += len(chunk)
+            return chunk
+
+    monkeypatch.setattr(
+        loader,
+        "_resolve_presigned_url",
+        lambda *, url, api_key: "https://download.example.test/day.parquet",
+    )
+    monkeypatch.setattr(telonex_module, "urlopen", lambda *args, **kwargs: FakeResponse())
+
+    native_paths: list[Path] = []
+
+    def fake_native_rows(*, path, row_groups, start_ns, end_ns):  # type: ignore[no-untyped-def]
+        del row_groups, start_ns, end_ns
+        native_path = Path(path)
+        assert native_path.exists()
+        native_paths.append(native_path)
+        return (None, [], [], [], [], [], [], [], [], [])
+
+    monkeypatch.setattr(
+        telonex_module,
+        "telonex_parquet_book_snapshot_diff_rows",
+        fake_native_rows,
+    )
+
+    result = loader._try_load_deltas_day_from_api_native(
+        entry=telonex_module.TelonexSourceEntry(
+            kind="api",
+            target="https://api.example.test",
+            api_key="test-key",
+        ),
+        channel=TELONEX_FULL_BOOK_CHANNEL,
+        date="2026-01-20",
+        market_slug="api-temp-market",
+        token_index=0,
+        outcome=None,
+        start=pd.Timestamp("2026-01-20T00:00:00Z"),
+        end=pd.Timestamp("2026-01-20T23:59:59Z"),
+    )
+
+    assert result is not None
+    records, delta_columns, source = result
+    assert records == []
+    assert delta_columns["event_index"] == []
+    assert source == (
+        "telonex-api::https://api.example.test/v1/downloads/polymarket/"
+        "book_snapshot_full/2026-01-20?slug=api-temp-market&outcome_id=0"
+    )
+    assert native_paths
+    assert not native_paths[0].exists()
 
 
 def test_telonex_onchain_fills_prefer_local_store(
@@ -1070,6 +1171,64 @@ def test_telonex_materialized_deltas_cache_round_trips(
     ]
 
 
+def test_telonex_materialized_deltas_cache_writes_use_unique_temp_paths(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv(TELONEX_CACHE_ROOT_ENV, str(tmp_path))
+    monkeypatch.setenv(TELONEX_FILE_WORKERS_ENV, "2")
+    monkeypatch.setattr(telonex_module, "_TELONEX_FILE_SEMAPHORE", None)
+    loader = _make_polymarket_loader()
+    start = pd.Timestamp("2026-01-19T00:00:00Z")
+    end = pd.Timestamp("2026-01-19T23:59:59Z")
+    records = loader._book_events_from_frame(
+        pd.DataFrame(
+            {
+                "timestamp_us": [1_768_780_800_000_000],
+                "bids": [[{"price": "0.34", "size": "10"}]],
+                "asks": [[{"price": "0.39", "size": "11"}]],
+            }
+        ),
+        start=start,
+        end=end,
+    )
+    barrier = threading.Barrier(2)
+    seen_tmp_paths: list[Path] = []
+    seen_lock = threading.Lock()
+    original_write_table = telonex_module.pq.write_table
+
+    def write_table_with_barrier(table, where, *args, **kwargs):  # type: ignore[no-untyped-def]
+        with seen_lock:
+            seen_tmp_paths.append(Path(where))
+        barrier.wait(timeout=5)
+        return original_write_table(table, where, *args, **kwargs)
+
+    monkeypatch.setattr(telonex_module.pq, "write_table", write_table_with_barrier)
+
+    def write_cache() -> None:
+        loader._write_deltas_cache_day(
+            records=records,
+            channel=TELONEX_FULL_BOOK_CHANNEL,
+            date="2026-01-19",
+            market_slug="cache-test",
+            token_index=0,
+            outcome="Yes",
+            start=start,
+            end=end,
+        )
+
+    with capture_loader_events() as capture:
+        threads = [threading.Thread(target=write_cache) for _ in range(2)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=10)
+
+    assert all(not thread.is_alive() for thread in threads)
+    assert len(seen_tmp_paths) == 2
+    assert len(set(seen_tmp_paths)) == 2
+    assert not [event for event in capture.events if event.level == "ERROR"]
+
+
 def test_telonex_day_progress_emits_loader_event() -> None:
     loader = RunnerPolymarketTelonexBookDataLoader.__new__(RunnerPolymarketTelonexBookDataLoader)
     loader._telonex_market_slug = "cache-test"
@@ -1339,7 +1498,7 @@ def test_telonex_local_source_caps_day_prefetch_even_with_api_fallback(
         outcome=None,
     )
 
-    assert max_active == 1
+    assert 1 < max_active <= loader_cls._resolve_local_prefetch_workers()
     assert len(records) == 3
 
 
