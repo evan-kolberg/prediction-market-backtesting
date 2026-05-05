@@ -1,7 +1,7 @@
 # Codebase UML Inventory
 
 This file is generated from Python AST metadata and excludes `tests/`.
-Generated: 2026-05-05T18:26:07+00:00
+Generated: 2026-05-05T18:39:53+00:00
 Modules: 112 | Classes: 166 | Functions/methods: 1498
 
 ## Backtesting Data Flow
@@ -1108,7 +1108,7 @@ flowchart TD
 - Function L170: `_transfer_progress_fraction(*, mode: str | None, source: str | None = None, downloaded_bytes: int, total_bytes: int | None, scanned_batches: int) -> float`
 - Function L198: `_active_transfer_progress(downloads: dict[str, dict[str, object]]) -> tuple[int, float]`
 - Function L219: `install_timing() -> None`
-- Function L681: `_load_backtest_module(path_str: str) -> Any`
+- Function L815: `_load_backtest_module(path_str: str) -> Any`
 
 ### `prediction_market_extensions/backtesting/data_sources/__init__.py`
 - Imports: `prediction_market_extensions`

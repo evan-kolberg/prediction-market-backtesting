@@ -252,6 +252,10 @@ def install_timing() -> None:
         "parallel": False,
         "item_label": "hours",
     }
+    grouped_loader_refcounts: dict[int, int] = {}
+    grouped_loader_callbacks: dict[int, tuple[object, object]] = {}
+    grouped_active_calls = 0
+    grouped_heartbeat_thread: threading.Thread | None = None
 
     def _ensure_transfer_state(
         *, url: str, total_bytes: int | None, mode: str | None = None, hour_key: str | None = None
@@ -447,12 +451,125 @@ def install_timing() -> None:
             _close_transfer_state(url)
             _refresh_transfer_status()
 
+    def _set_dynamic_total_hours() -> None:
+        total_hours = max(
+            int(progress_state["total_hours"]),
+            len(progress_keys["started"]),
+            len(progress_keys["completed"]),
+        )
+        progress_state["total_hours"] = total_hours
+        bar = pbar_state["bar"]
+        if bar is not None:
+            bar.total = _progress_bar_total(total_hours)
+
+    def _enter_grouped_pmxt_loader_callbacks(loader) -> None:  # type: ignore[no-untyped-def]
+        key = id(loader)
+        with pbar_lock:
+            count = grouped_loader_refcounts.get(key, 0)
+            if count == 0:
+                grouped_loader_callbacks[key] = (
+                    getattr(loader, "_pmxt_download_progress_callback", None),
+                    getattr(loader, "_pmxt_scan_progress_callback", None),
+                )
+                loader._pmxt_download_progress_callback = _download_progress
+                loader._pmxt_scan_progress_callback = _scan_progress
+            grouped_loader_refcounts[key] = count + 1
+
+    def _exit_grouped_pmxt_loader_callbacks(loader) -> None:  # type: ignore[no-untyped-def]
+        key = id(loader)
+        with pbar_lock:
+            count = grouped_loader_refcounts.get(key, 0)
+            if count <= 1:
+                previous_download, previous_scan = grouped_loader_callbacks.pop(key, (None, None))
+                loader._pmxt_download_progress_callback = previous_download
+                loader._pmxt_scan_progress_callback = previous_scan
+                grouped_loader_refcounts.pop(key, None)
+                return
+            grouped_loader_refcounts[key] = count - 1
+
+    def _start_grouped_pmxt_progress(hour, *, parallel: bool) -> None:  # type: ignore[no-untyped-def]
+        nonlocal grouped_active_calls
+        nonlocal grouped_heartbeat_thread
+
+        with pbar_lock:
+            stop_event: threading.Event = transfer_state["stop"]  # type: ignore[assignment]
+            if grouped_active_calls == 0:
+                stop_event.clear()
+                progress_state["total_hours"] = 0
+                progress_state["started_hours"] = 0
+                progress_state["completed_hours"] = 0
+                transfer_state["item_label"] = "hours"
+                transfer_state["parallel"] = parallel
+                hour_keys_by_label.clear()
+                progress_keys["started"].clear()
+                progress_keys["completed"].clear()
+
+            grouped_active_calls += 1
+            _mark_hour_started(hour)
+            _set_dynamic_total_hours()
+            if pbar_state["bar"] is None:
+                pbar_state["bar"] = tqdm(
+                    total=_progress_bar_total(int(progress_state["total_hours"])),
+                    desc=_progress_bar_description(
+                        total_hours=int(progress_state["total_hours"]),
+                        started_hours=int(progress_state["started_hours"]),
+                        completed_hours=int(progress_state["completed_hours"]),
+                    ),
+                    unit="hr",
+                    leave=False,
+                    bar_format=("{l_bar}{bar}| [{elapsed}<{remaining}]{postfix}"),
+                )
+            _refresh_transfer_status()
+
+            if grouped_heartbeat_thread is None or not grouped_heartbeat_thread.is_alive():
+                grouped_heartbeat_thread = threading.Thread(
+                    target=_transfer_heartbeat,
+                    name="pmxt-grouped-timing-heartbeat",
+                    daemon=True,
+                )
+                grouped_heartbeat_thread.start()
+
+    def _finish_grouped_pmxt_progress(hour) -> None:  # type: ignore[no-untyped-def]
+        nonlocal grouped_active_calls
+        nonlocal grouped_heartbeat_thread
+
+        thread_to_join: threading.Thread | None = None
+        with pbar_lock:
+            _mark_hour_completed(hour)
+            _set_dynamic_total_hours()
+            _refresh_transfer_status()
+            grouped_active_calls = max(0, grouped_active_calls - 1)
+            if grouped_active_calls == 0:
+                stop_event: threading.Event = transfer_state["stop"]  # type: ignore[assignment]
+                stop_event.set()
+                downloads: dict[str, dict[str, object]] = transfer_state["downloads"]  # type: ignore[assignment]
+                downloads.clear()
+                transfer_state["parallel"] = False
+                transfer_state["item_label"] = "hours"
+                progress_state["total_hours"] = 0
+                progress_state["started_hours"] = 0
+                progress_state["completed_hours"] = 0
+                hour_keys_by_label.clear()
+                progress_keys["started"].clear()
+                progress_keys["completed"].clear()
+                bar = pbar_state["bar"]
+                if bar is not None:
+                    bar.clear(nolock=True)
+                    bar.set_postfix_str("", refresh=False)
+                    bar.close()
+                    pbar_state["bar"] = None
+                thread_to_join = grouped_heartbeat_thread
+                grouped_heartbeat_thread = None
+        if thread_to_join is not None:
+            thread_to_join.join(timeout=1.0)
+
     def _install_full_timing(loader_cls) -> None:  # type: ignore[no-untyped-def]
         orig_load = loader_cls._load_market_batches
         orig_cached = loader_cls._load_cached_market_batches
         orig_local_archive = loader_cls._load_local_archive_market_batches
         orig_remote = loader_cls._load_remote_market_batches
         orig_iter = loader_cls._iter_market_batches
+        orig_shared = getattr(loader_cls, "load_shared_market_batches_for_hour", None)
 
         def patched_cached(self, hour):
             return orig_cached(self, hour)
@@ -543,6 +660,23 @@ def install_timing() -> None:
         loader_cls._load_remote_market_batches = patched_remote
         loader_cls._load_market_batches = timed_load
         loader_cls._iter_market_batches = patched_iter
+
+        if callable(orig_shared):
+
+            def patched_shared(self, hour, *, requests, batch_size):  # type: ignore[no-untyped-def]
+                if not _loader_progress_enabled():
+                    return orig_shared(self, hour, requests=requests, batch_size=batch_size)
+
+                parallel = min(getattr(self, "_pmxt_prefetch_workers", 1), 2) > 1
+                _enter_grouped_pmxt_loader_callbacks(self)
+                _start_grouped_pmxt_progress(hour, parallel=parallel)
+                try:
+                    return orig_shared(self, hour, requests=requests, batch_size=batch_size)
+                finally:
+                    _finish_grouped_pmxt_progress(hour)
+                    _exit_grouped_pmxt_loader_callbacks(self)
+
+            loader_cls.load_shared_market_batches_for_hour = patched_shared
 
     def _install_runner_local_archive_timing(loader_cls) -> None:  # type: ignore[no-untyped-def]
         orig_local_archive = loader_cls._load_local_archive_market_batches

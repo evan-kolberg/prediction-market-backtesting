@@ -192,9 +192,13 @@ def test_install_timing_patches_runner_loader_override() -> None:
     runner_originals = {
         name: getattr(RunnerPolymarketPMXTDataLoader, name) for name in method_names
     }
+    runner_shared_original = RunnerPolymarketPMXTDataLoader.load_shared_market_batches_for_hour
     runner_had_own = {
         name: name in RunnerPolymarketPMXTDataLoader.__dict__ for name in method_names
     }
+    runner_had_shared = (
+        "load_shared_market_batches_for_hour" in RunnerPolymarketPMXTDataLoader.__dict__
+    )
 
     try:
         timing_module.install_timing()
@@ -211,6 +215,10 @@ def test_install_timing_patches_runner_loader_override() -> None:
             PolymarketPMXTDataLoader._load_market_batches
             is not base_originals["_load_market_batches"]
         )
+        assert (
+            RunnerPolymarketPMXTDataLoader.load_shared_market_batches_for_hour
+            is not runner_shared_original
+        )
     finally:
         timing_module._installed = False
         for name, original in base_originals.items():
@@ -220,6 +228,12 @@ def test_install_timing_patches_runner_loader_override() -> None:
                 setattr(RunnerPolymarketPMXTDataLoader, name, original)
             elif name in RunnerPolymarketPMXTDataLoader.__dict__:
                 delattr(RunnerPolymarketPMXTDataLoader, name)
+        if runner_had_shared:
+            RunnerPolymarketPMXTDataLoader.load_shared_market_batches_for_hour = (
+                runner_shared_original
+            )
+        elif "load_shared_market_batches_for_hour" in RunnerPolymarketPMXTDataLoader.__dict__:
+            delattr(RunnerPolymarketPMXTDataLoader, "load_shared_market_batches_for_hour")
 
 
 def test_install_timing_patches_telonex_loader() -> None:
