@@ -244,6 +244,7 @@ def test_grouped_pmxt_timing_drives_tqdm_progress(monkeypatch) -> None:
         RunnerPolymarketPMXTDataLoader,
     )
 
+    monkeypatch.delenv("BACKTEST_LOADER_PROGRESS", raising=False)
     timing_module = importlib.reload(timing_module)
     updates: list[object] = []
 

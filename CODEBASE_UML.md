@@ -1,7 +1,7 @@
 # Codebase UML Inventory
 
 This file is generated from Python AST metadata and excludes `tests/`.
-Generated: 2026-05-05T19:01:58+00:00
+Generated: 2026-05-05T19:09:01+00:00
 Modules: 112 | Classes: 166 | Functions/methods: 1508
 
 ## Backtesting Data Flow
@@ -1655,9 +1655,9 @@ flowchart TD
 - Function L48: `_replays_for_vendor(vendor: str, *, limit: int | None = None, offset: int = 0) -> tuple[Any, ...]`
 - Function L94: `_build_backtest(*, vendor: str, source: str, source_limit: int | None = None, source_offset: int = 0) -> Any`
 - Function L204: `_apply_worker_env(args: argparse.Namespace) -> None`
-- Function L228: `async _load_once(args: argparse.Namespace) -> dict[str, Any]`
-- Function L287: `_parser() -> argparse.ArgumentParser`
-- Function L313: `main(argv: Sequence[str] | None = None) -> int`
+- Function L229: `async _load_once(args: argparse.Namespace) -> dict[str, Any]`
+- Function L295: `_parser() -> argparse.ArgumentParser`
+- Function L322: `main(argv: Sequence[str] | None = None) -> int`
 - Class L136: `MemorySampler`
   - Method L137: `__init__(self, *, interval_secs: float, limit_gb: float | None, time_limit_secs: float | None) -> None`
   - Method L153: `start(self) -> None`

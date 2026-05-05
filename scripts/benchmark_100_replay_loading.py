@@ -204,8 +204,9 @@ class MemorySampler:
 def _apply_worker_env(args: argparse.Namespace) -> None:
     _set_env("BACKTEST_REPLAY_LOAD_WORKERS", args.replay_workers)
     _set_env("BACKTEST_REPLAY_MATERIALIZE_WORKERS", args.materialize_workers)
-    _set_env("BACKTEST_LOADER_PROGRESS", "0")
-    _set_env("BACKTEST_ENABLE_TIMING", "0")
+    show_progress = args.show_progress or args.show_events
+    _set_env("BACKTEST_LOADER_PROGRESS", "1" if show_progress else "0")
+    _set_env("BACKTEST_ENABLE_TIMING", "1" if show_progress else "0")
     if args.source in {"api", "local"}:
         if args.vendor == "telonex":
             _set_env("TELONEX_CACHE_ROOT", "0")
@@ -227,6 +228,13 @@ def _apply_worker_env(args: argparse.Namespace) -> None:
 
 async def _load_once(args: argparse.Namespace) -> dict[str, Any]:
     from prediction_market_extensions._runtime_log import loader_event_sinks
+
+    if args.show_progress or args.show_events:
+        from prediction_market_extensions.backtesting._timing_harness import (
+            install_timing_harness,
+        )
+
+        install_timing_harness()
 
     backtest = _build_backtest(
         vendor=args.vendor,
@@ -304,6 +312,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--limit", type=int)
     parser.add_argument("--offset", type=int, default=0)
     parser.add_argument("--show-events", action="store_true")
+    parser.add_argument("--show-progress", action="store_true")
     parser.add_argument("--sample-interval", type=float, default=0.5)
     parser.add_argument("--memory-limit-gb", type=float, default=24.0)
     parser.add_argument("--time-limit-secs", type=float)

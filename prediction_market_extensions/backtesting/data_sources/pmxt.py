@@ -477,7 +477,7 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
             downloaded,
             batch_size=batch_size,
             progress_source=str(downloaded),
-            total_bytes=self._progress_total_bytes(str(downloaded)),
+            total_bytes=self._progress_total_bytes(str(downloaded)) or downloaded.stat().st_size,
         )
 
     def _download_remote_raw_to_local_root(
