@@ -119,15 +119,8 @@ def _resolve_replay_load_workers(replay_count: int) -> int:
 
 @contextmanager
 def _loader_progress_env_for_workers(workers: int) -> Iterator[None]:
-    if workers <= 1 or LOADER_PROGRESS_ENV in os.environ:
-        yield
-        return
-
-    os.environ[LOADER_PROGRESS_ENV] = "0"
-    try:
-        yield
-    finally:
-        os.environ.pop(LOADER_PROGRESS_ENV, None)
+    del workers
+    yield
 
 
 def _warn_on_large_loaded_gap(loaded_sim: LoadedReplay) -> None:

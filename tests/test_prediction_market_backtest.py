@@ -245,11 +245,11 @@ def test_replay_load_worker_cap_allows_100_market_source_fanout(monkeypatch) -> 
     assert _resolve_replay_load_workers(256) == 128
 
 
-def test_parallel_loading_temporarily_suppresses_loader_progress(monkeypatch) -> None:
+def test_parallel_loading_preserves_default_loader_progress(monkeypatch) -> None:
     monkeypatch.delenv("BACKTEST_LOADER_PROGRESS", raising=False)
 
     with _loader_progress_env_for_workers(2):
-        assert os.environ["BACKTEST_LOADER_PROGRESS"] == "0"
+        assert "BACKTEST_LOADER_PROGRESS" not in os.environ
 
     assert "BACKTEST_LOADER_PROGRESS" not in os.environ
 

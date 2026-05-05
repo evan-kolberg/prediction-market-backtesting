@@ -49,7 +49,6 @@ from prediction_market_extensions._runtime_log import (
     emit_loader_event,
     emit_loader_progress_snapshot,
     format_progress_bar,
-    loader_progress_enabled,
 )
 from prediction_market_extensions.adapters.polymarket.loaders import PolymarketDataLoader
 from prediction_market_extensions.backtesting.data_sources._common import (
@@ -684,9 +683,6 @@ class RunnerPolymarketTelonexBookDataLoader(PolymarketDataLoader):
         return telonex_stage_for_source(source)
 
     def _emit_day_progress_bar(self, date: str, event: str, source: str, rows: int) -> None:
-        if not loader_progress_enabled():
-            return
-
         position = 0 if event == "start" else 1
         source_kind = self._telonex_source_kind(source)
         source_label = f" {source}" if source != "none" else ""

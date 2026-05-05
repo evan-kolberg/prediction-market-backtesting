@@ -19,7 +19,6 @@ import pyarrow.parquet as pq
 from prediction_market_extensions._runtime_log import (
     emit_loader_event,
     format_progress_bar,
-    loader_progress_enabled,
     loader_progress_logs_enabled,
 )
 from prediction_market_extensions.adapters.polymarket.pmxt import PolymarketPMXTDataLoader
@@ -1161,9 +1160,6 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
         request_count: int,
         rows: int | None = None,
     ) -> None:  # type: ignore[no-untyped-def]
-        if not loader_progress_enabled():
-            return
-
         safe_total = max(1, int(total))
         safe_position = min(safe_total, max(0, int(position)))
         hour_label = self._hour_label(hour)

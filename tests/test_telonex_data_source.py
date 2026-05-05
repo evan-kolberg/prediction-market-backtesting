@@ -1245,7 +1245,7 @@ def test_telonex_materialized_deltas_cache_writes_use_unique_temp_paths(
 
 
 def test_telonex_day_progress_emits_loader_event(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("BACKTEST_LOADER_PROGRESS", "1")
+    monkeypatch.setenv("BACKTEST_LOADER_PROGRESS", "0")
     loader = RunnerPolymarketTelonexBookDataLoader.__new__(RunnerPolymarketTelonexBookDataLoader)
     loader._telonex_market_slug = "cache-test"
     loader._telonex_token_index = 0
