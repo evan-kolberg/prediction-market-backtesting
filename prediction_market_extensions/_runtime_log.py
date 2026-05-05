@@ -246,14 +246,6 @@ def _format_progress_bytes(value: int | None) -> str:
     return "?" if formatted is None else formatted.removeprefix("(").removesuffix(")")
 
 
-def format_progress_bar(position: float, total: int, *, width: int = 24) -> str:
-    if total <= 0:
-        return "[" + ("-" * width) + "]"
-    fraction = min(1.0, max(0.0, position / float(total)))
-    filled = min(width, max(0, int(round(fraction * width))))
-    return "[" + ("#" * filled) + ("-" * (width - filled)) + "]"
-
-
 def _progress_source_time_label(source: str) -> str | None:
     for pattern in (r"\d{4}-\d{2}-\d{2}T\d{2}", r"\d{4}-\d{2}-\d{2}"):
         match = re.search(pattern, source)

@@ -38,9 +38,9 @@ _LOADER_PROGRESS_LOG_INTERVAL_ENV = "BACKTEST_LOADER_PROGRESS_LOG_INTERVAL"
 _DEFAULT_PROGRESS_LOG_INTERVAL_SECS = 2.0
 
 
-def _env_flag_enabled(value: str | None) -> bool:
+def _env_flag_enabled(value: str | None, *, default: bool = True) -> bool:
     if value is None:
-        return True
+        return default
     return value.strip().casefold() not in {"0", "false", "no", "off"}
 
 
@@ -49,7 +49,7 @@ def _loader_progress_enabled() -> bool:
 
 
 def _loader_progress_lines_enabled() -> bool:
-    return _env_flag_enabled(os.getenv(_LOADER_PROGRESS_LINES_ENV))
+    return _env_flag_enabled(os.getenv(_LOADER_PROGRESS_LINES_ENV), default=False)
 
 
 def _loader_progress_log_interval_secs() -> float:
@@ -573,7 +573,8 @@ def install_timing() -> None:
 
         with pbar_lock:
             stop_event: threading.Event = transfer_state["stop"]  # type: ignore[assignment]
-            if grouped_active_calls == 0:
+            first_active_call = grouped_active_calls == 0
+            if first_active_call:
                 stop_event.clear()
                 progress_state["total_hours"] = 0
                 progress_state["started_hours"] = 0
@@ -599,10 +600,11 @@ def install_timing() -> None:
                     ),
                     unit="hr",
                     leave=False,
+                    disable=not sys.stderr.isatty(),
                     bar_format=("{l_bar}{bar}| [{elapsed}<{remaining}]{postfix}"),
                 )
             _refresh_transfer_status(emit_line=False)
-            _emit_plain_progress_line(force=True)
+            _emit_plain_progress_line(force=first_active_call)
 
             if grouped_heartbeat_thread is None or not grouped_heartbeat_thread.is_alive():
                 grouped_heartbeat_thread = threading.Thread(
@@ -621,8 +623,8 @@ def install_timing() -> None:
             _mark_hour_completed(hour)
             _set_dynamic_total_hours()
             _refresh_transfer_status(emit_line=False)
-            _emit_plain_progress_line(force=True)
             grouped_active_calls = max(0, grouped_active_calls - 1)
+            _emit_plain_progress_line(force=grouped_active_calls == 0)
             if grouped_active_calls == 0:
                 stop_event: threading.Event = transfer_state["stop"]  # type: ignore[assignment]
                 stop_event.set()
@@ -707,6 +709,7 @@ def install_timing() -> None:
                     ),
                     unit="hr",
                     leave=False,
+                    disable=not sys.stderr.isatty(),
                     bar_format=("{l_bar}{bar}| [{elapsed}<{remaining}]{postfix}"),
                 )
                 previous_callback = getattr(self, "_pmxt_download_progress_callback", None)
@@ -785,13 +788,16 @@ def install_timing() -> None:
                     if event == "start":
                         _mark_hour_started(date)
                         _refresh_transfer_status(emit_line=False)
-                        _emit_plain_progress_line(force=True)
+                        _emit_plain_progress_line()
                         return
                     if event != "complete":
                         return
                     _mark_hour_completed(date)
                     _refresh_transfer_status(emit_line=False)
-                    _emit_plain_progress_line(force=True)
+                    _emit_plain_progress_line(
+                        force=int(progress_state["completed_hours"])
+                        >= int(progress_state["total_hours"])
+                    )
 
             with pbar_lock:
                 stop_event: threading.Event = transfer_state["stop"]  # type: ignore[assignment]
@@ -818,6 +824,7 @@ def install_timing() -> None:
                     ),
                     unit="day",
                     leave=False,
+                    disable=not sys.stderr.isatty(),
                     bar_format=("{l_bar}{bar}| [{elapsed}<{remaining}]{postfix}"),
                 )
                 previous_download_callback = getattr(
