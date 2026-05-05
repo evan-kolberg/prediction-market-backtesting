@@ -114,6 +114,24 @@ def test_format_loader_event_message_unifies_telonex_local_day() -> None:
     )
 
 
+def test_format_loader_event_message_omits_start_rows() -> None:
+    event = LoaderEvent(
+        level="INFO",
+        message="Telonex day start for 2026-04-21: 0 rows from none",
+        origin="telonex.load",
+        timestamp_ns=0,
+        stage="fetch",
+        vendor="telonex",
+        status="start",
+        platform="polymarket",
+        data_type="book",
+        rows=0,
+        attrs={"date": "2026-04-21"},
+    )
+
+    assert format_loader_event_message(event) == "Telonex book start 2026-04-21"
+
+
 def test_format_loader_event_message_includes_raw_copy_error_context() -> None:
     event = LoaderEvent(
         level="ERROR",
@@ -135,6 +153,53 @@ def test_format_loader_event_message_includes_raw_copy_error_context() -> None:
         "PMXT book raw copy error 2026-04-21T01:00:00+00:00 "
         "archive:https://r2.pmxt.dev/hour.parquet -> /tmp/raw/hour.parquet "
         "error=Permission denied"
+    )
+
+
+def test_format_loader_event_message_unifies_metadata_fetch() -> None:
+    event = LoaderEvent(
+        level="INFO",
+        message="Fetching Polymarket Gamma events page offset=0 limit=100",
+        origin="loaders.fetch_events",
+        timestamp_ns=0,
+        stage="discover",
+        vendor="polymarket",
+        status="start",
+        platform="polymarket",
+        data_type="metadata",
+        source_kind="remote",
+        source="https://gamma-api.polymarket.com/events",
+    )
+
+    assert format_loader_event_message(event) == (
+        "Polymarket metadata discover start api https://gamma-api.polymarket.com/events"
+    )
+
+
+def test_format_loader_event_message_unifies_raw_copy_skip_reason() -> None:
+    event = LoaderEvent(
+        level="INFO",
+        message="Skipping PMXT raw archive copy for 2026-04-21T01:00:00+00:00",
+        origin="pmxt.raw",
+        timestamp_ns=0,
+        stage="raw_write",
+        vendor="pmxt",
+        status="skip",
+        platform="polymarket",
+        data_type="book",
+        source_kind="local",
+        source="archive:https://r2.pmxt.dev/hour.parquet",
+        cache_path="/Volumes/storage/pmxt_data/hour.parquet",
+        attrs={
+            "hour": "2026-04-21T01:00:00+00:00",
+            "reason": "raw persistence root unavailable: /Volumes/storage/pmxt_data",
+        },
+    )
+
+    assert format_loader_event_message(event) == (
+        "PMXT book raw copy skip 2026-04-21T01:00:00+00:00 "
+        "archive:https://r2.pmxt.dev/hour.parquet -> /Volumes/storage/pmxt_data/hour.parquet "
+        "reason=raw persistence root unavailable: /Volumes/storage/pmxt_data"
     )
 
 

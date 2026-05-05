@@ -155,9 +155,6 @@ _VENDOR_LABELS = {
     "telonex": "Telonex",
     "polymarket": "Polymarket",
 }
-_SOURCE_KIND_LABELS = {
-    "remote": "archive",
-}
 _STATUS_LABELS = {
     "cache_hit": "cache hit",
     "cache_miss": "cache miss",
@@ -168,10 +165,13 @@ def _format_status(value: str) -> str:
     return _STATUS_LABELS.get(value, value.replace("_", " "))
 
 
-def _format_source_kind(value: str | None) -> str | None:
+def _format_source_kind(event: LoaderEvent) -> str | None:
+    value = event.source_kind
     if value is None:
         return None
-    return _SOURCE_KIND_LABELS.get(value, value.replace("_", " "))
+    if value == "remote":
+        return "archive" if event.vendor == "pmxt" else "api"
+    return value.replace("_", " ")
 
 
 def _format_elapsed_ms(elapsed_ms: float | None) -> str | None:
@@ -228,7 +228,16 @@ def _event_error(event: LoaderEvent) -> str | None:
     return str(value)
 
 
+def _event_reason(event: LoaderEvent) -> str | None:
+    value = event.attrs.get("reason")
+    if value is None:
+        return None
+    return str(value)
+
+
 def _event_count_label(event: LoaderEvent) -> str | None:
+    if event.status == "start":
+        return None
     if event.rows is not None:
         return _format_int_count(event.rows, "rows")
     if event.book_events is not None:
@@ -242,7 +251,7 @@ def _event_location_label(event: LoaderEvent) -> str | None:
     source_label = event.attrs.get("source_label")
     if source_label is not None:
         return str(source_label)
-    source_kind = _format_source_kind(event.source_kind)
+    source_kind = _format_source_kind(event)
     if event.stage == "raw_write" and event.source and event.cache_path:
         return f"{event.source} -> {event.cache_path}"
     if event.cache_path:
@@ -270,10 +279,14 @@ def _event_operation_label(event: LoaderEvent) -> str:
     if event.stage == "raw_write":
         return f"raw copy {status}"
     if event.stage == "fetch":
-        source_kind = _format_source_kind(event.source_kind)
+        if event.data_type == "metadata":
+            return f"fetch {status}"
+        source_kind = _format_source_kind(event)
         if source_kind is not None:
             return f"{source_kind} {status}"
         return status
+    if event.stage == "discover":
+        return f"discover {status}"
     if event.stage == "runtime":
         return status
     return f"{event.stage.replace('_', ' ')} {status}"
@@ -282,7 +295,7 @@ def _event_operation_label(event: LoaderEvent) -> str:
 def _should_format_loader_event(event: LoaderEvent) -> bool:
     if event.vendor not in _STRUCTURED_CONSOLE_VENDORS:
         return False
-    if event.vendor == "polymarket" and event.trade_ticks is None:
+    if event.vendor == "polymarket" and event.trade_ticks is None and event.data_type != "metadata":
         return False
     if event.stage == "runtime":
         return False
@@ -329,6 +342,9 @@ def format_loader_event_message(event: LoaderEvent) -> str:
     error = _event_error(event)
     if error:
         parts.append(f"error={error}")
+    reason = _event_reason(event)
+    if reason:
+        parts.append(f"reason={reason}")
 
     return " ".join(parts)
 

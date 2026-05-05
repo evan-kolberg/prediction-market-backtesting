@@ -333,6 +333,21 @@ def test_telonex_api_workers_default_and_env(monkeypatch: pytest.MonkeyPatch) ->
     assert RunnerPolymarketTelonexBookDataLoader._resolve_api_worker_limit() == 32
 
 
+def test_telonex_file_workers_default_scales_with_fd_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv(TELONEX_FILE_WORKERS_ENV, raising=False)
+    monkeypatch.setattr(telonex_module, "_soft_open_file_limit", lambda: 256)
+
+    assert RunnerPolymarketTelonexBookDataLoader._resolve_file_worker_limit() == 8
+
+    monkeypatch.setenv(TELONEX_FILE_WORKERS_ENV, "17")
+    assert RunnerPolymarketTelonexBookDataLoader._resolve_file_worker_limit() == 17
+
+    monkeypatch.setenv(TELONEX_FILE_WORKERS_ENV, "invalid")
+    assert RunnerPolymarketTelonexBookDataLoader._resolve_file_worker_limit() == 8
+
+
 def test_telonex_local_prefetch_workers_default_and_env(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

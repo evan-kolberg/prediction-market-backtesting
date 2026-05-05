@@ -132,8 +132,14 @@ def test_polymarket_clob_market_fetch_logs_source(capsys) -> None:
 
     assert details == {"condition_id": "0xcondition"}
     assert client.requests == [("https://clob.polymarket.com/markets/0xcondition", None)]
-    assert "[INFO] loaders._fetch_market_details: Fetching Polymarket CLOB market details" in output
-    assert "[INFO] loaders._fetch_market_details: Loaded Polymarket CLOB market details" in output
+    assert (
+        "[INFO] loaders._fetch_market_details: Polymarket metadata discover start "
+        "api https://clob.polymarket.com/markets"
+    ) in output
+    assert (
+        "[INFO] loaders._fetch_market_details: Polymarket metadata discover complete "
+        "api https://clob.polymarket.com/markets"
+    ) in output
 
 
 def test_polymarket_gamma_event_fetch_logs_source(capsys) -> None:
@@ -144,8 +150,14 @@ def test_polymarket_gamma_event_fetch_logs_source(capsys) -> None:
 
     assert event == {"slug": "demo-event", "markets": []}
     assert client.requests == [("https://gamma-api.polymarket.com/events", {"slug": "demo-event"})]
-    assert "[INFO] loaders._fetch_event_by_slug: Fetching Polymarket Gamma event" in output
-    assert "[INFO] loaders._fetch_event_by_slug: Loaded Polymarket Gamma event" in output
+    assert (
+        "[INFO] loaders._fetch_event_by_slug: Polymarket metadata discover start "
+        "api https://gamma-api.polymarket.com/events"
+    ) in output
+    assert (
+        "[INFO] loaders._fetch_event_by_slug: Polymarket metadata discover complete "
+        "(1 rows) api https://gamma-api.polymarket.com/events"
+    ) in output
 
 
 def test_polymarket_gamma_list_fetches_log_pages(capsys) -> None:
@@ -169,8 +181,14 @@ def test_polymarket_gamma_list_fetches_log_pages(capsys) -> None:
             },
         )
     ]
-    assert "[INFO] loaders.fetch_events: Fetching Polymarket Gamma events page" in events_output
-    assert "[INFO] loaders.fetch_events: Loaded Polymarket Gamma events page" in events_output
+    assert (
+        "[INFO] loaders.fetch_events: Polymarket metadata discover start "
+        "api https://gamma-api.polymarket.com/events"
+    ) in events_output
+    assert (
+        "[INFO] loaders.fetch_events: Polymarket metadata discover complete "
+        "(1 rows) api https://gamma-api.polymarket.com/events"
+    ) in events_output
 
     markets_client = _FakeHttpClient([{"slug": "market-a"}])
     markets_loader = object.__new__(PolymarketDataLoader)
@@ -192,8 +210,14 @@ def test_polymarket_gamma_list_fetches_log_pages(capsys) -> None:
             },
         )
     ]
-    assert "[INFO] loaders.fetch_markets: Fetching Polymarket Gamma markets page" in markets_output
-    assert "[INFO] loaders.fetch_markets: Loaded Polymarket Gamma markets page" in markets_output
+    assert (
+        "[INFO] loaders.fetch_markets: Polymarket metadata discover start "
+        "api https://gamma-api.polymarket.com/markets"
+    ) in markets_output
+    assert (
+        "[INFO] loaders.fetch_markets: Polymarket metadata discover complete "
+        "(1 rows) api https://gamma-api.polymarket.com/markets"
+    ) in markets_output
 
 
 def test_from_market_slug_uses_run_metadata_cache_and_sanitizes_resolution(

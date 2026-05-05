@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import os
 import re
+import resource
 import tempfile
 import threading
 import time
 import warnings
 from collections.abc import Iterator, Mapping, Sequence
 from concurrent.futures import Future, ThreadPoolExecutor
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import UTC
@@ -78,6 +79,9 @@ _TELONEX_DEFAULT_LOCAL_PREFETCH_WORKERS = 4
 _TELONEX_DEFAULT_CACHE_PREFETCH_WORKERS = 64
 _TELONEX_DEFAULT_API_WORKERS = 32
 _TELONEX_DEFAULT_FILE_WORKERS = 28
+_TELONEX_FILE_WORKER_FD_RESERVE = 96
+_TELONEX_FDS_PER_FILE_WORKER = 20
+_TELONEX_BLOB_PARQUET_FILE_CACHE_SIZE = 2
 _TELONEX_DEFAULT_MAX_BLOB_PART_BYTES = 0
 _TELONEX_DEFAULT_BLOB_SCAN_BATCH_SIZE = 4_096
 _TELONEX_DOWNLOAD_CHUNK_SIZE = 1024 * 1024
@@ -198,11 +202,30 @@ def _resolve_api_workers() -> int:
 def _resolve_file_workers() -> int:
     configured = _env_value(TELONEX_FILE_WORKERS_ENV)
     if configured is None:
-        return _TELONEX_DEFAULT_FILE_WORKERS
+        return _default_file_workers()
     try:
         return max(1, int(configured))
     except ValueError:
+        return _default_file_workers()
+
+
+def _soft_open_file_limit() -> int | None:
+    try:
+        soft_limit, _hard_limit = resource.getrlimit(resource.RLIMIT_NOFILE)
+    except (OSError, ValueError):
+        return None
+    if soft_limit == resource.RLIM_INFINITY:
+        return None
+    return int(soft_limit)
+
+
+def _default_file_workers() -> int:
+    soft_limit = _soft_open_file_limit()
+    if soft_limit is None:
         return _TELONEX_DEFAULT_FILE_WORKERS
+    budget = max(1, soft_limit - _TELONEX_FILE_WORKER_FD_RESERVE)
+    fd_limited_workers = max(1, budget // _TELONEX_FDS_PER_FILE_WORKER)
+    return max(1, min(_TELONEX_DEFAULT_FILE_WORKERS, fd_limited_workers))
 
 
 def _release_arrow_memory() -> None:
@@ -284,7 +307,12 @@ def _cached_blob_parquet_file(path: str, cache_key: tuple[str, int, int]) -> pq.
     if cached is not None:
         return cached
     parquet_file = pq.ParquetFile(path, memory_map=True)
-    if len(cache) >= 8:
+    if len(cache) >= _TELONEX_BLOB_PARQUET_FILE_CACHE_SIZE:
+        for cached_file in cache.values():
+            close = getattr(cached_file, "close", None)
+            if close is not None:
+                with suppress(Exception):
+                    close()
         cache.clear()
     cache[cache_key] = parquet_file
     return parquet_file

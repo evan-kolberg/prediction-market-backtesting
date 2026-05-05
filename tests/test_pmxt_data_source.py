@@ -663,6 +663,57 @@ def test_runner_loader_grouped_remote_uses_temp_when_raw_copy_fails(
     ]
 
 
+def test_runner_loader_grouped_remote_skips_raw_copy_when_raw_root_unavailable(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    loader = _make_loader(cache_dir=tmp_path / "cache", raw_root=tmp_path / "missing-raw-root")
+    hour = pd.Timestamp("2026-03-21T12:00:00Z")
+    loader._pmxt_ordered_source_entries = (("raw-remote", "https://archive.vendor.test"),)
+    requests = ((0, "0x" + ("a" * 64), "token-a"),)
+    downloaded: list[tuple[str, Path]] = []
+    loaded: dict[str, object] = {}
+
+    def fail_raw_copy(_archive_url: str, _raw_path: Path, _hour) -> Path | None:
+        raise AssertionError("unavailable raw root should use temporary archive download")
+
+    def fake_download(url: str, destination: Path) -> int:
+        downloaded.append((url, destination))
+        destination.write_bytes(b"raw")
+        return 3
+
+    def fake_load_shared(
+        raw_path: Path,
+        *,
+        requests,
+        batch_size: int,
+    ):
+        loaded["raw_path"] = raw_path
+        loaded["exists_during_load"] = raw_path.exists()
+        loaded["batch_size"] = batch_size
+        return {request_id: [] for request_id, _, _ in requests}
+
+    monkeypatch.setattr(loader, "_raw_root_can_persist", lambda _raw_root: False)
+    monkeypatch.setattr(loader, "_download_remote_raw_to_local_root", fail_raw_copy)
+    monkeypatch.setattr(loader, "_download_to_file_with_progress", fake_download)
+    monkeypatch.setattr(loader, "_load_shared_market_batches_from_raw_file", fake_load_shared)
+
+    with capture_loader_events() as capture:
+        batches_by_request = loader.load_shared_market_batches_for_hour(
+            hour,
+            requests=requests,
+            batch_size=1_000,
+        )
+
+    assert batches_by_request == {0: []}
+    assert len(downloaded) == 1
+    assert loaded["exists_during_load"] is True
+    assert loaded["batch_size"] == 1_000
+    assert Path(loaded["raw_path"]).is_relative_to(tmp_path / "cache" / ".pmxt-temp-downloads")
+    raw_write_events = [event for event in capture.events if event.stage == "raw_write"]
+    assert [(event.status, event.source_kind) for event in raw_write_events] == [("skip", "local")]
+    assert raw_write_events[0].attrs["reason"].startswith("raw persistence root unavailable")
+
+
 def test_runner_loader_emits_source_events_from_direct_call_sites(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

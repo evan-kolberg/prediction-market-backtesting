@@ -375,6 +375,42 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
         return None
 
     @staticmethod
+    def _raw_root_can_persist(raw_root: Path) -> bool:
+        root = raw_root.expanduser()
+        try:
+            if root.exists():
+                return root.is_dir() and os.access(root, os.W_OK | os.X_OK)
+
+            parent = root.parent
+            while parent != parent.parent and not parent.exists():
+                parent = parent.parent
+            return parent.exists() and os.access(parent, os.W_OK | os.X_OK)
+        except OSError:
+            return False
+
+    def _emit_raw_persistence_skip(self, archive_url: str, raw_path: Path, hour) -> None:  # type: ignore[no-untyped-def]
+        raw_root = self._raw_persistence_root()
+        reason = (
+            f"raw persistence root unavailable: {raw_root}"
+            if raw_root is not None
+            else "raw persistence root unavailable"
+        )
+        emit_loader_event(
+            f"Skipping PMXT raw archive copy for {self._hour_label(hour)}",
+            stage="raw_write",
+            status="skip",
+            vendor="pmxt",
+            platform="polymarket",
+            data_type="book",
+            source_kind="local",
+            source=f"archive:{archive_url}",
+            cache_path=str(raw_path),
+            condition_id=getattr(self, "condition_id", None),
+            token_id=getattr(self, "token_id", None),
+            attrs=self._pmxt_source_attrs(hour, {"reason": reason}),
+        )
+
+    @staticmethod
     @contextmanager
     def _raw_download_lock(raw_path: Path) -> Iterator[None]:
         key = str(raw_path.expanduser())
@@ -412,6 +448,10 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
                 progress_source=str(raw_path),
                 total_bytes=self._progress_total_bytes(str(raw_path)),
             )
+
+        if not self._raw_root_can_persist(raw_root):
+            self._emit_raw_persistence_skip(archive_url, raw_path, hour)
+            return None
 
         with self._raw_download_lock(raw_path):
             if raw_path.exists():
@@ -656,6 +696,10 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
             return raw_path
 
         archive_url = self._archive_url_for_base_url(target, hour)
+        if not self._raw_root_can_persist(raw_root):
+            self._emit_raw_persistence_skip(archive_url, raw_path, hour)
+            return None
+
         with self._raw_download_lock(raw_path):
             if raw_path.exists():
                 return raw_path
@@ -692,6 +736,10 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
             return raw_path
 
         archive_url = self._archive_url_for_base_url(str(remote_url), hour)
+        if not self._raw_root_can_persist(raw_root):
+            self._emit_raw_persistence_skip(archive_url, raw_path, hour)
+            return None
+
         with self._raw_download_lock(raw_path):
             if raw_path.exists():
                 return raw_path
@@ -1052,20 +1100,25 @@ class RunnerPolymarketPMXTDataLoader(PolymarketPMXTDataLoader):
                     batch_size=batch_size,
                 )
 
-            with self._raw_download_lock(raw_path):
-                if raw_path.exists():
+            if self._raw_root_can_persist(raw_root):
+                with self._raw_download_lock(raw_path):
+                    if raw_path.exists():
+                        return self._load_shared_market_batches_from_raw_file(
+                            raw_path,
+                            requests=requests,
+                            batch_size=batch_size,
+                        )
+                    downloaded = self._download_remote_raw_to_local_root(
+                        archive_url, raw_path, hour
+                    )
+                if downloaded is not None:
                     return self._load_shared_market_batches_from_raw_file(
-                        raw_path,
+                        downloaded,
                         requests=requests,
                         batch_size=batch_size,
                     )
-                downloaded = self._download_remote_raw_to_local_root(archive_url, raw_path, hour)
-            if downloaded is not None:
-                return self._load_shared_market_batches_from_raw_file(
-                    downloaded,
-                    requests=requests,
-                    batch_size=batch_size,
-                )
+            else:
+                self._emit_raw_persistence_skip(archive_url, raw_path, hour)
 
         try:
             with self._temporary_download_path(archive_url) as download_path:
