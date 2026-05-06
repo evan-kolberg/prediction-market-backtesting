@@ -13,7 +13,8 @@ features from the NautilusTrader documentation.
   not make unless the user explicitly asks.
 - Keep changes tightly scoped to the request. Avoid unrelated refactors and
   formatting churn.
-- Never push directly to `main`.
+- NEVER push directly to `main`, `v4`, `v3`, or any default/base/release
+  branch. Push only to a separate PR branch.
 
 ## README And Docs
 
@@ -229,9 +230,15 @@ Explicitly check:
 
 ## PR Hygiene
 
+- DO NOT MERGE TO `main`, `v4`, `v3`, or any other base branch unless the user
+  gives an explicit merge command for that exact PR. Opening or updating a PR is
+  not permission to merge it.
+- NEVER push straight to a base branch. All repo changes must go through:
+  branch -> draft PR -> review -> green CI -> explicit user merge command.
 - Use branch -> draft PR -> review -> green CI -> explicit user merge command.
-- Before pushing a PR update to its base branch target (`main`, `v3`, or any
-  other version branch), run `uv run python scripts/generate_codebase_uml.py`.
+- Before pushing code-structure changes to a PR branch whose base is `main`,
+  `v4`, `v3`, or any other version branch, run
+  `uv run python scripts/generate_codebase_uml.py`.
   Include the refreshed root `CODEBASE_UML.md` in the PR whenever code structure
   changed, so agents and reviewers can use an up-to-date project map.
 - Review the PR diff after opening it.
