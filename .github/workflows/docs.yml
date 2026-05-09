@@ -1,8 +1,9 @@
 name: Docs
 
 on:
+  workflow_dispatch:
   push:
-    branches: [v4]
+    branches: [v4.1-alpha]
     paths:
       - ".github/workflows/docs.yml"
       - "README.md"
@@ -10,7 +11,7 @@ on:
       - "docs_overrides/**"
       - "mkdocs.yml"
   pull_request:
-    branches: [v4]
+    branches: [v4.1-alpha]
     paths:
       - ".github/workflows/docs.yml"
       - "README.md"
