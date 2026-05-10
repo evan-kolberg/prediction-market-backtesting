@@ -68,6 +68,8 @@ Current helper responsibilities include:
   momentum, volume, or volatility features
 - public Polymarket CLOB settlement polling for sandbox portfolio accounting
 - rolling BTC 5m market discovery and pruning
+- BTC trade-feed freshness checks so live strategies can fail closed when the
+  external reference-price feed is stale
 
 These helpers must remain parameter-free. They can accept strategy configs and
 runtime options from a local runner, but they should not embed private
@@ -119,6 +121,11 @@ model evaluation points. This makes it clear whether the node is merely
 connected, actively receiving BTC ticks, and actually evaluating the current 5m
 market.
 
+Strategies should also guard against stale reference data. A connected Binance
+websocket is not enough proof that BTC features are fresh; the runner can pass a
+maximum BTC feature age so private strategy code skips entries when recent BTC
+trade ticks are missing.
+
 ## Example BTC Snapshot Runner
 
 `live/btc_snapshot_model_sandbox.py` is an example of how a local live runner
@@ -140,6 +147,15 @@ By default, the example runner sets `heartbeat_log_seconds` from
 `LIVE_BTC_HEARTBEAT_LOG_SECONDS`, defaulting to five minutes. Set that
 environment variable lower while debugging startup, or higher if a production
 sandbox log is too chatty.
+
+The example runner also exposes operational switches for the live data path:
+
+- `LIVE_BTC_MAX_FEATURE_AGE_SECONDS` controls how stale BTC trade-derived
+  features may be before the private strategy should skip an entry.
+- `LIVE_BTC_DAILY_STOP_LOSS` passes a sandbox daily loss limit into strategies
+  that support one.
+- `LIVE_BTC_BINANCE_GLOBAL=1` or `--binance-global` routes BTC trades through
+  Binance global instead of Binance US, subject to network availability.
 
 That runner is useful as a public example of the sandbox wiring. It references
 private strategy and model paths to show where local artifacts plug in, but

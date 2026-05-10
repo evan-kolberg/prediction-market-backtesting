@@ -333,6 +333,7 @@ def build_polymarket_binance_sandbox_config(
     trader_id: str = "SANDBOX-001",
     log_level: str = "INFO",
     polymarket_update_interval_mins: int | None = None,
+    binance_us: bool = True,
     risk_submit_rate: str = "20/00:00:01",
 ) -> TradingNodeConfig:
     """Build a Nautilus sandbox node config."""
@@ -357,7 +358,7 @@ def build_polymarket_binance_sandbox_config(
             "BINANCE": BinanceDataClientConfig(
                 instrument_provider=BinanceInstrumentProviderConfig(load_ids=btc_ids),
                 routing=RoutingConfig(venues=binance_venues),
-                us=True,
+                us=binance_us,
             ),
         },
         exec_clients={

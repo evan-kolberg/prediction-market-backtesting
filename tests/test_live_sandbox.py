@@ -237,6 +237,8 @@ def test_live_btc_feature_store_records_features_and_prunes_old_seconds() -> Non
 
     assert store.price_at(12) == 103.5
     assert store.price_at(11) == 101.0
+    assert store.observation_second_at(12) == 12
+    assert store.observation_age_seconds(13) == 1.0
     assert store.momentum(12, 2) == 3.5
     assert store.volume(12, 2) == 5.5
     assert store.volatility(12, 2) == pytest.approx(0.75)
@@ -244,6 +246,8 @@ def test_live_btc_feature_store_records_features_and_prunes_old_seconds() -> Non
     store.record_trade(ts_ns=14 * NANOSECONDS_PER_SECOND, price=104.0, size=4.0)
 
     assert math.isnan(store.price_at(10))
+    assert store.observation_second_at(10) is None
+    assert math.isinf(store.observation_age_seconds(10))
     assert store.price_at(11) == 101.0
     assert store.price_at(14) == 104.0
 
@@ -317,6 +321,10 @@ def test_btc_snapshot_sandbox_runner_is_example_wiring_with_private_artifacts(
     monkeypatch.delenv("LIVE_BTC_SNAPSHOT_MODEL_PATH", raising=False)
     monkeypatch.delenv("LIVE_BTC_SNAPSHOT_DIAGNOSTICS_PATH", raising=False)
     monkeypatch.delenv("LIVE_BTC_HEARTBEAT_LOG_SECONDS", raising=False)
+    monkeypatch.delenv("LIVE_BTC_MAX_FEATURE_AGE_SECONDS", raising=False)
+    monkeypatch.delenv("LIVE_BTC_DAILY_STOP_LOSS", raising=False)
+    monkeypatch.delenv("LIVE_BTC_SNAPSHOT_MOMENTUM_ALIGNMENT", raising=False)
+    monkeypatch.delenv("LIVE_BTC_EXPENSIVE_MIN_SIGNED_MOMENTUM_30S", raising=False)
 
     params = btc_snapshot_model_sandbox._strategy_parameters()
 
@@ -326,6 +334,10 @@ def test_btc_snapshot_sandbox_runner_is_example_wiring_with_private_artifacts(
     assert str(params["model_path"]).startswith("live/models/")
     assert params["diagnostics_path"] is None
     assert params["heartbeat_log_seconds"] == 300.0
+    assert params["momentum_alignment"] == "pdiff_m15_m30"
+    assert params["max_btc_feature_age_seconds"] == 8.0
+    assert params["daily_stop_loss"] == 1.2
+    assert params["expensive_min_signed_momentum_30s"] == 2.0
 
 
 def test_btc_snapshot_sandbox_runner_config_injects_live_runtime_options(
@@ -333,6 +345,10 @@ def test_btc_snapshot_sandbox_runner_config_injects_live_runtime_options(
 ) -> None:
     monkeypatch.setenv("LIVE_BTC_SNAPSHOT_MODEL_PATH", "live/models/local-private-model.json")
     monkeypatch.setenv("LIVE_BTC_HEARTBEAT_LOG_SECONDS", "17")
+    monkeypatch.setenv("LIVE_BTC_MAX_FEATURE_AGE_SECONDS", "4.5")
+    monkeypatch.setenv("LIVE_BTC_DAILY_STOP_LOSS", "0.8")
+    monkeypatch.setenv("LIVE_BTC_SNAPSHOT_MOMENTUM_ALIGNMENT", "momentum_vote")
+    monkeypatch.setenv("LIVE_BTC_EXPENSIVE_MIN_SIGNED_MOMENTUM_30S", "1.5")
     up = InstrumentId.from_str("UP.POLYMARKET")
     down = InstrumentId.from_str("DOWN.POLYMARKET")
 
@@ -347,6 +363,10 @@ def test_btc_snapshot_sandbox_runner_config_injects_live_runtime_options(
     assert config.config["btc_instrument_id"] == str(DEFAULT_BTC_INSTRUMENT_ID)
     assert config.config["model_path"] == "live/models/local-private-model.json"
     assert config.config["heartbeat_log_seconds"] == 17.0
+    assert config.config["momentum_alignment"] == "momentum_vote"
+    assert config.config["max_btc_feature_age_seconds"] == 4.5
+    assert config.config["daily_stop_loss"] == 0.8
+    assert config.config["expensive_min_signed_momentum_30s"] == 1.5
 
 
 def test_btc_snapshot_sandbox_runner_dry_run_allows_missing_private_model(
@@ -449,6 +469,22 @@ def test_build_polymarket_binance_sandbox_config_disables_polymarket_refresh_by_
     )
 
     assert config.data_clients["POLYMARKET"].update_instruments_interval_mins is None
+
+
+def test_build_polymarket_binance_sandbox_config_can_use_global_binance() -> None:
+    strategy = ImportableStrategyConfig(
+        strategy_path="strategies:DemoStrategy",
+        config_path="strategies:DemoConfig",
+        config={"parameter_name": 1},
+    )
+
+    config = build_polymarket_binance_sandbox_config(
+        strategies=[strategy],
+        event_slug_builder="tests.fake:slugs",
+        binance_us=False,
+    )
+
+    assert config.data_clients["BINANCE"].us is False
 
 
 def test_public_polymarket_data_factory_does_not_require_credentials(monkeypatch) -> None:

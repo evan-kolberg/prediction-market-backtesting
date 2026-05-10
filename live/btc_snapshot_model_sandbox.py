@@ -54,6 +54,17 @@ def _trade_size() -> Decimal:
     return Decimal(os.getenv("LIVE_BTC_SNAPSHOT_TRADE_SIZE", "2"))
 
 
+def _env_float(name: str, default: float) -> float:
+    return float(os.getenv(name, str(default)))
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
 def _diagnostics_path() -> str | None:
     raw = os.getenv("LIVE_BTC_SNAPSHOT_DIAGNOSTICS_PATH")
     if raw is None:
@@ -87,7 +98,10 @@ def _strategy_parameters() -> dict[str, object]:
         "min_selected_probability": 0.65,
         "expensive_ask_floor": 0.70,
         "expensive_min_selected_probability": 0.80,
-        "expensive_min_signed_momentum_30s": 0.0,
+        "expensive_min_signed_momentum_30s": _env_float(
+            "LIVE_BTC_EXPENSIVE_MIN_SIGNED_MOMENTUM_30S",
+            2.0,
+        ),
         "adverse_price_diff_floor": 5.0,
         "adverse_min_signed_momentum_30s": 2.0,
         "exhausted_price_diff_floor": 30.0,
@@ -96,10 +110,15 @@ def _strategy_parameters() -> dict[str, object]:
         "volatile_min_selected_probability": 0.72,
         "max_yes_no_ask_cost": 1.01,
         "diagnostics_path": _diagnostics_path(),
-        "momentum_alignment": "m15_m30",
+        "momentum_alignment": os.getenv(
+            "LIVE_BTC_SNAPSHOT_MOMENTUM_ALIGNMENT",
+            "pdiff_m15_m30",
+        ),
         "live_btc_buffer_seconds": 900,
+        "max_btc_feature_age_seconds": _env_float("LIVE_BTC_MAX_FEATURE_AGE_SECONDS", 8.0),
         "market_buy_quote_quantity": True,
         "min_market_buy_quote_amount": Decimal("1"),
+        "daily_stop_loss": _env_float("LIVE_BTC_DAILY_STOP_LOSS", 1.2),
         "settlement_path": _settlement_path(),
         "settlement_poll_seconds": float(os.getenv("LIVE_BTC_SETTLEMENT_POLL_SECONDS", "10")),
         "settlement_grace_seconds": float(os.getenv("LIVE_BTC_SETTLEMENT_GRACE_SECONDS", "5")),
@@ -176,6 +195,12 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         default=int(os.getenv("LIVE_POLYMARKET_REFRESH_MINS", "5")),
         help="Minutes between Polymarket instrument refreshes; <=0 disables refresh.",
     )
+    parser.add_argument(
+        "--binance-global",
+        action="store_true",
+        default=_env_bool("LIVE_BTC_BINANCE_GLOBAL", False),
+        help="Use Binance global BTC trades instead of Binance US.",
+    )
     return parser.parse_args(argv)
 
 
@@ -215,6 +240,7 @@ async def _main(argv: Sequence[str] | None = None, *, force_run: bool = False) -
         polymarket_update_interval_mins=(
             args.polymarket_refresh_mins if args.polymarket_refresh_mins > 0 else None
         ),
+        binance_us=not args.binance_global,
     )
 
     coverage_minutes = len(event_slugs) * 5
@@ -227,8 +253,9 @@ async def _main(argv: Sequence[str] | None = None, *, force_run: bool = False) -
     print(f"Next event slugs: {', '.join(event_slugs[:3])}")
     model_suffix = "" if model_exists else " (missing; dry-run only)"
     print(f"Model profile: {model_path}{model_suffix}")
-    print("Policy: S199 profile, 60s snapshot, edge>=0.06, ask-cost<=1.01")
+    print("Policy: S199 profile, 60s snapshot, edge>=0.06, ask-cost<=1.01, pdiff/momentum aligned")
     print(f"Trade size: target {_trade_size()} contracts; market buys sent as quote quantity")
+    print(f"BTC trade source: {'Binance global' if args.binance_global else 'Binance US'}")
     print(f"Diagnostics: {_diagnostics_path() or 'disabled'}")
     print(f"Settlement ledger: {_settlement_path() or 'disabled'}")
     print(

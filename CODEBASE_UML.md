@@ -1,8 +1,8 @@
 # Codebase UML Inventory
 
-This file is generated from Python AST metadata and excludes `tests/`.
-Generated: 2026-05-09T19:51:48+00:00
-Modules: 133 | Classes: 180 | Functions/methods: 1805
+This file is generated from Python AST metadata and excludes `tests/` plus git-ignored private strategy/research directories.
+Generated: 2026-05-10T00:29:34+00:00
+Modules: 118 | Classes: 171 | Functions/methods: 1557
 
 ## Backtesting Data Flow
 
@@ -90,221 +90,6 @@ flowchart TD
 - Imports: `__future__, decimal`
 - Function L18: `run() -> None`
 
-### `backtests/private/__init__.py`
-- Imports: none
-
-### `backtests/private/telonex_btc_5m_late_favorite_chunked_forward_validate.py`
-- Imports: `__future__, backtests, csv, datetime, decimal, dotenv, importlib, json, os, pathlib, subprocess, sys, typing, uuid`
-- Function L68: `_run_label() -> str`
-- Function L77: `_initial_cash() -> float`
-- Function L81: `_parse_utc(value: str) -> datetime`
-- Function L85: `_late_favorite_replays(windows: tuple[tuple[str, str, str], ...], *, activation_seconds_before_close: int) -> tuple[object, ...]`
-- Function L114: `_deserialize_params(payload: dict[str, str]) -> dict[str, Any]`
-- Function L131: `_serialize_params(params: dict[str, Any]) -> dict[str, str]`
-- Function L135: `_forward_params() -> dict[str, Any]`
-- Function L145: `_strategy_config(params: dict[str, Any]) -> dict[str, Any]`
-- Function L157: `_run_experiment(*, name: str, replays: tuple[object, ...], params: dict[str, Any]) -> list[dict[str, Any]]`
-- Function L211: `_evaluate_trial_direct(*, trial_id: int, phase: str, replays: tuple[object, ...], params: dict[str, Any]) -> Any`
-- Function L232: `_worker_payload(evaluation: object) -> dict[str, Any]`
-- Function L248: `_evaluate_trial(*, trial_id: int, phase: str, replays: tuple[object, ...], params: dict[str, Any]) -> Any`
-- Function L299: `_aggregate_rows(rows: list[dict[str, Any]], params: dict[str, object]) -> dict[str, Any]`
-- Function L344: `run() -> None`
-
-### `backtests/private/telonex_btc_5m_microprice_imbalance_chunked_forward_validate.py`
-- Imports: `__future__, backtests, csv, datetime, decimal, dotenv, importlib, json, os, pathlib, subprocess, sys, typing, uuid`
-- Function L72: `_run_label() -> str`
-- Function L81: `_initial_cash() -> float`
-- Function L85: `_deserialize_params(payload: dict[str, str]) -> dict[str, Any]`
-- Function L103: `_serialize_params(params: dict[str, Any]) -> dict[str, str]`
-- Function L107: `_forward_params() -> dict[str, Any]`
-- Function L117: `_strategy_config(params: dict[str, Any]) -> dict[str, Any]`
-- Function L125: `_run_experiment(*, name: str, replays: tuple[object, ...], params: dict[str, Any]) -> list[dict[str, Any]]`
-- Function L179: `_evaluate_trial_direct(*, trial_id: int, phase: str, replays: tuple[object, ...], params: dict[str, Any]) -> Any`
-- Function L200: `_worker_payload(evaluation: object) -> dict[str, Any]`
-- Function L216: `_evaluate_trial(*, trial_id: int, phase: str, replays: tuple[object, ...], params: dict[str, Any]) -> Any`
-- Function L267: `_aggregate_rows(rows: list[dict[str, Any]], params: dict[str, object]) -> dict[str, Any]`
-- Function L312: `run() -> None`
-
-### `backtests/private/telonex_btc_5m_pair_arbitrage_chunked_forward_validate.py`
-- Imports: `__future__, backtests, csv, datetime, decimal, dotenv, importlib, json, os, pathlib, subprocess, sys, typing, uuid`
-- Function L69: `_run_label() -> str`
-- Function L78: `_initial_cash() -> float`
-- Function L82: `_serialize_params(params: dict[str, Any]) -> dict[str, str]`
-- Function L86: `_deserialize_params(payload: dict[str, str]) -> dict[str, Any]`
-- Function L103: `_forward_params() -> dict[str, Any]`
-- Function L113: `_strategy_config(params: dict[str, Any]) -> dict[str, Any]`
-- Function L125: `_run_experiment(*, name: str, replays: tuple[object, ...], params: dict[str, Any]) -> list[dict[str, Any]]`
-- Function L179: `_evaluate_trial_direct(*, trial_id: int, phase: str, replays: tuple[object, ...], params: dict[str, Any]) -> _Evaluation`
-- Function L200: `_worker_payload(evaluation: _Evaluation) -> dict[str, Any]`
-- Function L216: `_evaluate_trial(*, trial_id: int, phase: str, replays: tuple[object, ...], params: dict[str, Any]) -> _Evaluation`
-- Function L267: `_aggregate_rows(rows: list[dict[str, Any]], params: dict[str, object]) -> dict[str, Any]`
-- Function L312: `run() -> None`
-
-### `backtests/private/telonex_btc_5m_passive_pair_accumulation_search.py`
-- Imports: `__future__, csv, dataclasses, datetime, decimal, dotenv, importlib, json, os, pathlib, random, subprocess, sys, typing, uuid`
-- Function L87: `_env_int(name: str, default: int) -> int`
-- Function L94: `_env_float(name: str, default: float) -> float`
-- Function L101: `_initial_cash() -> float`
-- Function L105: `_run_label() -> str`
-- Function L114: `_utc_iso(value: datetime) -> str`
-- Function L118: `_start_time() -> datetime`
-- Function L125: `_btc_5m_windows(*, start: datetime, count: int) -> tuple[tuple[str, str, str], ...]`
-- Function L137: `_btc_5m_replays(windows: tuple[tuple[str, str, str], ...]) -> tuple[object, ...]`
-- Function L153: `_replays_from_payload(payload: list[dict[str, Any]]) -> tuple[object, ...]`
-- Function L168: `_replays_to_payload(replays: tuple[object, ...]) -> list[dict[str, Any]]`
-- Function L181: `_candidate(**overrides) -> dict[str, Any]`
-- Function L187: `_parameter_samples(*, max_trials: int, random_seed: int) -> list[dict[str, Any]]`
-- Function L271: `_serialize_params(params: dict[str, Any]) -> dict[str, str]`
-- Function L275: `_deserialize_params(payload: dict[str, str]) -> dict[str, Any]`
-- Function L306: `_strategy_config(params: dict[str, Any]) -> dict[str, Any]`
-- Function L324: `_run_experiment(*, name: str, replays: tuple[object, ...], params: dict[str, Any]) -> list[dict[str, Any]]`
-- Function L378: `_as_float(value: object, *, default: float = 0.0) -> float`
-- Function L382: `_as_int(value: object, *, default: int = 0) -> int`
-- Function L386: `_parse_time(value: object) -> datetime | None`
-- Function L398: `_event_side(result: dict[str, Any], event: dict[str, Any]) -> str`
-- Function L405: `_rolling_cash_required(results: list[dict[str, Any]]) -> float`
-- Function L460: `_evaluate_results(*, trial_id: int, phase: str, params: dict[str, Any], results: list[dict[str, Any]], replay_count: int) -> _Evaluation`
-- Function L524: `_worker_payload(evaluation: _Evaluation) -> dict[str, Any]`
-- Function L540: `_evaluation_from_worker_payload(*, trial_id: int, phase: str, params: dict[str, Any], payload: dict[str, Any]) -> _Evaluation`
-- Function L565: `_evaluate_trial_direct(*, trial_id: int, phase: str, replays: tuple[object, ...], params: dict[str, Any]) -> _Evaluation`
-- Function L589: `_evaluate_trial(*, trial_id: int, phase: str, replays: tuple[object, ...], params: dict[str, Any]) -> _Evaluation`
-- Function L643: `_evaluation_row(evaluation: _Evaluation) -> dict[str, Any]`
-- Function L662: `_write_artifacts(evaluations: list[_Evaluation]) -> tuple[Path, Path]`
-- Function L695: `run() -> None`
-- Class L70: `_Evaluation`
-
-### `backtests/private/telonex_btc_5m_passive_pair_chunked_forward_validate.py`
-- Imports: `__future__, backtests, csv, datetime, dotenv, importlib, json, os, pathlib, typing`
-- Function L43: `_run_label() -> str`
-- Function L52: `_forward_params() -> dict[str, object]`
-- Function L62: `_aggregate_rows(rows: list[dict[str, Any]], params: dict[str, object]) -> dict[str, Any]`
-- Function L108: `run() -> None`
-
-### `backtests/private/telonex_btc_5m_passive_pair_forward_validate.py`
-- Imports: `__future__, backtests, csv, datetime, dotenv, importlib, json, os, pathlib`
-- Function L41: `_run_label() -> str`
-- Function L50: `_forward_params() -> dict[str, object]`
-- Function L60: `run() -> None`
-
-### `backtests/private/telonex_btc_5m_snapshot_model_research.py`
-- Imports: `__future__, asyncio, csv, dataclasses, datetime, dotenv, duckdb, importlib, json, math, numpy, os, pathlib, prediction_market_extensions, typing`
-- Function L133: `_env_int(name: str, default: int) -> int`
-- Function L140: `_env_float(name: str, default: float) -> float`
-- Function L147: `_run_label() -> str`
-- Function L156: `_date_strings(start_ts: int, end_ts: int) -> list[str]`
-- Function L163: `_btc_trade_paths(start_ts: int, end_ts: int) -> list[str]`
-- Function L173: `_book_snapshot_path(slug: str, outcome: str, date: str) -> Path | None`
-- Function L182: `_load_btc_features(start_ts: int, end_ts: int) -> BtcFeatureStore`
-- Function L232: `_coerce_level(level: object) -> tuple[float, float] | None`
-- Function L245: `_book_features(bids: object, asks: object, *, levels: int) -> dict[str, float] | None`
-- Function L280: `_snapshot_targets_by_date(market_start_ts: int, snapshot_seconds: tuple[int, ...]) -> dict[str, list[tuple[int, int]]]`
-- Function L291: `_query_book_snapshots(conn: duckdb.DuckDBPyConnection, path: Path, targets: list[tuple[int, int]], *, max_age_seconds: int, depth_levels: int) -> dict[int, dict[str, float]]`
-- Function L354: `_market_snapshot_features(conn: duckdb.DuckDBPyConnection, *, slug: str, outcome: str, market_start_ts: int, snapshot_seconds: tuple[int, ...], max_age_seconds: int, depth_levels: int) -> dict[int, dict[str, float]]`
-- Function L381: `async _resolved_up(slug: str) -> float | None`
-- Function L393: `_market_slug(market_start_ts: int) -> str`
-- Function L397: `async _build_dataset(*, start_ts: int, windows: int, market_starts: tuple[int, ...] | None = None, snapshot_seconds: tuple[int, ...], max_age_seconds: int, depth_levels: int) -> list[dict[str, Any]]`
-- Function L514: `_matrix(rows: list[dict[str, Any]], columns: tuple[str, ...]) -> tuple[np.ndarray, np.ndarray]`
-- Function L520: `_fit_logistic(rows: list[dict[str, Any]], *, columns: tuple[str, ...], learning_rate: float, steps: int, l2: float) -> LogisticModel`
-- Function L552: `_predict(model: LogisticModel, rows: list[dict[str, Any]]) -> np.ndarray`
-- Function L561: `_auc(y: np.ndarray, p: np.ndarray) -> float | None`
-- Function L573: `_classification_metrics(rows: list[dict[str, Any]], probs: np.ndarray) -> dict[str, float | None]`
-- Function L588: `_max_drawdown(equity_values: list[float]) -> float`
-- Function L597: `_release_due(releases: list[tuple[int, float]], cash: float, now_ts: int) -> tuple[float, list[tuple[int, float]]]`
-- Function L607: `_evaluate_policy(rows: list[dict[str, Any]], probs: np.ndarray, policy: Policy, *, quantity: float, initial_cash: float, taker_fee_rate: float, settlement_delay_seconds: int) -> dict[str, Any]`
-- Function L728: `_policy_grid(snapshot_seconds: tuple[int, ...]) -> list[Policy]`
-- Function L751: `_split_rows(rows: list[dict[str, Any]], *, train_windows: int) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]`
-- Function L761: `_split_rows_three(rows: list[dict[str, Any]], *, train_windows: int, validation_windows: int) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]`
-- Function L778: `_write_csv(path: Path, rows: list[dict[str, Any]]) -> None`
-- Function L793: `_available_cached_btc_market_starts() -> list[int]`
-- Function L804: `_write_cached_market_manifest() -> Path`
-- Function L828: `_json_default(value: object) -> object`
-- Function L838: `async _run_async() -> None`
-- Function L1035: `run() -> None`
-- Class L71: `BtcFeatureStore`
-  - Method L78: `_offset(self, ts: int) -> int`
-  - Method L81: `price_at(self, ts: int) -> float`
-  - Method L87: `momentum(self, ts: int, seconds: int) -> float`
-  - Method L94: `volume(self, ts: int, seconds: int) -> float`
-  - Method L99: `volatility(self, ts: int, seconds: int) -> float`
-- Class L114: `LogisticModel`
-- Class L123: `Policy`
-  - Method L128: `name(self) -> str`
-
-### `backtests/private/telonex_btc_5m_snapshot_model_runner_validate.py`
-- Imports: `__future__, backtests, datetime, decimal, dotenv, html, json, os, pathlib, subprocess, sys, typing, uuid`
-- Function L53: `_run_label() -> str`
-- Function L62: `_model_path() -> str`
-- Function L69: `_parse_utc(value: str) -> datetime`
-- Function L73: `_replays(windows: tuple[tuple[str, str, str], ...]) -> tuple[object, ...]`
-- Function L89: `_replays_from_payload(payload: list[dict[str, Any]]) -> tuple[object, ...]`
-- Function L104: `_replays_to_payload(replays: tuple[object, ...]) -> list[dict[str, Any]]`
-- Function L117: `_snapshot_seconds() -> tuple[int, ...]`
-- Function L125: `_strategy_config() -> dict[str, Any]`
-- Function L204: `_run_experiment(*, name: str, replays: tuple[object, ...]) -> list[dict[str, Any]]`
-- Function L252: `_evaluate_chunk(*, chunk_index: int, windows: tuple[tuple[str, str, str], ...]) -> _Evaluation`
-- Function L321: `_worker_payload(evaluation: _Evaluation, *, fill_diagnostics: list[dict[str, Any]] | None = None) -> dict[str, Any]`
-- Function L342: `_evaluation_from_payload(*, chunk_index: int, payload: dict[str, Any]) -> _Evaluation`
-- Function L415: `_evaluate_chunk_worker(*, chunk_index: int, replays: tuple[object, ...]) -> tuple[_Evaluation, list[dict[str, Any]]]`
-- Function L452: `_resolved_up_from_result(result: dict[str, Any]) -> float | None`
-- Function L464: `_enrich_fill_diagnostics(*, diagnostics_path: Path, results: list[dict[str, Any]]) -> list[dict[str, Any]]`
-- Function L510: `_run_worker() -> None`
-- Function L590: `_aggregate(chunks: list[dict[str, Any]]) -> dict[str, Any]`
-- Function L611: `_svg_line_chart(*, title: str, values: list[float], labels: list[str], width: int = 980, height: int = 320) -> str`
-- Function L668: `_html_table(rows: list[tuple[str, object]]) -> str`
-- Function L675: `_write_html_report(*, path: Path, summary: dict[str, Any], chunks: list[dict[str, Any]], fills: list[dict[str, Any]], skipped: list[dict[str, Any]]) -> None`
-- Function L792: `main() -> None`
-- Function L928: `run() -> None`
-
-### `backtests/private/telonex_btc_5m_snapshot_model_walkforward.py`
-- Imports: `__future__, backtests, collections, csv, datetime, importlib, json, math, os, pathlib, statistics, typing`
-- Function L42: `_run_label() -> str`
-- Function L51: `_latest_dataset_path() -> Path`
-- Function L71: `_parse_value(key: str, value: str) -> Any`
-- Function L84: `_read_rows(path: Path) -> list[dict[str, Any]]`
-- Function L99: `_date(value: int) -> str`
-- Function L103: `_fold_rows(rows: list[dict[str, Any]], *, indexes: list[int], start: int, train_windows: int, validation_windows: int, holdout_windows: int) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]`
-- Function L123: `_chunked_validation_rows(rows: list[dict[str, Any]], *, indexes: list[int], start: int, windows: int, chunk_windows: int, min_rows: int) -> list[list[dict[str, Any]]]`
-- Function L142: `_stable_policy_rows(validation_chunks: list[list[dict[str, Any]]], validation_chunk_probs: list[Any], grid: list[Any], policy_kwargs: dict[str, Any]) -> list[dict[str, Any]]`
-- Function L195: `_aggregate_selected(rows: list[dict[str, Any]]) -> dict[str, Any]`
-- Function L220: `main() -> None`
-
-### `backtests/private/telonex_general_market_value_rebound_search.py`
-- Imports: `__future__, backtests, csv, dataclasses, decimal, dotenv, importlib, json, os, pathlib, subprocess, sys, typing, uuid`
-- Function L65: `_run_label() -> str`
-- Function L74: `_initial_cash() -> float`
-- Function L78: `_candidate_payload(candidate: Candidate) -> dict[str, Any]`
-- Function L87: `_candidate_from_payload(payload: dict[str, Any]) -> Candidate`
-- Function L110: `_candidates() -> list[Candidate]`
-- Function L191: `_strategy_config(candidate: Candidate) -> dict[str, Any]`
-- Function L199: `_market_slugs() -> tuple[str, ...]`
-- Function L204: `_replays(slugs: tuple[str, ...]) -> tuple[object, ...]`
-- Function L224: `_run_experiment(*, name: str, replays: tuple[object, ...], candidate: Candidate) -> list[dict[str, Any]]`
-- Function L278: `_evaluate_trial_direct(*, trial_id: int, phase: str, replays: tuple[object, ...], candidate: Candidate) -> Any`
-- Function L304: `_worker_payload(evaluation: object) -> dict[str, Any]`
-- Function L320: `_evaluate_trial(*, trial_id: int, phase: str, replays: tuple[object, ...], candidate: Candidate) -> Any`
-- Function L375: `_write_csv(path: Path, rows: list[dict[str, Any]]) -> None`
-- Function L386: `run() -> None`
-- Class L58: `Candidate`
-
-### `backtests/private/telonex_resolved_sports_research.py`
-- Imports: `__future__, asyncio, backtests, datetime, decimal, dotenv, json, os, pathlib, prediction_market_extensions, subprocess, sys, typing, uuid`
-- Function L52: `_run_label() -> str`
-- Function L61: `_utc_iso(value: datetime) -> str`
-- Function L65: `_bool_env(name: str, default: bool) -> bool`
-- Function L72: `_candidate_strategies() -> list[dict[str, Any]]`
-- Function L123: `async _discover_markets() -> list[dict[str, Any]]`
-- Function L134: `async _build_replays() -> tuple[tuple[object, ...], list[dict[str, Any]]]`
-- Function L185: `_replays_from_payload(payload: list[dict[str, Any]]) -> tuple[object, ...]`
-- Function L200: `_replays_to_payload(replays: tuple[object, ...]) -> list[dict[str, Any]]`
-- Function L213: `_run_experiment(*, name: str, replays: tuple[object, ...], strategy_spec: dict[str, Any]) -> list[dict[str, Any]]`
-- Function L272: `_strategy_by_name(name: str) -> dict[str, Any]`
-- Function L279: `_worker_payload(evaluation: object) -> dict[str, Any]`
-- Function L295: `_evaluate_strategy_worker(*, trial_id: int, strategy_spec: dict[str, Any], replays: tuple[object, ...]) -> dict[str, Any]`
-- Function L324: `_run_worker() -> None`
-- Function L346: `_aggregate(rows: list[dict[str, Any]]) -> dict[str, Any]`
-- Function L363: `async _run_async() -> None`
-- Function L433: `main() -> None`
-
 ### `backtests/sitecustomize.py`
 - Imports: `__future__, importlib, pathlib, sys`
 
@@ -312,13 +97,15 @@ flowchart TD
 - Imports: `__future__, argparse, asyncio, decimal, dotenv, nautilus_trader, os, pathlib, prediction_market_extensions, sys, typing`
 - Function L49: `_model_path() -> str`
 - Function L53: `_trade_size() -> Decimal`
-- Function L57: `_diagnostics_path() -> str | None`
-- Function L65: `_settlement_path() -> str | None`
-- Function L74: `_strategy_parameters() -> dict[str, object]`
-- Function L114: `_build_strategy_config(*, instrument_ids: tuple[InstrumentId, ...], btc_instrument_id: InstrumentId) -> ImportableStrategyConfig`
-- Function L129: `_parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace`
-- Function L182: `async _main(argv: Sequence[str] | None = None, *, force_run: bool = False) -> None`
-- Function L250: `run() -> None`
+- Function L57: `_env_float(name: str, default: float) -> float`
+- Function L61: `_env_bool(name: str, default: bool) -> bool`
+- Function L68: `_diagnostics_path() -> str | None`
+- Function L76: `_settlement_path() -> str | None`
+- Function L85: `_strategy_parameters() -> dict[str, object]`
+- Function L133: `_build_strategy_config(*, instrument_ids: tuple[InstrumentId, ...], btc_instrument_id: InstrumentId) -> ImportableStrategyConfig`
+- Function L148: `_parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace`
+- Function L207: `async _main(argv: Sequence[str] | None = None, *, force_run: bool = False) -> None`
+- Function L279: `run() -> None`
 
 ### `main.py`
 - Imports: `__future__, argparse, ast, asyncio, functools, importlib, inspect, json, os, pathlib, re, string, subprocess, sys, time, typing`
@@ -1746,13 +1533,13 @@ flowchart TD
 - Imports: none
 
 ### `prediction_market_extensions/live/btc_5m.py`
-- Imports: `__future__, datetime, nautilus_trader, os, time, typing`
-- Function L19: `floor_to_btc_5m_start(timestamp: int | None = None) -> int`
-- Function L24: `btc_5m_market_slug(market_start_ts: int) -> str`
-- Function L28: `upcoming_btc_5m_event_slugs(*, market_count: int = DEFAULT_MARKET_COUNT, include_current: bool = True, timestamp: int | None = None) -> list[str]`
-- Function L40: `configured_btc_5m_event_slugs() -> list[str]`
-- Function L56: `upcoming_btc_5m_window_label(*, timestamp: int | None = None) -> str`
-- Function L64: `async load_btc_5m_instrument_ids(*, market_count: int = DEFAULT_MARKET_COUNT, include_current: bool = True, event_slugs: Sequence[str] | None = None, http_client: HttpClient | None = None) -> tuple[InstrumentId, ...]`
+- Imports: `__future__, datetime, logging, nautilus_trader, os, time, typing`
+- Function L21: `floor_to_btc_5m_start(timestamp: int | None = None) -> int`
+- Function L26: `btc_5m_market_slug(market_start_ts: int) -> str`
+- Function L30: `upcoming_btc_5m_event_slugs(*, market_count: int = DEFAULT_MARKET_COUNT, include_current: bool = True, timestamp: int | None = None) -> list[str]`
+- Function L42: `configured_btc_5m_event_slugs() -> list[str]`
+- Function L58: `upcoming_btc_5m_window_label(*, timestamp: int | None = None) -> str`
+- Function L66: `async load_btc_5m_instrument_ids(*, market_count: int = DEFAULT_MARKET_COUNT, include_current: bool = True, event_slugs: Sequence[str] | None = None, http_client: HttpClient | None = None, min_loaded_markets: int = 1) -> tuple[InstrumentId, ...]`
 
 ### `prediction_market_extensions/live/btc_features.py`
 - Imports: `__future__, bisect, math`
@@ -1761,9 +1548,11 @@ flowchart TD
   - Method L18: `record_trade(self, *, ts_ns: int, price: float, size: float) -> None`
   - Method L32: `_prune(self, *, current_second: int) -> None`
   - Method L43: `price_at(self, ts: int) -> float`
-  - Method L51: `momentum(self, ts: int, seconds: int) -> float`
-  - Method L58: `volume(self, ts: int, seconds: int) -> float`
-  - Method L69: `volatility(self, ts: int, seconds: int) -> float`
+  - Method L51: `observation_second_at(self, ts: int) -> int | None`
+  - Method L59: `observation_age_seconds(self, ts: int) -> float`
+  - Method L65: `momentum(self, ts: int, seconds: int) -> float`
+  - Method L72: `volume(self, ts: int, seconds: int) -> float`
+  - Method L83: `volatility(self, ts: int, seconds: int) -> float`
 
 ### `prediction_market_extensions/live/sandbox.py`
 - Imports: `__future__, asyncio, datetime, decimal, nautilus_trader, py_clob_client_v2, traceback, typing`
@@ -1771,8 +1560,8 @@ flowchart TD
 - Function L59: `_parse_iso8601_ns(value: object) -> int | None`
 - Function L74: `_tick_size_change_ts_ns(ws_message: PolymarketTickSizeChange) -> int | None`
 - Function L81: `is_post_expiry_tick_size_change(instrument: BinaryOption, ws_message: PolymarketTickSizeChange) -> bool`
-- Function L327: `build_polymarket_binance_sandbox_config(*, strategies: Sequence[ImportableStrategyConfig], event_slug_builder: str, binance_instrument_ids: frozenset[InstrumentId] | None = None, starting_balance: Decimal | str = Decimal('20'), trader_id: str = 'SANDBOX-001', log_level: str = 'INFO', polymarket_update_interval_mins: int | None = None, risk_submit_rate: str = '20/00:00:01') -> TradingNodeConfig`
-- Function L381: `build_polymarket_binance_sandbox_node(*, config: TradingNodeConfig) -> TradingNode`
+- Function L327: `build_polymarket_binance_sandbox_config(*, strategies: Sequence[ImportableStrategyConfig], event_slug_builder: str, binance_instrument_ids: frozenset[InstrumentId] | None = None, starting_balance: Decimal | str = Decimal('20'), trader_id: str = 'SANDBOX-001', log_level: str = 'INFO', polymarket_update_interval_mins: int | None = None, binance_us: bool = True, risk_submit_rate: str = '20/00:00:01') -> TradingNodeConfig`
+- Function L382: `build_polymarket_binance_sandbox_node(*, config: TradingNodeConfig) -> TradingNode`
 - Class L96: `PublicPolymarketInstrumentProvider(PolymarketInstrumentProvider)`
   - Method L99: `async _load_from_event_slugs(self) -> None`
   - Method L141: `_prune_loaded_event_slug_instruments(self, event_slugs: Sequence[str]) -> int`
@@ -1969,19 +1758,19 @@ flowchart TD
 
 ### `scripts/generate_codebase_uml.py`
 - Imports: `__future__, ast, dataclasses, datetime, pathlib`
-- Function L47: `_is_included_python_file(path: Path) -> bool`
-- Function L54: `_unparse(node: ast.AST | None) -> str`
-- Function L63: `_format_arg(arg: ast.arg, default: ast.AST | None = None) -> str`
-- Function L71: `_callable_info(node: ast.FunctionDef | ast.AsyncFunctionDef) -> CallableInfo`
-- Function L97: `_imports(tree: ast.Module) -> list[str]`
-- Function L107: `_module_info(path: Path) -> ModuleInfo`
-- Function L132: `_mermaid_overview() -> str`
-- Function L148: `_render_module(module: ModuleInfo) -> list[str]`
-- Function L169: `build_document() -> str`
-- Function L199: `main() -> int`
-- Class L23: `CallableInfo`
-- Class L32: `ClassInfo`
-- Class L40: `ModuleInfo`
+- Function L51: `_is_included_python_file(path: Path) -> bool`
+- Function L60: `_unparse(node: ast.AST | None) -> str`
+- Function L69: `_format_arg(arg: ast.arg, default: ast.AST | None = None) -> str`
+- Function L77: `_callable_info(node: ast.FunctionDef | ast.AsyncFunctionDef) -> CallableInfo`
+- Function L103: `_imports(tree: ast.Module) -> list[str]`
+- Function L113: `_module_info(path: Path) -> ModuleInfo`
+- Function L138: `_mermaid_overview() -> str`
+- Function L154: `_render_module(module: ModuleInfo) -> list[str]`
+- Function L175: `build_document() -> str`
+- Function L206: `main() -> int`
+- Class L27: `CallableInfo`
+- Class L36: `ClassInfo`
+- Class L44: `ModuleInfo`
 
 ### `scripts/pmxt_download_raws.py`
 - Imports: `__future__, argparse, json, pathlib, scripts`
@@ -2260,97 +2049,6 @@ flowchart TD
 - Class L170: `BookPanicFadeStrategy(_PanicFadeBase)`
   - Method L171: `_subscribe(self) -> None`
   - Method L177: `on_order_book(self, order_book) -> None`
-
-### `strategies/private/__init__.py`
-- Imports: none
-
-### `strategies/private/btc_snapshot_model.py`
-- Imports: `__future__, backtests, decimal, json, math, nautilus_trader, pathlib, prediction_market_extensions, strategies, typing`
-- Function L159: `_as_float(value: object | None) -> float | None`
-- Function L173: `_decimal_or_none(value: object | None) -> Decimal | None`
-- Function L182: `_is_buy_order_side(value: object) -> bool`
-- Function L196: `_load_model(path: str) -> LogisticModel`
-- Function L208: `_market_start_from_slug(slug: str) -> int | None`
-- Function L215: `_market_prune_due_ns(*, market_start: int, post_end_retention_seconds: float) -> int`
-- Function L220: `_log_float(value: object, *, digits: int = 4) -> str`
-- Function L227: `_book_features(order_book: OrderBook, *, levels: int) -> dict[str, float] | None`
-- Class L49: `BookBtcSnapshotModelConfig(StrategyConfig)`
-  - Method L88: `__post_init__(self) -> None`
-- Class L265: `BookBtcSnapshotModelStrategy(Strategy)`
-  - Method L271: `__init__(self, config: BookBtcSnapshotModelConfig) -> None`
-  - Method L295: `_diagnostics_enabled(self) -> bool`
-  - Method L298: `_record_evaluation(self, payload: dict[str, Any]) -> None`
-  - Method L306: `_log_evaluation_event(self, payload: dict[str, Any]) -> None`
-  - Method L355: `_maybe_log_heartbeat(self, *, now_ns: int, btc_price: float | None) -> None`
-  - Method L383: `_mark_evaluated(self, slug: str, buckets: list[int]) -> None`
-  - Method L387: `_register_btc_5m_instrument(self, *, instrument_id: InstrumentId, instrument: object, strict: bool) -> bool`
-  - Method L427: `_subscribe_book_if_needed(self, instrument_id: InstrumentId) -> None`
-  - Method L433: `_scan_cached_btc_5m_instruments(self) -> int`
-  - Method L456: `_maybe_scan_cached_btc_5m_instruments(self, *, now_ns: int) -> None`
-  - Method L471: `_slug_has_unsettled_position(self, slug: str) -> bool`
-  - Method L477: `_prune_expired_markets(self, *, now_ns: int) -> None`
-  - Method L505: `_prune_market(self, slug: str) -> int`
-  - Method L530: `on_start(self) -> None`
-  - Method L562: `on_instrument(self, instrument) -> None`
-  - Method L581: `on_trade_tick(self, tick) -> None`
-  - Method L602: `on_order_book_deltas(self, deltas) -> None`
-  - Method L615: `_evaluate_market(self, *, slug: str, now_ns: int) -> None`
-  - Method L820: `_row(self, *, slug: str, market_start: int, snapshot_ts: int, bucket: int, up: dict[str, float], down: dict[str, float], up_age_seconds: float, down_age_seconds: float) -> dict[str, Any] | None`
-  - Method L880: `_passes_momentum_alignment(self, *, row: dict[str, Any], selected_outcome: str) -> bool`
-  - Method L910: `_passes_quality_gates(self, *, row: dict[str, Any], selected_outcome: str, ask: float, selected_probability: float) -> bool`
-  - Method L944: `_passes_context_quality_gates(self, *, row: dict[str, Any], selected_outcome: str, selected_probability: float) -> bool`
-  - Method L986: `_free_quote_balance(self, instrument_id: InstrumentId) -> Decimal | None`
-  - Method L998: `_rounded_entry_quantity(self, *, instrument_id: InstrumentId, ask: float, ask_size: float) -> object | None`
-  - Method L1024: `_expected_entry_price(self, *, instrument_id: InstrumentId, quantity: object) -> float | None`
-  - Method L1035: `_submit_model_entry(self, *, slug: str, instrument_id: InstrumentId, ask: float, ask_size: float, edge: float, prob_up: float, selected_outcome: str, selected_probability: float, row: dict[str, Any]) -> None`
-  - Method L1215: `on_order_filled(self, event) -> None`
-  - Method L1236: `_record_settlement_position(self, *, event, diagnostic: dict[str, Any]) -> None`
-  - Method L1286: `_maybe_poll_settlements(self, *, now_ns: int) -> None`
-  - Method L1313: `_try_settle_position(self, *, position: dict[str, Any], now_ns: int) -> bool`
-  - Method L1353: `_settlement_cash_balance(self) -> Decimal`
-  - Method L1368: `_settled_payout_value(self) -> Decimal`
-  - Method L1375: `_position_mark_value(self, position: dict[str, Any]) -> Decimal`
-  - Method L1400: `_open_mark_value(self) -> Decimal`
-  - Method L1407: `_portfolio_value_snapshot(self) -> dict[str, Decimal | int]`
-  - Method L1428: `_log_portfolio_value(self, *, reason: str, now_ns: int) -> None`
-  - Method L1441: `_write_settlement_ledger(self) -> None`
-  - Method L1460: `on_stop(self) -> None`
-  - Method L1474: `on_reset(self) -> None`
-
-### `strategies/private/passive_pair_accumulation.py`
-- Imports: `__future__, decimal, nautilus_trader, prediction_market_extensions, strategies`
-- Class L31: `BookPassivePairAccumulationConfig(StrategyConfig)`
-  - Method L65: `__post_init__(self) -> None`
-- Class L101: `BookPassivePairAccumulationStrategy(BookBinaryPairArbitrageStrategy)`
-  - Method L109: `__init__(self, config: BookPassivePairAccumulationConfig) -> None`
-  - Method L121: `on_start(self) -> None`
-  - Method L155: `on_order_book_deltas(self, deltas) -> None`
-  - Method L171: `_instrument_fee_rate(self, instrument_id: InstrumentId) -> Decimal`
-  - Method L180: `_position_size(self, instrument_id: InstrumentId) -> Decimal`
-  - Method L192: `_price_increment(self, instrument_id: InstrumentId) -> float`
-  - Method L199: `_depth_sum(self, levels: list[object]) -> float`
-  - Method L207: `_best_bid_state(self, instrument_id: InstrumentId) -> tuple[float, float, float, float, float]`
-  - Method L221: `_passive_price(self, instrument_id: InstrumentId, *, bid: float, ask: float) -> float | None`
-  - Method L231: `_active_pair_orders(self, pair: tuple[InstrumentId, InstrumentId]) -> bool`
-  - Method L234: `_pair_positions(self, pair: tuple[InstrumentId, InstrumentId]) -> tuple[Decimal, Decimal]`
-  - Method L240: `_matched_position_size(self, pair: tuple[InstrumentId, InstrumentId]) -> Decimal`
-  - Method L244: `_has_pair_position(self, pair: tuple[InstrumentId, InstrumentId]) -> bool`
-  - Method L248: `_surplus_position_sizes(self, pair: tuple[InstrumentId, InstrumentId]) -> tuple[Decimal, Decimal]`
-  - Method L256: `_target_reached(self, pair: tuple[InstrumentId, InstrumentId]) -> bool`
-  - Method L264: `_entry_state(self, pair: tuple[InstrumentId, InstrumentId]) -> tuple[list[float], list[object], float, float, Decimal] | None`
-  - Method L338: `_evaluate_pair(self, pair: tuple[InstrumentId, InstrumentId]) -> None`
-  - Method L388: `_submit_pair_entry(self, *, pair: tuple[InstrumentId, InstrumentId], prices: list[float], quantities: list[object], visible_size: float, edge: float, target_size: Decimal) -> None`
-  - Method L433: `_cancel_pair_orders(self, pair: tuple[InstrumentId, InstrumentId]) -> None`
-  - Method L442: `_submit_surplus_exit(self, pair: tuple[InstrumentId, InstrumentId]) -> None`
-  - Method L469: `_mark_order_closed(self, event) -> None`
-  - Method L483: `_cancel_pair_after_entry_leg_failure(self, event) -> None`
-  - Method L513: `on_order_filled(self, event) -> None`
-  - Method L520: `on_order_rejected(self, event) -> None`
-  - Method L527: `on_order_denied(self, event) -> None`
-  - Method L530: `on_order_canceled(self, event) -> None`
-  - Method L533: `on_order_expired(self, event) -> None`
-  - Method L536: `on_stop(self) -> None`
-  - Method L542: `on_reset(self) -> None`
 
 ### `strategies/rsi_reversion.py`
 - Imports: `__future__, decimal, nautilus_trader, strategies, typing`

@@ -17,6 +17,10 @@ EXCLUDED_DIRS = {
     "__pycache__",
     "tests",
 }
+EXCLUDED_RELATIVE_PREFIXES = {
+    ("backtests", "private"),
+    ("strategies", "private"),
+}
 
 
 @dataclass
@@ -48,7 +52,9 @@ def _is_included_python_file(path: Path) -> bool:
     if path.suffix != ".py":
         return False
     rel_parts = path.relative_to(REPO_ROOT).parts
-    return not any(part in EXCLUDED_DIRS or part.startswith(".") for part in rel_parts)
+    if any(part in EXCLUDED_DIRS or part.startswith(".") for part in rel_parts):
+        return False
+    return not any(rel_parts[: len(prefix)] == prefix for prefix in EXCLUDED_RELATIVE_PREFIXES)
 
 
 def _unparse(node: ast.AST | None) -> str:
@@ -180,7 +186,8 @@ def build_document() -> str:
     lines = [
         "# Codebase UML Inventory",
         "",
-        "This file is generated from Python AST metadata and excludes `tests/`.",
+        "This file is generated from Python AST metadata and excludes `tests/` plus "
+        "git-ignored private strategy/research directories.",
         f"Generated: {datetime.now(UTC).isoformat(timespec='seconds')}",
         f"Modules: {len(modules)} | Classes: {class_count} | Functions/methods: {callable_count}",
         "",

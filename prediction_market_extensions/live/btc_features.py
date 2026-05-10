@@ -48,6 +48,20 @@ class LiveBtcFeatureStore:
             return math.nan
         return self._prices_by_second.get(self._seconds[index], math.nan)
 
+    def observation_second_at(self, ts: int) -> int | None:
+        if not self._seconds:
+            return None
+        index = bisect_right(self._seconds, int(ts)) - 1
+        if index < 0:
+            return None
+        return self._seconds[index]
+
+    def observation_age_seconds(self, ts: int) -> float:
+        observed_second = self.observation_second_at(ts)
+        if observed_second is None:
+            return math.inf
+        return float(int(ts) - observed_second)
+
     def momentum(self, ts: int, seconds: int) -> float:
         current = self.price_at(ts)
         prior = self.price_at(ts - seconds)
