@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import pytest
+
+from prediction_market_extensions.adapters.prediction_market import research
 from prediction_market_extensions.adapters.prediction_market.research import print_backtest_summary
 
 
@@ -112,3 +115,142 @@ def test_print_backtest_summary_aligns_count_header_with_values(capsys) -> None:
 
     assert count_value_end == count_header_end
     assert fills_value_end == fills_header_end
+
+
+def test_total_summary_uses_portfolio_stats_when_plot_series_disagrees(capsys) -> None:
+    print_backtest_summary(
+        results=[
+            {
+                "slug": "alpha",
+                "book_events": 10,
+                "fills": 2,
+                "pnl": -0.5981,
+                "fill_events": [],
+                "joint_portfolio_equity_series": [
+                    ("2026-01-01T00:00:00+00:00", 1000.0),
+                    ("2026-01-01T00:05:00+00:00", 1002.1),
+                ],
+                "portfolio_stats": {
+                    "stats_returns": {
+                        "Sortino Ratio (252 days)": -15.8745,
+                        "Profit Factor": 0.3621,
+                    },
+                    "stats_pnls": {
+                        "pUSD": {
+                            "PnL (total)": -0.5981,
+                            "PnL% (total)": -0.05981,
+                        }
+                    },
+                },
+            }
+        ],
+        market_key="slug",
+        count_key="book_events",
+        count_label="Book Events",
+        pnl_label="PnL (pUSD)",
+    )
+
+    output = capsys.readouterr().out
+    total_row = next(line for line in output.splitlines() if line.startswith("TOTAL"))
+
+    assert "-0.06%" in total_row
+    assert "+0.21%" not in total_row
+    assert "-15.87" in total_row
+    assert "0.36" in total_row
+
+
+def test_market_summary_reconciles_return_stats_to_result_pnl() -> None:
+    row = research._summary_stats_for_result(
+        {
+            "pnl": -5.0,
+            "fill_events": [
+                {"price": 0.40, "quantity": 5.0},
+                {"price": 0.50, "quantity": 3.0},
+            ],
+            "equity_series": [
+                ("2026-01-01T00:00:00+00:00", 100.0),
+                ("2026-01-02T00:00:00+00:00", 102.0),
+                ("2026-01-03T00:00:00+00:00", 103.0),
+            ],
+            "requested_coverage_ratio": 0.5,
+        }
+    )
+
+    assert row["fill_qty"] == pytest.approx(8.0)
+    assert row["fill_notional"] == pytest.approx(3.5)
+    assert row["avg_fill_price"] == pytest.approx(0.4375)
+    assert row["return_pct"] == pytest.approx(-5.0)
+    assert row["max_drawdown_pct"] == pytest.approx(-6.862745098)
+    assert row["profit_factor"] == pytest.approx(0.291428571)
+    assert row["coverage_pct"] == pytest.approx(50.0)
+
+
+def test_total_summary_reconciles_return_stats_to_total_pnl_without_portfolio_stats() -> None:
+    results = [
+        {
+            "slug": "alpha",
+            "book_events": 10,
+            "fills": 1,
+            "pnl": -5.0,
+            "fill_events": [{"price": 0.40, "quantity": 5.0}],
+            "joint_portfolio_equity_series": [
+                ("2026-01-01T00:00:00+00:00", 100.0),
+                ("2026-01-02T00:00:00+00:00", 103.0),
+            ],
+            "requested_coverage_ratio": 0.25,
+        },
+        {
+            "slug": "beta",
+            "book_events": 20,
+            "fills": 1,
+            "pnl": 0.0,
+            "fill_events": [{"price": 0.60, "quantity": 5.0}],
+            "requested_coverage_ratio": 0.75,
+        },
+    ]
+    rows = [research._summary_stats_for_result(result) for result in results]
+    total = research._summary_stats_total(rows=rows, results=results)
+
+    assert total["fill_qty"] == pytest.approx(10.0)
+    assert total["fill_notional"] == pytest.approx(5.0)
+    assert total["avg_fill_price"] == pytest.approx(0.5)
+    assert total["return_pct"] == pytest.approx(-5.0)
+    assert total["max_drawdown_pct"] == pytest.approx(-5.0)
+    assert total["coverage_pct"] == pytest.approx(50.0)
+
+
+def test_total_summary_ignores_portfolio_stats_when_pnl_basis_disagrees() -> None:
+    results = [
+        {
+            "slug": "alpha",
+            "book_events": 10,
+            "fills": 1,
+            "pnl": -20.0,
+            "fill_events": [{"price": 0.40, "quantity": 5.0}],
+            "joint_portfolio_equity_series": [
+                ("2026-01-01T00:00:00+00:00", 1000.0),
+                ("2026-01-02T00:00:00+00:00", 1005.0),
+            ],
+            "portfolio_stats": {
+                "stats_returns": {
+                    "Sharpe Ratio (252 days)": -12.58,
+                    "Sortino Ratio (252 days)": -10.73,
+                    "Profit Factor": 0.1395,
+                },
+                "stats_pnls": {
+                    "pUSD": {
+                        "PnL (total)": -23.59,
+                        "PnL% (total)": -2.359,
+                    }
+                },
+            },
+        }
+    ]
+    rows = [research._summary_stats_for_result(result) for result in results]
+    total = research._summary_stats_total(rows=rows, results=results)
+
+    assert total["return_pct"] == pytest.approx(-2.0)
+    assert total["max_drawdown_pct"] == pytest.approx(-2.0)
+    assert total["sharpe"] != pytest.approx(-12.58)
+    assert total["sortino"] != pytest.approx(-10.73)
+    assert total["profit_factor"] != pytest.approx(0.1395)
