@@ -1409,14 +1409,18 @@ def print_backtest_summary(
 
 def _summary_stats_for_result(result: Mapping[str, Any]) -> dict[str, float | None]:
     fill_qty, fill_notional, avg_fill_price = _summary_fill_stats(result.get("fill_events") or ())
-    returns = _summary_returns_from_pairs(result.get("equity_series"))
+    equity_series = _summary_reconciled_equity_series(
+        result.get("equity_series"),
+        final_pnl=result.get("pnl"),
+    )
+    returns = _summary_returns_from_series(equity_series)
     stats = _summary_return_stats(returns)
     coverage = _coerce_float(result.get("requested_coverage_ratio"))
     return {
         "fill_qty": fill_qty,
         "fill_notional": fill_notional,
         "avg_fill_price": avg_fill_price,
-        "return_pct": _summary_total_return_pct(result.get("equity_series")),
+        "return_pct": _summary_total_return_pct_from_series(equity_series),
         "max_drawdown_pct": stats["max_drawdown_pct"],
         "sharpe": stats["sharpe"],
         "sortino": stats["sortino"],
@@ -1431,8 +1435,19 @@ def _summary_stats_total(
     fill_qty = sum(float(row.get("fill_qty") or 0.0) for row in rows)
     fill_notional = sum(float(row.get("fill_notional") or 0.0) for row in rows)
     avg_fill_price = fill_notional / fill_qty if fill_qty > 0.0 else None
-    equity_series = results[0].get("joint_portfolio_equity_series") if results else None
-    stats = _summary_return_stats(_summary_returns_from_pairs(equity_series))
+    portfolio_stats = _summary_portfolio_stats(results)
+    portfolio_pnls = _summary_portfolio_pnl_stats(portfolio_stats)
+    portfolio_returns = _summary_portfolio_return_stats(portfolio_stats)
+    total_pnl = sum(float(result.get("pnl") or 0.0) for result in results)
+    portfolio_stats_match_pnl = _summary_portfolio_pnl_matches(
+        portfolio_pnls=portfolio_pnls,
+        total_pnl=total_pnl,
+    )
+    equity_series = _summary_reconciled_equity_series(
+        results[0].get("joint_portfolio_equity_series") if results else None,
+        final_pnl=total_pnl,
+    )
+    stats = _summary_return_stats(_summary_returns_from_series(equity_series))
     coverage_values = [
         float(row["coverage_pct"])
         for row in rows
@@ -1442,11 +1457,27 @@ def _summary_stats_total(
         "fill_qty": fill_qty,
         "fill_notional": fill_notional,
         "avg_fill_price": avg_fill_price,
-        "return_pct": _summary_total_return_pct(equity_series),
+        "return_pct": _summary_total_return_pct_for_portfolio(
+            equity_series=equity_series,
+            total_pnl=total_pnl,
+            portfolio_pnls=portfolio_pnls,
+            use_portfolio_stats=portfolio_stats_match_pnl,
+        ),
         "max_drawdown_pct": stats["max_drawdown_pct"],
-        "sharpe": stats["sharpe"],
-        "sortino": stats["sortino"],
-        "profit_factor": stats["profit_factor"],
+        "sharpe": _summary_prefer_stat(
+            portfolio_returns.get("Sharpe Ratio (252 days)") if portfolio_stats_match_pnl else None,
+            stats["sharpe"],
+        ),
+        "sortino": _summary_prefer_stat(
+            portfolio_returns.get("Sortino Ratio (252 days)")
+            if portfolio_stats_match_pnl
+            else None,
+            stats["sortino"],
+        ),
+        "profit_factor": _summary_prefer_stat(
+            portfolio_returns.get("Profit Factor") if portfolio_stats_match_pnl else None,
+            stats["profit_factor"],
+        ),
         "coverage_pct": sum(coverage_values) / len(coverage_values) if coverage_values else None,
     }
 
@@ -1471,6 +1502,10 @@ def _summary_fill_stats(fill_events: object) -> tuple[float, float, float | None
 
 def _summary_returns_from_pairs(pairs: object) -> dict[int, float]:
     series = _pairs_to_series(pairs if isinstance(pairs, Sequence) else [])
+    return _summary_returns_from_series(series)
+
+
+def _summary_returns_from_series(series: pd.Series) -> dict[int, float]:
     if series.empty:
         return {}
 
@@ -1509,6 +1544,10 @@ def _summary_return_stats(returns: dict[int, float]) -> dict[str, float | None]:
 
 def _summary_total_return_pct(pairs: object) -> float | None:
     series = _pairs_to_series(pairs if isinstance(pairs, Sequence) else [])
+    return _summary_total_return_pct_from_series(series)
+
+
+def _summary_total_return_pct_from_series(series: pd.Series) -> float | None:
     if series.empty:
         return None
 
@@ -1521,6 +1560,105 @@ def _summary_total_return_pct(pairs: object) -> float | None:
     if abs(first) < 1e-12:
         return None
     return (last / first - 1.0) * 100.0
+
+
+def _summary_reconciled_equity_series(pairs: object, *, final_pnl: object) -> pd.Series:
+    series = _pairs_to_series(pairs if isinstance(pairs, Sequence) else [])
+    if series.empty:
+        return series
+
+    numeric = pd.to_numeric(series, errors="coerce").dropna()
+    if numeric.empty:
+        return pd.Series(dtype=float)
+
+    pnl = _coerce_float(final_pnl)
+    if pnl is None:
+        return numeric.astype(float)
+
+    first = float(numeric.iloc[0])
+    expected_final = first + pnl
+    current_final = float(numeric.iloc[-1])
+    tolerance = max(
+        1e-9,
+        abs(expected_final) * 1e-9,
+        abs(current_final - first) * 1e-6,
+        abs(float(pnl)) * 1e-6,
+    )
+    if abs(current_final - expected_final) <= tolerance:
+        return numeric.astype(float)
+
+    reconciled = numeric.astype(float).copy()
+    reconciled.iloc[-1] = expected_final
+    return reconciled
+
+
+def _summary_total_return_pct_for_portfolio(
+    *,
+    equity_series: object,
+    total_pnl: float,
+    portfolio_pnls: Mapping[str, Any],
+    use_portfolio_stats: bool,
+) -> float | None:
+    engine_return = _coerce_float(portfolio_pnls.get("PnL% (total)"))
+    if use_portfolio_stats and engine_return is not None:
+        return engine_return
+
+    if not isinstance(equity_series, pd.Series):
+        equity_series = _summary_reconciled_equity_series(equity_series, final_pnl=total_pnl)
+    if equity_series.empty:
+        return None
+
+    numeric = pd.to_numeric(equity_series, errors="coerce").dropna()
+    if len(numeric) < 2:
+        return None
+
+    first = float(numeric.iloc[0])
+    if abs(first) < 1e-12:
+        return None
+
+    series_pnl = float(numeric.iloc[-1]) - first
+    pnl_return = (total_pnl / first) * 100.0
+    tolerance = max(1e-9, abs(total_pnl) * 1e-6, abs(series_pnl) * 1e-6)
+    if abs(series_pnl - total_pnl) > tolerance:
+        return pnl_return
+    return (series_pnl / first) * 100.0
+
+
+def _summary_portfolio_stats(results: Sequence[Mapping[str, Any]]) -> Mapping[str, Any]:
+    if not results:
+        return {}
+    raw_stats = results[0].get("portfolio_stats")
+    return raw_stats if isinstance(raw_stats, Mapping) else {}
+
+
+def _summary_portfolio_return_stats(portfolio_stats: Mapping[str, Any]) -> Mapping[str, Any]:
+    stats_returns = portfolio_stats.get("stats_returns")
+    return stats_returns if isinstance(stats_returns, Mapping) else {}
+
+
+def _summary_portfolio_pnl_stats(portfolio_stats: Mapping[str, Any]) -> Mapping[str, Any]:
+    stats_pnls = portfolio_stats.get("stats_pnls")
+    if not isinstance(stats_pnls, Mapping):
+        return {}
+    if "PnL% (total)" in stats_pnls or "PnL (total)" in stats_pnls:
+        return stats_pnls
+    for value in stats_pnls.values():
+        if isinstance(value, Mapping):
+            return value
+    return {}
+
+
+def _summary_portfolio_pnl_matches(*, portfolio_pnls: Mapping[str, Any], total_pnl: float) -> bool:
+    portfolio_pnl = _coerce_float(portfolio_pnls.get("PnL (total)"))
+    if portfolio_pnl is None:
+        return False
+    tolerance = max(1e-9, abs(portfolio_pnl) * 1e-6, abs(total_pnl) * 1e-6)
+    return abs(portfolio_pnl - total_pnl) <= tolerance
+
+
+def _summary_prefer_stat(primary: object, fallback: float | None) -> float | None:
+    value = _coerce_float(primary)
+    return value if value is not None else fallback
 
 
 def _safe_stat(func: Any, returns: dict[int, float]) -> float | None:
