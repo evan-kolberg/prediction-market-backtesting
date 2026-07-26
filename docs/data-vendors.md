@@ -120,6 +120,43 @@ Pin it in a runner with:
 sources=("local:/data/pmxt/raw",)
 ```
 
+### Import DepthFeed snapshots
+
+[DepthFeed](https://depthfeed.com) exposes full Polymarket outcome books through
+its paginated REST API. The repository includes a bounded importer that writes
+those full snapshots into the PMXT legacy parquet layout, so they can be replayed
+through the existing PMXT adapter without introducing a second execution path.
+
+Set a DepthFeed API key and import one exact market and time window:
+
+```bash
+export DEPTHFEED_API_KEY=df_your_key
+make download-depthfeed-data \
+  DEPTHFEED_DATA_DESTINATION=/data/depthfeed-pmxt \
+  DEPTHFEED_DOWNLOAD_FLAGS='\
+    --coin btc \
+    --market-id 3107661 \
+    --start-time 2026-07-26T04:00:00Z \
+    --end-time 2026-07-26T08:00:00Z'
+```
+
+Then point a Polymarket PMXT runner at the generated mirror:
+
+```python
+sources=("local:/data/depthfeed-pmxt",)
+```
+
+The importer requests `include_orderbook=true`, emits both outcome tokens as
+full `book_snapshot` events, follows keyset pagination, deduplicates repeated
+snapshots, and writes atomically. Existing legacy-schema hours are merged.
+Fixed-column PMXT hours are rejected instead of mixing incompatible parquet
+schemas; use a separate destination for the DepthFeed mirror in that case.
+
+This path supplies L2 book state. The replay adapter still sources real trade
+ticks independently for execution matching. Availability and history remain
+bounded by the DepthFeed plan attached to `DEPTHFEED_API_KEY`; use exact market
+ids returned by the API rather than constructing ids.
+
 ### Required Parquet Columns
 
 Raw PMXT archive parquet may use the legacy payload schema:

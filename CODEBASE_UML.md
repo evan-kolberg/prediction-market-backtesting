@@ -1,8 +1,8 @@
 # Codebase UML Inventory
 
 This file is generated from Python AST metadata and excludes `tests/` plus cache, virtualenv, and dot directories.
-Generated: 2026-05-16T21:06:08+00:00
-Modules: 136 | Classes: 181 | Functions/methods: 1897
+Generated: 2026-07-26T07:12:57+00:00
+Modules: 137 | Classes: 183 | Functions/methods: 1912
 
 ## Backtesting Data Flow
 
@@ -324,6 +324,7 @@ flowchart TD
 - Function L166: `_stable_policy_rows(validation_chunks: list[list[dict[str, Any]]], validation_chunk_probs: list[Any], grid: list[Any], policy_kwargs: dict[str, Any]) -> list[dict[str, Any]]`
 - Function L219: `_aggregate_selected(rows: list[dict[str, Any]]) -> dict[str, Any]`
 - Function L244: `main() -> None`
+- Function L453: `run() -> None`
 
 ### `backtests/private/telonex_general_market_value_rebound_search.py`
 - Imports: `__future__, backtests, csv, dataclasses, decimal, dotenv, importlib, json, os, pathlib, subprocess, sys, typing, uuid`
@@ -361,6 +362,7 @@ flowchart TD
 - Function L348: `_aggregate(rows: list[dict[str, Any]]) -> dict[str, Any]`
 - Function L363: `async _run_async() -> None`
 - Function L433: `main() -> None`
+- Function L442: `run() -> None`
 
 ### `backtests/sitecustomize.py`
 - Imports: `__future__, importlib, pathlib, sys`
@@ -2054,6 +2056,24 @@ flowchart TD
 - Function L262: `_telonex_trade_frame(items: int) -> pd.DataFrame`
 - Function L275: `_bench_native_mode(*, enabled: bool, items: int, telonex_events: int, repeats: int, pmxt_rows: list[tuple[str, str]], public_trade_rows: list[dict[str, object]], telonex_rows: list[tuple[str, str, str, int, str | None]], merge_inputs: tuple[list[int], list[int], list[int], list[int]], telonex_frame: pd.DataFrame, telonex_nested_frame: pd.DataFrame, telonex_trade_frame: pd.DataFrame, native_extension_path: Path | None) -> dict[str, float | bool]`
 - Function L513: `main() -> None`
+
+### `scripts/depthfeed_download_data.py`
+- Imports: `__future__, argparse, collections, dataclasses, datetime, decimal, json, os, pathlib, pyarrow, typing, urllib`
+- Function L93: `_timestamp_ms(snapshot: dict[str, Any]) -> int`
+- Function L113: `_decimal_text(value: object) -> str`
+- Function L123: `_levels(value: object, *, side: str) -> list[list[str]]`
+- Function L138: `_book_payload(*, snapshot: dict[str, Any], condition_id: str, token_id: str, book_key: str) -> str`
+- Function L162: `snapshot_rows(snapshot: dict[str, Any], *, condition_id: str, token_up: str, token_down: str) -> list[dict[str, str]]`
+- Function L193: `_hour_path(destination: Path, timestamp_ms: int) -> Path`
+- Function L204: `_row_sort_key(row: dict[str, str]) -> tuple[float, str]`
+- Function L209: `_write_hour(path: Path, rows: list[dict[str, str]], *, condition_id: str, overwrite: bool) -> int`
+- Function L248: `download_market(*, client: DepthFeedClient, destination: Path, coin: str, market_id: str, start_time: str | None, end_time: str | None, overwrite: bool, max_pages: int | None) -> DownloadSummary`
+- Function L342: `main() -> int`
+- Class L27: `DownloadSummary`
+  - Method L35: `as_dict(self) -> dict[str, object]`
+- Class L46: `DepthFeedClient`
+  - Method L47: `__init__(self, *, api_key: str, api_base: str, timeout_secs: int) -> None`
+  - Method L57: `get(self, path: str, params: dict[str, object] | None = None) -> dict[str, Any]`
 
 ### `scripts/generate_codebase_uml.py`
 - Imports: `__future__, ast, dataclasses, datetime, pathlib`
