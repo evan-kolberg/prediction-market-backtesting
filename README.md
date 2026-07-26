@@ -151,6 +151,7 @@ Detailed guides have been filed away in the [docs index](https://evan-kolberg.gi
     - [Lower-Level Loader Env Vars](https://evan-kolberg.github.io/prediction-market-backtesting/data-vendors/#lower-level-loader-env-vars)
     - [What Works Today](https://evan-kolberg.github.io/prediction-market-backtesting/data-vendors/#what-works-today)
     - [Supported Local File Layout](https://evan-kolberg.github.io/prediction-market-backtesting/data-vendors/#supported-local-file-layout)
+    - [Import DepthFeed snapshots](https://evan-kolberg.github.io/prediction-market-backtesting/data-vendors/#import-depthfeed-snapshots)
     - [Required Parquet Columns](https://evan-kolberg.github.io/prediction-market-backtesting/data-vendors/#required-parquet-columns)
     - [Legacy JSON Payload Shape](https://evan-kolberg.github.io/prediction-market-backtesting/data-vendors/#legacy-json-payload-shape)
   - [Telonex](https://evan-kolberg.github.io/prediction-market-backtesting/data-vendors/#telonex)

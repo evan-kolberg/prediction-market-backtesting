@@ -1,4 +1,4 @@
-.PHONY: backtest sandbox install update test check native-develop native-debug-develop clear-pmxt-cache clear-telonex-cache clear-polymarket-cache download-pmxt-raws download-telonex-data
+.PHONY: backtest sandbox install update test check native-develop native-debug-develop clear-pmxt-cache clear-telonex-cache clear-polymarket-cache download-pmxt-raws download-telonex-data download-depthfeed-data
 
 PMXT_CACHE_ROOT ?= $(if $(XDG_CACHE_HOME),$(XDG_CACHE_HOME),$(HOME)/.cache)/nautilus_trader/pmxt
 PMXT_LOCAL_DATA_ROOT ?= /Volumes/storage/pmxt_data
@@ -8,6 +8,8 @@ DESTINATION ?=
 PMXT_RAW_DOWNLOAD_FLAGS ?=
 TELONEX_DATA_DESTINATION ?= /Volumes/storage/telonex_data
 TELONEX_DOWNLOAD_FLAGS ?=
+DEPTHFEED_DATA_DESTINATION ?=
+DEPTHFEED_DOWNLOAD_FLAGS ?=
 
 backtest:
 	uv run python main.py
@@ -59,6 +61,12 @@ download-telonex-data:
 	uv run python scripts/telonex_download_data.py \
 		--destination "$(TELONEX_DATA_DESTINATION)" \
 		$(TELONEX_DOWNLOAD_FLAGS)
+
+download-depthfeed-data:
+	@if [ -z "$(DEPTHFEED_DATA_DESTINATION)" ]; then echo "Set DEPTHFEED_DATA_DESTINATION=/path"; exit 2; fi
+	uv run python scripts/depthfeed_download_data.py \
+		--destination "$(DEPTHFEED_DATA_DESTINATION)" \
+		$(DEPTHFEED_DOWNLOAD_FLAGS)
 
 update:
 	@echo "No vendored Nautilus subtree remains in this branch."
