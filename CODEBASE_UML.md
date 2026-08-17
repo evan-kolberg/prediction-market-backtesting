@@ -1,8 +1,8 @@
 # Codebase UML Inventory
 
 This file is generated from Python AST metadata and excludes `tests/` plus cache, virtualenv, and dot directories.
-Generated: 2026-05-16T21:06:08+00:00
-Modules: 136 | Classes: 181 | Functions/methods: 1897
+Generated: 2026-08-17T08:16:16+00:00
+Modules: 143 | Classes: 183 | Functions/methods: 1986
 
 ## Backtesting Data Flow
 
@@ -324,6 +324,7 @@ flowchart TD
 - Function L166: `_stable_policy_rows(validation_chunks: list[list[dict[str, Any]]], validation_chunk_probs: list[Any], grid: list[Any], policy_kwargs: dict[str, Any]) -> list[dict[str, Any]]`
 - Function L219: `_aggregate_selected(rows: list[dict[str, Any]]) -> dict[str, Any]`
 - Function L244: `main() -> None`
+- Function L453: `run() -> None`
 
 ### `backtests/private/telonex_general_market_value_rebound_search.py`
 - Imports: `__future__, backtests, csv, dataclasses, decimal, dotenv, importlib, json, os, pathlib, subprocess, sys, typing, uuid`
@@ -361,6 +362,7 @@ flowchart TD
 - Function L348: `_aggregate(rows: list[dict[str, Any]]) -> dict[str, Any]`
 - Function L363: `async _run_async() -> None`
 - Function L433: `main() -> None`
+- Function L442: `run() -> None`
 
 ### `backtests/sitecustomize.py`
 - Imports: `__future__, importlib, pathlib, sys`
@@ -2054,6 +2056,116 @@ flowchart TD
 - Function L262: `_telonex_trade_frame(items: int) -> pd.DataFrame`
 - Function L275: `_bench_native_mode(*, enabled: bool, items: int, telonex_events: int, repeats: int, pmxt_rows: list[tuple[str, str]], public_trade_rows: list[dict[str, object]], telonex_rows: list[tuple[str, str, str, int, str | None]], merge_inputs: tuple[list[int], list[int], list[int], list[int]], telonex_frame: pd.DataFrame, telonex_nested_frame: pd.DataFrame, telonex_trade_frame: pd.DataFrame, native_extension_path: Path | None) -> dict[str, float | bool]`
 - Function L513: `main() -> None`
+
+### `scripts/dq_score_market_research/audit_dq_feature_importance.py`
+- Imports: `__future__, importlib, json, math, numpy, pandas, pathlib, sklearn, sys, typing`
+- Function L27: `load_training_module() -> Any`
+- Function L37: `make_model(leaves: int = 15, l2: float = 10.0) -> Pipeline`
+- Function L55: `dedupe_market(frame: pd.DataFrame) -> pd.DataFrame`
+- Function L63: `metric_row(model_id: str, target: str, feature_set: str, train: pd.DataFrame, test: pd.DataFrame, features: list[str], model: Pipeline) -> dict[str, Any]`
+- Function L89: `individual_importance(model_id: str, model: Pipeline, test: pd.DataFrame, target: str, features: list[str]) -> list[dict[str, Any]]`
+- Function L116: `grouped_importance(model_id: str, model: Pipeline, test: pd.DataFrame, target: str, features: list[str], groups: dict[str, list[str]]) -> list[dict[str, Any]]`
+- Function L149: `fit_and_audit(panel: pd.DataFrame, model_id: str, target: str, feature_set: str, features: list[str], groups: dict[str, list[str]], market_dedupe: bool = False, leaves: int = 15, l2: float = 10.0) -> tuple[dict[str, Any], list[dict[str, Any]], list[dict[str, Any]]]`
+- Function L175: `main() -> None`
+
+### `scripts/dq_score_market_research/build_dq_score_study_report.py`
+- Imports: `__future__, html, json, pandas, pathlib, typing`
+- Function L18: `pct(value: float, digits: int = 2) -> str`
+- Function L22: `money(value: float) -> str`
+- Function L27: `number(value: float, digits: int = 3) -> str`
+- Function L31: `markdown_table(headers: list[str], rows: list[list[Any]]) -> str`
+- Function L40: `html_table(headers: list[str], rows: list[list[Any]], classes: str = '') -> str`
+- Function L52: `select_row(frame: pd.DataFrame, signal_id: str, quantile: float, orientation: int, horizon: str, *, period: str | None = None) -> pd.Series`
+- Function L78: `combined_sensitivity(frame: pd.DataFrame) -> pd.DataFrame`
+- Function L95: `report_inputs() -> dict[str, Any]`
+- Function L117: `fixed_candidate_rows(combined: pd.DataFrame) -> tuple[list[list[Any]], dict[str, pd.Series]]`
+- Function L198: `nested_rows(nested: pd.DataFrame) -> list[list[Any]]`
+- Function L228: `sensitivity_rows(frame: pd.DataFrame) -> list[list[Any]]`
+- Function L285: `feature_rows(metrics: pd.DataFrame, importance: pd.DataFrame) -> tuple[list[list[Any]], list[list[Any]]]`
+- Function L307: `registry(selected: dict[str, pd.Series]) -> dict[str, Any]`
+- Function L397: `build_markdown(data: dict[str, Any]) -> tuple[str, dict[str, Any]]`
+- Function L536: `build_html(markdown_source: str, data: dict[str, Any]) -> str`
+- Function L602: `main() -> None`
+
+### `scripts/dq_score_market_research/research_dq_score_market.py`
+- Imports: `__future__, dataclasses, duckdb, hashlib, json, math, numpy, os, pandas, pathlib, time, typing, warnings`
+- Function L69: `log(message: str) -> None`
+- Function L73: `json_safe(value) -> Any`
+- Function L91: `dump_json(path: Path, payload) -> None`
+- Function L98: `load_plays(connection: duckdb.DuckDBPyConnection) -> pd.DataFrame`
+- Function L198: `add_epoch_and_base_fields(frame: pd.DataFrame) -> pd.DataFrame`
+- Function L235: `_cum_side_state(df: pd.DataFrame, home_side: bool) -> dict[str, pd.Series]`
+- Function L281: `_shrunk(values: pd.Series, count: pd.Series, prior: float, k: float) -> pd.Series`
+- Function L288: `_p11_dq_side(state: dict[str, pd.Series], cv_weight: float, coefficient: float, shrink_k: float) -> pd.Series`
+- Function L321: `_time_weight(df: pd.DataFrame, name: str) -> pd.Series`
+- Function L334: `add_static_signals(frame: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, SignalSpec]]`
+- Function L424: `add_prior_sq_signals(frame: pd.DataFrame, specs: dict[str, SignalSpec]) -> tuple[pd.DataFrame, dict[str, SignalSpec]]`
+- Function L464: `attach_market_quotes(connection: duckdb.DuckDBPyConnection, frame: pd.DataFrame, latency_seconds: int) -> pd.DataFrame`
+- Function L592: `merge_quotes(frame: pd.DataFrame, quotes: pd.DataFrame) -> pd.DataFrame`
+- Function L604: `merge_learned_signals(frame: pd.DataFrame, specs: dict[str, SignalSpec]) -> tuple[pd.DataFrame, dict[str, SignalSpec]]`
+- Function L627: `market_audit(frame: pd.DataFrame) -> dict[str, Any]`
+- Function L658: `_trade_arrays(frame: pd.DataFrame, horizon: str, direction_home: pd.Series, friction_bps: float) -> pd.DataFrame`
+- Function L734: `build_trades(frame: pd.DataFrame, signal_id: str, threshold: float, horizon: str, orientation: int, friction_bps: float = ROUNDTRIP_FRICTION_BPS, exact_non_overlap: bool = False) -> pd.DataFrame`
+- Function L786: `max_drawdown(pnl: pd.Series) -> float`
+- Function L794: `summarize_trades(trades: pd.DataFrame) -> dict[str, Any]`
+- Function L822: `weekly_objective(trades: pd.DataFrame, epochs: set[int]) -> dict[str, Any]`
+- Function L842: `broad_vectorized_search(frame: pd.DataFrame, specs: dict[str, SignalSpec]) -> pd.DataFrame`
+- Function L898: `finalist_configs(search: pd.DataFrame) -> pd.DataFrame`
+- Function L935: `evaluate_finalists(frame: pd.DataFrame, finalists: pd.DataFrame, period_name: str, epochs: set[int]) -> tuple[pd.DataFrame, pd.DataFrame]`
+- Function L980: `main() -> None`
+- Class L61: `SignalSpec`
+
+### `scripts/dq_score_market_research/run_dq_score_robustness_audit.py`
+- Imports: `__future__, duckdb, importlib, json, math, numpy, pandas, pathlib, sys, typing`
+- Function L21: `load_research_module() -> Any`
+- Function L31: `json_safe(value) -> Any`
+- Function L45: `add_tweak_signals(frame: pd.DataFrame, research) -> tuple[pd.DataFrame, dict[str, Any]]`
+- Function L126: `select_tweak_finalists(search: pd.DataFrame) -> pd.DataFrame`
+- Function L140: `candidate_configs(base_finalists: pd.DataFrame, base_results: pd.DataFrame, tweak_finalists: pd.DataFrame, tweak_results: pd.DataFrame) -> pd.DataFrame`
+- Function L177: `evaluate_scenario(research, frame: pd.DataFrame, configs: pd.DataFrame, scenario: str, latency_seconds: int, friction_bps: float, min_price: float, max_price: float, max_spread: float) -> pd.DataFrame`
+- Function L241: `refresh_quotes(research, frame: pd.DataFrame, latency_seconds: int) -> pd.DataFrame`
+- Function L252: `cluster_bootstrap(trades: pd.DataFrame, rng: np.random.Generator) -> dict[str, Any]`
+- Function L286: `bootstrap_candidates(research, frame: pd.DataFrame, configs: pd.DataFrame) -> pd.DataFrame`
+- Function L337: `main() -> None`
+
+### `scripts/dq_score_market_research/run_nested_weekly_walkforward.py`
+- Imports: `__future__, importlib, json, numpy, pandas, pathlib, sys, typing`
+- Function L25: `load_module(name: str, path: Path) -> Any`
+- Function L35: `model_class(family: str) -> str`
+- Function L57: `load_specs(research) -> dict[str, Any]`
+- Function L104: `exact_validation_selection(research, panel: pd.DataFrame, search: pd.DataFrame, validation_epochs: set[int]) -> pd.DataFrame`
+- Function L157: `bootstrap_summary(trades: pd.DataFrame) -> dict[str, Any]`
+- Function L176: `main() -> None`
+
+### `scripts/dq_score_market_research/self_audit_dq_score_study.py`
+- Imports: `__future__, hashlib, json, math, numpy, os, pandas, pathlib, typing`
+- Function L23: `sha256_file(path: Path) -> str`
+- Function L31: `json_safe(value) -> Any`
+- Function L45: `add_check(checks: list[dict[str, Any]], name: str, passed: bool, detail) -> None`
+- Function L55: `overlap_violations(trades: pd.DataFrame, artifact: str) -> int`
+- Function L75: `trade_checks(checks: list[dict[str, Any]], panel: pd.DataFrame) -> dict[str, Any]`
+- Function L120: `nested_temporal_checks(checks: list[dict[str, Any]]) -> None`
+- Function L136: `artifact_checksums() -> pd.DataFrame`
+- Function L158: `main() -> None`
+
+### `scripts/dq_score_market_research/train_dq_score_learned_models.py`
+- Imports: `__future__, dataclasses, joblib, json, math, numpy, pandas, pathlib, sklearn, time, typing`
+- Function L36: `log(message: str) -> None`
+- Function L40: `json_safe(value) -> Any`
+- Function L54: `dump_json(path: Path, payload) -> None`
+- Function L61: `numeric_bool(frame: pd.DataFrame, column: str) -> pd.Series`
+- Function L65: `add_model_features(frame: pd.DataFrame) -> pd.DataFrame`
+- Function L186: `linear_pipeline(model, robust: bool = False) -> Pipeline`
+- Function L197: `process_recipes() -> list[ModelRecipe]`
+- Function L254: `market_recipes() -> list[ModelRecipe]`
+- Function L312: `feature_columns(recipe: ModelRecipe) -> list[str]`
+- Function L324: `expanding_predictions(df: pd.DataFrame, recipe: ModelRecipe, *, dedupe_market_training: bool = False) -> tuple[pd.Series, list[dict[str, Any]], Any]`
+- Function L363: `add_process_signals(df: pd.DataFrame) -> tuple[pd.DataFrame, list[dict[str, Any]], list[dict[str, Any]]]`
+- Function L423: `add_market_signals(df: pd.DataFrame) -> tuple[pd.DataFrame, list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]`
+- Function L458: `add_outcome_residual_signals(df: pd.DataFrame) -> tuple[pd.DataFrame, list[dict[str, Any]], list[dict[str, Any]]]`
+- Function L524: `save_coefficients(df: pd.DataFrame, recipes: list[ModelRecipe], fitted_models: dict[str, Any]) -> None`
+- Function L555: `main() -> None`
+- Class L28: `ModelRecipe`
 
 ### `scripts/generate_codebase_uml.py`
 - Imports: `__future__, ast, dataclasses, datetime, pathlib`

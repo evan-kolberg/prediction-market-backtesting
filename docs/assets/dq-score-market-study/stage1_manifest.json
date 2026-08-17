@@ -1,0 +1,12 @@
+{
+  "availability_status": "NON_CAUSAL_RETROSPECTIVE_CV_TIMESTAMP_UNKNOWN",
+  "configurations_screened": 24768,
+  "database_path": "D:\\kch123_analysis\\kch123_football.duckdb",
+  "database_read_only": true,
+  "finalists": 67,
+  "games": 206,
+  "latency_seconds": 60,
+  "rows": 23788,
+  "script_sha256": "902527aac31fef89a7b0fe11e8718f283ea4fe52f6b662ae92ea4293aad964ff",
+  "signals": 516
+}

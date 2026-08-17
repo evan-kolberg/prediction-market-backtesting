@@ -1,0 +1,9 @@
+# Generated research artifacts stay local. Curated, audited summaries are
+# published under docs/assets/dq-score-market-study/.
+*.csv
+*.html
+*.joblib
+*.json
+*.log
+*.md
+*.parquet

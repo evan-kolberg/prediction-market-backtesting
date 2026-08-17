@@ -35,6 +35,7 @@ replay are grouped under Advanced / Experiments.
 ##### Advanced / Experiments
 
 - [Research And Optimizers](research.md)
+- [DQ Score NFL Moneyline Study](dq-score-market-study.md)
 - [Polymarket Account Ledger Replay](account-ledger-replay.md)
 
 ##### Project

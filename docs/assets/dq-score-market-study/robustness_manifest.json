@@ -1,0 +1,21 @@
+{
+  "bootstrap_repeats": 5000,
+  "candidate_configs": 34,
+  "database_path": "D:\\kch123_analysis\\kch123_football.duckdb",
+  "database_read_only": true,
+  "scenarios": [
+    "BASE_60S_25BPS",
+    "ZERO_FEE",
+    "FEE_50BPS",
+    "FEE_100BPS",
+    "PRICE_10_90",
+    "PRICE_15_85",
+    "SPREAD_MAX_05",
+    "LATENCY_120S",
+    "LATENCY_180S"
+  ],
+  "tweak_configurations_screened": 480,
+  "tweak_finalists": 25,
+  "tweak_signals": 10,
+  "warning": "CV annotation availability timestamps are absent; all CV-derived results remain retrospective/non-causal."
+}

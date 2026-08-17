@@ -1,0 +1,153 @@
+{
+  "audit_status": "PASS_WITH_CRITICAL_LIMITATIONS",
+  "checks": [
+    {
+      "check": "database_unchanged_during_audit",
+      "detail": {
+        "bytes": 1357393920,
+        "mtime_ns": 1786436740295168500,
+        "sha256": "334179c1d740f03bbe884e34b8fef7f95d9ec0d09309dfa51965b9e2682ef9e5"
+      },
+      "status": "PASS"
+    },
+    {
+      "check": "panel_primary_key_unique",
+      "detail": {
+        "games": 206,
+        "rows": 23788
+      },
+      "status": "PASS"
+    },
+    {
+      "check": "cv_publication_timestamps_present",
+      "detail": {
+        "interpretation": "Expected limitation: CV-derived scores are retrospective only.",
+        "nonnull": 0,
+        "rows": 23788
+      },
+      "status": "FAIL"
+    },
+    {
+      "check": "trade_invariants:finalist_oos_trades.parquet",
+      "detail": {
+        "entry_before_target": 0,
+        "entry_delay_invalid": 0,
+        "entry_not_before_exit": 0,
+        "games": 90,
+        "non_overlap_violations": 0,
+        "price_invalid": 0,
+        "rows": 5178,
+        "short_exit_delay_invalid": 0
+      },
+      "status": "PASS"
+    },
+    {
+      "check": "trade_invariants:tweak_oos_trades.parquet",
+      "detail": {
+        "entry_before_target": 0,
+        "entry_delay_invalid": 0,
+        "entry_not_before_exit": 0,
+        "games": 90,
+        "non_overlap_violations": 0,
+        "price_invalid": 0,
+        "rows": 2562,
+        "short_exit_delay_invalid": 0
+      },
+      "status": "PASS"
+    },
+    {
+      "check": "trade_invariants:nested_weekly_trades.parquet",
+      "detail": {
+        "entry_before_target": 0,
+        "entry_delay_invalid": 0,
+        "entry_not_before_exit": 0,
+        "games": 120,
+        "non_overlap_violations": 0,
+        "price_invalid": 0,
+        "rows": 1010,
+        "short_exit_delay_invalid": 0
+      },
+      "status": "PASS"
+    },
+    {
+      "check": "nested_temporal_order",
+      "detail": {
+        "rows": 98,
+        "violations": 0
+      },
+      "status": "PASS"
+    },
+    {
+      "check": "learned_walkforward_epochs_valid",
+      "detail": {
+        "max_test_epoch": 22,
+        "min_test_epoch": 8,
+        "rows": 690,
+        "source_rule": "training epochs are strictly less than each test epoch"
+      },
+      "status": "PASS"
+    },
+    {
+      "check": "stage_manifest_source_hash",
+      "detail": {
+        "current": "902527aac31fef89a7b0fe11e8718f283ea4fe52f6b662ae92ea4293aad964ff",
+        "manifest": "902527aac31fef89a7b0fe11e8718f283ea4fe52f6b662ae92ea4293aad964ff"
+      },
+      "status": "PASS"
+    },
+    {
+      "check": "uncertainty_intervals_complete",
+      "detail": {
+        "fixed_nonempty_rows": 101,
+        "fixed_rows": 102,
+        "nested_rows": 9
+      },
+      "status": "PASS"
+    }
+  ],
+  "critical_limitations": [
+    "No CV annotation publication timestamp exists for any panel row.",
+    "All CV-derived results are retrospective and cannot establish live tradability.",
+    "All game-clustered 95% intervals for leading strategies include zero.",
+    "The 2025 season was used for research; post-hoc formula search creates researcher degrees of freedom."
+  ],
+  "database": {
+    "bytes": 1357393920,
+    "mtime_ns": 1786436740295168500,
+    "opened_by_research_scripts": "read_only=True",
+    "path": "D:\\kch123_analysis\\kch123_football.duckdb",
+    "sha256": "334179c1d740f03bbe884e34b8fef7f95d9ec0d09309dfa51965b9e2682ef9e5"
+  },
+  "trade_artifacts": {
+    "finalist_oos_trades.parquet": {
+      "entry_before_target": 0,
+      "entry_delay_invalid": 0,
+      "entry_not_before_exit": 0,
+      "games": 90,
+      "non_overlap_violations": 0,
+      "price_invalid": 0,
+      "rows": 5178,
+      "short_exit_delay_invalid": 0
+    },
+    "nested_weekly_trades.parquet": {
+      "entry_before_target": 0,
+      "entry_delay_invalid": 0,
+      "entry_not_before_exit": 0,
+      "games": 120,
+      "non_overlap_violations": 0,
+      "price_invalid": 0,
+      "rows": 1010,
+      "short_exit_delay_invalid": 0
+    },
+    "tweak_oos_trades.parquet": {
+      "entry_before_target": 0,
+      "entry_delay_invalid": 0,
+      "entry_not_before_exit": 0,
+      "games": 90,
+      "non_overlap_violations": 0,
+      "price_invalid": 0,
+      "rows": 2562,
+      "short_exit_delay_invalid": 0
+    }
+  }
+}

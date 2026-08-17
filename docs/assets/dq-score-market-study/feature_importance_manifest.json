@@ -1,0 +1,17 @@
+{
+  "build_epochs": [
+    6,
+    7,
+    8,
+    9,
+    10
+  ],
+  "cv_availability": "UNKNOWN_RETROSPECTIVE_ONLY",
+  "method": "fit on build weeks; permutation and ablation metrics on untouched selection weeks",
+  "models": 5,
+  "selection_epochs": [
+    11,
+    12,
+    13
+  ]
+}

@@ -1,0 +1,133 @@
+{
+  "availability_status_counts": {
+    "None": 250,
+    "UNKNOWN_RETROSPECTIVE_ONLY": 23538
+  },
+  "away_entry_delay_seconds_quantiles": {
+    "0.0": 0.002406,
+    "0.25": 15.210733,
+    "0.5": 30.987153,
+    "0.75": 46.932568,
+    "0.95": 59.907813,
+    "1.0": 16976.581153
+  },
+  "away_valid_entry_rows": 18364,
+  "cv_timestamp_nonnull": 0,
+  "epoch_rows": [
+    {
+      "epoch": 6,
+      "games": 14,
+      "rows": 1559
+    },
+    {
+      "epoch": 7,
+      "games": 15,
+      "rows": 1731
+    },
+    {
+      "epoch": 8,
+      "games": 13,
+      "rows": 1449
+    },
+    {
+      "epoch": 9,
+      "games": 14,
+      "rows": 1602
+    },
+    {
+      "epoch": 10,
+      "games": 14,
+      "rows": 1629
+    },
+    {
+      "epoch": 11,
+      "games": 15,
+      "rows": 1748
+    },
+    {
+      "epoch": 12,
+      "games": 14,
+      "rows": 1645
+    },
+    {
+      "epoch": 13,
+      "games": 16,
+      "rows": 1876
+    },
+    {
+      "epoch": 14,
+      "games": 14,
+      "rows": 1640
+    },
+    {
+      "epoch": 15,
+      "games": 16,
+      "rows": 1808
+    },
+    {
+      "epoch": 16,
+      "games": 16,
+      "rows": 1872
+    },
+    {
+      "epoch": 17,
+      "games": 16,
+      "rows": 1810
+    },
+    {
+      "epoch": 18,
+      "games": 16,
+      "rows": 1799
+    },
+    {
+      "epoch": 19,
+      "games": 6,
+      "rows": 732
+    },
+    {
+      "epoch": 20,
+      "games": 4,
+      "rows": 528
+    },
+    {
+      "epoch": 21,
+      "games": 2,
+      "rows": 230
+    },
+    {
+      "epoch": 22,
+      "games": 1,
+      "rows": 130
+    }
+  ],
+  "epochs": [
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21,
+    22
+  ],
+  "games": 206,
+  "home_entry_delay_seconds_quantiles": {
+    "0.0": 0.002253,
+    "0.25": 15.184736,
+    "0.5": 30.979393,
+    "0.75": 46.908916,
+    "0.95": 59.869856,
+    "1.0": 16976.581132
+  },
+  "home_valid_entry_rows": 18231,
+  "rows": 23788
+}

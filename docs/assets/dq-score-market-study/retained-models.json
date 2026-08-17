@@ -1,0 +1,95 @@
+{
+  "availability_status": "RETROSPECTIVE_ONLY_CV_TIMESTAMP_UNKNOWN",
+  "experimental_shadow": {
+    "definition": "Build-only robust-z mean of process and outcome residual scores, active only when their signs agree.",
+    "evidence": {
+      "bootstrap_probability_positive": 0.9192,
+      "fixed_10_dollar_pnl": 224.9169073199996,
+      "game_cluster_bootstrap_95pct": [
+        -0.0877836584179556,
+        0.6684608334341041
+      ],
+      "games": 86,
+      "mean_trade_return": 0.2615312875813949,
+      "trades": 86
+    },
+    "reason": "Best fixed-screen robustness, but designed after inspecting earlier results and the nested DQ-tweak class was effectively flat. Requires a new season.",
+    "signal_id": "tweak_process_outcome_agreement",
+    "status": "SHADOW_ONLY_POST_HOC"
+  },
+  "implementation_files": [
+    "scripts/dq_score_market_research/research_dq_score_market.py",
+    "scripts/dq_score_market_research/train_dq_score_learned_models.py",
+    "scripts/dq_score_market_research/run_dq_score_robustness_audit.py",
+    "scripts/dq_score_market_research/run_nested_weekly_walkforward.py"
+  ],
+  "market_overlay": {
+    "definition": "Walk-forward HGB predicts 15-minute home-token fair markout from market/game state plus DQ families.",
+    "evidence": {
+      "bootstrap_probability_positive": 0.877,
+      "fixed_10_dollar_pnl": 42.60368616018483,
+      "game_cluster_bootstrap_95pct": [
+        -0.0324279000238981,
+        0.1397072476731778
+      ],
+      "games": 53,
+      "mean_trade_return": 0.0513297423616684,
+      "trades": 83
+    },
+    "reason": "Best nested model class, but direct markout R2 is negative and the fixed model fails the 120-second latency scenario.",
+    "signal_id": "dq2_market_hgb_15m_l7_r5",
+    "status": "SHADOW_ONLY"
+  },
+  "production_decision": "NO_GO",
+  "recommended_research_core": {
+    "definition": "Walk-forward HGB predicts per-play EPA from pre-play state and CV process features; form a home-signed prediction-minus-realized-EPA residual; EWM span 5. The selected market orientation is -1.",
+    "evidence": {
+      "bootstrap_probability_positive": 0.6932,
+      "fixed_10_dollar_pnl": 45.87780389421319,
+      "game_cluster_bootstrap_95pct": [
+        -0.1438553463753893,
+        0.2572156448379055
+      ],
+      "games": 89,
+      "mean_trade_return": 0.0515480942631608,
+      "trades": 89
+    },
+    "reason": "Most defensible balance of process interpretation, fixed-screen performance, and latency/fee stability. Its confidence interval still includes zero.",
+    "signal_id": "dq2_process_hgb_l15_r10_surprise_ewm5",
+    "status": "RETAIN_RESEARCH_ONLY"
+  },
+  "rejected": {
+    "evidence": {
+      "bootstrap_probability_positive": 0.204,
+      "fixed_10_dollar_pnl": -54.73588718772533,
+      "game_cluster_bootstrap_95pct": [
+        -0.2423489414691021,
+        0.1107929233069647
+      ],
+      "games": 76,
+      "mean_trade_return": -0.0720209041943754,
+      "trades": 76
+    },
+    "reason": "Negative fixed-window and nested results; P11 features add no measurable 15-minute markout accuracy.",
+    "signal_id": "p11_v2_exact",
+    "status": "REJECT"
+  },
+  "secondary_research_score": {
+    "definition": "Walk-forward HGB predicts EPA using state, CV, and observed outcome fields; home-signed prediction-minus-realized-EPA residual; EWM span 10.",
+    "evidence": {
+      "bootstrap_probability_positive": 0.6798,
+      "fixed_10_dollar_pnl": 57.16397753075996,
+      "game_cluster_bootstrap_95pct": [
+        -0.1887765459515946,
+        0.3198545662748696
+      ],
+      "games": 90,
+      "mean_trade_return": 0.0635155305897332,
+      "trades": 90
+    },
+    "reason": "Positive fixed-window evidence, but outcome fields dominate and the 120-second latency test is negative.",
+    "signal_id": "dq2_outcome_hgb_l15_r10_surprise_ewm10",
+    "status": "RETAIN_RESEARCH_ONLY"
+  },
+  "study_date": "2026-08-17"
+}

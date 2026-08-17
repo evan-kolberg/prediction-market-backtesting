@@ -1,0 +1,10 @@
+{
+  "cv_availability": "UNKNOWN_RETROSPECTIVE_ONLY",
+  "market_models": 20,
+  "market_training_deduplication": "last row per game/five-minute bucket",
+  "outcome_models": 8,
+  "process_models": 18,
+  "rows": 23788,
+  "signals": 154,
+  "split_rule": "expanding by epoch; test epoch strictly after all training epochs"
+}

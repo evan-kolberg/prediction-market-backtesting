@@ -1,0 +1,13 @@
+{
+  "bootstrap_repeats": 5000,
+  "first_test_epoch": 12,
+  "last_test_epoch": 22,
+  "selection_policy": "thresholds from epochs before the trailing 3-week validation; top approximate candidates reranked with exact non-overlap; one configuration per model class executed on the next week",
+  "signals_screened_per_epoch": 39,
+  "threshold_quantiles": [
+    0.7,
+    0.8,
+    0.9
+  ],
+  "warning": "The formulas were researched on this season and CV publication timestamps are missing. This reduces but does not eliminate researcher/look-ahead bias."
+}
