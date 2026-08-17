@@ -1,8 +1,9 @@
-.PHONY: backtest sandbox install update test check native-develop native-debug-develop clear-pmxt-cache clear-telonex-cache clear-polymarket-cache download-pmxt-raws download-telonex-data
+.PHONY: backtest sandbox install update test check native-develop native-debug-develop clear-pmxt-cache clear-telonex-cache clear-marketlens-cache clear-polymarket-cache download-pmxt-raws download-telonex-data
 
 PMXT_CACHE_ROOT ?= $(if $(XDG_CACHE_HOME),$(XDG_CACHE_HOME),$(HOME)/.cache)/nautilus_trader/pmxt
 PMXT_LOCAL_DATA_ROOT ?= /Volumes/storage/pmxt_data
 TELONEX_CACHE_ROOT ?= $(if $(XDG_CACHE_HOME),$(XDG_CACHE_HOME),$(HOME)/.cache)/nautilus_trader/telonex
+MARKETLENS_CACHE_ROOT ?= $(if $(XDG_CACHE_HOME),$(XDG_CACHE_HOME),$(HOME)/.cache)/nautilus_trader/marketlens
 POLYMARKET_CACHE_ROOT ?= $(if $(XDG_CACHE_HOME),$(XDG_CACHE_HOME),$(HOME)/.cache)/nautilus_trader/polymarket_trades
 DESTINATION ?=
 PMXT_RAW_DOWNLOAD_FLAGS ?=
@@ -42,6 +43,12 @@ clear-telonex-cache:
 	rm -rf "$(TELONEX_CACHE_ROOT)"
 	mkdir -p "$(TELONEX_CACHE_ROOT)"
 	du -sh "$(TELONEX_CACHE_ROOT)"
+
+clear-marketlens-cache:
+	@python3 scripts/_cache_clear_guard.py --name MARKETLENS_CACHE_ROOT --target "$(MARKETLENS_CACHE_ROOT)" --unsafe "$(TELONEX_DATA_DESTINATION)" --unsafe "$(PMXT_LOCAL_DATA_ROOT)" --unsafe "$(DESTINATION)"
+	rm -rf "$(MARKETLENS_CACHE_ROOT)"
+	mkdir -p "$(MARKETLENS_CACHE_ROOT)"
+	du -sh "$(MARKETLENS_CACHE_ROOT)"
 
 clear-polymarket-cache:
 	@python3 scripts/_cache_clear_guard.py --name POLYMARKET_CACHE_ROOT --target "$(POLYMARKET_CACHE_ROOT)" --unsafe "$(TELONEX_DATA_DESTINATION)" --unsafe "$(PMXT_LOCAL_DATA_ROOT)" --unsafe "$(DESTINATION)"

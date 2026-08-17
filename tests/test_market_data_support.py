@@ -8,6 +8,7 @@ from prediction_market_extensions.backtesting._market_data_support import (
 )
 from prediction_market_extensions.backtesting._replay_specs import BookReplay
 from prediction_market_extensions.backtesting.data_sources import (
+    MARKETLENS_VENDOR,
     PMXT,
     TELONEX_VENDOR,
     Book,
@@ -17,11 +18,13 @@ from prediction_market_extensions.backtesting.data_sources import (
 
 def test_support_matrix_matches_publicly_supported_combinations() -> None:
     assert set(supported_market_data_keys()) == {
+        ("polymarket", "book", "marketlens"),
         ("polymarket", "book", "pmxt"),
         ("polymarket", "book", "telonex"),
     }
 
     for platform, data_type, vendor in (
+        (Polymarket, Book, MARKETLENS_VENDOR),
         (Polymarket, Book, PMXT),
         (Polymarket, Book, TELONEX_VENDOR),
     ):
@@ -62,3 +65,8 @@ def test_single_market_replay_construction_is_adapter_owned() -> None:
 def test_telonex_vendor_is_exported() -> None:
     assert data_sources.Telonex.name == "telonex"
     assert data_sources.TELONEX_VENDOR.name == "telonex"
+
+
+def test_marketlens_vendor_is_exported() -> None:
+    assert data_sources.Marketlens.name == "marketlens"
+    assert data_sources.MARKETLENS_VENDOR.name == "marketlens"

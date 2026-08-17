@@ -39,6 +39,7 @@ EXPECTED_PUBLIC_RUNNER_PATHS = [
     Path("backtests/polymarket_book_joint_portfolio_runner.py"),
     Path("backtests/polymarket_btc_5m_late_favorite_taker_hold.py"),
     Path("backtests/polymarket_btc_5m_pair_arbitrage.py"),
+    Path("backtests/polymarket_marketlens_book_btc_5m_pair_arbitrage.py"),
     Path("backtests/polymarket_pmxt_book_100_replay_runner.py"),
     Path("backtests/polymarket_telonex_book_100_replay_runner.py"),
     Path("backtests/polymarket_telonex_book_joint_portfolio_runner.py"),
@@ -53,6 +54,7 @@ TELONEX_SMALL_JOINT_BOOK_RUNNER = Path(
 TELONEX_100_JOINT_BOOK_RUNNER = Path("backtests/polymarket_telonex_book_100_replay_runner.py")
 TELONEX_JOINT_BOOK_RUNNERS = [TELONEX_100_JOINT_BOOK_RUNNER, TELONEX_SMALL_JOINT_BOOK_RUNNER]
 TELONEX_ACCOUNT_REPLAY_RUNNERS = [Path("backtests/polymarket_beffer45_trade_replay_telonex.py")]
+MARKETLENS_BOOK_RUNNERS = [Path("backtests/polymarket_marketlens_book_btc_5m_pair_arbitrage.py")]
 PMXT_BOOK_OPTIMIZER_RUNNERS = [Path("backtests/polymarket_book_ema_optimizer.py")]
 
 SCRIPT_ENTRYPOINT_PATHS = [
@@ -451,6 +453,53 @@ def test_telonex_book_joint_runners_do_not_embed_empty_api_key(
 
     assert experiment.data.sources[0] == "api:${TELONEX_API_KEY}"
     assert "api:" in experiment.data.sources[0]
+    assert "api:," not in repr(experiment)
+
+
+@pytest.mark.parametrize("relative_path", MARKETLENS_BOOK_RUNNERS)
+def test_marketlens_btc_5m_pair_arbitrage_runner_builds_book_pairs(
+    monkeypatch: pytest.MonkeyPatch, relative_path: Path
+) -> None:
+    monkeypatch.setenv("MARKETLENS_API_KEY", "test-marketlens-key")
+    experiment = _capture_script_experiment(monkeypatch, relative_path)
+
+    assert experiment.name == "polymarket_marketlens_book_btc_5m_pair_arbitrage"
+    assert experiment.data.platform == "polymarket"
+    assert experiment.data.data_type == "book"
+    assert experiment.data.vendor == "marketlens"
+    assert experiment.data.sources == ("api:${MARKETLENS_API_KEY}",)
+    assert "test-marketlens-key" not in repr(experiment)
+    assert len(experiment.replays) == 8
+    assert experiment.replays[0].market_slug == "btc-updown-5m-1786708800"
+    assert experiment.replays[0].token_index == 0
+    assert experiment.replays[1].market_slug == "btc-updown-5m-1786708800"
+    assert experiment.replays[1].token_index == 1
+    assert experiment.replays[0].start_time == "2026-08-14T12:00:00Z"
+    assert experiment.replays[0].end_time == "2026-08-14T12:05:00Z"
+    assert experiment.replays[-1].market_slug == "btc-updown-5m-1786709700"
+    assert experiment.replays[-1].token_index == 1
+    assert all(replay.market_slug.startswith("btc-updown-5m-") for replay in experiment.replays)
+    assert experiment.strategy_configs[0]["strategy_path"] == (
+        "strategies:BookBinaryPairArbitrageStrategy"
+    )
+    assert experiment.strategy_configs[0]["config"]["trade_size"] == Decimal("5")
+    assert experiment.report.market_key == "sim_label"
+    assert experiment.report.summary_report is True
+    assert (
+        experiment.report.summary_report_path
+        == "output/polymarket_marketlens_book_btc_5m_pair_arbitrage_summary.html"
+    )
+    assert experiment.return_summary_series is True
+
+
+@pytest.mark.parametrize("relative_path", MARKETLENS_BOOK_RUNNERS)
+def test_marketlens_book_runners_do_not_embed_empty_api_key(
+    monkeypatch: pytest.MonkeyPatch, relative_path: Path
+) -> None:
+    monkeypatch.setenv("MARKETLENS_API_KEY", "")
+    experiment = _capture_script_experiment(monkeypatch, relative_path)
+
+    assert experiment.data.sources[0] == "api:${MARKETLENS_API_KEY}"
     assert "api:," not in repr(experiment)
 
 

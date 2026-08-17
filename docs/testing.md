@@ -26,6 +26,7 @@ uv run python backtests/polymarket_book_ema_crossover.py
 uv run python backtests/polymarket_book_ema_optimizer.py
 uv run python backtests/polymarket_book_joint_portfolio_runner.py
 uv run python backtests/polymarket_telonex_book_joint_portfolio_runner.py
+uv run python backtests/polymarket_marketlens_book_btc_5m_pair_arbitrage.py
 ```
 
 All public Python runners:
@@ -76,7 +77,8 @@ The runner smokes cover:
 PMXT public runners pin `local:/Volumes/storage/pmxt_data` first, then
 `archive:r2v2.pmxt.dev` and `archive:r2.pmxt.dev`. The Telonex joint runner
 pins `api:${TELONEX_API_KEY}` first, then
-`local:/Volumes/storage/telonex_data` as the local mirror fallback.
+`local:/Volumes/storage/telonex_data` as the local mirror fallback. The
+Marketlens runner pins `api:${MARKETLENS_API_KEY}` as its only source.
 
 Coverage is mixed by design:
 

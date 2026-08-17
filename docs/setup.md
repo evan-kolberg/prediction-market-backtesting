@@ -96,6 +96,8 @@ Repo-layer source syntax is explicit:
 
 - PMXT book runners use `local:` and `archive:`.
 - Telonex book runners use `local:` and `api:`.
+- Marketlens book runners use `api:` only, with the key in
+  `MARKETLENS_API_KEY`; no local mirror is needed.
 - Public runners should use `data_type=Book` and `BookReplay`.
 - Public Polymarket book runners replay L2 `OrderBookDeltas` and interleave
   real Polymarket `TradeTick` records for execution only. Strategies consume
@@ -204,15 +206,20 @@ Throughput and memory controls:
   exact Telonex channel, such as `telonex local onchain_fills` or
   `telonex local trades`. Empty Telonex onchain-fill days continue to Telonex
   `trades`, then the Polymarket trade fallback.
+- Marketlens raw history days and materialized replay records are cached by
+  default at `~/.cache/nautilus_trader/marketlens`, so each market's stream is
+  fetched (and billed against the account row budget) once.
 - `make clear-telonex-cache` clears Telonex API-day and materialized replay
   caches, and refuses configured local data stores.
 - `make clear-pmxt-cache` clears the PMXT filtered market/token/hour cache under
   `~/.cache/nautilus_trader/pmxt`.
+- `make clear-marketlens-cache` clears Marketlens raw history day and
+  materialized replay caches.
 - `make clear-polymarket-cache` clears the Polymarket public trade-tick cache
   under `~/.cache/nautilus_trader/polymarket_trades`; Telonex cache clearing
   does not remove those fallback trade files.
 - To clear all replay caches in one shell command, run
-  `make clear-telonex-cache && make clear-pmxt-cache && make clear-polymarket-cache`.
+  `make clear-telonex-cache && make clear-pmxt-cache && make clear-marketlens-cache && make clear-polymarket-cache`.
 
 ## Extension Architecture
 

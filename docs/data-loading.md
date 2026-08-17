@@ -38,9 +38,18 @@ MarketDataConfig(
 )
 ```
 
+```python
+MarketDataConfig(
+    platform=Polymarket,
+    data_type=Book,
+    vendor=Marketlens,
+    sources=("api:${MARKETLENS_API_KEY}",),
+)
+```
+
 PMXT source entries accept `local:` and `archive:`. Telonex source entries accept
-`local:` and `api:`. The fast cache layers are implicit and should not be listed
-as explicit sources.
+`local:` and `api:`. Marketlens source entries accept `api:` only. The fast
+cache layers are implicit and should not be listed as explicit sources.
 
 ## Staged Loading
 
@@ -153,6 +162,32 @@ source first, but do not stop early on empty `onchain_fills`. The loader tries
 materialized Telonex trade cache, Telonex `onchain_fills`, Telonex `trades`, and
 then Polymarket's public trade cache/API fallback.
 
+## Marketlens Flow
+
+Marketlens is the hosted snapshot-plus-delta path. Each market's book deltas
+and trade prints ship in one chronological history stream, fetched one UTC day
+at a time through cursor-paged API requests. A day fetch anchors on the last
+snapshot at or before midnight and replays the deltas from that anchor
+forward, so each day file reconstructs the exact book at the day boundary.
+
+Book lookup order for a market/token/day:
+
+1. Materialized `OrderBookDeltas` cache under
+   `~/.cache/nautilus_trader/marketlens/book-deltas-v1`.
+2. Raw history day cache under
+   `~/.cache/nautilus_trader/marketlens/history-days-v1`.
+3. The Marketlens API.
+4. Confirmed miss.
+
+The raw day cache is keyed by market, not token, so the YES and NO legs of a
+market share one fetch. A first API miss downloads the day, writes the raw day
+cache, converts the stream, and writes both the `book-deltas-v1` and
+`trade-ticks-v1` materialized caches in one pass.
+
+Execution ticks come from the same stream, so there is no separate trade
+source and no Polymarket public-API fallback: a zero-trade day from Marketlens
+is authoritative for that market.
+
 ## Caching
 
 PMXT has one main replay-speed cache:
@@ -175,6 +210,17 @@ Telonex has three cache families:
 `api-days` avoids refetching daily Telonex API payloads. `book-deltas-v1` and
 `trade-ticks-v1` avoid reconverting source payloads into Nautilus records.
 
+Marketlens has the same three-family shape:
+
+```text
+~/.cache/nautilus_trader/marketlens/history-days-v1
+~/.cache/nautilus_trader/marketlens/book-deltas-v1
+~/.cache/nautilus_trader/marketlens/trade-ticks-v1
+```
+
+Because history is served per account row budget, the raw day cache also means
+a market's data is paid for once and replayed offline afterwards.
+
 Polymarket public trade fallback has its own cache:
 
 ```text
@@ -184,7 +230,7 @@ Polymarket public trade fallback has its own cache:
 Cache clearing:
 
 ```bash
-make clear-telonex-cache && make clear-pmxt-cache && make clear-polymarket-cache
+make clear-telonex-cache && make clear-pmxt-cache && make clear-marketlens-cache && make clear-polymarket-cache
 ```
 
 The clear targets are intentionally scoped to replay caches. They should not
@@ -246,6 +292,9 @@ Source labels tell you what actually happened:
 - `telonex deltas cache`: materialized Telonex book replay hit.
 - `telonex local`: Telonex local mirror supplied the day.
 - `telonex api`: Telonex API/cache path supplied the day.
+- `marketlens-deltas-cache`: materialized Marketlens book replay hit.
+- `marketlens-cache`: Marketlens raw history day cache supplied the day.
+- `marketlens-api`: the Marketlens API supplied the day.
 - `none`: no configured source had the requested hour/day.
 
 Quiet opt-outs:
@@ -272,6 +321,12 @@ optionally backfill the local raw root.
 Missing or empty Telonex API days fall through to the next configured source.
 Unreadable parquet files warn and are skipped. Empty Telonex `onchain_fills`
 fall through to Telonex `trades`, then Polymarket public trades.
+
+Marketlens markets that are still trading, not yet exported, or collected
+without a delta stream are skipped with a warning naming the reason. Corrupt
+Marketlens cache files warn, self-delete, and refetch. Rate-limit responses
+honor the server's `Retry-After`; account budget exhaustion is surfaced
+immediately and never retried.
 
 Source failures should stay visible in normal logs. Do not hide errors or
 warnings that could make a backtest look more complete than the data really is.

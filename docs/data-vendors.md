@@ -1,9 +1,8 @@
 # Data Vendors And Local Mirrors
 
-This page documents the active local-first vendor paths. Both public vendor
-adapters are Polymarket book adapters: they produce `OrderBookDeltas` for L2
-book state and the replay adapter interleaves real `TradeTick` records for
-execution.
+This page documents the active vendor paths. All public vendor adapters are
+Polymarket book adapters: they produce `OrderBookDeltas` for L2 book state and
+the replay adapter interleaves real `TradeTick` records for execution.
 
 ## PMXT
 
@@ -323,6 +322,72 @@ Downloader behavior:
   preventing unbounded growth.
 - Hit `Ctrl-C` once to stop gracefully; in-flight work drains and the manifest
   is flushed before exit.
+
+## Marketlens
+
+[Marketlens](https://marketlens.trade) is a hosted Polymarket order-book data
+API. It records each market as a full book snapshot roughly every 60 seconds
+with every incremental price-level change in between, plus the market's trade
+prints, and serves all of it as one chronological event stream per market. The
+vendor path needs no local mirror or archive download: book deltas and
+execution trade ticks both come from the same `/orderbook/history` stream.
+
+Marketlens source syntax:
+
+- `api:` uses `https://api.marketlens.trade/v1` with `MARKETLENS_API_KEY`.
+- `api:https://host.example` points at a compatible custom base URL.
+
+The API path reads the key from `MARKETLENS_API_KEY` unless a private runner
+source provides an explicit `api:<key>` value. Do not commit private keys. Keys
+come from the [Marketlens console](https://marketlens.trade); the free tier is
+enough to run the public example runner.
+
+Runners keep identifying markets by Polymarket market slug. The loader resolves
+the slug to a condition id through Polymarket metadata, then resolves that
+condition id against Marketlens. Coverage starts 2026-03-01, with a few gap
+days before 2026-04-13 and continuous collection since; the catalog at
+[marketlens.trade/data](https://marketlens.trade/data) lists per-series
+coverage, including the `btc-updown-5m-*` family the example runner uses.
+
+Two honesty guards are built in:
+
+- Only resolved markets serve history. A market whose history file is not built
+  yet is skipped with a warning rather than replayed partially.
+- Markets Marketlens collected at its snapshot-only "polled" tier carry no
+  delta stream and are refused rather than passed off as L2 book data.
+
+The history stream is YES-centric, and Polymarket's CLOB keeps the two binary
+token books as exact mirrors. `token_index=1` replays are therefore served by
+inverting the stream, so both legs of a market cost one API fetch.
+
+Marketlens caches are stored by default at:
+
+```text
+~/.cache/nautilus_trader/marketlens/history-days-v1
+~/.cache/nautilus_trader/marketlens/book-deltas-v1
+~/.cache/nautilus_trader/marketlens/trade-ticks-v1
+```
+
+`history-days-v1` holds the raw event stream, one parquet per market per UTC
+day, shared by both token legs. `book-deltas-v1` and `trade-ticks-v1` hold the
+materialized Nautilus objects keyed by market slug, token index, instrument id,
+day, and clipped replay window. Warm runs report `marketlens-deltas-cache` or
+`marketlens-cache` day sources and touch no network, so a market's data is
+billed against the account row budget once and replayed offline after that.
+For budgeting: one BTC 5m market measured 137,728 deltas, 9 snapshots, and
+1,862 trades over its life (btc-updown-5m-1786708800, 2026-08-14), and the
+free tier allows 5,000,000 data rows per UTC day.
+
+`MARKETLENS_API_WORKERS` (default `4`) bounds concurrent API requests and
+`MARKETLENS_PREFETCH_WORKERS` (default `4`) bounds per-market day prefetch. The
+loader honors `Retry-After` on rate-limit responses; account budget exhaustion
+is never retried and surfaces as a skip with the limit named.
+
+Clear Marketlens raw and materialized replay caches with:
+
+```bash
+make clear-marketlens-cache
+```
 
 ## What Is Not Plug-And-Play Yet
 

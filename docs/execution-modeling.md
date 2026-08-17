@@ -202,5 +202,25 @@ enabled unless you are intentionally testing a lower-bound execution scenario.
 - `api:` downloads daily Telonex parquet payloads and writes both the raw
   nested cache file and a faster `.fast.parquet` sidecar for subsequent runs.
 
+### Marketlens
+
+- Marketlens records the live exchange feed as a full book snapshot roughly
+  every 60 seconds plus every incremental price-level change between snapshots,
+  so deltas are native events, not diffs reconstructed from snapshot pairs.
+- The converter seeds the book from the day's anchor snapshot as a
+  `CLEAR`-plus-`ADD` ladder, then emits each delta group as L2 MBP updates.
+- In-stream snapshots are diffed against the running book state: an intact
+  snapshot-plus-delta chain diffs to nothing, while feed reseeds emit
+  only the correcting rows. The replay book is exactly the
+  recorded book at every snapshot without artificial full-ladder churn that
+  would reset queue positions.
+- Trade ticks are the market's recorded trade prints from the same stream,
+  interleaved for matching and queue-position updates. There is no public-API
+  trade fallback because an empty Marketlens trade day is authoritative.
+- Markets collected at the snapshot-only "polled" tier are refused rather than
+  replayed as L2 book data.
+- The NO token leg is served by exact price/side inversion of the YES-centric
+  stream; Polymarket's CLOB keeps the two binary token books as mirrors.
+
 For concrete source priority and timing output, see
 [Vendor Fetch Sources And Timing](vendor-fetch-sources.md).
