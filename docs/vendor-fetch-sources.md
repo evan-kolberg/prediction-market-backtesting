@@ -124,6 +124,49 @@ stage and defaults to `4`. Telonex API requests are separately capped by
 operations are capped by `TELONEX_FILE_WORKERS` and default to `28` to avoid
 file-descriptor pressure on large 100-market loads.
 
+## Marketlens
+
+Marketlens book runners fetch each market's history stream one UTC day at a
+time. Book deltas and execution trade ticks come from the same stream, so a day
+is fetched once and materialized into both replay caches.
+
+Typical source config:
+
+```python
+MarketDataConfig(
+    platform=Polymarket,
+    data_type=Book,
+    vendor=Marketlens,
+    sources=("api:${MARKETLENS_API_KEY}",),
+)
+```
+
+The effective lookup order for converted replay records is:
+
+1. Marketlens materialized replay caches under `book-deltas-v1` and
+   `trade-ticks-v1`.
+2. The raw history day cache under `history-days-v1`, shared by both token
+   legs of a market.
+3. The Marketlens API, paged by cursor at up to 100,000 events per request.
+
+The `Marketlens source:` lines show that implicit cache layer:
+
+```text
+Marketlens book source: explicit priority (cache -> api https://api.marketlens.trade/v1 (key set))
+Marketlens trade source: same history stream (cache -> api https://api.marketlens.trade/v1 (key set))
+```
+
+There is no Polymarket public-API trade fallback: Marketlens trades are
+recorded from the same exchange feed as the book, so an empty trade day is an
+authoritative zero-trade day, not a miss.
+
+Per-day progress lines report the day source as `marketlens-deltas-cache`,
+`marketlens-cache`, or `marketlens-api`. API requests are capped by
+`MARKETLENS_API_WORKERS` (default `4`) and per-market day prefetch by
+`MARKETLENS_PREFETCH_WORKERS` (default `4`); both defaults stay small because
+the API is rate limited per minute and one day request carries up to 100,000
+events.
+
 ## Timing Expectations By Source
 
 | Source | Expected behavior | When it happens |
@@ -136,16 +179,20 @@ file-descriptor pressure on large 100-market loads.
 | Telonex fast API cache | Local disk bound; avoids nested payload materialization | API day was previously downloaded and sidecar exists or was lazily migrated |
 | Local Telonex mirror | Local disk bound; manifest-pruned parquet parts | `/Volumes/storage/telonex_data` has the requested full-book day |
 | Telonex API | Network and daily parquet bound | Cache/local mirror misses and `TELONEX_API_KEY` is available |
+| Marketlens deltas cache | Fastest Marketlens path; materialized Nautilus `OrderBookDeltas` | Same market/token/day/window was already converted once |
+| Marketlens raw day cache | Local disk bound; one parquet per market per UTC day | Day was fetched before, including by the other token leg |
+| Marketlens API | Network bound; cursor-paged JSON at up to 100,000 events per page | Caches miss and `MARKETLENS_API_KEY` is available |
 | None | Fast miss | Hour/day does not exist in any source |
 
 ## How To See This Output
 
-Run any public PMXT or Telonex runner directly:
+Run any public PMXT, Telonex, or Marketlens runner directly:
 
 ```bash
 uv run python backtests/polymarket_book_ema_crossover.py
 uv run python backtests/polymarket_book_joint_portfolio_runner.py
 uv run python backtests/polymarket_telonex_book_joint_portfolio_runner.py
+uv run python backtests/polymarket_marketlens_book_btc_5m_pair_arbitrage.py
 ```
 
 Run all public Python backtests:

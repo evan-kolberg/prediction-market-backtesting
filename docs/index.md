@@ -13,7 +13,8 @@ This repository is documented around two active operating assumptions:
 PMXT uses local raw files plus remote archives instead of a separate service
 surface. Telonex uses materialized `OrderBookDeltas` replay cache, `api:` as
 the public-runner first source, and a local Hive-partitioned full-book mirror as
-a fallback. The primary
+a fallback. Marketlens is API-plus-cache only: one hosted stream carries book
+deltas and trade prints, with no local mirror to maintain. The primary
 operating docs are grouped under Core Framework; optimizer research and ledger
 replay are grouped under Advanced / Experiments.
 

@@ -42,6 +42,12 @@ from prediction_market_extensions.adapters.prediction_market.backtest_utils impo
 )
 from prediction_market_extensions.backtesting._backtest_runtime import _record_timestamp_ns
 from prediction_market_extensions.backtesting._replay_specs import BookReplay
+from prediction_market_extensions.backtesting.data_sources.marketlens import (
+    RunnerPolymarketMarketlensBookDataLoader as PolymarketMarketlensBookDataLoader,
+)
+from prediction_market_extensions.backtesting.data_sources.marketlens import (
+    configured_marketlens_data_source,
+)
 from prediction_market_extensions.backtesting.data_sources.pmxt import (
     PMXT_PREFETCH_WORKERS_ENV,
     RunnerPolymarketPMXTDataLoader as PolymarketPMXTDataLoader,
@@ -2129,7 +2135,91 @@ class PolymarketTelonexBookReplayAdapter(_BaseReplayAdapter):
         return [loaded_sim for loaded_sim in loaded if loaded_sim is not None]
 
 
+class PolymarketMarketlensBookReplayAdapter(_BaseReplayAdapter):
+    def __init__(self) -> None:
+        super().__init__(
+            _key=ReplayAdapterKey("polymarket", "marketlens", "book"),
+            _replay_spec_type=BookReplay,
+            _configure_sources_fn=configured_marketlens_data_source,
+            _engine_profile=L2_BOOK_ENGINE_PROFILE,
+            _single_market_required_fields=("market_slug",),
+            _single_market_forwarded_fields=(
+                "market_slug",
+                "token_index",
+                "lookback_hours",
+                "start_time",
+                "end_time",
+                "outcome",
+                "metadata",
+            ),
+            _single_market_replay_factory=lambda fields: BookReplay(
+                market_slug=str(fields["market_slug"]),
+                token_index=int(fields.get("token_index", 0)),
+                lookback_hours=fields.get("lookback_hours"),
+                start_time=fields.get("start_time"),
+                end_time=fields.get("end_time"),
+                outcome=fields.get("outcome"),
+                metadata=fields.get("metadata"),
+            ),
+        )
+
+    async def load_replay(
+        self, replay: BookReplay, *, request: ReplayLoadRequest
+    ) -> LoadedReplay | None:
+        resolved = self._resolve_book_replay_window(
+            replay, request=request, source_label="Marketlens"
+        )
+        self._emit_book_replay_start(resolved=resolved, vendor="marketlens")
+        try:
+            loader_cls = _resolve_backtest_compat_symbol(
+                "PolymarketMarketlensBookDataLoader", PolymarketMarketlensBookDataLoader
+            )
+            loader = await loader_cls.from_market_slug(
+                replay.market_slug, token_index=replay.token_index
+            )
+            selected_outcome = str(loader.instrument.outcome or replay.outcome or "")
+            book_records = tuple(
+                await asyncio.to_thread(
+                    loader.load_order_book_deltas,
+                    resolved.start,
+                    resolved.end,
+                    market_slug=replay.market_slug,
+                    token_index=replay.token_index,
+                    outcome=selected_outcome or None,
+                )
+            )
+            trade_records = await asyncio.to_thread(
+                loader.load_marketlens_trade_ticks,
+                resolved.start,
+                resolved.end,
+                market_slug=replay.market_slug,
+                token_index=replay.token_index,
+            )
+            records = _merge_records(book_records=book_records, trade_records=trade_records)
+        except Exception as exc:
+            self._emit_book_replay_fetch_error(
+                replay=replay,
+                vendor="marketlens",
+                source_label="Marketlens",
+                error=exc,
+            )
+            return None
+
+        return self._build_loaded_book_replay_or_none(
+            prepared=_PreparedBookReplay(
+                resolved=resolved,
+                loader=loader,
+                outcome=selected_outcome,
+            ),
+            records=records,
+            request=request,
+            vendor="marketlens",
+            source_label="Marketlens",
+        )
+
+
 BUILTIN_REPLAY_ADAPTERS: tuple[HistoricalReplayAdapter, ...] = (
+    PolymarketMarketlensBookReplayAdapter(),
     PolymarketPMXTBookReplayAdapter(),
     PolymarketTelonexBookReplayAdapter(),
 )

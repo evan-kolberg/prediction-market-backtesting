@@ -140,6 +140,52 @@ def test_clear_telonex_cache_refuses_parent_of_data_destination(tmp_path: Path) 
     assert marker.read_text() == "keep"
 
 
+def test_clear_marketlens_cache_refuses_data_destination(tmp_path: Path) -> None:
+    data_root = tmp_path / "telonex-data"
+    data_root.mkdir()
+    marker = data_root / "marker.parquet"
+    marker.write_text("keep")
+
+    result = subprocess.run(
+        [
+            "make",
+            "clear-marketlens-cache",
+            f"TELONEX_DATA_DESTINATION={data_root}",
+            f"MARKETLENS_CACHE_ROOT={data_root}",
+        ],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 2
+    assert "Refusing to clear unsafe MARKETLENS_CACHE_ROOT" in result.stderr
+    assert marker.read_text() == "keep"
+
+
+def test_clear_marketlens_cache_refuses_parent_of_data_destination(tmp_path: Path) -> None:
+    data_root = tmp_path / "telonex-data"
+    data_root.mkdir()
+    marker = data_root / "marker.parquet"
+    marker.write_text("keep")
+
+    result = subprocess.run(
+        [
+            "make",
+            "clear-marketlens-cache",
+            f"TELONEX_DATA_DESTINATION={data_root}",
+            f"MARKETLENS_CACHE_ROOT={tmp_path}",
+        ],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 2
+    assert "Refusing to clear unsafe MARKETLENS_CACHE_ROOT" in result.stderr
+    assert marker.read_text() == "keep"
+
+
 def test_clear_pmxt_cache_refuses_local_data_root(tmp_path: Path) -> None:
     data_root = tmp_path / "pmxt-raws"
     data_root.mkdir()

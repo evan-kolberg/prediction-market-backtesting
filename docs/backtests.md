@@ -25,6 +25,7 @@ Current public Python runners:
 - `backtests/polymarket_beffer45_trade_replay_telonex.py`
 - `backtests/polymarket_btc_5m_late_favorite_taker_hold.py`
 - `backtests/polymarket_btc_5m_pair_arbitrage.py`
+- `backtests/polymarket_marketlens_book_btc_5m_pair_arbitrage.py`
 - `backtests/polymarket_pmxt_book_100_replay_runner.py`
 - `backtests/polymarket_telonex_book_100_replay_runner.py`
 - `backtests/polymarket_telonex_book_joint_portfolio_runner.py`
@@ -454,10 +455,10 @@ Low-level env vars still exist for custom workflows:
 
 ### Native Vendors
 
-The public runner surface is focused on Polymarket book replay through PMXT
-and Telonex. Native source env vars remain available for lower-level extension
-work, but public direct-runner examples should not reintroduce standalone
-trade-tick replay.
+The public runner surface is focused on Polymarket book replay through PMXT,
+Telonex, and Marketlens. Native source env vars remain available for
+lower-level extension work, but public direct-runner examples should not
+reintroduce standalone trade-tick replay.
 
 ### PMXT
 
@@ -482,6 +483,19 @@ trade-tick replay.
   `api:<key>` in runner source config. Do not commit private keys.
 - API-day payloads are cached by default at
   `~/.cache/nautilus_trader/telonex`.
+
+### Marketlens
+
+- Marketlens is the hosted snapshot-plus-delta Polymarket L2 vendor path.
+- Public Marketlens runners use `data_type=Book` and `vendor=Marketlens`.
+- Marketlens source parsing accepts `api:` only; there is no local mirror mode.
+- Public Marketlens runners list `sources=("api:${MARKETLENS_API_KEY}",)`.
+- `api:` reads `MARKETLENS_API_KEY` from the environment or from `api:<key>` in
+  runner source config. Do not commit private keys.
+- Book deltas and execution trade ticks come from one history stream per
+  market, cached by default at `~/.cache/nautilus_trader/marketlens`.
+- Only resolved, delta-collected markets are served; anything else is skipped
+  with a warning rather than replayed at lower fidelity.
 
 For vendor-specific behavior and timings, use:
 
